@@ -9,8 +9,8 @@ from dataclasses import dataclass
 import numpy as np
 
 from nvision.spectra.nv_center import (
-    DEFAULT_NV_PROBE_X_MAX,
-    DEFAULT_NV_PROBE_X_MIN,
+    DEFAULT_NV_DRIVE_FREQ_MAX_PHYS,
+    DEFAULT_NV_DRIVE_FREQ_MIN_PHYS,
     MAX_K_NP,
     MAX_LINEWIDTH,
     MAX_SPLIT,
@@ -78,8 +78,8 @@ class NVCenterCoreGenerator:
     only zeeman_split/hyperfine/linewidth/contrast vary between repeats.
     """
 
-    x_min: float = DEFAULT_NV_PROBE_X_MIN  # 2.6 GHz
-    x_max: float = DEFAULT_NV_PROBE_X_MAX  # 3.1 GHz
+    drive_freq_min_phys: float = DEFAULT_NV_DRIVE_FREQ_MIN_PHYS  # 2.6 GHz
+    drive_freq_max_phys: float = DEFAULT_NV_DRIVE_FREQ_MAX_PHYS  # 3.1 GHz
     variant: str = "lorentzian"  # "lorentzian", "voigt", or "saturation_voigt"
     hyperfine: str = "unresolved"  # resolved hyperfine structure: "unresolved" (default) / "n14" / "n15"
     infer_hyperfine: bool = False  # randomize + infer split/k_np instead of using the isotope constant
@@ -125,8 +125,8 @@ class NVCenterCoreGenerator:
 
         # The zero-field center is a fixed, known reference (like a calibrated instrument
         # constant) -- only zeeman_split/hyperfine/linewidth/contrast vary between draws.
-        # The probe window is the upper half [D, D + delta] of the mirror-symmetric spectrum
-        # (see DEFAULT_NV_PROBE_X_MIN), so the center is D itself, on its lower edge.
+        # The drive-frequency window is the upper half [D, D + delta] of the mirror-symmetric spectrum
+        # (see DEFAULT_NV_DRIVE_FREQ_MIN_PHYS), so the center is D itself, on its lower edge.
         center_freq = NV_ZERO_FIELD_SPLITTING_HZ
 
         if self.variant == "lorentzian":
@@ -150,7 +150,11 @@ class NVCenterCoreGenerator:
                     c_total=c_total,
                 )
                 bounds = nv_center_lorentzian_bounds_for_domain(
-                    self.x_min, self.x_max, hyperfine=self.hyperfine, infer_hyperfine=True, with_zeeman_splitting=True
+                    self.drive_freq_min_phys,
+                    self.drive_freq_max_phys,
+                    hyperfine=self.hyperfine,
+                    infer_hyperfine=True,
+                    with_zeeman_splitting=True,
                 )
                 zeeman_std = (MAX_ZEEMAN_SPLIT - MIN_ZEEMAN_SPLIT) * PRIOR_STD_FRACTION
                 split_std = (MAX_SPLIT - MIN_SPLIT) * PRIOR_STD_FRACTION
@@ -172,7 +176,10 @@ class NVCenterCoreGenerator:
                     c_total=c_total,
                 )
                 bounds = nv_center_lorentzian_bounds_for_domain(
-                    self.x_min, self.x_max, hyperfine=self.hyperfine, with_zeeman_splitting=True
+                    self.drive_freq_min_phys,
+                    self.drive_freq_max_phys,
+                    hyperfine=self.hyperfine,
+                    with_zeeman_splitting=True,
                 )
                 zeeman_std = (MAX_ZEEMAN_SPLIT - MIN_ZEEMAN_SPLIT) * PRIOR_STD_FRACTION
                 bounds["_priors"] = {
@@ -192,7 +199,7 @@ class NVCenterCoreGenerator:
                     c_total=c_total,
                 )
                 bounds = nv_center_lorentzian_bounds_for_domain(
-                    self.x_min, self.x_max, hyperfine=self.hyperfine, infer_hyperfine=True
+                    self.drive_freq_min_phys, self.drive_freq_max_phys, hyperfine=self.hyperfine, infer_hyperfine=True
                 )
                 split_std = (MAX_SPLIT - MIN_SPLIT) * PRIOR_STD_FRACTION
                 k_np_std = (MAX_K_NP - MIN_K_NP) * PRIOR_STD_FRACTION
@@ -210,7 +217,9 @@ class NVCenterCoreGenerator:
                     linewidth=linewidth,
                     c_total=c_total,
                 )
-                bounds = nv_center_lorentzian_bounds_for_domain(self.x_min, self.x_max, hyperfine=self.hyperfine)
+                bounds = nv_center_lorentzian_bounds_for_domain(
+                    self.drive_freq_min_phys, self.drive_freq_max_phys, hyperfine=self.hyperfine
+                )
                 bounds["_priors"] = {
                     "linewidth": (_widened_prior_mean(rng, linewidth, linewidth_std), linewidth_std),
                     "c_total": (_widened_prior_mean(rng, c_total, c_total_std), c_total_std),
@@ -218,8 +227,8 @@ class NVCenterCoreGenerator:
                 }
         elif self.variant == "saturation_voigt":
             sv_bounds = nv_center_saturation_voigt_bounds_for_domain(
-                self.x_min,
-                self.x_max,
+                self.drive_freq_min_phys,
+                self.drive_freq_max_phys,
                 hyperfine=self.hyperfine,
                 infer_hyperfine=self.infer_hyperfine,
                 with_zeeman_splitting=self.with_zeeman_splitting,
@@ -310,7 +319,7 @@ class NVCenterCoreGenerator:
             # sigma_inhom's own bound range (mirrors nv_center_voigt_bounds_for_domain's
             # sigma_inhom_hi, which doesn't depend on the hyperfine/zeeman flags) — not
             # linewidth's range, which this previously (incorrectly) copied.
-            voigt_sigma_inhom_hi = max(1.2e6, (self.x_max - self.x_min) * 0.02)
+            voigt_sigma_inhom_hi = max(1.2e6, (self.drive_freq_max_phys - self.drive_freq_min_phys) * 0.02)
             sigma_inhom_std = voigt_sigma_inhom_hi * PRIOR_STD_FRACTION
             c_total_std = 0.3 * PRIOR_STD_FRACTION  # c_total range is roughly [0.1, 0.4]
 
@@ -329,7 +338,11 @@ class NVCenterCoreGenerator:
                     c_total=c_total,
                 )
                 bounds = nv_center_voigt_bounds_for_domain(
-                    self.x_min, self.x_max, hyperfine=self.hyperfine, infer_hyperfine=True, with_zeeman_splitting=True
+                    self.drive_freq_min_phys,
+                    self.drive_freq_max_phys,
+                    hyperfine=self.hyperfine,
+                    infer_hyperfine=True,
+                    with_zeeman_splitting=True,
                 )
                 zeeman_std = (MAX_ZEEMAN_SPLIT - MIN_ZEEMAN_SPLIT) * PRIOR_STD_FRACTION
                 split_std = (MAX_SPLIT - MIN_SPLIT) * PRIOR_STD_FRACTION
@@ -356,7 +369,10 @@ class NVCenterCoreGenerator:
                     c_total=c_total,
                 )
                 bounds = nv_center_voigt_bounds_for_domain(
-                    self.x_min, self.x_max, hyperfine=self.hyperfine, with_zeeman_splitting=True
+                    self.drive_freq_min_phys,
+                    self.drive_freq_max_phys,
+                    hyperfine=self.hyperfine,
+                    with_zeeman_splitting=True,
                 )
                 zeeman_std = (MAX_ZEEMAN_SPLIT - MIN_ZEEMAN_SPLIT) * PRIOR_STD_FRACTION
                 bounds["_priors"] = {
@@ -381,7 +397,7 @@ class NVCenterCoreGenerator:
                     c_total=c_total,
                 )
                 bounds = nv_center_voigt_bounds_for_domain(
-                    self.x_min, self.x_max, hyperfine=self.hyperfine, infer_hyperfine=True
+                    self.drive_freq_min_phys, self.drive_freq_max_phys, hyperfine=self.hyperfine, infer_hyperfine=True
                 )
                 split_std = (MAX_SPLIT - MIN_SPLIT) * PRIOR_STD_FRACTION
                 k_np_std = (MAX_K_NP - MIN_K_NP) * PRIOR_STD_FRACTION
@@ -404,7 +420,9 @@ class NVCenterCoreGenerator:
                     sigma_inhom=sigma_inhom,
                     c_total=c_total,
                 )
-                bounds = nv_center_voigt_bounds_for_domain(self.x_min, self.x_max, hyperfine=self.hyperfine)
+                bounds = nv_center_voigt_bounds_for_domain(
+                    self.drive_freq_min_phys, self.drive_freq_max_phys, hyperfine=self.hyperfine
+                )
                 bounds["_priors"] = {
                     "homogeneous_linewidth": (
                         _widened_prior_mean(rng, homogeneous_linewidth, linewidth_std),

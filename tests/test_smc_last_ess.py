@@ -18,7 +18,7 @@ _LO, _HI = BOUNDS_FREQUENCY = (2.7e9, 2.8e9)
 
 
 def _unit_x(x_phys: float) -> float:
-    """Observation x is a unit coordinate of the probe window."""
+    """Observation x is a unit coordinate of the drive-frequency window."""
     return (x_phys - _LO) / (_HI - _LO)
 
 

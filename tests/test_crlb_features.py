@@ -398,7 +398,7 @@ def _make_sbed_locator(max_steps: int = 500):
         parameter_bounds=param_bounds,
         num_particles=50,
         physical_param_bounds=phys_bounds,
-        physical_x_bounds=x_bounds,
+        drive_freq_bounds_phys=x_bounds,
         noise_model=gaussian_noise(),
     )
     return SequentialBayesianExperimentDesignLocator(belief=belief, max_steps=max_steps)

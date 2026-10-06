@@ -38,7 +38,7 @@ from nvision.sim.defaults import (
 class DipCandidate:
     """A qualified resonance dip: a cluster of low observations that noise cannot explain."""
 
-    centroid_hz: float  # depth-weighted mean probe-axis position of the cluster
+    centroid_hz: float  # depth-weighted mean drive-frequency position of the cluster
     significance: float  # number of below-threshold observations in the cluster
     n_points: int
     f_min: float  # left extent of the cluster (Hz)
@@ -73,7 +73,7 @@ def min_linewidth_hz(phys_bounds: Mapping[str, tuple[float, float]]) -> float:
 
 
 def find_dips(
-    obs_xs_phys: np.ndarray,
+    obs_drive_freqs_phys: np.ndarray,
     obs_ys: np.ndarray,
     noise_std: float,
     max_linewidth_hz: float,
@@ -87,7 +87,7 @@ def find_dips(
     """Return the dips the observations show, most significant first.
 
     Args:
-        obs_xs_phys: Measured frequencies (Hz). shape: (n_observations,)
+        obs_drive_freqs_phys: Measured frequencies (Hz). shape: (n_observations,)
         obs_ys: Measured signal values. shape: (n_observations,)
         noise_std: Scalar noise standard deviation of a single observation.
         max_linewidth_hz: Upper bound of the linewidth prior; two below-threshold points
@@ -98,14 +98,14 @@ def find_dips(
         n_sigma: Threshold below the baseline in noise sigmas (default ``NVISION_DIP_N_SIGMA``).
         min_cluster_count: Minimum below-threshold points in a dip (default ``NVISION_DIP_MIN_CLUSTER``).
         confidence_threshold: Minimum binomial confidence (default ``NVISION_DIP_CONFIDENCE``).
-        assume_sorted: ``obs_xs_phys`` is already ascending (caller contract, checked): skips
+        assume_sorted: ``obs_drive_freqs_phys`` is already ascending (caller contract, checked): skips
             the sort. Passing True with unsorted input raises ``ValueError``.
     """
     if noise_std <= 0 or not math.isfinite(noise_std):
         raise ValueError(f"find_dips: noise_std must be positive and finite, got {noise_std!r}")
-    if len(obs_xs_phys) != len(obs_ys):
-        raise ValueError(f"find_dips: {len(obs_xs_phys)} frequencies but {len(obs_ys)} signal values")
-    if len(obs_xs_phys) == 0:
+    if len(obs_drive_freqs_phys) != len(obs_ys):
+        raise ValueError(f"find_dips: {len(obs_drive_freqs_phys)} frequencies but {len(obs_ys)} signal values")
+    if len(obs_drive_freqs_phys) == 0:
         return []
 
     n_sigma = NVISION_DIP_N_SIGMA if n_sigma is None else n_sigma
@@ -116,12 +116,12 @@ def find_dips(
         return []
 
     if assume_sorted:
-        if len(obs_xs_phys) > 1 and not np.all(obs_xs_phys[:-1] <= obs_xs_phys[1:]):
-            raise ValueError("find_dips: assume_sorted=True but obs_xs_phys is not ascending.")
-        xs, ys = obs_xs_phys, obs_ys
+        if len(obs_drive_freqs_phys) > 1 and not np.all(obs_drive_freqs_phys[:-1] <= obs_drive_freqs_phys[1:]):
+            raise ValueError("find_dips: assume_sorted=True but obs_drive_freqs_phys is not ascending.")
+        xs, ys = obs_drive_freqs_phys, obs_ys
     else:
-        order = np.argsort(obs_xs_phys, kind="stable")
-        xs, ys = obs_xs_phys[order], obs_ys[order]
+        order = np.argsort(obs_drive_freqs_phys, kind="stable")
+        xs, ys = obs_drive_freqs_phys[order], obs_ys[order]
 
     background = float(np.percentile(ys, 70))
     depth = background - ys

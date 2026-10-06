@@ -20,8 +20,8 @@ from nvision.sim.defaults import (
 )
 
 from .gen.nv_center_generator import (
-    DEFAULT_NV_PROBE_X_MAX,
-    DEFAULT_NV_PROBE_X_MIN,
+    DEFAULT_NV_DRIVE_FREQ_MAX_PHYS,
+    DEFAULT_NV_DRIVE_FREQ_MIN_PHYS,
     NVCenterCoreGenerator,
 )
 
@@ -75,8 +75,8 @@ def generators_basic() -> list[tuple[str, object]]:
                 (
                     name,
                     NVCenterCoreGenerator(
-                        x_min=DEFAULT_NV_PROBE_X_MIN,
-                        x_max=DEFAULT_NV_PROBE_X_MAX,
+                        drive_freq_min_phys=DEFAULT_NV_DRIVE_FREQ_MIN_PHYS,
+                        drive_freq_max_phys=DEFAULT_NV_DRIVE_FREQ_MAX_PHYS,
                         variant="lorentzian",
                         linewidth=linewidth,
                         c_total=c_total,
@@ -95,8 +95,8 @@ def generators_basic() -> list[tuple[str, object]]:
             (
                 name,
                 NVCenterCoreGenerator(
-                    x_min=DEFAULT_NV_PROBE_X_MIN,
-                    x_max=DEFAULT_NV_PROBE_X_MAX,
+                    drive_freq_min_phys=DEFAULT_NV_DRIVE_FREQ_MIN_PHYS,
+                    drive_freq_max_phys=DEFAULT_NV_DRIVE_FREQ_MAX_PHYS,
                     variant="lorentzian",
                     linewidth=NVISION_SIGNAL_LINEWIDTH,
                     c_total=NVISION_SIGNAL_CONTRAST,
@@ -108,11 +108,19 @@ def generators_basic() -> list[tuple[str, object]]:
         # NV Center generators - different variants
         (
             "NVCenter-lorentzian",
-            NVCenterCoreGenerator(x_min=DEFAULT_NV_PROBE_X_MIN, x_max=DEFAULT_NV_PROBE_X_MAX, variant="lorentzian"),
+            NVCenterCoreGenerator(
+                drive_freq_min_phys=DEFAULT_NV_DRIVE_FREQ_MIN_PHYS,
+                drive_freq_max_phys=DEFAULT_NV_DRIVE_FREQ_MAX_PHYS,
+                variant="lorentzian",
+            ),
         ),
         (
             "NVCenter-voigt",
-            NVCenterCoreGenerator(x_min=DEFAULT_NV_PROBE_X_MIN, x_max=DEFAULT_NV_PROBE_X_MAX, variant="voigt"),
+            NVCenterCoreGenerator(
+                drive_freq_min_phys=DEFAULT_NV_DRIVE_FREQ_MIN_PHYS,
+                drive_freq_max_phys=DEFAULT_NV_DRIVE_FREQ_MAX_PHYS,
+                variant="voigt",
+            ),
         ),
         # Selectable inhomogeneous-broadening levels on the Voigt model. inhom-0 is
         # pure Lorentzian (lorentz_frac=1.0 -> zero Gaussian/inhomogeneous width);
@@ -121,8 +129,8 @@ def generators_basic() -> list[tuple[str, object]]:
         (
             "NVCenter-inhom-0",
             NVCenterCoreGenerator(
-                x_min=DEFAULT_NV_PROBE_X_MIN,
-                x_max=DEFAULT_NV_PROBE_X_MAX,
+                drive_freq_min_phys=DEFAULT_NV_DRIVE_FREQ_MIN_PHYS,
+                drive_freq_max_phys=DEFAULT_NV_DRIVE_FREQ_MAX_PHYS,
                 variant="voigt",
                 lorentz_frac=1.0,
             ),
@@ -130,8 +138,8 @@ def generators_basic() -> list[tuple[str, object]]:
         (
             "NVCenter-inhom-low",
             NVCenterCoreGenerator(
-                x_min=DEFAULT_NV_PROBE_X_MIN,
-                x_max=DEFAULT_NV_PROBE_X_MAX,
+                drive_freq_min_phys=DEFAULT_NV_DRIVE_FREQ_MIN_PHYS,
+                drive_freq_max_phys=DEFAULT_NV_DRIVE_FREQ_MAX_PHYS,
                 variant="voigt",
                 lorentz_frac=0.85,
             ),
@@ -139,8 +147,8 @@ def generators_basic() -> list[tuple[str, object]]:
         (
             "NVCenter-inhom-high",
             NVCenterCoreGenerator(
-                x_min=DEFAULT_NV_PROBE_X_MIN,
-                x_max=DEFAULT_NV_PROBE_X_MAX,
+                drive_freq_min_phys=DEFAULT_NV_DRIVE_FREQ_MIN_PHYS,
+                drive_freq_max_phys=DEFAULT_NV_DRIVE_FREQ_MAX_PHYS,
                 variant="voigt",
                 lorentz_frac=0.55,
             ),
@@ -180,8 +188,8 @@ def param_grid_generators(variant: str = "lorentzian") -> list[tuple[str, object
                 (
                     name,
                     NVCenterCoreGenerator(
-                        x_min=DEFAULT_NV_PROBE_X_MIN,
-                        x_max=DEFAULT_NV_PROBE_X_MAX,
+                        drive_freq_min_phys=DEFAULT_NV_DRIVE_FREQ_MIN_PHYS,
+                        drive_freq_max_phys=DEFAULT_NV_DRIVE_FREQ_MAX_PHYS,
                         variant=variant,
                         linewidth=width,
                         c_total=contrast,
@@ -270,8 +278,8 @@ def voigt_sigma_inhom_param_grid_generators() -> list[tuple[str, object]]:
                         (
                             name,
                             NVCenterCoreGenerator(
-                                x_min=DEFAULT_NV_PROBE_X_MIN,
-                                x_max=DEFAULT_NV_PROBE_X_MAX,
+                                drive_freq_min_phys=DEFAULT_NV_DRIVE_FREQ_MIN_PHYS,
+                                drive_freq_max_phys=DEFAULT_NV_DRIVE_FREQ_MAX_PHYS,
                                 variant="voigt",
                                 linewidth=width,
                                 c_total=contrast,
@@ -341,8 +349,8 @@ def saturation_voigt_param_grid_generators() -> list[tuple[str, object]]:
                 (
                     name,
                     NVCenterCoreGenerator(
-                        x_min=DEFAULT_NV_PROBE_X_MIN,
-                        x_max=DEFAULT_NV_PROBE_X_MAX,
+                        drive_freq_min_phys=DEFAULT_NV_DRIVE_FREQ_MIN_PHYS,
+                        drive_freq_max_phys=DEFAULT_NV_DRIVE_FREQ_MAX_PHYS,
                         variant="saturation_voigt",
                         saturation=saturation,
                         sigma_inhom=sigma_inhom,

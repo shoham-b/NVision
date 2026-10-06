@@ -3,7 +3,7 @@
 What's actually unified, and what isn't
 ----------------------------------------
 ``clamp_to_domain`` is the one piece of arithmetic genuinely shared by every
-narrowing site: the Bayesian locator's probe-axis focus
+narrowing site: the Bayesian locator's drive-frequency focus
 (``nvision.belief.focus_window.next_focus_window``), the sweep locators'
 ``nvision.sim.locs.refocus.window``, and ``StagedSobolSweepLocator.per_dip_windows``.
 ``TestClampToDomainRouting`` proves each of those call sites actually calls the

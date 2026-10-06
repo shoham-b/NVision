@@ -43,7 +43,7 @@ MAX_K_NP: float = 5.0  # Captures high asymmetric polarization regimes
 
 # Zeeman splitting bounds (half-separation between the two main dips).
 # At γ_NV ≈ 28 GHz/T, 60 MHz ≈ 2.1 mT — a common weak-field lab range. Kept small
-# relative to the (narrow) NV center probe-axis domain below so the two Zeeman
+# relative to the (narrow) NV center drive-frequency domain below so the two Zeeman
 # groups stay a visually significant fraction of the plotted domain rather than
 # being lost in a much wider empty range.
 MIN_ZEEMAN_SPLIT: float = 0.0  # dips fully overlap at zero field
@@ -191,16 +191,16 @@ NV_SATURATION_C_MAX: float = float(os.getenv("NVISION_SBED_C_MAX", "0.5"))
 # locator needs to discover from scratch.
 NV_ZERO_FIELD_SPLITTING_HZ: float = float(os.getenv("NVISION_NV_ZERO_FIELD_SPLITTING_HZ", "2.87e9"))
 
-# Width of the probe window above NV_ZERO_FIELD_SPLITTING_HZ. The zero-field-centered
+# Width of the drive-frequency window above NV_ZERO_FIELD_SPLITTING_HZ. The zero-field-centered
 # spectrum is mirror-symmetric (Zeeman dips at +/- zeeman_split, hyperfine lines mirrored),
 # so measuring both sides duplicates information: the window is only the upper half,
-# [D, D + delta], and x_min is always exactly D. Sized off MAX_ZEEMAN_SPLIT (the same
+# [D, D + delta], and drive_freq_min_phys is always exactly D. Sized off MAX_ZEEMAN_SPLIT (the same
 # ~2.1 mT reasonable-experiment field above) rather than an arbitrary round number: 2.5x
 # comfortably clears MAX_ZEEMAN_SPLIT plus hyperfine/linewidth margin for the upper dips.
-NV_PROBE_DELTA_HZ: float = float(os.getenv("NVISION_NV_PROBE_DELTA_HZ", str(2.5 * MAX_ZEEMAN_SPLIT)))
+NV_DRIVE_FREQ_DELTA_HZ: float = float(os.getenv("NVISION_NV_DRIVE_FREQ_DELTA_HZ", str(2.5 * MAX_ZEEMAN_SPLIT)))
 
-DEFAULT_NV_PROBE_X_MIN = NV_ZERO_FIELD_SPLITTING_HZ
-DEFAULT_NV_PROBE_X_MAX = NV_ZERO_FIELD_SPLITTING_HZ + NV_PROBE_DELTA_HZ
+DEFAULT_NV_DRIVE_FREQ_MIN_PHYS = NV_ZERO_FIELD_SPLITTING_HZ
+DEFAULT_NV_DRIVE_FREQ_MAX_PHYS = NV_ZERO_FIELD_SPLITTING_HZ + NV_DRIVE_FREQ_DELTA_HZ
 
 
 def physics_config_fingerprint() -> str:
@@ -229,7 +229,7 @@ def physics_config_fingerprint() -> str:
         # didn't change value, so without this tag artifacts generated under the
         # old (always 3 lines) behavior would still fingerprint as current.
         "hyperfine-structure-v2",
-        # Bumped when the probe window became the upper half [D, D + delta] instead of the
+        # Bumped when the drive-frequency window became the upper half [D, D + delta] instead of the
         # symmetric [D - delta, D + delta]; the constants above kept their values.
         "half-window-v1",
         # Bumped when the SMC epoch candidate grid started placing slope/dip targets at the
@@ -240,10 +240,12 @@ def physics_config_fingerprint() -> str:
         # candidates inside a locator-owned focus): the dip-biased probe, last-pick re-injection and
         # belief-side window narrowing were removed and out-of-cube particles are reflected, not clipped.
         "sbed-single-path-v1",
-        # Bumped when the dip-centre model parameter was renamed ``center_freq`` -> ``center_freq``
+        # Bumped when the dip-centre model parameter was renamed ``frequency`` -> ``center_freq``
         # (and the milestone/metric names fb/fc/splitting_converged -> primary/split/primary_converged):
         # every cached combination's stored params, bounds and metric columns carry the old names.
         "center-center_freq-rename-v1",
+        # Bumped when the probe axis was renamed to drive_freq (persisted spec / config / payload names).
+        "drive-freq-rename-v1",
         MIN_LINEWIDTH,
         MAX_LINEWIDTH,
         MIN_SPLIT,
@@ -251,7 +253,7 @@ def physics_config_fingerprint() -> str:
         NV_NATURAL_HWHM_HZ,
         PRIOR_STD_FRACTION,
         NV_ZERO_FIELD_SPLITTING_HZ,
-        NV_PROBE_DELTA_HZ,
+        NV_DRIVE_FREQ_DELTA_HZ,
     )
     digest = hashlib.sha256(repr(values).encode()).hexdigest()
     return digest[:12]
@@ -1919,8 +1921,8 @@ class NVCenterSaturationVoigtModel(
 
 
 def nv_center_saturation_voigt_bounds_for_domain(
-    x_min: float,
-    x_max: float,
+    drive_freq_min_phys: float,
+    drive_freq_max_phys: float,
     hyperfine: str = "unresolved",
     infer_hyperfine: bool = False,
     with_zeeman_splitting: bool = False,
@@ -1933,9 +1935,9 @@ def nv_center_saturation_voigt_bounds_for_domain(
     saturated-contrast scale) is not a free parameter here — see
     :data:`NV_SATURATION_C_MAX`.
     """
-    width = float(x_max - x_min)
+    width = float(drive_freq_max_phys - drive_freq_min_phys)
     if width <= 0:
-        raise ValueError("x_max must exceed x_min")
+        raise ValueError("drive_freq_max_phys must exceed drive_freq_min_phys")
 
     # Outermost hyperfine line offset: the whole searched range when split is a
     # free parameter, otherwise the isotope's fixed coupling (0 for "unresolved").
@@ -1947,11 +1949,11 @@ def nv_center_saturation_voigt_bounds_for_domain(
     sigma_inhom_bounds = (0.0, sigma_inhom_hi)
 
     if with_zeeman_splitting:
-        # The probe window is the upper half of the mirror-symmetric spectrum, so the
+        # The drive-frequency window is the upper half of the mirror-symmetric spectrum, so the
         # center may sit anywhere in it -- including on its lower edge, where the lower
         # Zeeman group is out of range and only the upper one is measured.
-        f_lo = float(x_min)
-        f_hi = float(x_max)
+        f_lo = float(drive_freq_min_phys)
+        f_hi = float(drive_freq_max_phys)
         zeeman_bounds = (MIN_ZEEMAN_SPLIT, MAX_ZEEMAN_SPLIT)
         fwhm_total_hi = 2.0 * NV_NATURAL_HWHM_HZ * math.sqrt(1.0 + saturation_bounds[1]) + 2.0 * (
             2.0 * _SATURATION_VOIGT_SQRT2LOG2 * sigma_inhom_hi
@@ -1983,7 +1985,7 @@ def nv_center_saturation_voigt_bounds_for_domain(
     if infer_hyperfine:
         split_bounds = (MIN_SPLIT, max(MAX_SPLIT, width * 0.02))
         return {
-            "center_freq": (float(x_min), float(x_max)),
+            "center_freq": (float(drive_freq_min_phys), float(drive_freq_max_phys)),
             "saturation": saturation_bounds,
             "sigma_inhom": sigma_inhom_bounds,
             "split": split_bounds,
@@ -1991,7 +1993,7 @@ def nv_center_saturation_voigt_bounds_for_domain(
             "_signal_max_span": (0.0, 2.0 * hf_hi + 4.0 * fwhm_total_hi),
         }
     return {
-        "center_freq": (float(x_min), float(x_max)),
+        "center_freq": (float(drive_freq_min_phys), float(drive_freq_max_phys)),
         "saturation": saturation_bounds,
         "sigma_inhom": sigma_inhom_bounds,
         "_signal_max_span": (0.0, 2.0 * hf_hi + 4.0 * fwhm_total_hi),
@@ -1999,22 +2001,22 @@ def nv_center_saturation_voigt_bounds_for_domain(
 
 
 def nv_center_lorentzian_bounds_for_domain(
-    x_min: float,
-    x_max: float,
+    drive_freq_min_phys: float,
+    drive_freq_max_phys: float,
     hyperfine: str = "unresolved",
     infer_hyperfine: bool = False,
     with_zeeman_splitting: bool = False,
 ) -> dict[str, tuple[float, float]]:
-    """Physical parameter bounds for NV Lorentzian signals over ``[x_min, x_max]``.
+    """Physical parameter bounds for NV Lorentzian signals over ``[drive_freq_min_phys, drive_freq_max_phys]``.
 
     ``with_zeeman_splitting=True`` adds ``zeeman_split``; the ``center_freq`` may lie
     anywhere in the (half) window, so the lower Zeeman dip can fall outside it.
     ``infer_hyperfine=False`` (the default) fixes split/k_np to the ``hyperfine``
     isotope's own constants and omits them from the returned dict.
     """
-    width = float(x_max - x_min)
+    width = float(drive_freq_max_phys - drive_freq_min_phys)
     if width <= 0:
-        raise ValueError("x_max must exceed x_min")
+        raise ValueError("drive_freq_max_phys must exceed drive_freq_min_phys")
 
     linewidth_bounds = (MIN_LINEWIDTH, max(MAX_LINEWIDTH, width * 0.05))
     linewidth_hi = linewidth_bounds[1]
@@ -2026,11 +2028,11 @@ def nv_center_lorentzian_bounds_for_domain(
 
     if with_zeeman_splitting:
         # center_freq must stay MAX_ZEEMAN_SPLIT inside each edge.
-        # The probe window is the upper half of the mirror-symmetric spectrum, so the
+        # The drive-frequency window is the upper half of the mirror-symmetric spectrum, so the
         # center may sit anywhere in it -- including on its lower edge, where the lower
         # Zeeman group is out of range and only the upper one is measured.
-        f_lo = float(x_min)
-        f_hi = float(x_max)
+        f_lo = float(drive_freq_min_phys)
+        f_hi = float(drive_freq_max_phys)
         zeeman_bounds = (MIN_ZEEMAN_SPLIT, MAX_ZEEMAN_SPLIT)
         max_span = 2.0 * MAX_ZEEMAN_SPLIT + 2.0 * hf_hi + 4.0 * linewidth_hi
 
@@ -2057,7 +2059,7 @@ def nv_center_lorentzian_bounds_for_domain(
     if infer_hyperfine:
         split_bounds = (MIN_SPLIT, max(MAX_SPLIT, width * 0.02))
         return {
-            "center_freq": (float(x_min), float(x_max)),
+            "center_freq": (float(drive_freq_min_phys), float(drive_freq_max_phys)),
             "linewidth": linewidth_bounds,
             "split": split_bounds,
             "k_np": (MIN_K_NP, MAX_K_NP),
@@ -2066,7 +2068,7 @@ def nv_center_lorentzian_bounds_for_domain(
         }
 
     return {
-        "center_freq": (float(x_min), float(x_max)),
+        "center_freq": (float(drive_freq_min_phys), float(drive_freq_max_phys)),
         "linewidth": linewidth_bounds,
         "c_total": (0.1, 0.4),
         "_signal_max_span": (0.0, 2.0 * hf_hi + 4.0 * linewidth_hi),
@@ -2200,25 +2202,25 @@ class NVCenterOnePeakLorentzianModel(
 
 
 def nv_center_voigt_bounds_for_domain(
-    x_min: float,
-    x_max: float,
+    drive_freq_min_phys: float,
+    drive_freq_max_phys: float,
     hyperfine: str = "unresolved",
     infer_hyperfine: bool = False,
     with_zeeman_splitting: bool = False,
 ) -> dict[str, tuple[float, float]]:
-    """Physical parameter bounds for NV Voigt signals over ``[x_min, x_max]``.
+    """Physical parameter bounds for NV Voigt signals over ``[drive_freq_min_phys, drive_freq_max_phys]``.
 
     Mirrors ``nv_center_lorentzian_bounds_for_domain``'s structure exactly:
-    ``with_zeeman_splitting=True`` adds ``zeeman_split`` and narrows the probe-axis range so
+    ``with_zeeman_splitting=True`` adds ``zeeman_split`` and narrows the drive-frequency range so
     the two Zeeman groups always land within the domain; ``infer_hyperfine=False``
     (default) fixes ``split``/``k_np`` to the ``hyperfine`` isotope's own constants
     and omits them from the returned dict.
     ``homogeneous_linewidth`` reuses the same bounds as Lorentzian's ``linewidth`` (same
     physical quantity); ``sigma_inhom`` reuses saturation-Voigt's inhomogeneous-width bound.
     """
-    width = float(x_max - x_min)
+    width = float(drive_freq_max_phys - drive_freq_min_phys)
     if width <= 0:
-        raise ValueError("x_max must exceed x_min")
+        raise ValueError("drive_freq_max_phys must exceed drive_freq_min_phys")
 
     linewidth_bounds = (MIN_LINEWIDTH, max(MAX_LINEWIDTH, width * 0.05))
     sigma_inhom_hi = max(1.2e6, width * 0.02)
@@ -2235,11 +2237,11 @@ def nv_center_voigt_bounds_for_domain(
         # MHz — below the generated range — which made the true signal unrepresentable for most
         # repeats: curve_fit and the SMC belief pinned split/width at the ceiling and compensated
         # by shifting center_freq, a systematic ~3 MHz bias on every voigt fit.
-        # The probe window is the upper half of the mirror-symmetric spectrum, so the
+        # The drive-frequency window is the upper half of the mirror-symmetric spectrum, so the
         # center may sit anywhere in it -- including on its lower edge, where the lower
         # Zeeman group is out of range and only the upper one is measured.
-        f_lo = float(x_min)
-        f_hi = float(x_max)
+        f_lo = float(drive_freq_min_phys)
+        f_hi = float(drive_freq_max_phys)
         zeeman_bounds = (MIN_ZEEMAN_SPLIT, MAX_ZEEMAN_SPLIT)
         max_span = 2.0 * MAX_ZEEMAN_SPLIT + 2.0 * hf_hi + 4.0 * VOIGT_FWHM_TOTAL_HI
 
@@ -2268,7 +2270,7 @@ def nv_center_voigt_bounds_for_domain(
     if infer_hyperfine:
         split_bounds = (MIN_SPLIT, max(MAX_SPLIT, width * 0.02))
         return {
-            "center_freq": (float(x_min), float(x_max)),
+            "center_freq": (float(drive_freq_min_phys), float(drive_freq_max_phys)),
             "homogeneous_linewidth": linewidth_bounds,
             "sigma_inhom": sigma_inhom_bounds,
             "split": split_bounds,
@@ -2278,7 +2280,7 @@ def nv_center_voigt_bounds_for_domain(
         }
 
     return {
-        "center_freq": (float(x_min), float(x_max)),
+        "center_freq": (float(drive_freq_min_phys), float(drive_freq_max_phys)),
         "homogeneous_linewidth": linewidth_bounds,
         "sigma_inhom": sigma_inhom_bounds,
         "c_total": (0.1, 0.4),

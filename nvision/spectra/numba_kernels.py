@@ -161,11 +161,11 @@ def nv_center_lorentzian_vectorized_many(
     background: np.ndarray,
     out: np.ndarray,
 ) -> None:
-    """Triple-Lorentzian ODMR for many probe positions and many particles.
+    """Triple-Lorentzian ODMR for many drive frequencies and many particles.
 
     Writes into ``out`` which must have shape ``(len(xs), len(center_freq))``.
 
-    Parallelises over probe positions (rows) — ``out[i, :]`` is contiguous
+    Parallelises over drive frequencies (rows) — ``out[i, :]`` is contiguous
     in row-major (C) order, so each thread writes a full cache line at a time.
     """
     m = xs.shape[0]
@@ -213,7 +213,7 @@ def nv_center_lorentzian_vectorized_one(
     background: np.ndarray,
     out: np.ndarray,
 ) -> None:
-    """Triple-Lorentzian ODMR for a SINGLE probe position across many particles.
+    """Triple-Lorentzian ODMR for a SINGLE drive frequencies across many particles.
 
     Writes into ``out`` which must have shape ``(len(center_freq),)``.
 
@@ -251,7 +251,7 @@ def nv_center_lorentzian_vectorized_one_serial(
     background: np.ndarray,
     out: np.ndarray,
 ) -> None:
-    """Serial triple-Lorentzian ODMR for a SINGLE probe position across many particles.
+    """Serial triple-Lorentzian ODMR for a SINGLE drive frequencies across many particles.
 
     Identical arithmetic to :func:`nv_center_lorentzian_vectorized_one` but
     compiled without ``parallel=True``.  At practical particle counts (≤ ~1 M)
@@ -497,7 +497,7 @@ def nv_center_pseudo_voigt_vectorized_one(
     background: np.ndarray,
     out: np.ndarray,
 ) -> None:
-    """Triple pseudo-Voigt ODMR for a SINGLE probe position across many particles.
+    """Triple pseudo-Voigt ODMR for a SINGLE drive frequencies across many particles.
 
     Writes into ``out`` which must have shape ``(len(center_freq),)``.
 
@@ -583,7 +583,7 @@ def nv_center_pseudo_voigt_vectorized_one_serial(
     background: np.ndarray,
     out: np.ndarray,
 ) -> None:
-    """Serial triple pseudo-Voigt ODMR for a SINGLE probe position across many particles.
+    """Serial triple pseudo-Voigt ODMR for a SINGLE drive frequencies across many particles.
 
     Identical arithmetic to :func:`nv_center_pseudo_voigt_vectorized_one` but
     without ``parallel=True``.  Thread overhead dominates at practical particle

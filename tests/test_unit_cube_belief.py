@@ -23,11 +23,16 @@ from tests.noise import gaussian_noise
 @pytest.mark.timeout(120)
 def test_bayesian_sbed_nv_updates_with_normalized_probe_and_physical_signal():
     rng = random.Random(11)
-    gen = NVCenterCoreGenerator(x_min=2.6e9, x_max=3.1e9, variant="lorentzian")
+    gen = NVCenterCoreGenerator(drive_freq_min_phys=2.6e9, drive_freq_max_phys=3.1e9, variant="lorentzian")
     true_signal = gen.generate(rng)
-    x_min, x_max = true_signal.get_param_bounds("center_freq")
-    assert x_min is not None
-    exp = CoreExperiment(true_signal=true_signal, noise=None, x_min=x_min, x_max=x_max)
+    drive_freq_min_phys, drive_freq_max_phys = true_signal.get_param_bounds("center_freq")
+    assert drive_freq_min_phys is not None
+    exp = CoreExperiment(
+        true_signal=true_signal,
+        noise=None,
+        drive_freq_min_phys=drive_freq_min_phys,
+        drive_freq_max_phys=drive_freq_max_phys,
+    )
     pb = {name: true_signal.get_param_bounds(name) for name in true_signal.parameter_names}
     cfg = {
         "builder": nv_center_smc_belief,
@@ -36,7 +41,7 @@ def test_bayesian_sbed_nv_updates_with_normalized_probe_and_physical_signal():
         "convergence_threshold": 0.15,
         "parameter_bounds": pb,
     }
-    final = Observer(true_signal, exp.x_min, exp.x_max).watch(
+    final = Observer(true_signal, exp.drive_freq_min_phys, exp.drive_freq_max_phys).watch(
         run_loop(SequentialBayesianExperimentDesignLocator, exp, rng, **cfg)
     )
     assert final.snapshots

@@ -28,7 +28,7 @@ def test_sbed_candidate_thinning():
         parameter_bounds=param_bounds,
         num_particles=50,
         physical_param_bounds=phys_bounds,
-        physical_x_bounds=x_bounds,
+        drive_freq_bounds_phys=x_bounds,
         noise_model=gaussian_noise(),
     )
 

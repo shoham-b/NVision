@@ -33,7 +33,7 @@ def test_smc_stable_update_prevents_uniform_reset():
         noise_model=gaussian_noise(1e-4, 2e-4),
     )
 
-    x_obs = (2.875e9 - 2.7e9) / (2.8e9 - 2.7e9)  # unit coordinate of the probe window
+    x_obs = (2.875e9 - 2.7e9) / (2.8e9 - 2.7e9)  # unit coordinate of the drive-frequency window
 
     # With a noise prior this tight (sigma ~1.5e-4), an observation that most particles' predictions
     # (0.77-0.99) miss by ~0.01 is thousands of sigmas off for them: their raw likelihoods are

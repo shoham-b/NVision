@@ -42,7 +42,7 @@ def test_generic_sweep_classic_fit():
         num_particles=100,
         seed=42,
         physical_param_bounds=unit_model.param_bounds_phys,
-        physical_x_bounds=unit_model.x_bounds_phys,
+        drive_freq_bounds_phys=unit_model.x_bounds_phys,
         noise_model=gaussian_noise(),
     )
 

@@ -43,7 +43,7 @@ NVISION_SMC_EIG_PARTICLES: int = int(os.getenv("NVISION_SMC_EIG_PARTICLES", "500
 NVISION_SMC_EPOCH_GRID_MIN_STEP_HZ: float = float(os.getenv("NVISION_SMC_EPOCH_GRID_MIN_STEP_HZ", "10000.0"))
 
 # Minimum half-width (Hz) for a dip-focus kernel's window in the epoch candidate
-# density mixture (see _generate_epoch_candidate_x), mirroring the role the old
+# density mixture (see _generate_epoch_candidate_drive_freq), mirroring the role the old
 # per-slope grid half-width played: a detected dip narrower than this still gets
 # a window wide enough to be found even if its empirical centroid is slightly off.
 NVISION_SMC_DIP_WINDOW_MIN_HZ: float = float(os.getenv("NVISION_SMC_DIP_WINDOW_MIN_HZ", "5000000.0"))
@@ -284,7 +284,7 @@ def _weighted_cdf(samples: np.ndarray, weights: np.ndarray, x_query: np.ndarray)
     return np.interp(x_query, sorted_samples, cdf_vals)
 
 
-# --- Epoch candidate density mixture (see _generate_epoch_candidate_x) --------
+# --- Epoch candidate density mixture (see _generate_epoch_candidate_drive_freq) --------
 
 # Baseline (flat) term's mass share of the local (slope + dip) kernel mass when
 # use_global_grid is enabled. A judgment call, not derived: big enough that the
@@ -294,7 +294,7 @@ def _weighted_cdf(samples: np.ndarray, weights: np.ndarray, x_query: np.ndarray)
 _EPOCH_BASELINE_MASS_FRACTION: float = 0.2
 
 # Resolution of the scaffold grid used to numerically build the mixture's CDF
-# before quantile inversion (see _quantile_place_candidate_x). This is a pure
+# before quantile inversion (see _quantile_place_candidate_drive_freq). This is a pure
 # numerical-accuracy knob for that intermediate scaffold -- unrelated to the
 # final candidate budget (NVISION_SMC_EPOCH_CANDIDATE_BUDGET) or to the
 # resolution floor (NVISION_SMC_EPOCH_GRID_MIN_STEP_HZ) the final candidates
@@ -304,7 +304,7 @@ _EPOCH_DENSITY_KERNEL_POINTS: int = 400
 _EPOCH_DENSITY_KERNEL_SPAN_SIGMAS: float = 6.0
 
 
-def _quantile_place_candidate_x(
+def _quantile_place_candidate_drive_freq(
     kernels: list[tuple[float, float, float]],
     baseline_weight: float,
     lo: float,
@@ -329,9 +329,9 @@ def _quantile_place_candidate_x(
     returned candidate set.
     """
     if not (hi > lo):
-        raise ValueError(f"_quantile_place_candidate_x: degenerate domain [{lo}, {hi}].")
+        raise ValueError(f"_quantile_place_candidate_drive_freq: degenerate domain [{lo}, {hi}].")
     if n_candidates <= 0:
-        raise ValueError(f"_quantile_place_candidate_x: n_candidates must be positive, got {n_candidates}.")
+        raise ValueError(f"_quantile_place_candidate_drive_freq: n_candidates must be positive, got {n_candidates}.")
 
     pieces = [np.linspace(lo, hi, _EPOCH_DENSITY_BASELINE_POINTS)]
     for center, bandwidth, weight in kernels:
@@ -359,7 +359,7 @@ def _quantile_place_candidate_x(
     cdf = np.concatenate([[0.0], np.cumsum(seg_area)])
     total_mass = cdf[-1]
     if not (total_mass > 0) or not math.isfinite(total_mass):
-        raise ValueError(f"_quantile_place_candidate_x: degenerate density (total mass={total_mass!r}).")
+        raise ValueError(f"_quantile_place_candidate_drive_freq: degenerate density (total mass={total_mass!r}).")
     cdf /= total_mass
 
     # Midpoint quantile levels avoid q=0/q=1, which would map to exactly lo/hi
@@ -376,7 +376,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
     and uncertainties live in normalized ``[0, 1]`` space (``model`` must be a
     :class:`UnitCubeSignalModel` mapping unit coordinates to the inner physical model) so
     acquisition and convergence thresholds apply uniformly across parameters; the public
-    summaries (:meth:`estimates`, :meth:`uncertainty`, :meth:`get_candidate_x_phys`, ...) are in
+    summaries (:meth:`estimates`, :meth:`uncertainty`, :meth:`get_candidate_drive_freq_phys`, ...) are in
     **physical** units.
 
     Resampling uses systematic resampling (low variance) followed by nudging with a
@@ -395,7 +395,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
 
     parameter_bounds: dict[str, tuple[float, float]] = field(default_factory=dict)
     physical_param_bounds: dict[str, tuple[float, float]] = field(default_factory=dict)
-    physical_x_bounds: tuple[float, float] = (0.0, 1.0)
+    drive_freq_bounds_phys: tuple[float, float] = (0.0, 1.0)
     num_particles: int = NVISION_SMC_NUM_PARTICLES
     ess_threshold: float = NVISION_SMC_ESS_THRESHOLD
     a_param: float = NVISION_SMC_A_PARAM
@@ -440,7 +440,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
     _weights: np.ndarray = field(init=False, repr=False)
     _step_count: int = field(init=False, repr=False, default=0)
     _param_names: list[str] = field(init=False, repr=False)
-    _candidate_x_unit: np.ndarray = field(init=False, repr=False)
+    _candidate_drive_freq_unit: np.ndarray = field(init=False, repr=False)
     _dip_candidates: list[DipCandidate] = field(init=False, repr=False, default_factory=list)
     _rng: np.random.Generator = field(init=False, repr=False)
     _d_signal: int = field(init=False, repr=False, default=0)
@@ -482,11 +482,11 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         self._rng = np.random.default_rng(self.seed)
         self._fisher = CumulativeFisher(self.model.inner, self.physical_param_bounds)
         self._param_names = list(self.model.parameter_names())
-        # ``physical_x_bounds`` is the full probe axis and never changes: observation ``x`` is always a
+        # ``drive_freq_bounds_phys`` is the full drive-frequency axis and never changes: observation ``x`` is always a
         # unit coordinate of it. Narrowing which part of it is scanned is the locator's job (its focus).
 
-        # Every particle parameter (and the noise parameter) lives on [0, 1]. The probe axis is not a
-        # parameter: it is ``physical_x_bounds`` above, whether or not ``center_freq`` is a particle dimension.
+        # Every particle parameter (and the noise parameter) lives on [0, 1]. The drive-frequency axis is not a
+        # parameter: it is ``drive_freq_bounds_phys`` above, whether or not ``center_freq`` is a particle dimension.
         self.parameter_bounds = {name: (0.0, 1.0) for name in (*self._param_names, *self.noise_model.spec.names)}
 
         # Initialize particles uniformly within bounds.
@@ -551,11 +551,11 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
 
         if self.skip_state_init:
             # copy() assigns the real candidates right after construction.
-            self._candidate_x_unit = np.array([], dtype=np.float32)
+            self._candidate_drive_freq_unit = np.array([], dtype=np.float32)
         else:
             # Initialize the first epoch-based candidate grid (see
-            # _generate_epoch_candidate_x for the density-mixture construction).
-            self._generate_epoch_candidate_x()
+            # _generate_epoch_candidate_drive_freq for the density-mixture construction).
+            self._generate_epoch_candidate_drive_freq()
 
     def update(self, obs: Observation) -> None:
         self.batch_update([obs])
@@ -657,14 +657,14 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         """
         return list(self._dip_candidates)
 
-    def get_candidate_x_phys(self) -> np.ndarray:
-        """Return the current epoch's slope-targeted candidate grid in **physical** probe-axis units.
+    def get_candidate_drive_freq_phys(self) -> np.ndarray:
+        """Return the current epoch's slope-targeted candidate grid in **physical** drive-frequency units.
 
         Internally the grid is stored on the unit cube (like the particles); the locator and
         :meth:`expected_information_gain` both operate in physical space.
         """
-        lo, hi = self.physical_x_bounds
-        return lo + self._candidate_x_unit.astype(np.float64) * (hi - lo)
+        lo, hi = self.drive_freq_bounds_phys
+        return lo + self._candidate_drive_freq_unit.astype(np.float64) * (hi - lo)
 
     def observation_arrays(self) -> tuple[np.ndarray, np.ndarray]:
         """Return ``(x, signal_value)`` of all observations as flat float arrays.
@@ -798,7 +798,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             return var_sigma_sq_std / (2.0 * est_std)
         return var_sigma_sq_std
 
-    def _generate_epoch_candidate_x(self) -> None:
+    def _generate_epoch_candidate_drive_freq(self) -> None:
         """Generate the epoch candidate density mixture and cache its quantile
         placement for the current epoch.
 
@@ -851,11 +851,13 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
                 if c_key not in centers_seen:
                     centers_seen.add(c_key)
                     centers_phys.append(c)
-        phys_f_lo, phys_f_hi = self.physical_x_bounds
+        phys_f_lo, phys_f_hi = self.drive_freq_bounds_phys
         if not (phys_f_hi > phys_f_lo):
-            raise ValueError(f"_generate_epoch_candidate_x: degenerate probe axis [{phys_f_lo}, {phys_f_hi}].")
-        # The probe window is typically only one half of the mirror-symmetric spectrum
-        # (see DEFAULT_NV_PROBE_X_MIN), so a slope point falling outside it is
+            raise ValueError(
+                f"_generate_epoch_candidate_drive_freq: degenerate drive-frequency axis [{phys_f_lo}, {phys_f_hi}]."
+            )
+        # The drive-frequency window is typically only one half of the mirror-symmetric spectrum
+        # (see DEFAULT_NV_DRIVE_FREQ_MIN_PHYS), so a slope point falling outside it is
         # measured at its mirror image about the signal center instead.
         slopes_phys = []
         for c in centers_phys:
@@ -885,7 +887,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         n_slope_kernels = len(kernels)
         if n_slope_kernels == 0:
             raise RuntimeError(
-                "_generate_epoch_candidate_x: no slope-targeting centers were generated -- "
+                "_generate_epoch_candidate_drive_freq: no slope-targeting centers were generated -- "
                 "slopes_phys must always contain at least one dip's ±omega points."
             )
 
@@ -896,7 +898,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             obs_xs, obs_ys = self.sorted_observation_arrays()
             noise_std = self.estimated_noise_std()
             self._dip_candidates = find_dips(
-                self._probe_axis_map.to_phys(obs_xs),
+                self._drive_freq_map.to_phys(obs_xs),
                 obs_ys,
                 noise_std,
                 effective_max_linewidth_hz(phys_bounds),
@@ -924,13 +926,13 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         total_weight = local_weight_total + baseline_weight
         if not (total_weight > 0) or not math.isfinite(total_weight):
             raise ValueError(
-                "_generate_epoch_candidate_x: candidate density mixture has zero total weight "
+                "_generate_epoch_candidate_drive_freq: candidate density mixture has zero total weight "
                 f"(n_kernels={len(kernels)}, "
                 f"local_weight_total={local_weight_total!r}). There is nothing to build an "
                 "epoch candidate grid from."
             )
 
-        candidate_x_phys = _quantile_place_candidate_x(
+        candidate_drive_freq_phys = _quantile_place_candidate_drive_freq(
             kernels=kernels,
             baseline_weight=baseline_weight,
             lo=phys_f_lo,
@@ -942,9 +944,9 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         # matching NVISION_SMC_EPOCH_GRID_MIN_STEP_HZ's documented "0 to let the
         # grid refine with sigma" escape hatch), clip into bounds, dedup.
         if min_step_physical > 0:
-            candidate_x_phys = np.round(candidate_x_phys / min_step_physical) * min_step_physical
-        candidate_x_phys = np.clip(candidate_x_phys, phys_f_lo, phys_f_hi)
-        merged = np.clip((candidate_x_phys - phys_f_lo) / (phys_f_hi - phys_f_lo), 0.0, 1.0).astype(
+            candidate_drive_freq_phys = np.round(candidate_drive_freq_phys / min_step_physical) * min_step_physical
+        candidate_drive_freq_phys = np.clip(candidate_drive_freq_phys, phys_f_lo, phys_f_hi)
+        merged = np.clip((candidate_drive_freq_phys - phys_f_lo) / (phys_f_hi - phys_f_lo), 0.0, 1.0).astype(
             np.float32, copy=False
         )
         # Quantile placement returns an ascending sequence, so this is already
@@ -956,7 +958,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             keep[0] = True
             np.not_equal(merged[1:], merged[:-1], out=keep[1:])
             merged = merged[keep]
-        self._candidate_x_unit = merged
+        self._candidate_drive_freq_unit = merged
 
     def _resample(self) -> None:
         """Systematic resampling with Gaussian nudging and Liu-West shrinkage.
@@ -1037,7 +1039,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         self._particles[outside] = 1.0 - np.abs(np.mod(self._particles[outside], 2.0) - 1.0)
 
         # 9. Update cached candidate grid for the next epoch
-        self._generate_epoch_candidate_x()
+        self._generate_epoch_candidate_drive_freq()
         self._belief_version += 1
 
     def _estimates_unit(self) -> dict[str, float]:
@@ -1252,7 +1254,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             model=self.model,
             parameter_bounds=self.parameter_bounds.copy(),
             physical_param_bounds=dict(self.physical_param_bounds),
-            physical_x_bounds=self.physical_x_bounds,
+            drive_freq_bounds_phys=self.drive_freq_bounds_phys,
             num_particles=self.num_particles,
             ess_threshold=self.ess_threshold,
             a_param=self.a_param,
@@ -1269,7 +1271,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         # Candidates depend only on bounds/particles, which are identical here —
         # share by reference (consumers rebind on narrowing/resample, never
         # mutate in place).
-        dist._candidate_x_unit = self._candidate_x_unit
+        dist._candidate_drive_freq_unit = self._candidate_drive_freq_unit
         dist._rng = self._rng  # snapshots never draw; share rather than re-seed
         dist._fisher = self._fisher.copy()
         dist._param_names = self._param_names.copy()
@@ -1294,26 +1296,26 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         data = {name: samples[:, i] for i, name in enumerate(self._param_names)}
         return ParameterValues.from_mapping(self._param_names, data)
 
-    def select_max_information_gain(self, candidate_x_phys: np.ndarray, n: int) -> np.ndarray:
+    def select_max_information_gain(self, candidate_drive_freq_phys: np.ndarray, n: int) -> np.ndarray:
         """Select the top-n candidate locations by expected information gain.
 
-        Evaluates EIG across ``candidate_x_phys`` in one vectorized call, then takes the argmax
+        Evaluates EIG across ``candidate_drive_freq_phys`` in one vectorized call, then takes the argmax
         within each chunk of :data:`_EIG_CHUNK_SIZE` candidate points and picks among the chunk
         winners (softmax or hardmax, see ``NVISION_SMC_EIG_SELECTION_MODE``).
 
         Args:
-            candidate_x_phys: 1D array of candidate measurement locations.
+            candidate_drive_freq_phys: 1D array of candidate measurement locations.
             n: Number of top points to return.
 
         Returns:
             1D numpy array of up to *n* candidate locations ranked by EIG
             (highest first).
         """
-        if len(candidate_x_phys) == 0:
+        if len(candidate_drive_freq_phys) == 0:
             raise ValueError("select_max_information_gain: no candidates to choose from.")
 
         # Evaluate EIG over all candidate points in one vectorized call.
-        eig_scores = self.expected_information_gain(candidate_x_phys).astype(FLOAT_DTYPE)
+        eig_scores = self.expected_information_gain(candidate_drive_freq_phys).astype(FLOAT_DTYPE)
 
         winner_indices = _chunk_argmax(eig_scores, _EIG_CHUNK_SIZE)
         winner_scores = eig_scores[winner_indices]
@@ -1335,12 +1337,12 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
 
         best_indices = winner_indices[best_chunk_order]
 
-        return candidate_x_phys[best_indices]
+        return candidate_drive_freq_phys[best_indices]
 
-    def expected_information_gain(self, candidate_x_phys: np.ndarray) -> np.ndarray:
+    def expected_information_gain(self, candidate_drive_freq_phys: np.ndarray) -> np.ndarray:
         """Compute the approximate expected information gain for candidate locations.
 
-        ``candidate_x_phys`` are physical probe-axis positions (Hz); shape: (n_candidates,).
+        ``candidate_drive_freq_phys`` are physical drive-frequency positions (Hz); shape: (n_candidates,).
 
         Uses the approximation:
         EIG(d) ≈ 1/2 * ln(1 + sigma_theta^2 / sigma_eta^2)
@@ -1356,16 +1358,18 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         quality loss.  This is critical at large particle counts (e.g. N=10 000
         produces an 80 MB matrix at 2000 candidates; subsampling to 500 gives 4 MB).
         """
-        lo, hi = self.physical_x_bounds
-        candidate_x_unit = (candidate_x_phys - lo) / (hi - lo)
-        var_pred = self._eig_variance_cached(candidate_x_unit, self._particles.shape[0], NVISION_SMC_EIG_PARTICLES)
+        lo, hi = self.drive_freq_bounds_phys
+        candidate_drive_freq_unit = (candidate_drive_freq_phys - lo) / (hi - lo)
+        var_pred = self._eig_variance_cached(
+            candidate_drive_freq_unit, self._particles.shape[0], NVISION_SMC_EIG_PARTICLES
+        )
 
         est_variances = self._noise_betas / max(self._noise_alpha, 1e-9)
         noise_var = max(float(np.sum(self._weights * est_variances)), 1e-12)
 
         return 0.5 * np.log1p(var_pred / noise_var)
 
-    def _eig_variance_cached(self, candidate_x_unit: np.ndarray, n_total: int, n_eig: int) -> np.ndarray:
+    def _eig_variance_cached(self, candidate_drive_freq_unit: np.ndarray, n_total: int, n_eig: int) -> np.ndarray:
         """Weighted prediction variance per candidate via a cached prediction matrix.
 
         Between resamples the particles and candidate grid are frozen, so the
@@ -1380,13 +1384,13 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         built, right after a resample when the weights are ~uniform) and the
         estimator applies the current weights to it explicitly.
         """
-        n_c = candidate_x_unit.shape[0]
+        n_c = candidate_drive_freq_unit.shape[0]
         # Key from the raw array -- no dtype/contiguity conversion needed just to
         # read a length and two endpoint values. The float32-contiguous copy is
         # only actually consumed inside the cache-miss branch below, so it must
         # not be paid on every call regardless of whether the epoch matrix hits.
         key = (
-            (self._eig_epoch, n_c, float(candidate_x_unit[0]), float(candidate_x_unit[-1]))
+            (self._eig_epoch, n_c, float(candidate_drive_freq_unit[0]), float(candidate_drive_freq_unit[-1]))
             if n_c
             else (self._eig_epoch, 0, 0.0, 0.0)
         )
@@ -1395,7 +1399,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         if cache is not None and cache[0] == key:
             _, mat, mat2, sub_idx = cache
         else:
-            cand = np.ascontiguousarray(candidate_x_unit, dtype=np.float32)
+            cand = np.ascontiguousarray(candidate_drive_freq_unit, dtype=np.float32)
             if n_total > n_eig:
                 # Fix the subset for this epoch. Built right after a resample,
                 # so the current weights are ~uniform and a stratified draw
@@ -1429,21 +1433,21 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         return var_pred
 
     @property
-    def _probe_axis_map(self) -> RescaleMap:
-        """Unit <-> physical map of the full probe axis (``physical_x_bounds``); fixed for the whole run.
+    def _drive_freq_map(self) -> RescaleMap:
+        """Unit <-> physical map of the full drive-frequency axis (``drive_freq_bounds_phys``); fixed for the whole run.
 
         Converts the stored ``[0, 1]`` observation coordinate ``obs.x`` to physical Hz. It is the probe
         axis whether or not the dip centre ``center_freq`` is also a particle dimension.
         """
-        lo, hi = self.physical_x_bounds
+        lo, hi = self.drive_freq_bounds_phys
         return RescaleMap(lo=float(lo), hi=float(hi))
 
     def accumulate_fim(self, obs: Observation) -> None:
         """Add ``obs``'s Fisher information, evaluated at the current posterior mean, to the running total.
 
-        ``obs.x`` is a unit coordinate of the original probe window; the Fisher model is the physical one.
+        ``obs.x`` is a unit coordinate of the original drive-frequency window; the Fisher model is the physical one.
         """
-        lo, hi = self.physical_x_bounds
+        lo, hi = self.drive_freq_bounds_phys
         x_phys = lo + obs.x * (hi - lo)
         self._fisher.add(x_phys, typed_parameters(self._fisher.model, self.estimates()), obs)
 
@@ -1461,7 +1465,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         """Closed-form center_freq CRLB (physical Hz) at the current estimates; ``inf`` before any data."""
         if self._obs_count == 0:
             return math.inf
-        lo, hi = self.physical_x_bounds
+        lo, hi = self.drive_freq_bounds_phys
         return center_freq_crlb(
             self.model.inner, self.estimates(), self.estimated_noise_std(), self._obs_count, hi - lo
         )

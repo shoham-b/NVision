@@ -43,7 +43,7 @@ def _build_locator(domain_lo=2.82, domain_hi=2.92, n_steps=100) -> GenericSweepL
         unit_model,
         num_particles=50,
         physical_param_bounds=unit_model.param_bounds_phys,
-        physical_x_bounds=(domain_lo, domain_hi),
+        drive_freq_bounds_phys=(domain_lo, domain_hi),
         noise_model=gaussian_noise(),
     )
     return GenericSweepLocator(
@@ -101,7 +101,7 @@ def _build_locator_for(model, bounds, domain_lo, domain_hi, n_steps=100, noise_s
         unit_model,
         num_particles=50,
         physical_param_bounds=unit_model.param_bounds_phys,
-        physical_x_bounds=(domain_lo, domain_hi),
+        drive_freq_bounds_phys=(domain_lo, domain_hi),
         noise_model=gaussian_noise(),
     )
     return GenericSweepLocator(
@@ -227,8 +227,8 @@ def test_sweep_fit_via_run_loop():
     exp = CoreExperiment(
         true_signal=true_signal,
         noise=CompositeNoise(),
-        x_min=2.8,
-        x_max=2.9,
+        drive_freq_min_phys=2.8,
+        drive_freq_max_phys=2.9,
     )
 
     rng = random.Random(42)
@@ -238,8 +238,8 @@ def test_sweep_fit_via_run_loop():
         exp,
         rng,
         max_steps=150,
-        domain_lo=exp.x_min,
-        domain_hi=exp.x_max,
+        domain_lo=exp.drive_freq_min_phys,
+        domain_hi=exp.drive_freq_max_phys,
         parameter_bounds=bounds,
     ):
         locator = loc
@@ -456,7 +456,9 @@ def test_sweep_fit_raises_when_bounds_incomplete():
         typed_parameters=true_params,
         bounds={"center_freq": (2.8, 2.9)},
     )
-    exp = CoreExperiment(true_signal=true_signal, noise=CompositeNoise(), x_min=2.8, x_max=2.9)
+    exp = CoreExperiment(
+        true_signal=true_signal, noise=CompositeNoise(), drive_freq_min_phys=2.8, drive_freq_max_phys=2.9
+    )
 
     rng = random.Random(42)
     locator = None
@@ -467,9 +469,9 @@ def test_sweep_fit_raises_when_bounds_incomplete():
         exp,
         rng,
         max_steps=50,
-        domain_lo=exp.x_min,
-        domain_hi=exp.x_max,
-        parameter_bounds={"center_freq": (exp.x_min, exp.x_max)},
+        domain_lo=exp.drive_freq_min_phys,
+        domain_hi=exp.drive_freq_max_phys,
+        parameter_bounds={"center_freq": (exp.drive_freq_min_phys, exp.drive_freq_max_phys)},
     ):
         locator = loc
 

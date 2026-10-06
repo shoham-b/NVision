@@ -109,7 +109,7 @@ def run_loop(
     ``sweep_cache`` for pre-computed observations to avoid redundant measurements.
 
     ``n_shots`` is the fixed hardware batch size: each measurement takes
-    ``n_shots`` shots at the chosen probe point and collapses them into one
+    ``n_shots`` shots at the chosen drive-frequency points and collapses them into one
     sufficient-statistic ``Observation`` (batch mean + empirical variance) via
     ``CoreExperiment.measure``. Defaults to 1 (single-shot, unchanged behavior).
     """
@@ -1107,7 +1107,9 @@ class _TaskRunner:
 
         from nvision.sim.defaults import NVISION_SOBOL_STEPS_FRACTION
 
-        _domain = float(experiment.x_max - experiment.x_min)  # full probe axis width, Hz
+        _domain = float(
+            experiment.drive_freq_max_phys - experiment.drive_freq_min_phys
+        )  # full drive-frequency axis width, Hz
         _min_lw = min_linewidth_hz(parameter_bounds)
         _sobol_max_steps = max(1, math.ceil(math.ceil(_domain / _min_lw) * NVISION_SOBOL_STEPS_FRACTION))
 
@@ -1194,7 +1196,9 @@ class _TaskRunner:
             lineshape=nv_lineshape_for_model(experiment.true_signal.model),
         )
 
-        domain_width = float(experiment.x_max - experiment.x_min)  # full probe axis width, Hz
+        domain_width = float(
+            experiment.drive_freq_max_phys - experiment.drive_freq_min_phys
+        )  # full drive-frequency axis width, Hz
         min_linewidth = min_linewidth_hz(parameter_bounds)
         max_steps = max(30, math.ceil(domain_width / min_linewidth))
 
@@ -1203,8 +1207,8 @@ class _TaskRunner:
             signal_model=experiment.true_signal.model,
             max_steps=max_steps,
             noise_std=noise_std,
-            domain_lo=experiment.x_min,
-            domain_hi=experiment.x_max,
+            domain_lo=experiment.drive_freq_min_phys,
+            domain_hi=experiment.drive_freq_max_phys,
             **({} if noise_max_dev is None else {"noise_max_dev": noise_max_dev}),
             **({} if signal_max_span is None else {"signal_max_span": signal_max_span}),
         )
@@ -1244,12 +1248,19 @@ class _TaskRunner:
         noise level, so it must be attached per task afterwards via :meth:`_attach_task_noise`.
         """
         true_signal = self.task.generator.generate(rng)
-        x_min, x_max = self._domain_from_signal_params(true_signal)
-        if x_min is None or x_max is None:
-            x_min, x_max = self._domain_from_generator(self.task.generator)
-        if x_min is None or x_max is None:
-            raise ValueError("TrueSignal must expose x_min/x_max parameters or center_freq bounds")
-        return CoreExperiment(true_signal=true_signal, noise=None, x_min=x_min, x_max=x_max)
+        drive_freq_min_phys, drive_freq_max_phys = self._domain_from_signal_params(true_signal)
+        if drive_freq_min_phys is None or drive_freq_max_phys is None:
+            drive_freq_min_phys, drive_freq_max_phys = self._domain_from_generator(self.task.generator)
+        if drive_freq_min_phys is None or drive_freq_max_phys is None:
+            raise ValueError(
+                "TrueSignal must expose drive_freq_min_phys/drive_freq_max_phys parameters or center_freq bounds"
+            )
+        return CoreExperiment(
+            true_signal=true_signal,
+            noise=None,
+            drive_freq_min_phys=drive_freq_min_phys,
+            drive_freq_max_phys=drive_freq_max_phys,
+        )
 
     def _attach_task_noise(self, experiment: CoreExperiment) -> CoreExperiment:
         """Return ``experiment`` with this task's noise and its Bayesian noise model attached.
@@ -1267,7 +1278,10 @@ class _TaskRunner:
             noise_bounds=noise_bounds,
         )
         return CoreExperiment(
-            true_signal=true_signal, noise=self.task.noise, x_min=experiment.x_min, x_max=experiment.x_max
+            true_signal=true_signal,
+            noise=self.task.noise,
+            drive_freq_min_phys=experiment.drive_freq_min_phys,
+            drive_freq_max_phys=experiment.drive_freq_max_phys,
         )
 
     def _build_experiment(self, rng: random.Random) -> CoreExperiment:
@@ -1281,56 +1295,56 @@ class _TaskRunner:
     @staticmethod
     def _domain_from_signal_params(true_signal: Any) -> tuple[float | None, float | None]:
         """Infer scan domain from signal parameters."""
-        x_min: float | None = None
-        x_max: float | None = None
-        probe_like_bounds: list[tuple[float, float]] = []
+        drive_freq_min_phys: float | None = None
+        drive_freq_max_phys: float | None = None
+        drive_freq_like_bounds: list[tuple[float, float]] = []
 
         values = true_signal.parameter_values()
         for name, value in values.items():
-            if name == "x_min":
-                x_min = float(value)
+            if name == "drive_freq_min_phys":
+                drive_freq_min_phys = float(value)
                 continue
-            if name == "x_max":
-                x_max = float(value)
+            if name == "drive_freq_max_phys":
+                drive_freq_max_phys = float(value)
                 continue
             try:
                 lo, hi = true_signal.get_param_bounds(name)
             except KeyError:
                 continue
             if hi > lo and "center_freq" in name:
-                probe_like_bounds.append((lo, hi))
-                if name == "center_freq" and x_min is None:
-                    x_min, x_max = lo, hi
+                drive_freq_like_bounds.append((lo, hi))
+                if name == "center_freq" and drive_freq_min_phys is None:
+                    drive_freq_min_phys, drive_freq_max_phys = lo, hi
 
         # "center_freq" may be fixed (not a free/inferred parameter, e.g.
         # NVCenterVoigtModel(with_fixed_center_freq=True)) and therefore absent
         # from parameter_values() above. Its bounds are always present on true_signal.bounds
-        # and, by construction of the NV bound builders, span exactly the probe axis, so check
+        # and, by construction of the NV bound builders, span exactly the drive-frequency axis, so check
         # them directly rather than only via the free-parameter scan.
-        if x_min is None or x_max is None:
+        if drive_freq_min_phys is None or drive_freq_max_phys is None:
             try:
                 lo, hi = true_signal.get_param_bounds("center_freq")
             except KeyError:
                 lo = hi = None
             if lo is not None and hi > lo:
-                x_min, x_max = lo, hi
+                drive_freq_min_phys, drive_freq_max_phys = lo, hi
 
-        if (x_min is None or x_max is None) and probe_like_bounds:
-            x_min = min(lo for lo, _ in probe_like_bounds)
-            x_max = max(hi for _, hi in probe_like_bounds)
-        return x_min, x_max
+        if (drive_freq_min_phys is None or drive_freq_max_phys is None) and drive_freq_like_bounds:
+            drive_freq_min_phys = min(lo for lo, _ in drive_freq_like_bounds)
+            drive_freq_max_phys = max(hi for _, hi in drive_freq_like_bounds)
+        return drive_freq_min_phys, drive_freq_max_phys
 
     @staticmethod
     def _domain_from_generator(generator: Any) -> tuple[float | None, float | None]:
         """Fallback domain from generator attributes when present."""
-        if not (hasattr(generator, "x_min") and hasattr(generator, "x_max")):
+        if not (hasattr(generator, "drive_freq_min_phys") and hasattr(generator, "drive_freq_max_phys")):
             return None, None
         try:
-            x_min = float(generator.x_min)
-            x_max = float(generator.x_max)
+            drive_freq_min_phys = float(generator.drive_freq_min_phys)
+            drive_freq_max_phys = float(generator.drive_freq_max_phys)
         except (TypeError, ValueError):
             return None, None
-        return (x_min, x_max) if x_max > x_min else (None, None)
+        return (drive_freq_min_phys, drive_freq_max_phys) if drive_freq_max_phys > drive_freq_min_phys else (None, None)
 
     def _resolve_sweep_max_steps(self, experiment: CoreExperiment) -> int:
         """Return the step count for this experiment, derived from the signal model.
@@ -1342,7 +1356,9 @@ class _TaskRunner:
         which applies coverage-factor and env-var caps.
         """
         bounds = self._injected_parameter_bounds(experiment)
-        domain_width = experiment.x_max - experiment.x_min  # full probe axis width, Hz
+        domain_width = (
+            experiment.drive_freq_max_phys - experiment.drive_freq_min_phys
+        )  # full drive-frequency axis width, Hz
         min_linewidth = min_linewidth_hz(bounds)
         import numpy as np
 
@@ -1368,8 +1384,8 @@ class _TaskRunner:
 
         return compute_sweep_max_steps(
             experiment.true_signal.model,
-            float(experiment.x_min),
-            float(experiment.x_max),
+            float(experiment.drive_freq_min_phys),
+            float(experiment.drive_freq_max_phys),
         )
 
     def _precompute_sweep_for_task(
@@ -1393,7 +1409,7 @@ class _TaskRunner:
             if hasattr(experiment.noise, "estimated_max_noise_deviation"):
                 noise_max_dev = float(experiment.noise.estimated_max_noise_deviation(n_samples=6))
 
-        domain_width = float(experiment.x_max - experiment.x_min)
+        domain_width = float(experiment.drive_freq_max_phys - experiment.drive_freq_min_phys)
         signal_min_span: float | None = None
         signal_max_span: float | None = None
         model = experiment.true_signal.model
@@ -1441,7 +1457,7 @@ class _TaskRunner:
                 # Use a default of 6 samples (previously mid-sweep) to account for mid-step sample size.
                 noise_max_dev = float(experiment.noise.estimated_max_noise_deviation(n_samples=6))
         # Read signal spans from the model's declared methods.
-        domain_width = float(experiment.x_max - experiment.x_min)
+        domain_width = float(experiment.drive_freq_max_phys - experiment.drive_freq_min_phys)
         signal_max_span: float | None = None
         model = experiment.true_signal.model
         if hasattr(model, "signal_min_span") and callable(model.signal_min_span):
@@ -1488,7 +1504,7 @@ class _TaskRunner:
         requires_belief = getattr(locator_class, "REQUIRES_BELIEF", False)
         max_steps = self._resolve_sweep_max_steps(experiment)
 
-        # Fixed hardware batch size (shots per-probe-point), configured per-strategy
+        # Fixed hardware batch size (shots per-drive-frequency-point), configured per-strategy
         # via locator_config["n_shots"]. Not a locator constructor arg — popped out
         # here and threaded to run_loop()/experiment.measure() directly. Each
         # acquisition step is a batch of n_shots with precision noise_std/sqrt(n_shots).
@@ -1544,8 +1560,8 @@ class _TaskRunner:
             crlbs_gate = marginal_crlbs_at_budget(
                 model=experiment.true_signal.model,
                 true_typed_params=experiment.true_signal.typed_parameters,
-                x_lo=float(experiment.x_min),
-                x_hi=float(experiment.x_max),
+                x_lo=float(experiment.drive_freq_min_phys),
+                x_hi=float(experiment.drive_freq_max_phys),
                 noise_std=batch_noise_std,
                 n_steps=max_steps,
                 param_bounds=param_bounds_for_gate,
@@ -1560,7 +1576,7 @@ class _TaskRunner:
                     if absolute > 0 and crlb_val > absolute * NVISION_CRLB_FEASIBILITY_MARGIN:
                         infeasible_crlb_params.append(param_name)
 
-        observer = Observer(experiment.true_signal, experiment.x_min, experiment.x_max)
+        observer = Observer(experiment.true_signal, experiment.drive_freq_min_phys, experiment.drive_freq_max_phys)
         token = set_combination_log_initials(self.generator_name, self.noise_name, self.strategy_name, repeat_idx=rid)
 
         if infeasible_crlb_params:
@@ -1649,9 +1665,11 @@ class _TaskRunner:
             if fit_mode_estimates:
                 locator_final_result = {**fit_mode_estimates, **locator_final_result}
 
-        history_df = run_result_to_history_df(result, rid, experiment.x_min, experiment.x_max)
+        history_df = run_result_to_history_df(
+            result, rid, experiment.drive_freq_min_phys, experiment.drive_freq_max_phys
+        )
         finalize_record = run_result_to_finalize_record(
-            result, locator_final_result, rid, experiment.x_min, experiment.x_max
+            result, locator_final_result, rid, experiment.drive_freq_min_phys, experiment.drive_freq_max_phys
         )
         # Used by the progress ETA estimator via cached `locator_results.parquet` metadata.
         finalize_record["duration_ms"] = (time.perf_counter() - repeat_start_time) * 1000

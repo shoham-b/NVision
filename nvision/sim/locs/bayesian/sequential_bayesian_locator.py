@@ -111,7 +111,7 @@ class SequentialBayesianLocator(Locator):
     convergence_threshold : float
         Relative uncertainty threshold (fraction of bound width) below which
         we consider parameters converged and stop early.  Default ``0.01`` = 1 %.
-    probe_axis_param : str | None
+    center_param : str | None
         The parameter we are proposing measurements along. Defaults to the
         first parameter in the belief.
     """
@@ -121,7 +121,7 @@ class SequentialBayesianLocator(Locator):
         belief: AbstractMarginalDistribution,
         max_steps: int = 450,
         convergence_threshold: float = NVISION_CONVERGENCE_THRESHOLD,
-        probe_axis_param: str | None = None,
+        center_param: str | None = None,
         convergence_patience_steps: int = 8,
     ) -> None:
         super().__init__(belief)
@@ -133,9 +133,9 @@ class SequentialBayesianLocator(Locator):
         self.step_count: int = 0
         # Bayesian acquisition count
         self.inference_step_count: int = 0
-        # "center_freq" is always the probe x-axis even when it's a fixed (not
+        # "center_freq" is always the drive-frequency axis even when it's a fixed (not
         # inferred) model parameter and therefore absent from parameter_names().
-        self._probe_axis_param = probe_axis_param or (
+        self._center_param = center_param or (
             "center_freq" if "center_freq" in belief.physical_param_bounds else belief.model.parameter_names()[0]
         )
         self._convergence_patience_steps = max(1, int(convergence_patience_steps))
@@ -153,15 +153,15 @@ class SequentialBayesianLocator(Locator):
         self._true_signal = None
 
         # Set domain bounds for acquisition.
-        self._probe_lo_phys, self._probe_hi_phys = self.belief.physical_param_bounds[self._probe_axis_param]
-        self._full_domain_lo, self._full_domain_hi = float(self._probe_lo_phys), float(self._probe_hi_phys)
-        # Which part of the probe axis candidates may be drawn from. Owned here (never by the belief):
+        lo_phys, hi_phys = self.belief.drive_freq_bounds_phys
+        self._drive_freq_min_phys, self._drive_freq_max_phys = float(lo_phys), float(hi_phys)
+        # Which part of the drive-frequency axis candidates may be drawn from. Owned here (never by the belief):
         # narrowing it changes only where we scan, not the belief's parameter bounds or particles.
         self._focus = FocusWindow(
-            lo=self._full_domain_lo,
-            hi=self._full_domain_hi,
-            full_lo=self._full_domain_lo,
-            full_hi=self._full_domain_hi,
+            lo=self._drive_freq_min_phys,
+            hi=self._drive_freq_max_phys,
+            full_lo=self._drive_freq_min_phys,
+            full_hi=self._drive_freq_max_phys,
         )
 
     @classmethod
@@ -170,7 +170,7 @@ class SequentialBayesianLocator(Locator):
         builder: Callable[..., AbstractMarginalDistribution] | None = None,
         max_steps: int = 150,
         convergence_threshold: float = NVISION_CONVERGENCE_THRESHOLD,
-        probe_axis_param: str | None = None,
+        center_param: str | None = None,
         parameter_bounds: Mapping[str, tuple[float, float]] | None = None,
         convergence_patience_steps: int = 8,
         **grid_config: object,
@@ -189,7 +189,7 @@ class SequentialBayesianLocator(Locator):
             belief,
             max_steps=max_steps,
             convergence_threshold=convergence_threshold,
-            probe_axis_param=probe_axis_param,
+            center_param=center_param,
             convergence_patience_steps=convergence_patience_steps,
         )
 
@@ -388,16 +388,16 @@ class SequentialBayesianLocator(Locator):
         if true_signal is None:
             return 0.0
 
-        lo_phys, hi_phys = self.belief.physical_param_bounds[self._probe_axis_param]
+        lo_phys, hi_phys = self._drive_freq_min_phys, self._drive_freq_max_phys
         domain_width = hi_phys - lo_phys
         if domain_width <= 0:
             return 0.0
 
         # 1. Evaluate ground-truth signal
         n = 20000
-        xs_phys = np.linspace(lo_phys, hi_phys, n)
-        ys = np.array([true_signal(float(x)) for x in xs_phys], dtype=float)
-        xs_norm = (xs_phys - lo_phys) / domain_width
+        drive_freqs_phys = np.linspace(lo_phys, hi_phys, n)
+        ys = np.array([true_signal(float(x)) for x in drive_freqs_phys], dtype=float)
+        xs_norm = (drive_freqs_phys - lo_phys) / domain_width
 
         # 2. Find dip segments on the ground-truth signal using noise_std=1e-6
         background = float(np.percentile(ys, 95))
@@ -451,7 +451,7 @@ class SequentialBayesianLocator(Locator):
         return float(2.0 * domain_width / effective_width)
 
     def _acquisition_bounds(self) -> tuple[float, float]:
-        """Probe-axis interval ``(lo_phys, hi_phys)`` (Hz) that candidate x positions may come from: the focus."""
+        """drive-frequency interval ``(lo_phys, hi_phys)`` (Hz) that candidate x positions may come from: the focus."""
         return (self._focus.lo, self._focus.hi)
 
     def _resample_if_degenerate(self) -> bool:
@@ -468,7 +468,7 @@ class SequentialBayesianLocator(Locator):
 
     def _to_experiment_normalized(self, physical_value: float) -> float:
         """Map a physical scan position to ``[0, 1]`` for :meth:`CoreExperiment.measure`."""
-        lo, hi = self._full_domain_lo, self._full_domain_hi
+        lo, hi = self._drive_freq_min_phys, self._drive_freq_max_phys
         tol = 1e-7 * (hi - lo)
         if physical_value < lo - tol or physical_value > hi + tol:
             raise ValueError(

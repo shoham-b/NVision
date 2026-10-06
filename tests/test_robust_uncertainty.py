@@ -164,7 +164,7 @@ def _make_unit_cube_belief(phys_bounds: dict, num_particles: int = 200) -> SMCMa
         parameter_bounds={"amplitude": (0.0, 1.0), "center": (0.0, 1.0)},
         num_particles=num_particles,
         physical_param_bounds=phys_bounds,
-        physical_x_bounds=phys_bounds["center"],
+        drive_freq_bounds_phys=phys_bounds["center"],
         skip_state_init=True,
         noise_model=gaussian_noise(),
     )
@@ -265,7 +265,7 @@ class TestSbedStreakSurvivesRawUncertaintySpike:
             parameter_bounds={name: (0.0, 1.0) for name in phys_bounds},
             num_particles=200,
             physical_param_bounds=phys_bounds,
-            physical_x_bounds=phys_bounds["center_freq"],
+            drive_freq_bounds_phys=phys_bounds["center_freq"],
             noise_model=gaussian_noise(),
         )
         loc = SequentialBayesianExperimentDesignLocator(

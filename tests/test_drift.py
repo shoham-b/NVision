@@ -19,11 +19,13 @@ from nvision.sim.gen.nv_center_generator import NVCenterCoreGenerator
 
 
 def _signal(seed: int = 3):
-    return NVCenterCoreGenerator(x_min=2.6e9, x_max=3.1e9, variant="lorentzian").generate(random.Random(seed))
+    return NVCenterCoreGenerator(drive_freq_min_phys=2.6e9, drive_freq_max_phys=3.1e9, variant="lorentzian").generate(
+        random.Random(seed)
+    )
 
 
 def _experiment(noise, seed: int = 3) -> CoreExperiment:
-    return CoreExperiment(true_signal=_signal(seed), noise=noise, x_min=2.6e9, x_max=3.1e9)
+    return CoreExperiment(true_signal=_signal(seed), noise=noise, drive_freq_min_phys=2.6e9, drive_freq_max_phys=3.1e9)
 
 
 def test_every_component_starts_at_zero():
@@ -153,10 +155,15 @@ def test_truth_summary_reports_end_and_mean():
 
 def test_splitting_drift_on_a_single_dip_signal_fails_loudly():
     single = NVCenterCoreGenerator(
-        x_min=2.6e9, x_max=3.1e9, variant="lorentzian", with_zeeman_splitting=False
+        drive_freq_min_phys=2.6e9, drive_freq_max_phys=3.1e9, variant="lorentzian", with_zeeman_splitting=False
     ).generate(random.Random(0))
     spec = DriftSpec(label="f", shot_duration_s=1.0, field_mg=DriftProcess(warmup_amplitude=1.0))
-    exp = CoreExperiment(true_signal=single, noise=presets.gauss_with_drift(0.0, spec), x_min=2.6e9, x_max=3.1e9)
+    exp = CoreExperiment(
+        true_signal=single,
+        noise=presets.gauss_with_drift(0.0, spec),
+        drive_freq_min_phys=2.6e9,
+        drive_freq_max_phys=3.1e9,
+    )
     exp = attach_drift_for_repeat(exp, 1, "g", 0)
     assert not hasattr(exp.true_signal.typed_parameters, "zeeman_split")
     with pytest.raises(ValueError, match="zeeman_split"):

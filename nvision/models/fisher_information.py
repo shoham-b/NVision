@@ -126,7 +126,7 @@ def marginal_crlbs_at_budget(
     """Per-parameter marginal CRLB achievable with ``n_steps`` uniform measurements.
 
     Computes the expected Fisher information for a uniform grid of ``n_grid``
-    probe positions over ``[x_lo, x_hi]``, averages across them, scales by
+    drive frequencies over ``[x_lo, x_hi]``, averages across them, scales by
     ``n_steps``, and returns per-parameter marginal CRLBs (in each parameter's
     own physical units) as ``sqrt(diag(pinv(n_steps * mean_FIM)))``.
 
@@ -348,11 +348,11 @@ def oracle_crlb_history(
     """
     names = list(model.parameter_names())
     ranges = ranges_from_bounds(names, bounds)
-    probe_obs = Observation(x=0.0, signal_value=0.0, noise_std=noise_std)  # only noise_std is read
+    noise_only_obs = Observation(x=0.0, signal_value=0.0, noise_std=noise_std)  # only noise_std is read
     mean_fim = np.zeros((len(names), len(names)))
     valid = 0
     for xi in np.linspace(x_lo, x_hi, n_grid):
-        fim = unit_normalized_fim(model, true_typed_params, float(xi), probe_obs, bounds)
+        fim = unit_normalized_fim(model, true_typed_params, float(xi), noise_only_obs, bounds)
         if fim is not None:
             mean_fim += fim
             valid += 1

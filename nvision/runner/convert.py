@@ -12,16 +12,16 @@ import polars as pl
 from nvision.models.observer import RunResult
 
 
-def denormalize_x(x_norm: float, x_min: float, x_max: float) -> float:
+def denormalize_x(x_norm: float, drive_freq_min_phys: float, drive_freq_max_phys: float) -> float:
     """Convert normalized [0,1] x to physical domain."""
-    return x_min + x_norm * (x_max - x_min)
+    return drive_freq_min_phys + x_norm * (drive_freq_max_phys - drive_freq_min_phys)
 
 
 def run_result_to_history_df(
     result: RunResult,
     repeat_id: int,
-    x_min: float,
-    x_max: float,
+    drive_freq_min_phys: float,
+    drive_freq_max_phys: float,
 ) -> pl.DataFrame:
     """Convert a RunResult's snapshots to a history DataFrame in physical domain.
 
@@ -34,7 +34,7 @@ def run_result_to_history_df(
         # Detect if x is normalized [0,1] or already physical
         # Normalized x is in [0, 1]; physical x for NV centers is ~2.72e9-3.02e9 (Hz)
         x_phys = (
-            denormalize_x(x, x_min, x_max) if 0 <= x <= 1 else x
+            denormalize_x(x, drive_freq_min_phys, drive_freq_max_phys) if 0 <= x <= 1 else x
         )  # x is already in physical coordinates (e.g., from SweepingLocator)
         rows.append(
             {
@@ -63,8 +63,8 @@ def run_result_to_history_df(
 def extract_peak_estimates(
     belief_estimates: dict[str, float],
     locator_result: dict[str, float],
-    x_min: float,
-    x_max: float,
+    drive_freq_min_phys: float,
+    drive_freq_max_phys: float,
 ) -> dict[str, float]:
     """Map raw locator/belief estimates to physical-domain peak positions.
 
@@ -86,7 +86,9 @@ def extract_peak_estimates(
             or "freq" in key_lc
         )
         if is_position:
-            estimates[key] = denormalize_x(value, x_min, x_max) if 0 <= value <= 1 else value
+            estimates[key] = (
+                denormalize_x(value, drive_freq_min_phys, drive_freq_max_phys) if 0 <= value <= 1 else value
+            )
         else:
             estimates[key] = value
 
@@ -120,8 +122,8 @@ def run_result_to_finalize_record(
     result: RunResult,
     locator_result: dict[str, float],
     repeat_id: int,
-    x_min: float,
-    x_max: float,
+    drive_freq_min_phys: float,
+    drive_freq_max_phys: float,
 ) -> dict[str, Any]:
     """Flatten a RunResult into a single dict suitable for the finalize DataFrame.
 
@@ -142,7 +144,7 @@ def run_result_to_finalize_record(
         # extract_peak_estimates seeds from locator_result); apply the same
         # preference here.
         belief_estimates = {**belief_estimates, **result.fit_mode_estimates}
-    record.update(extract_peak_estimates(belief_estimates, locator_result, x_min, x_max))
+    record.update(extract_peak_estimates(belief_estimates, locator_result, drive_freq_min_phys, drive_freq_max_phys))
 
     for key, value in belief_estimates.items():
         record.setdefault(key, value)

@@ -100,11 +100,11 @@ def _subsample_snapshots(snapshots: list, max_frames: int = _MAX_VIZ_SNAPSHOTS) 
     return [snapshots[i] for i in indices]
 
 
-def _resolve_probe_axis_param(strat_obj: Any, run_result: RunResult) -> str:
+def _resolve_center_param(strat_obj: Any, run_result: RunResult) -> str:
     """Parameter used for 1D posterior animation (matches BayesianLocator scan axis)."""
     if isinstance(strat_obj, dict):
         cfg = strat_obj.get("config") or {}
-        sp = cfg.get("probe_axis_param")
+        sp = cfg.get("center_param")
         if isinstance(sp, str) and sp.strip():
             return sp.strip()
     if run_result.snapshots:
@@ -116,7 +116,7 @@ def _resolve_probe_axis_param(strat_obj: Any, run_result: RunResult) -> str:
 
 def _posterior_animation_inputs(
     run_result: RunResult,
-    probe_axis_param: str,
+    center_param: str,
     start_idx: int = 0,
 ) -> tuple[list[np.ndarray], np.ndarray] | None:
     """Build (posterior_history, freq_grid) for ``plot_posterior_animation``.
@@ -125,7 +125,7 @@ def _posterior_animation_inputs(
     ----------
     run_result : RunResult
         Full result with snapshots
-    probe_axis_param : str
+    center_param : str
         Parameter to extract posterior for
     start_idx : int
         Starting index to slice snapshots (used to exclude initial sweep stages)
@@ -142,19 +142,19 @@ def _posterior_animation_inputs(
 
     b0 = snapshots[0].belief
     if isinstance(b0, GridMarginalDistribution):
-        grid = b0.get_grid_param(probe_axis_param).grid
-        hist = [s.belief.get_grid_param(probe_axis_param).posterior.copy() for s in snapshots]
+        grid = b0.get_grid_param(center_param).grid
+        hist = [s.belief.get_grid_param(center_param).posterior.copy() for s in snapshots]
         return hist, grid
 
     if isinstance(b0, SMCMarginalDistribution):
-        idx = b0._param_names.index(probe_axis_param)
+        idx = b0._param_names.index(center_param)
         hist: list[np.ndarray] = []
 
         is_unit_cube = False
         lo, hi = 0.0, 1.0
         if hasattr(b0, "model") and isinstance(b0.model, UnitCubeSignalModel):
             is_unit_cube = True
-            lo, hi = b0.model.param_bounds_phys[probe_axis_param]
+            lo, hi = b0.model.param_bounds_phys[center_param]
 
         frame_memo: dict[int, np.ndarray] = {}
         for s in snapshots:
@@ -235,7 +235,7 @@ def _extract_smc_posterior(snapshots: list, names: list[str]) -> dict[str, tuple
     use_rb = getattr(b0, "noise_model", None) is not None
 
     # Resolve particle column indices once; physical bounds are resolved
-    # per snapshot because the probe window can narrow during a run.
+    # per snapshot because the drive-frequency window can narrow during a run.
     param_idx = {
         param_name: (None if (param_name == "noise_sigma" and use_rb) else b0._param_names.index(param_name))
         for param_name in names
@@ -336,7 +336,7 @@ def _bayesian_auxiliary_entries(
     before manifests are written) rather than written to disk.
     """
     extra: list[dict[str, Any]] = []
-    probe_axis_param = _resolve_probe_axis_param(strat_obj, run_result)
+    center_param = _resolve_center_param(strat_obj, run_result)
     true_params = run_result.true_signal.parameter_values()
     if experiment is not None and experiment.noise is not None:
         with suppress(Exception):
@@ -435,10 +435,10 @@ def _bayesian_auxiliary_entries(
             extra.append(ie)
     else:
         # Fallback for non-SMC/grid beliefs: single-param posterior animation
-        anim_inputs = _posterior_animation_inputs(viz_run_result, probe_axis_param, start_idx=sweep_steps)
+        anim_inputs = _posterior_animation_inputs(viz_run_result, center_param, start_idx=sweep_steps)
         if anim_inputs is not None:
             posterior_history, freq_grid = anim_inputs
-            anim_single = {probe_axis_param: (posterior_history, freq_grid)}
+            anim_single = {center_param: (posterior_history, freq_grid)}
             physical_bounds = (
                 getattr(bayesian_snapshots[0].belief, "physical_param_bounds", {}) if bayesian_snapshots else {}
             )
@@ -595,8 +595,8 @@ def _bayesian_auxiliary_entries(
                 n_steps=len(bayesian_snapshots),
                 model=run_result.true_signal.model,
                 true_typed_params=run_result.true_signal.typed_parameters,
-                x_lo=float(experiment.x_min),
-                x_hi=float(experiment.x_max),
+                x_lo=float(experiment.drive_freq_min_phys),
+                x_hi=float(experiment.drive_freq_max_phys),
                 noise_std=float(bayesian_snapshots[0].obs.noise_std),
                 bounds=physical_bounds,
             )
@@ -861,7 +861,7 @@ def get_or_run_simplesweep_baseline(
         if hasattr(experiment.noise, "estimated_max_noise_deviation"):
             noise_max_dev = float(experiment.noise.estimated_max_noise_deviation(n_samples=6))
 
-    domain_width = float(experiment.x_max - experiment.x_min)
+    domain_width = float(experiment.drive_freq_max_phys - experiment.drive_freq_min_phys)
     signal_max_span = None
     model = experiment.true_signal.model
     if hasattr(model, "signal_max_span") and callable(model.signal_max_span):
@@ -887,7 +887,9 @@ def get_or_run_simplesweep_baseline(
         bounds, noise_model=experiment.true_signal.noise_model, lineshape=nv_lineshape_for_model(model)
     )
 
-    f_domain_width = float(experiment.x_max - experiment.x_min)  # full probe axis width, Hz
+    f_domain_width = float(
+        experiment.drive_freq_max_phys - experiment.drive_freq_min_phys
+    )  # full drive-frequency axis width, Hz
     min_linewidth = min_linewidth_hz(bounds)
     max_steps = max(30, math.ceil(f_domain_width / min_linewidth))
 
@@ -896,8 +898,8 @@ def get_or_run_simplesweep_baseline(
         signal_model=model,
         max_steps=max_steps,
         noise_std=noise_std,
-        domain_lo=experiment.x_min,
-        domain_hi=experiment.x_max,
+        domain_lo=experiment.drive_freq_min_phys,
+        domain_hi=experiment.drive_freq_max_phys,
         **({} if noise_max_dev is None else {"noise_max_dev": noise_max_dev}),
         **({} if signal_max_span is None else {"signal_max_span": signal_max_span}),
     )
@@ -993,18 +995,18 @@ def generate_attempt_plots(
 
     focus_window = run_result.focus_window if run_result is not None else None
     # Fallback to narrowed_param_bounds only when they are genuinely tighter than
-    # the full domain.  Prefer a probe-axis-like parameter, otherwise skip.
+    # the full domain.  Prefer a drive-frequency-like parameter, otherwise skip.
     if focus_window is None and run_result is not None and run_result.narrowed_param_bounds:
         nb = run_result.narrowed_param_bounds
-        probe_axis_param_name = None
+        center_param_name = None
         for name in nb:
             if "freq" in name.lower() or name in ("x", "center_freq"):
-                probe_axis_param_name = name
+                center_param_name = name
                 break
-        if probe_axis_param_name is None:
-            probe_axis_param_name = next(iter(nb))
-        lo, hi = nb[probe_axis_param_name]
-        domain_width = current_scan.x_max - current_scan.x_min
+        if center_param_name is None:
+            center_param_name = next(iter(nb))
+        lo, hi = nb[center_param_name]
+        domain_width = current_scan.drive_freq_max_phys - current_scan.drive_freq_min_phys
         if hi - lo < domain_width * (1.0 - 1e-9):
             focus_window = (lo, hi)
     per_dip_windows = run_result.per_dip_windows if run_result is not None else None

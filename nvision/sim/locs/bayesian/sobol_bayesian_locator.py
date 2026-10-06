@@ -10,7 +10,7 @@ from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBaye
 
 # Observations are buffered and dispatched to belief.batch_update() every
 # SOBOL_BATCH_CHUNK_SIZE steps.  batch_update uses compute_vectorized_many
-# (the _many kernel, parallel over probe positions) instead of N sequential
+# (the _many kernel, parallel over drive frequencies) instead of N sequential
 # calls to compute_vectorized (the _one kernel, where thread overhead ≫ work
 # at practical particle counts).  Larger chunks amortise thread startup over
 # more evaluations; 200 gives ~12x speedup vs sequential at 10k particles
@@ -44,14 +44,14 @@ class SimpleSobolBayesianLocator(SequentialBayesianLocator):
         belief,
         max_steps: int = 150,
         convergence_threshold: float = NVISION_CONVERGENCE_THRESHOLD,
-        probe_axis_param: str | None = None,
+        center_param: str | None = None,
         batch_chunk_size: int = SOBOL_BATCH_CHUNK_SIZE,
     ) -> None:
         super().__init__(
             belief,
             max_steps,
             convergence_threshold,
-            probe_axis_param,
+            center_param,
         )
         self.belief.auto_resample = False
         self._is_converged = False
@@ -64,7 +64,7 @@ class SimpleSobolBayesianLocator(SequentialBayesianLocator):
         builder=None,
         max_steps: int = 150,
         convergence_threshold: float = NVISION_CONVERGENCE_THRESHOLD,
-        probe_axis_param: str | None = None,
+        center_param: str | None = None,
         parameter_bounds=None,
         **grid_config,
     ):
@@ -75,13 +75,13 @@ class SimpleSobolBayesianLocator(SequentialBayesianLocator):
             belief,
             max_steps=max_steps,
             convergence_threshold=convergence_threshold,
-            probe_axis_param=probe_axis_param,
+            center_param=center_param,
         )
 
     def _acquire(self) -> float:
         n = self.inference_step_count
         val = van_der_corput(n, base=2)
-        lo, hi = self._probe_lo_phys, self._probe_hi_phys
+        lo, hi = self._drive_freq_min_phys, self._drive_freq_max_phys
         return float(lo + val * (hi - lo))
 
     def _observe_acquisition(self, obs: Observation) -> None:

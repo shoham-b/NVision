@@ -50,9 +50,15 @@ class _FakeBelief:
 
 
 def _make_experiment(
-    rng: random.Random, x_min: float = 2.6e9, x_max: float = 3.1e9, *, free_center_freq: bool = False
+    rng: random.Random,
+    drive_freq_min_phys: float = 2.6e9,
+    drive_freq_max_phys: float = 3.1e9,
+    *,
+    free_center_freq: bool = False,
 ) -> CoreExperiment:
-    gen = NVCenterCoreGenerator(x_min=x_min, x_max=x_max, variant="lorentzian")
+    gen = NVCenterCoreGenerator(
+        drive_freq_min_phys=drive_freq_min_phys, drive_freq_max_phys=drive_freq_max_phys, variant="lorentzian"
+    )
     true_signal = gen.generate(rng)
     if free_center_freq:
         # NVCenterCoreGenerator always fixes center_freq (a known instrument constant,
@@ -67,7 +73,12 @@ def _make_experiment(
             with_fixed_center_freq=False,
         )
     # noise=None -> zero measurement noise (mirrors test_simplesweep_finalize.py)
-    return CoreExperiment(true_signal=true_signal, noise=None, x_min=x_min, x_max=x_max)
+    return CoreExperiment(
+        true_signal=true_signal,
+        noise=None,
+        drive_freq_min_phys=drive_freq_min_phys,
+        drive_freq_max_phys=drive_freq_max_phys,
+    )
 
 
 def _spy_belief(belief):
@@ -175,7 +186,7 @@ def test_end_to_end_never_calls_update_directly():
     )
     calls = _spy_belief(belief)
 
-    observer = Observer(exp.true_signal, exp.x_min, exp.x_max)
+    observer = Observer(exp.true_signal, exp.drive_freq_min_phys, exp.drive_freq_max_phys)
     observer.watch(
         run_loop(
             StagedSobolSweepLocator,
@@ -207,7 +218,7 @@ def test_sobol_converges_with_batched_updates():
     rng = random.Random(3)
     exp = _make_experiment(rng, free_center_freq=True)
     truth = float(exp.true_signal.get_param_value("center_freq"))
-    prior_std = (exp.x_max - exp.x_min) / math.sqrt(12)
+    prior_std = (exp.drive_freq_max_phys - exp.drive_freq_min_phys) / math.sqrt(12)
 
     parameter_bounds = {k: v for k, v in exp.true_signal.bounds.items() if not k.startswith("_")}
     belief = nv_center_smc_belief(
@@ -218,7 +229,7 @@ def test_sobol_converges_with_batched_updates():
         noise_model=gaussian_noise(),
     )
 
-    observer = Observer(exp.true_signal, exp.x_min, exp.x_max)
+    observer = Observer(exp.true_signal, exp.drive_freq_min_phys, exp.drive_freq_max_phys)
     observer.watch(
         run_loop(
             StagedSobolSweepLocator,

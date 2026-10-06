@@ -11,10 +11,10 @@ def test_extract_peak_estimates_denormalization():
         "pos_y": 0.1,
         "freq_hz": 0.9,
     }
-    x_min = 100.0
-    x_max = 200.0
+    drive_freq_min_phys = 100.0
+    drive_freq_max_phys = 200.0
 
-    result = extract_peak_estimates(belief_estimates, locator_result, x_min, x_max)
+    result = extract_peak_estimates(belief_estimates, locator_result, drive_freq_min_phys, drive_freq_max_phys)
 
     assert result == {
         "x": 150.0,
@@ -33,10 +33,10 @@ def test_extract_peak_estimates_keep_outside():
         "peak_x": 1.2,
         "x1_hat": -0.1,
     }
-    x_min = 100.0
-    x_max = 200.0
+    drive_freq_min_phys = 100.0
+    drive_freq_max_phys = 200.0
 
-    result = extract_peak_estimates(belief_estimates, locator_result, x_min, x_max)
+    result = extract_peak_estimates(belief_estimates, locator_result, drive_freq_min_phys, drive_freq_max_phys)
 
     assert result == {
         "x": 150.0,
@@ -53,10 +53,10 @@ def test_extract_peak_estimates_ignore_non_numeric():
         "invalid": "string",
         "also_invalid": None,
     }
-    x_min = 100.0
-    x_max = 200.0
+    drive_freq_min_phys = 100.0
+    drive_freq_max_phys = 200.0
 
-    result = extract_peak_estimates(belief_estimates, locator_result, x_min, x_max)
+    result = extract_peak_estimates(belief_estimates, locator_result, drive_freq_min_phys, drive_freq_max_phys)
 
     assert result == {
         "x": 150.0,
@@ -71,10 +71,10 @@ def test_extract_peak_estimates_non_position():
         "width": 10.0,
         "something_else": 0.1,
     }
-    x_min = 100.0
-    x_max = 200.0
+    drive_freq_min_phys = 100.0
+    drive_freq_max_phys = 200.0
 
-    result = extract_peak_estimates(belief_estimates, locator_result, x_min, x_max)
+    result = extract_peak_estimates(belief_estimates, locator_result, drive_freq_min_phys, drive_freq_max_phys)
 
     assert result == {
         "amplitude": 0.5,
@@ -90,10 +90,10 @@ def test_extract_peak_estimates_belief_fallback():
         "split": 10.0,
     }
     locator_result = {}
-    x_min = 100.0
-    x_max = 200.0
+    drive_freq_min_phys = 100.0
+    drive_freq_max_phys = 200.0
 
-    result = extract_peak_estimates(belief_estimates, locator_result, x_min, x_max)
+    result = extract_peak_estimates(belief_estimates, locator_result, drive_freq_min_phys, drive_freq_max_phys)
 
     assert result == {
         "peak_x": 150.0,
@@ -110,10 +110,10 @@ def test_extract_peak_estimates_priority():
     locator_result = {
         "peak_x": 180.0,
     }
-    x_min = 100.0
-    x_max = 200.0
+    drive_freq_min_phys = 100.0
+    drive_freq_max_phys = 200.0
 
-    result = extract_peak_estimates(belief_estimates, locator_result, x_min, x_max)
+    result = extract_peak_estimates(belief_estimates, locator_result, drive_freq_min_phys, drive_freq_max_phys)
 
     # In the code, locator_result items are inserted first.
     # Then `estimates.setdefault("peak_x", freq_phys)` is called, so it won't overwrite 180.0.
@@ -132,10 +132,10 @@ def test_extract_peak_estimates_split_mapping():
     locator_result = {
         "split": 20.0,
     }
-    x_min = 100.0
-    x_max = 200.0
+    drive_freq_min_phys = 100.0
+    drive_freq_max_phys = 200.0
 
-    result = extract_peak_estimates(belief_estimates, locator_result, x_min, x_max)
+    result = extract_peak_estimates(belief_estimates, locator_result, drive_freq_min_phys, drive_freq_max_phys)
 
     # The code maps `estimates["split"] = belief_estimates["split"]`, overwriting locator_result.
     assert result == {

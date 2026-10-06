@@ -1,4 +1,4 @@
-"""Map unit-interval parameters and probe position to physical signal evaluation."""
+"""Map unit-interval parameters and drive frequencies to physical signal evaluation."""
 
 from __future__ import annotations
 
@@ -189,10 +189,10 @@ class UnitCubeSignalModel[ParamsT, SampleParamsT, UncertaintyT](SignalModel[Para
             phys_arrays.append(_unit_interval_to_physical(u_raw, lo, hi, name))
 
         x_lo, x_hi = self.x_bounds_phys
-        xs_phys = x_lo + xs_norm * (x_hi - x_lo)
+        drive_freqs_phys = x_lo + xs_norm * (x_hi - x_lo)
 
         typed_samples_phys = self.inner.spec.unpack_samples(tuple(phys_arrays))
-        return self.inner.compute_vectorized_many(xs_phys, typed_samples_phys)
+        return self.inner.compute_vectorized_many(drive_freqs_phys, typed_samples_phys)
 
     def compute_vectorized_many_fast(
         self,
@@ -220,10 +220,10 @@ class UnitCubeSignalModel[ParamsT, SampleParamsT, UncertaintyT](SignalModel[Para
             phys_arrays.append(_unit_interval_to_physical(u_raw, lo, hi, name))
 
         x_lo, x_hi = self.x_bounds_phys
-        xs_phys = x_lo + xs_norm * (x_hi - x_lo)
+        drive_freqs_phys = x_lo + xs_norm * (x_hi - x_lo)
 
         typed_samples_phys = self.inner.spec.unpack_samples(tuple(phys_arrays))
-        return self.inner.compute_vectorized_many_fast(xs_phys, typed_samples_phys)
+        return self.inner.compute_vectorized_many_fast(drive_freqs_phys, typed_samples_phys)
 
     def is_scale_parameter(self, name: str) -> bool:
         return self.inner.is_scale_parameter(name)

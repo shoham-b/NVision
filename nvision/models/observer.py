@@ -141,27 +141,27 @@ class Observer:
         Ground truth signal
     snapshots : list[StepSnapshot]
         Accumulated snapshots during run
-    x_min : float
+    drive_freq_min_phys : float
         Physical domain minimum (for error computation)
-    x_max : float
+    drive_freq_max_phys : float
         Physical domain maximum (for error computation)
     """
 
-    def __init__(self, true_signal: TrueSignal, x_min: float, x_max: float):
+    def __init__(self, true_signal: TrueSignal, drive_freq_min_phys: float, drive_freq_max_phys: float):
         """Initialize observer.
 
         Parameters
         ----------
         true_signal : TrueSignal
             Ground truth signal for error computation
-        x_min : float
+        drive_freq_min_phys : float
             Physical domain minimum
-        x_max : float
+        drive_freq_max_phys : float
             Physical domain maximum
         """
         self.true_signal = true_signal
-        self.x_min = x_min
-        self.x_max = x_max
+        self.drive_freq_min_phys = drive_freq_min_phys
+        self.drive_freq_max_phys = drive_freq_max_phys
         self.snapshots: list[StepSnapshot] = []
         self.last_locator: Locator | None = None
 
@@ -216,8 +216,8 @@ class Observer:
                     copied_belief = belief.copy()
 
                     # Strip heavy cached arrays from the snapshot copy to drastically lower memory footprint
-                    if hasattr(copied_belief, "_candidate_x_unit"):
-                        copied_belief._candidate_x_unit = np.array([], dtype=np.float32)
+                    if hasattr(copied_belief, "_candidate_drive_freq_unit"):
+                        copied_belief._candidate_drive_freq_unit = np.array([], dtype=np.float32)
 
                     last_belief_key = belief_key
                     last_copied_belief = copied_belief

@@ -462,19 +462,19 @@ class StagedSobolSweepLocator(Locator):
         noise_max_dev: float | None = None,
         signal_min_span: float | None = None,
         signal_max_span: float | None = None,
-        probe_axis_param: str | None = None,
+        center_param: str | None = None,
         domain_lo: float = 0.0,
         domain_hi: float = 1.0,
         parameter_bounds: dict[str, tuple[float, float]] | None = None,
         **kwargs: Any,
     ) -> StagedSobolSweepLocator:
         if parameter_bounds is not None:
-            # "center_freq" is always the probe x-axis for NV-center models even
+            # "center_freq" is always the drive-frequency axis for NV-center models even
             # when fixed (not inferred) and therefore absent from
             # signal_model.parameter_names() -- same landmine as
             # GenericSweepLocator.create()'s own domain resolution.
-            if probe_axis_param:
-                param_name = probe_axis_param
+            if center_param:
+                param_name = center_param
             elif "center_freq" in parameter_bounds:
                 param_name = "center_freq"
             else:
@@ -491,7 +491,7 @@ class StagedSobolSweepLocator(Locator):
             noise_std=noise_std,
             noise_max_dev=noise_max_dev,
             signal_max_span=signal_max_span,
-            probe_axis_param=probe_axis_param,
+            center_param=center_param,
         )
 
     def __init__(
@@ -505,7 +505,7 @@ class StagedSobolSweepLocator(Locator):
         noise_std: float = 0.01,
         noise_max_dev: float | None = None,
         signal_max_span: float | None = None,
-        probe_axis_param: str | None = None,
+        center_param: str | None = None,
     ):
         super().__init__(belief)
         self.signal_model = signal_model
@@ -515,7 +515,7 @@ class StagedSobolSweepLocator(Locator):
         self.noise_std = noise_std
         self.noise_max_dev = noise_max_dev
         self.signal_max_span = signal_max_span
-        self.probe_axis_param = probe_axis_param
+        self.center_param = center_param
 
         self.step_count = 0
         self.history = ObservationHistory(self.max_steps)
@@ -823,9 +823,9 @@ class StagedSobolSweepLocator(Locator):
         if domain_width <= 0:
             return None
         n = 20000
-        xs_phys = np.linspace(self.domain_lo, self.domain_hi, n)
-        ys = np.array([self._true_signal(float(x)) for x in xs_phys], dtype=float)
-        xs_norm = (xs_phys - self.domain_lo) / domain_width
+        drive_freqs_phys = np.linspace(self.domain_lo, self.domain_hi, n)
+        ys = np.array([self._true_signal(float(x)) for x in drive_freqs_phys], dtype=float)
+        xs_norm = (drive_freqs_phys - self.domain_lo) / domain_width
         return self._detect_dip_segments(xs_norm, ys, noise_std=1e-6, min_width=0.0)
 
     def _true_signal_dip_width(self) -> float | None:

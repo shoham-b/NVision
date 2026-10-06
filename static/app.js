@@ -85,10 +85,10 @@ function main() {
     });
 
     const scanPlots = plots.filter((p) => p.type === 'scan');
-    // Real (MATLAB) runs only: per-probe-point mean/std/min/max of every recorded
+    // Real (MATLAB) runs only: per-drive-frequency-point mean/std/min/max of every recorded
     // shot, overlaid as candle-like whiskers on top of the sampled-measurements
     // scan plot (see _getProbeStatsOverlayTraces) rather than shown as its own panel.
-    const matlabProbeStatsPlots = plots.filter((p) => p.type === 'matlab_probe_stats');
+    const matlabDriveFreqStatsPlots = plots.filter((p) => p.type === 'matlab_drive_freq_stats');
     const bayesSection = document.getElementById('bayes-section-container');
     const bayesImage = document.getElementById('bayes-image');
     const bayesPlots = plots.filter((p) => p.type === 'bayesian');
@@ -992,7 +992,7 @@ function main() {
             { key: 'min_dip_width', label: 'Dip width', tip: 'Width of the actual signal dip in physical frequency units.', fmt: formatHz },
             { key: 'total_signal_span', label: 'Signal span', tip: 'Total span from first dip start to last dip end in physical frequency units.', fmt: formatHz },
             { key: 'sweep_efficiency', label: 'Efficiency', tip: 'Expected uniform points / actual measurements. >1 means the locator was efficient.', fmt: formatMetricValue },
-            { key: 'focus_window', label: 'Focus window', tip: 'Inferred probe window the locator narrowed onto after detecting dips.', fmt: function (v) { return v; } },
+            { key: 'focus_window', label: 'Focus window', tip: 'Inferred drive-frequency window the locator narrowed onto after detecting dips.', fmt: function (v) { return v; } },
         ];
         let any = false;
         for (const it of items) {
@@ -1237,7 +1237,7 @@ function main() {
             }
             const pick = (arr) => (Array.isArray(arr) && arr.length === t.x.length) ? idx.map((i) => arr[i]) : arr;
             const out = Object.assign({}, t, { x: idx.map((i) => t.x[i]), y: pick(t.y), customdata: pick(t.customdata) });
-            // error_y.array/arrayminus (the per-probe-point stats overlay's asymmetric
+            // error_y.array/arrayminus (the per-drive-frequency-point stats overlay's asymmetric
             // whiskers) are nested per-point fields parallel to x -- filter them the
             // same way so lengths stay in sync, or Plotly misaligns them post-filter.
             if (t.error_y && (t.error_y.array || t.error_y.arrayminus)) {
@@ -1278,7 +1278,7 @@ function main() {
     // Window one trace's points to [lo, hi] and, if mirrorAbout is given, reflect
     // x -> 2*mirrorAbout - x (re-sorted by x) so a mirrored trace reads in the same
     // left-to-right orientation as its un-mirrored counterpart. Also carries along
-    // error_y.array/arrayminus (the per-probe-point stats overlay's whiskers) --
+    // error_y.array/arrayminus (the per-drive-frequency-point stats overlay's whiskers) --
     // a nested field parallel to x/y that would otherwise desync from it.
     function _windowAndMirrorTrace(t, lo, hi, mirrorAbout) {
         if (!t.x || !t.x.length) return null;
@@ -1330,7 +1330,7 @@ function main() {
         const bottomData = [];
         for (const t of figData) {
             // Skip metrics-row traces (entropy/uncertainty vs. step) -- not meaningful
-            // windowed against a probe-axis range, and would collide with the x2/y2
+            // windowed against a drive-frequency range, and would collide with the x2/y2
             // axes reused below for the second Zeeman-group panel.
             if (t.xaxis === 'x2' || t.yaxis === 'y2') continue;
 
@@ -1543,7 +1543,7 @@ function main() {
             const built = await buildFigureFromData(filtered);
             let figData = built.data;
             let figLayout = Object.assign({}, built.layout, { autosize: true });
-            // The per-probe-point stats overlay covers every recorded shot regardless of
+            // The per-drive-frequency-point stats overlay covers every recorded shot regardless of
             // inference step, so it's exempt from the step cap -- re-added at full extent.
             const withOverlay = await _withProbeStatsOverlay(figData, figLayout, currentPlot, !!raw.has_metrics);
             figData = withOverlay.data;
@@ -1595,7 +1595,7 @@ function main() {
         registerTimelineAdapter(scanTimelineAdapter);
     }
 
-    // Builds the "actual averages per-probe-point" overlay traces for a MATLAB run
+    // Builds the "actual averages per-drive-frequency-point" overlay traces for a MATLAB run
     // -- the per-bin mean/std/min/max of every shot recorded in the .mat file
     // (independent of which bins the adaptive locator actually visited). Drawn
     // as candle-like error-bar pairs rather than Plotly's own `candlestick`
@@ -1607,7 +1607,7 @@ function main() {
     // centered exactly on the mean spans ±std with an explicit horizontal tick
     // at the mean itself.
     function _buildProbeStatsOverlayTraces(data) {
-        const probeX = Array.from(data.probe_axis_phys);
+        const driveFreqPhys = Array.from(data.drive_freq_phys);
         const mean = Array.from(data.mean);
         const std = Array.from(data.std);
         const traces = [];
@@ -1618,7 +1618,7 @@ function main() {
             traces.push({
                 type: 'scatter',
                 mode: 'markers',
-                x: probeX,
+                x: driveFreqPhys,
                 y: mean,
                 marker: { size: 0, color: 'rgba(180,83,9,0.9)' },
                 error_y: {
@@ -1631,16 +1631,16 @@ function main() {
                     color: 'rgba(180,83,9,0.9)',
                 },
                 customdata: min.map((m, i) => [m, max[i]]),
-                hovertemplate: 'probe axis=%{x}<br>min=%{customdata[0]:.4f}<br>max=%{customdata[1]:.4f}<extra></extra>',
+                hovertemplate: 'drive-frequency axis=%{x}<br>min=%{customdata[0]:.4f}<br>max=%{customdata[1]:.4f}<extra></extra>',
                 name: 'Extremes (min–max)',
-                legendgroup: 'matlab-probe-stats',
+                legendgroup: 'matlab-drive-freq-stats',
                 showlegend: true,
             });
         }
         traces.push({
             type: 'scatter',
             mode: 'markers',
-            x: probeX,
+            x: driveFreqPhys,
             y: mean,
             // Amber, not blue: this now shares a chart with the blue "recorded mean
             // signal" line (a related but distinct statistic -- ratio-of-means vs.
@@ -1652,38 +1652,38 @@ function main() {
                 thickness: 5, width: 0, color: 'rgba(217,119,6,0.55)',
             },
             customdata: std,
-            hovertemplate: 'probe axis=%{x}<br>average=%{y:.4f}<br>std=±%{customdata:.4f}<extra></extra>',
-            name: 'Actual averages per probe point (mean ± std)',
-            legendgroup: 'matlab-probe-stats',
+            hovertemplate: 'drive-frequency axis=%{x}<br>average=%{y:.4f}<br>std=±%{customdata:.4f}<extra></extra>',
+            name: 'Actual averages per drive-frequency points (mean ± std)',
+            legendgroup: 'matlab-drive-freq-stats',
             showlegend: true,
         });
         return traces;
     }
 
     // Fetches (and caches on the manifest entry, mirroring ensureRepeatMeta) the
-    // matlab_probe_stats companion data for the given scan plot and builds it into
+    // matlab_drive_freq_stats companion data for the given scan plot and builds it into
     // overlay traces -- present only for MATLAB (real-data) generators, which
-    // have a matching matlab_probe_stats entry. Resolves null when there is none.
+    // have a matching matlab_drive_freq_stats entry. Resolves null when there is none.
     function _getProbeStatsOverlayTraces(plot) {
-        const statsPlot = plot ? matlabProbeStatsPlots.find((p) => _matchesSelected(p, plot)) : null;
+        const statsPlot = plot ? matlabDriveFreqStatsPlots.find((p) => _matchesSelected(p, plot)) : null;
         if (!statsPlot) return Promise.resolve(null);
         if (!statsPlot._overlayTracesPromise) {
             statsPlot._overlayTracesPromise = _fetchJson(statsPlot.path).then((data) => {
-                if (data.schema !== 'matlab_probe_stats_v1' || !data.probe_axis_phys) return null;
+                if (data.schema !== 'matlab_drive_freq_stats_v1' || !data.drive_freq_phys) return null;
                 return _buildProbeStatsOverlayTraces(data);
             }).catch((e) => {
-                console.warn('Failed to load per-probe-point stats overlay', e);
+                console.warn('Failed to load per-drive-frequency-point stats overlay', e);
                 return null;
             });
         }
         return statsPlot._overlayTracesPromise;
     }
 
-    // Appends the per-probe-point mean/std/min/max overlay (if any exists for
+    // Appends the per-drive-frequency-point mean/std/min/max overlay (if any exists for
     // `plot`) on top of a scan figure's traces -- last in `data` so it draws over
     // the sampled-measurements markers rather than under them. `legend.groupclick:
     // 'togglegroup'` makes clicking either of the two overlay legend entries (they
-    // share legendgroup 'matlab-probe-stats') hide/show both together, since they're
+    // share legendgroup 'matlab-drive-freq-stats') hide/show both together, since they're
     // two halves of one statistic rather than independent series.
     async function _withProbeStatsOverlay(figData, figLayout, plot, hasMetrics) {
         const overlayTraces = await _getProbeStatsOverlayTraces(plot);

@@ -67,10 +67,10 @@ class MatlabDataFile:
 
     Attributes
     ----------
-    probe_axis_phys : np.ndarray
-        Frequency grid in Hz, shape (N_probe,).
+    drive_freq_phys : np.ndarray
+        Frequency grid in Hz, shape (N_drive_freq,).
     signal : np.ndarray
-        Normalised signal ratio (baseline / with_freq), shape (N_probe,).
+        Normalised signal ratio (baseline / with_freq), shape (N_drive_freq,).
         Values ≈ 1.0 in background, dipping below at resonance.
     noise_std : float
         Initial noise estimate passed to the SBED locator. The locator refines
@@ -79,7 +79,7 @@ class MatlabDataFile:
         Number of valid shot slots used for the signal computation.
     """
 
-    probe_axis_phys: np.ndarray
+    drive_freq_phys: np.ndarray
     signal: np.ndarray
     noise_std: float
     n_valid_shots: int
@@ -87,7 +87,7 @@ class MatlabDataFile:
     # Per-frequency mean/std/min/max of shot_ratios (i.e. mean-of-ratios, not
     # `signal`'s ratio-of-means) — the actual empirical average, spread, and
     # extremes of the shots recorded at each bin, kept for the "actual averages
-    # per-probe-point" plot.
+    # per-drive-frequency-point" plot.
     signal_mean: np.ndarray | None = None
     signal_std: np.ndarray | None = None
     signal_min: np.ndarray | None = None
@@ -95,11 +95,11 @@ class MatlabDataFile:
     rng: np.random.Generator = field(default_factory=np.random.default_rng, repr=False, compare=False)
 
     def __post_init__(self) -> None:
-        self._visit_counts = np.zeros(len(np.atleast_1d(self.probe_axis_phys)), dtype=np.int64)
+        self._visit_counts = np.zeros(len(np.atleast_1d(self.drive_freq_phys)), dtype=np.int64)
 
     @property
     def visited_mask(self) -> np.ndarray:
-        """Boolean mask over probe bins: True where ``measure()`` has drawn a shot.
+        """Boolean mask over drive-frequency bins: True where ``measure()`` has drawn a shot.
 
         Distinct from ``shot_ratios`` having real data — a bin can hold plenty of
         recorded shots in the file yet never be sampled by a given locator run (it
@@ -143,18 +143,19 @@ class MatlabDataFile:
         esr = _extract_esr(mat)
 
         # --- Frequency axis (MHz → Hz) ---
-        probe_axis_mhz = np.asarray(esr.frequency, dtype=np.float64).ravel()
-        probe_axis_phys = probe_axis_mhz * 1e6
+        drive_freq_mhz = np.asarray(esr.frequency, dtype=np.float64).ravel()
+        drive_freq_phys = drive_freq_mhz * 1e6
 
         # --- Signal array ---
-        raw = np.asarray(esr.signal, dtype=np.float64)  # (2, N_probe, N_shots_max)
+        raw = np.asarray(esr.signal, dtype=np.float64)  # (2, N_drive_freq, N_shots_max)
         if raw.ndim != 3 or raw.shape[0] != 2:
-            raise ValueError(f"Expected esr.signal shape (2, N_probe, N_shots), got {raw.shape}")
-        n_probe_points, n_shots_max = raw.shape[1], raw.shape[2]
+            raise ValueError(f"Expected esr.signal shape (2, N_drive_freq, N_shots), got {raw.shape}")
+        n_drive_freq_points, n_shots_max = raw.shape[1], raw.shape[2]
 
-        if len(probe_axis_phys) != n_probe_points:
+        if len(drive_freq_phys) != n_drive_freq_points:
             raise ValueError(
-                f"Probe axis length ({len(probe_axis_phys)}) does not match signal N_probe dimension ({n_probe_points})"
+                f"Drive-frequency axis length ({len(drive_freq_phys)}) does not match "
+                f"signal N_drive_freq dimension ({n_drive_freq_points})"
             )
 
         # Determine valid shot count
@@ -166,10 +167,10 @@ class MatlabDataFile:
                 "The measurement may not have started yet."
             )
 
-        baseline = raw[0, :, :n_valid].copy()  # (N_probe, N_valid)
-        with_freq = raw[1, :, :n_valid].copy()  # (N_probe, N_valid)
+        baseline = raw[0, :, :n_valid].copy()  # (N_drive_freq, N_valid)
+        with_freq = raw[1, :, :n_valid].copy()  # (N_drive_freq, N_valid)
 
-        # Mask zero/NaN slots per-probe-point. with_freq is now the ratio's denominator (see
+        # Mask zero/NaN slots per-drive-frequency-point. with_freq is now the ratio's denominator (see
         # shot_ratios below), so it needs the same positivity guard baseline always had.
         good = (baseline > 0) & (with_freq > 0) & np.isfinite(baseline) & np.isfinite(with_freq)
         baseline = np.where(good, baseline, np.nan)
@@ -190,14 +191,14 @@ class MatlabDataFile:
         shot_ratios = np.where(good, baseline / np.where(with_freq > 0, with_freq, np.nan), np.nan)
 
         # Per-frequency mean/std of the actual recorded shots (mean-of-ratios), computed
-        # unconditionally (unlike noise_std below) since it's needed for the per-probe-point
+        # unconditionally (unlike noise_std below) since it's needed for the per-drive-frequency-point
         # averages+spread view regardless of whether noise_std was overridden.
-        per_probe_mean = np.nanmean(shot_ratios, axis=1)
-        per_probe_std = np.nanstd(shot_ratios, axis=1)
-        per_probe_min = np.nanmin(shot_ratios, axis=1)
-        per_probe_max = np.nanmax(shot_ratios, axis=1)
+        per_drive_freq_mean = np.nanmean(shot_ratios, axis=1)
+        per_drive_freq_std = np.nanstd(shot_ratios, axis=1)
+        per_drive_freq_min = np.nanmin(shot_ratios, axis=1)
+        per_drive_freq_max = np.nanmax(shot_ratios, axis=1)
 
-        b_mean = np.nanmean(baseline, axis=1)  # (N_probe,)
+        b_mean = np.nanmean(baseline, axis=1)  # (N_drive_freq,)
         w_mean = np.nanmean(with_freq, axis=1)
 
         # Guard divide-near-zero
@@ -207,7 +208,8 @@ class MatlabDataFile:
         if np.any(np.isnan(signal)):
             n_nan = int(np.sum(np.isnan(signal)))
             log.warning(
-                "%d probe bins have NaN signal (all shots masked). They will return the nearest valid neighbour.",
+                "%d drive-frequency bins have NaN signal (all shots masked). "
+                "They will return the nearest valid neighbour.",
                 n_nan,
             )
             # Fill NaN bins with nearest valid neighbour
@@ -222,7 +224,7 @@ class MatlabDataFile:
             # It must stay consistent with that: quoting the standard error of the bin mean
             # here instead would tell the locator each observation is sqrt(n) more precise
             # than it is, and the particle filter collapses onto the first mode it finds.
-            noise_std = float(np.nanmedian(per_probe_std))
+            noise_std = float(np.nanmedian(per_drive_freq_std))
             if not (1e-6 < noise_std < 1.0):
                 log.warning(
                     "Auto-estimated noise_std=%.4g is implausible; "
@@ -234,36 +236,36 @@ class MatlabDataFile:
             log.info("Auto-estimated noise_std=%.4g from %d shots", noise_std, n_valid)
 
         return cls(
-            probe_axis_phys=probe_axis_phys,
+            drive_freq_phys=drive_freq_phys,
             signal=signal,
             noise_std=noise_std,
             n_valid_shots=n_valid,
             shot_ratios=np.clip(shot_ratios, 1e-6, 2.0),
-            signal_mean=per_probe_mean,
-            signal_std=per_probe_std,
-            signal_min=per_probe_min,
-            signal_max=per_probe_max,
+            signal_mean=per_drive_freq_mean,
+            signal_std=per_drive_freq_std,
+            signal_min=per_drive_freq_min,
+            signal_max=per_drive_freq_max,
         )
 
-    def measure(self, x_unit: float, probe_lo_phys: float, probe_hi_phys: float) -> Observation:
+    def measure(self, x_unit: float, drive_freq_min_phys: float, drive_freq_max_phys: float) -> Observation:
         """Return an Observation for the MATLAB grid point nearest to x_unit.
 
         Parameters
         ----------
         x_unit :
             Normalised position in [0, 1] as returned by ``locator.next()``.
-        probe_lo_phys, probe_hi_phys :
+        drive_freq_min_phys, drive_freq_max_phys :
             Physical Hz bounds used by the locator's belief — must match
-            ``self.probe_axis_phys.min()`` / ``self.probe_axis_phys.max()``.
+            ``self.drive_freq_phys.min()`` / ``self.drive_freq_phys.max()``.
         """
-        span = probe_hi_phys - probe_lo_phys
-        phys_hz = probe_lo_phys + x_unit * span
-        idx = int(np.argmin(np.abs(self.probe_axis_phys - phys_hz)))
+        span = drive_freq_max_phys - drive_freq_min_phys
+        phys_hz = drive_freq_min_phys + x_unit * span
+        idx = int(np.argmin(np.abs(self.drive_freq_phys - phys_hz)))
         # Report the bin the value actually came from, not the frequency that was asked
         # for. The two differ by up to half a grid step from snapping — and an observation
         # labelled with the wrong frequency is worse than no observation at all: it tells
         # the likelihood the signal has a given value at a point where it does not.
-        x_used = (float(self.probe_axis_phys[idx]) - probe_lo_phys) / span if span > 0 else x_unit
+        x_used = (float(self.drive_freq_phys[idx]) - drive_freq_min_phys) / span if span > 0 else x_unit
         value, sweep_index = self._draw_shot(idx)
         self._visit_counts[idx] += 1
         return Observation(
@@ -286,7 +288,7 @@ class MatlabDataFile:
         Falls back to the bin mean (and no sweep index) when no per-shot data is available
         (a bin whose slots were all masked, or an instance built without ``shot_ratios``).
 
-        The instrument scans every probe point once per sweep, then scans them all again,
+        The instrument scans every drive-frequency points once per sweep, then scans them all again,
         so shot column *j* is the same sweep *j* for every bin.
         """
         if self.shot_ratios is None:

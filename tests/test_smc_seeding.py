@@ -11,8 +11,10 @@ def _run(seed: int | None, *, global_seed: int) -> np.ndarray:
     np.random.seed(global_seed)  # must not matter
     belief = nv_center_smc_belief(num_particles=300, noise_model=gaussian_noise(), seed=seed)
     for i in range(12):
-        x = float(belief.select_max_information_gain(belief.get_candidate_x_phys(), 1)[0]) if i else 0.3
-        unit_x = (x - belief.physical_x_bounds[0]) / (belief.physical_x_bounds[1] - belief.physical_x_bounds[0])
+        x = float(belief.select_max_information_gain(belief.get_candidate_drive_freq_phys(), 1)[0]) if i else 0.3
+        unit_x = (x - belief.drive_freq_bounds_phys[0]) / (
+            belief.drive_freq_bounds_phys[1] - belief.drive_freq_bounds_phys[0]
+        )
         belief.update(Observation(x=unit_x, signal_value=0.9 + 0.01 * (i % 3), noise_std=0.02))
     belief._resample()
     return belief._particles.copy()

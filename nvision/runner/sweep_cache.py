@@ -145,7 +145,7 @@ def _sweep_cache_key(experiment: CoreExperiment, sweep_steps: int) -> str:
 
     param_values = getattr(experiment.true_signal, "parameter_values", lambda: {})()
     return (
-        f"sweep:{experiment.x_min:.9f}:{experiment.x_max:.9f}:"
+        f"sweep:{experiment.drive_freq_min_phys:.9f}:{experiment.drive_freq_max_phys:.9f}:"
         f"{sweep_steps}:{noise_name}:{noise_seed}:{noise_std:.6f}:"
         f"{hash(str(sorted(sig_bounds.items())))}:{hash(str(sorted(param_values.items())))}"
     )
@@ -361,7 +361,9 @@ def _create_sweep_belief(experiment: CoreExperiment) -> AbstractMarginalDistribu
 
     parameters = []
     for name in param_names:
-        bounds = getattr(experiment.true_signal, "bounds", {}).get(name, (experiment.x_min, experiment.x_max))
+        bounds = getattr(experiment.true_signal, "bounds", {}).get(
+            name, (experiment.drive_freq_min_phys, experiment.drive_freq_max_phys)
+        )
         grid = np.linspace(bounds[0], bounds[1], 64)
         parameters.append(
             GridParameter(

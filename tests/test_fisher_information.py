@@ -80,7 +80,7 @@ def test_belief_and_history_share_one_cumulative_fisher() -> None:
         obs = Observation(x=float(x), signal_value=0.95, noise_std=0.02)
         belief.update(obs)
         belief.accumulate_fim(obs)
-        lo, hi = belief.physical_x_bounds
+        lo, hi = belief.drive_freq_bounds_phys
         physical_obs = Observation(x=lo + float(x) * (hi - lo), signal_value=0.95, noise_std=0.02)
         snapshots.append(SimpleNamespace(obs=physical_obs, belief=belief))
         estimates.append({k: v for k, v in belief.estimates().items() if k in names})
