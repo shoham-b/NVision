@@ -258,7 +258,7 @@ def _extract_smc_posterior(snapshots: list, names: list[str]) -> dict[str, tuple
             for scan_param in names:
                 idx = param_idx[scan_param]
                 if idx is None:
-                    col = np.sqrt(b._noise_betas / b._noise_alphas)
+                    col = np.sqrt(b._noise_betas / b._noise_alpha)
                     if sub_idx is not None:
                         col = col[sub_idx]
                 else:

@@ -130,7 +130,7 @@ def test_rb_batch_tightens_noise_posterior():
 
     b_batch = _make_rb_belief()
     b_single = _make_rb_belief()
-    a0 = float(b_batch._noise_alphas.mean())
+    a0 = float(b_batch._noise_alpha)
     disc = b_batch.noise_discount_factor
 
     b_batch.update(batch)
@@ -139,8 +139,8 @@ def test_rb_batch_tightens_noise_posterior():
     # alpha gains 0.5 (between-batch) + 0.5*(k-1) (within-batch) on top of discount.
     expected_batch_alpha = a0 * disc + 0.5 + 0.5 * (k - 1)
     expected_single_alpha = a0 * disc + 0.5
-    assert math.isclose(float(b_batch._noise_alphas.mean()), expected_batch_alpha, rel_tol=1e-5)
-    assert math.isclose(float(b_single._noise_alphas.mean()), expected_single_alpha, rel_tol=1e-5)
+    assert math.isclose(float(b_batch._noise_alpha), expected_batch_alpha, rel_tol=1e-5)
+    assert math.isclose(float(b_single._noise_alpha), expected_single_alpha, rel_tol=1e-5)
 
     # The batch carries strictly more evidence (larger beta increment via variance).
     assert float(b_batch._noise_betas.mean()) > float(b_single._noise_betas.mean())
@@ -156,7 +156,7 @@ def test_rb_single_shot_update_unchanged():
     b_plain.update(plain)
     b_default.update(with_default)
 
-    assert np.allclose(b_plain._noise_alphas, b_default._noise_alphas)
+    assert np.isclose(b_plain._noise_alpha, b_default._noise_alpha)
     assert np.allclose(b_plain._noise_betas, b_default._noise_betas)
     assert np.allclose(b_plain._weights, b_default._weights)
 

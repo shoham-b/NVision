@@ -221,7 +221,7 @@ def test_estimated_noise_std_is_90th_percentile():
     noise_model = GaussianNoiseSignalModel(prior_bounds={"noise_sigma": (0.01, 0.1)})
     b = nv_center_smc_belief(num_particles=10, noise_model=noise_model)
 
-    b._noise_alphas = np.full(10, 9.5, dtype=np.float32)
+    b._noise_alpha = 9.5
     sigmas = np.linspace(0.01, 0.10, 10)
     b._noise_betas = (sigmas**2 * 10.0).astype(np.float32)
     b._weights = np.full(10, 0.10, dtype=np.float32)

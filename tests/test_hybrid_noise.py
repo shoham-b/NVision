@@ -79,7 +79,7 @@ def test_smc_joint_parameter_tracking():
     )
 
     assert "noise_sigma" not in belief._param_names
-    assert hasattr(belief, "_noise_alphas")
+    assert hasattr(belief, "_noise_alpha")
 
     # Perform a dummy update
     obs = Observation(x=0.5, signal_value=0.9, noise_std=0.05)
