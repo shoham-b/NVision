@@ -81,7 +81,7 @@ class FocusWindow:
         Current (possibly narrowed) physical bounds of the drive-frequency window.
     full_lo, full_hi:
         Original full-domain physical bounds. Immutable. Used exclusively by
-        :meth:`to_measure_x` so that experiment normalisation is always
+        :meth:`to_measure_drive_freq_unit` so that experiment normalisation is always
         relative to the full domain.
     """
 
@@ -163,14 +163,14 @@ class FocusWindow:
 
         return FocusWindow(lo=lo, hi=hi, full_lo=self.full_lo, full_hi=self.full_hi)
 
-    def to_measure_x(self, x_phys: _Numeric) -> _Numeric:
+    def to_measure_drive_freq_unit(self, drive_freq_phys: _Numeric) -> _Numeric:
         """Map a physical drive-frequency position (scalar or array) to [0, 1] for ``CoreExperiment.measure()``.
 
         Always uses ``full_lo`` / ``full_hi`` -- never the (possibly narrowed)
         ``lo`` / ``hi``. This is the **only** correct path into
         ``CoreExperiment.measure()``.
         """
-        return (x_phys - self.full_lo) / (self.full_hi - self.full_lo)
+        return (drive_freq_phys - self.full_lo) / (self.full_hi - self.full_lo)
 
 
 def next_focus_window(

@@ -331,9 +331,9 @@ def test_measure_returns_observation(simple_data):
 
 
 def test_measure_x_reports_the_bin_actually_measured(simple_data):
-    """obs.drive_freq_unit is the grid point the value came from, not the requested x_unit.
+    """obs.drive_freq_unit is the grid point the value came from, not the requested drive_freq_unit.
 
-    x_unit=0.3 is 2830 MHz, which snaps to the 2820 MHz bin (x_unit 0.25). Reporting the
+    drive_freq_unit=0.3 is 2830 MHz, which snaps to the 2820 MHz bin (drive_freq_unit 0.25). Reporting the
     requested 0.3 would tell the locator the returned signal was measured 10 MHz away
     from where it really was.
     """
@@ -343,7 +343,7 @@ def test_measure_x_reports_the_bin_actually_measured(simple_data):
 
 
 def test_measure_snaps_to_nearest_grid_point(simple_data):
-    """x_unit=0.5 maps to 2870 MHz (index 2), which has signal=0.96."""
+    """drive_freq_unit=0.5 maps to 2870 MHz (index 2), which has signal=0.96."""
     drive_freq_min_phys, drive_freq_max_phys = 2770e6, 2970e6
     obs = simple_data.measure(0.5, drive_freq_min_phys, drive_freq_max_phys)
     assert obs.signal_value == pytest.approx(0.96)
@@ -355,14 +355,14 @@ def test_measure_noise_std_from_data(simple_data):
 
 
 def test_measure_boundary_low(simple_data):
-    """x_unit=0.0 should snap to the first grid point."""
+    """drive_freq_unit=0.0 should snap to the first grid point."""
     drive_freq_min_phys, drive_freq_max_phys = 2770e6, 2970e6
     obs = simple_data.measure(0.0, drive_freq_min_phys, drive_freq_max_phys)
     assert obs.signal_value == pytest.approx(1.0)
 
 
 def test_measure_boundary_high(simple_data):
-    """x_unit=1.0 should snap to the last grid point."""
+    """drive_freq_unit=1.0 should snap to the last grid point."""
     drive_freq_min_phys, drive_freq_max_phys = 2770e6, 2970e6
     obs = simple_data.measure(1.0, drive_freq_min_phys, drive_freq_max_phys)
     assert obs.signal_value == pytest.approx(1.0)
@@ -420,12 +420,12 @@ def test_visited_mask_tracks_measured_bins(shot_data):
 
 
 def test_measure_round_trip_unit_conversion(simple_data):
-    """Converting any x_unit back to Hz and snapping must land within one grid step."""
+    """Converting any drive_freq_unit back to Hz and snapping must land within one grid step."""
     drive_freq_min_phys, drive_freq_max_phys = 2770e6, 2970e6
     grid_step = (drive_freq_max_phys - drive_freq_min_phys) / (len(simple_data.drive_freq_phys) - 1)
-    for x_unit in np.linspace(0.0, 1.0, 11):
-        simple_data.measure(x_unit, drive_freq_min_phys, drive_freq_max_phys)
-        phys_hz = drive_freq_min_phys + x_unit * (drive_freq_max_phys - drive_freq_min_phys)
+    for drive_freq_unit in np.linspace(0.0, 1.0, 11):
+        simple_data.measure(drive_freq_unit, drive_freq_min_phys, drive_freq_max_phys)
+        phys_hz = drive_freq_min_phys + drive_freq_unit * (drive_freq_max_phys - drive_freq_min_phys)
         nearest = simple_data.drive_freq_phys[np.argmin(np.abs(simple_data.drive_freq_phys - phys_hz))]
         assert abs(phys_hz - nearest) <= grid_step / 2 + 1e-3
 

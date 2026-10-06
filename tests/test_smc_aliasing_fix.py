@@ -33,14 +33,14 @@ def test_smc_stable_update_prevents_uniform_reset():
         noise_model=gaussian_noise(1e-4, 2e-4),
     )
 
-    x_obs = (2.875e9 - 2.7e9) / (2.8e9 - 2.7e9)  # unit coordinate of the drive-frequency window
+    drive_freq_unit = (2.875e9 - 2.7e9) / (2.8e9 - 2.7e9)  # unit coordinate of the drive-frequency window
 
     # With a noise prior this tight (sigma ~1.5e-4), an observation that most particles' predictions
     # (0.77-0.99) miss by ~0.01 is thousands of sigmas off for them: their raw likelihoods are
     # astronomically small, and only the log-space update keeps the weights finite.
     target_y = 0.8
 
-    obs = Observation(drive_freq_unit=x_obs, signal_value=target_y, noise_std=0.01)
+    obs = Observation(drive_freq_unit=drive_freq_unit, signal_value=target_y, noise_std=0.01)
     smc.update(obs)
 
     # If the old bug was present, ALL raw likelihoods would be 0.0, weight_sum=0,

@@ -21,12 +21,12 @@ def test_voigt_compute_many_float64_matches_scalar_loop(gen_name: str):
     model = signal.model
     params = signal.typed_parameters
     lo, hi = signal.get_param_bounds("center_freq")
-    xs = np.linspace(lo, hi, 65)  # shape (n_x,), physical Hz
+    drive_freqs_phys = np.linspace(lo, hi, 65)  # shape (n_x,), physical Hz
 
-    got = model.compute_many_float64(xs, params)
-    want = np.array([float(model.compute(float(x), params)) for x in xs])
+    got = model.compute_many_float64(drive_freqs_phys, params)
+    want = np.array([float(model.compute(float(drive_freq_phys), params)) for drive_freq_phys in drive_freqs_phys])
 
-    assert got.shape == (xs.shape[0],)
+    assert got.shape == (drive_freqs_phys.shape[0],)
     assert got.dtype == np.float64
     np.testing.assert_array_equal(got, want)
 

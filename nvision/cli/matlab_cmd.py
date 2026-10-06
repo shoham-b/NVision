@@ -125,8 +125,8 @@ class _MatlabExperiment:
         self._drive_freq_min_phys = drive_freq_min_phys
         self._drive_freq_max_phys = drive_freq_max_phys
 
-    def measure(self, x_unit: float, rng: Any = None):
-        return self._data.measure(x_unit, self._drive_freq_min_phys, self._drive_freq_max_phys)
+    def measure(self, drive_freq_unit: float, rng: Any = None):
+        return self._data.measure(drive_freq_unit, self._drive_freq_min_phys, self._drive_freq_max_phys)
 
     @property
     def signal(self):
@@ -153,12 +153,12 @@ def _matlab_loop(
     locator does — the run is not obliged to consume every point in the file.
     """
     while not locator.done():
-        x_unit = locator.next()
-        obs = data.measure(x_unit, drive_freq_min_phys, drive_freq_max_phys)
+        drive_freq_unit = locator.next()
+        obs = data.measure(drive_freq_unit, drive_freq_min_phys, drive_freq_max_phys)
         locator.observe(obs)
 
         if not no_progress:
-            phys_mhz = (drive_freq_min_phys + x_unit * (drive_freq_max_phys - drive_freq_min_phys)) / 1e6
+            phys_mhz = (drive_freq_min_phys + drive_freq_unit * (drive_freq_max_phys - drive_freq_min_phys)) / 1e6
             est = locator.belief.estimates()
             unc = locator.belief.uncertainty()
             freq_est_mhz = est.get("center_freq", float("nan")) / 1e6
@@ -597,9 +597,7 @@ def _write_artifacts(
     history_df = run_result_to_history_df(run_result, repeat_id, drive_freq_min_phys, drive_freq_max_phys)
 
     locator_result = locator.result()
-    finalize_record = run_result_to_finalize_record(
-        run_result, locator_result, repeat_id, drive_freq_min_phys, drive_freq_max_phys
-    )
+    finalize_record = run_result_to_finalize_record(run_result, locator_result, repeat_id)
     finalize_record["primary_converged_step"] = locator.primary_converged_step
     finalize_record["all_converged_step"] = locator.all_converged_step
     finalize_record["locator_steps"] = locator.step_count

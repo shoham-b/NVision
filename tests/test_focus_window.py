@@ -25,8 +25,8 @@ from nvision.sim.locs.refocus import infer_focus_window as _refocus_infer_focus_
 from nvision.sim.locs.refocus.window import infer_focus_window
 
 
-def _observation(x: float, y: float) -> Observation:
-    return Observation(drive_freq_unit=x, signal_value=y)
+def _observation(drive_freq_unit: float, y: float) -> Observation:
+    return Observation(drive_freq_unit=drive_freq_unit, signal_value=y)
 
 
 class TestInferFocusWindowFallbacks:
@@ -44,8 +44,8 @@ class TestInferFocusWindowFallbacks:
         from nvision.models.observation import ObservationHistory
 
         hist = ObservationHistory(500)
-        for xi, yi in zip(x, y, strict=False):
-            hist.append(_observation(float(xi), float(yi)))
+        for drive_freq_unit, yi in zip(x, y, strict=False):
+            hist.append(_observation(float(drive_freq_unit), float(yi)))
 
         lo, hi = infer_focus_window(hist, 0.0, 1.0, expected_dips=3, noise_threshold=0.5)
         assert hi - lo < 0.9, f"infer_focus_window returned too-wide window ({lo}, {hi})"
@@ -58,8 +58,8 @@ class TestInferFocusWindowFallbacks:
         from nvision.models.observation import ObservationHistory
 
         hist = ObservationHistory(300)
-        for xi, yi in zip(x, y, strict=False):
-            hist.append(_observation(float(xi), float(yi)))
+        for drive_freq_unit, yi in zip(x, y, strict=False):
+            hist.append(_observation(float(drive_freq_unit), float(yi)))
 
         lo, hi = _refocus_infer_focus_window(hist, 0.0, 1.0, noise_threshold=0.5)
         assert hi - lo < 0.5, f"_refocus_infer_focus_window returned too-wide window ({lo}, {hi})"

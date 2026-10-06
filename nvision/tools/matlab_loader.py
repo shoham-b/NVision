@@ -247,25 +247,25 @@ class MatlabDataFile:
             signal_max=per_drive_freq_max,
         )
 
-    def measure(self, x_unit: float, drive_freq_min_phys: float, drive_freq_max_phys: float) -> Observation:
-        """Return an Observation for the MATLAB grid point nearest to x_unit.
+    def measure(self, drive_freq_unit: float, drive_freq_min_phys: float, drive_freq_max_phys: float) -> Observation:
+        """Return an Observation for the MATLAB grid point nearest to drive_freq_unit.
 
         Parameters
         ----------
-        x_unit :
+        drive_freq_unit :
             Normalised position in [0, 1] as returned by ``locator.next()``.
         drive_freq_min_phys, drive_freq_max_phys :
             Physical Hz bounds used by the locator's belief — must match
             ``self.drive_freq_phys.min()`` / ``self.drive_freq_phys.max()``.
         """
         span = drive_freq_max_phys - drive_freq_min_phys
-        phys_hz = drive_freq_min_phys + x_unit * span
+        phys_hz = drive_freq_min_phys + drive_freq_unit * span
         idx = int(np.argmin(np.abs(self.drive_freq_phys - phys_hz)))
         # Report the bin the value actually came from, not the frequency that was asked
         # for. The two differ by up to half a grid step from snapping — and an observation
         # labelled with the wrong frequency is worse than no observation at all: it tells
         # the likelihood the signal has a given value at a point where it does not.
-        x_used = (float(self.drive_freq_phys[idx]) - drive_freq_min_phys) / span if span > 0 else x_unit
+        x_used = (float(self.drive_freq_phys[idx]) - drive_freq_min_phys) / span if span > 0 else drive_freq_unit
         value, sweep_index = self._draw_shot(idx)
         self._visit_counts[idx] += 1
         return Observation(

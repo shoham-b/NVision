@@ -397,7 +397,7 @@ class SequentialBayesianLocator(Locator):
         n = 20000
         drive_freqs_phys = np.linspace(lo_phys, hi_phys, n)
         ys = np.array([true_signal(float(x)) for x in drive_freqs_phys], dtype=float)
-        xs_norm = (drive_freqs_phys - lo_phys) / domain_width
+        drive_freqs_unit = (drive_freqs_phys - lo_phys) / domain_width
 
         # 2. Find dip segments on the ground-truth signal using noise_std=1e-6
         background = float(np.percentile(ys, 95))
@@ -420,7 +420,7 @@ class SequentialBayesianLocator(Locator):
         segments = []
         for s, e in zip(starts, ends, strict=False):
             if e > s and (e - s) >= 3:
-                segments.append((float(xs_norm[s]), float(xs_norm[e - 1])))
+                segments.append((float(drive_freqs_unit[s]), float(drive_freqs_unit[e - 1])))
 
         # Merge segments
         if len(segments) > 1:

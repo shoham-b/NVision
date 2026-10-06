@@ -65,8 +65,8 @@ def test_locator_proposes_valid_positions():
     rng = random.Random(1)
     for locator in run_loop(GenericSweepLocator, exp, rng, max_steps=5):
         assert locator.belief.last_obs is not None
-        x = locator.belief.last_obs.drive_freq_unit
-        assert 0.0 <= x <= 1.0
+        drive_freq_unit = locator.belief.last_obs.drive_freq_unit
+        assert 0.0 <= drive_freq_unit <= 1.0
 
 
 def test_runner_yields_exactly_max_steps():

@@ -257,7 +257,7 @@ class GenericSweepLocator(SweepingLocator):
                 self.belief.update(obs)
         self._pending_obs.clear()
 
-    def _fit_model(self, xs_norm: np.ndarray, ys: np.ndarray) -> tuple[float, float]:
+    def _fit_model(self, drive_freqs_unit: np.ndarray, ys: np.ndarray) -> tuple[float, float]:
         """Fit the physical model to sweep data via least squares.
 
         Returns (center_freq_phys, uncert_phys).  The fit uses all sweep points
@@ -301,12 +301,12 @@ class GenericSweepLocator(SweepingLocator):
 
         domain_lo, domain_hi = self._domain_lo, self._domain_hi
         domain_width = domain_hi - domain_lo
-        drive_freqs_phys = domain_lo + xs_norm * domain_width
-        n_pts = len(xs_norm)
+        drive_freqs_phys = domain_lo + drive_freqs_unit * domain_width
+        n_pts = len(drive_freqs_unit)
 
         smoothed, window = self._smooth_for_peak_detection(ys)
         dip_depth = self._estimate_dip_depth(ys, smoothed, window)
-        hwhm_est = self._estimate_hwhm(xs_norm, smoothed, dip_depth, domain_width)
+        hwhm_est = self._estimate_hwhm(drive_freqs_unit, smoothed, dip_depth, domain_width)
         # Width parameter name: "linewidth" (Lorentzian) or "homogeneous_linewidth"
         # (Voigt) — both HWHM-scale now, unlike the old kernel-native "fwhm_total"
         # (full-width) Voigt used to expose directly.
@@ -325,7 +325,7 @@ class GenericSweepLocator(SweepingLocator):
         # optimizer only grows sigma_inhom if the data actually supports it.
         sigma_inhom_idx = param_names.index("sigma_inhom") if "sigma_inhom" in param_names else None
         seeds = self._seed_center_freq_and_splits(
-            xs_norm, ys, smoothed, dip_depth, domain_lo, domain_width, zs_idx, split_idx, lo_bounds, hi_bounds
+            drive_freqs_unit, ys, smoothed, dip_depth, domain_lo, domain_width, zs_idx, split_idx, lo_bounds, hi_bounds
         )
 
         # Parameters with no data-driven seed below (e.g. k_np) start at their belief-prior
@@ -373,7 +373,7 @@ class GenericSweepLocator(SweepingLocator):
             return p0
 
         candidates = self._build_fit_candidates(
-            xs_norm=xs_norm,
+            drive_freqs_unit=drive_freqs_unit,
             ys=ys,
             domain_lo=domain_lo,
             domain_width=domain_width,
@@ -646,7 +646,7 @@ class GenericSweepLocator(SweepingLocator):
 
     @staticmethod
     def _estimate_hwhm(
-        xs_norm: np.ndarray, smoothed: np.ndarray, dip_depth: float, domain_width: float
+        drive_freqs_unit: np.ndarray, smoothed: np.ndarray, dip_depth: float, domain_width: float
     ) -> float | None:
         """Estimate the deepest dip's half-width-at-half-max (HWHM) directly
         from the data, in the same units as this codebase's ``linewidth``
@@ -676,12 +676,12 @@ class GenericSweepLocator(SweepingLocator):
             right += 1
         if right <= left:
             return None
-        fwhm_norm = float(xs_norm[right] - xs_norm[left])
+        fwhm_norm = float(drive_freqs_unit[right] - drive_freqs_unit[left])
         return 0.5 * fwhm_norm * domain_width
 
     def _seed_center_freq_and_splits(
         self,
-        xs_norm: np.ndarray,
+        drive_freqs_unit: np.ndarray,
         ys: np.ndarray,
         smoothed: np.ndarray,
         dip_depth: float,
@@ -733,7 +733,7 @@ class GenericSweepLocator(SweepingLocator):
         # Deepest raw point: use raw ys, not smoothed — np.convolve(mode='same')
         # zero-pads the boundaries and can drag the smoothed edge value below the
         # real dip, making argmin(smoothed) pick the domain edge.
-        argmin_center_freq = domain_lo + float(xs_norm[np.argmin(ys)]) * domain_width
+        argmin_center_freq = domain_lo + float(drive_freqs_unit[np.argmin(ys)]) * domain_width
 
         # Prominence floor must clear the (smoothed) noise so isolated fluctuations
         # aren't mistaken for dips.  Smoothing reduces noise by ~sqrt(window), but we
@@ -777,7 +777,7 @@ class GenericSweepLocator(SweepingLocator):
         # (at least 2), so stray noise peaks don't corrupt the grouping.
         keep = max(2, min(len(peaks), n_expected_dips))
         top_order = np.argsort(props["prominences"])[::-1][:keep]
-        positions = np.sort(domain_lo + xs_norm[peaks[top_order]] * domain_width)
+        positions = np.sort(domain_lo + drive_freqs_unit[peaks[top_order]] * domain_width)
 
         if zs_idx is not None:
             # Split into the two Zeeman groups at the largest position gap —
@@ -846,7 +846,7 @@ class GenericSweepLocator(SweepingLocator):
     def _build_fit_candidates(
         self,
         *,
-        xs_norm: np.ndarray,
+        drive_freqs_unit: np.ndarray,
         ys: np.ndarray,
         domain_lo: float,
         domain_width: float,
@@ -883,7 +883,7 @@ class GenericSweepLocator(SweepingLocator):
              multi-start grid.
         """
         center_freq_init, half_sep, hf_split_init = seeds[0]
-        argmin_center_freq = domain_lo + float(xs_norm[np.argmin(ys)]) * domain_width
+        argmin_center_freq = domain_lo + float(drive_freqs_unit[np.argmin(ys)]) * domain_width
         candidates = list(seeds)
         candidates.append((argmin_center_freq, half_sep, hf_split_init))
 

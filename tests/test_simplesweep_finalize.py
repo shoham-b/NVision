@@ -95,7 +95,7 @@ def test_simplesweep_zero_noise_fit_beats_prior():
 
     # End-to-end through the finalize record + metrics extraction the
     # manifest entries are built from.
-    record = run_result_to_finalize_record(result, locator_result, 0, exp.drive_freq_min_phys, exp.drive_freq_max_phys)
+    record = run_result_to_finalize_record(result, locator_result, 0)
     metrics = _scan_attempt_metrics([truth], record)
 
     assert metrics["abs_err_x"] < 0.05 * prior_std, (

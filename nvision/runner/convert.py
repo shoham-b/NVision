@@ -12,9 +12,9 @@ import polars as pl
 from nvision.models.observer import RunResult
 
 
-def denormalize_drive_freq(x_norm: float, drive_freq_min_phys: float, drive_freq_max_phys: float) -> float:
+def denormalize_drive_freq(drive_freq_unit: float, drive_freq_min_phys: float, drive_freq_max_phys: float) -> float:
     """Convert normalized [0,1] x to physical domain."""
-    return drive_freq_min_phys + x_norm * (drive_freq_max_phys - drive_freq_min_phys)
+    return drive_freq_min_phys + drive_freq_unit * (drive_freq_max_phys - drive_freq_min_phys)
 
 
 def run_result_to_history_df(
@@ -59,34 +59,16 @@ def run_result_to_history_df(
 def extract_peak_estimates(
     belief_estimates: dict[str, float],
     locator_result: dict[str, float],
-    drive_freq_min_phys: float,
-    drive_freq_max_phys: float,
 ) -> dict[str, float]:
-    """Map raw locator/belief estimates to physical-domain peak positions.
+    """Merge locator results and belief estimates into the finalize record's peak estimates.
 
-    Locator result values take priority. Position-like keys (containing
-    'x', 'pos', or 'freq') are denormalized when they appear to be in [0, 1].
+    Every value is taken as it is: locator results are already in physical units (``center_freq`` in Hz,
+    ``acquisition_lo``/``acquisition_hi`` in Hz, ...), so nothing is rescaled. Locator result values take
+    priority; non-numeric entries are dropped.
     """
-    estimates: dict[str, float] = {}
-
-    for key, value in locator_result.items():
-        if not isinstance(value, int | float):
-            continue
-        key_lc = key.lower()
-        is_position = (
-            key_lc in ("x", "x1", "x2", "peak_x", "x_hat", "x1_hat", "x2_hat")
-            or key_lc.endswith("_x")
-            or key_lc.endswith("_x1")
-            or key_lc.endswith("_x2")
-            or "pos" in key_lc
-            or "freq" in key_lc
-        )
-        if is_position:
-            estimates[key] = (
-                denormalize_drive_freq(value, drive_freq_min_phys, drive_freq_max_phys) if 0 <= value <= 1 else value
-            )
-        else:
-            estimates[key] = value
+    estimates: dict[str, float] = {
+        key: value for key, value in locator_result.items() if isinstance(value, int | float)
+    }
 
     # Seed peak_x/x1_hat from the locator's own center_freq fit when present;
     # the belief value is only a fallback (it may still be the prior for
@@ -118,8 +100,6 @@ def run_result_to_finalize_record(
     result: RunResult,
     locator_result: dict[str, float],
     repeat_id: int,
-    drive_freq_min_phys: float,
-    drive_freq_max_phys: float,
 ) -> dict[str, Any]:
     """Flatten a RunResult into a single dict suitable for the finalize DataFrame.
 
@@ -140,7 +120,7 @@ def run_result_to_finalize_record(
         # extract_peak_estimates seeds from locator_result); apply the same
         # preference here.
         belief_estimates = {**belief_estimates, **result.fit_mode_estimates}
-    record.update(extract_peak_estimates(belief_estimates, locator_result, drive_freq_min_phys, drive_freq_max_phys))
+    record.update(extract_peak_estimates(belief_estimates, locator_result))
 
     for key, value in belief_estimates.items():
         record.setdefault(key, value)

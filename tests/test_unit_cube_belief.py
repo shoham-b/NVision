@@ -91,7 +91,7 @@ def test_unit_cube_compute_vectorized_many_fast_dispatches_to_inner_fast():
     wrapped, inner = _make_unit_cube_nv_model()
     rng = np.random.default_rng(0)
     param_arrays = [rng.random(100).astype(np.float32) for _ in range(5)]
-    xs = rng.random(50).astype(np.float32)
+    drive_freqs_unit = rng.random(50).astype(np.float32)
 
     fast_calls: list[int] = []
     many_calls: list[int] = []
@@ -111,7 +111,7 @@ def test_unit_cube_compute_vectorized_many_fast_dispatches_to_inner_fast():
     inner.compute_vectorized_many = _track_many
 
     try:
-        wrapped.compute_vectorized_many_fast(xs, param_arrays)
+        wrapped.compute_vectorized_many_fast(drive_freqs_unit, param_arrays)
         assert len(fast_calls) == 1, "inner.compute_vectorized_many_fast was not called"
         assert len(many_calls) == 0, "compute_vectorized_many was called instead of fast variant"
     finally:
@@ -124,7 +124,7 @@ def test_unit_cube_compute_vectorized_many_dispatches_to_inner_exact():
     wrapped, inner = _make_unit_cube_nv_model()
     rng = np.random.default_rng(1)
     param_arrays = [rng.random(100).astype(np.float32) for _ in range(5)]
-    xs = rng.random(50).astype(np.float32)
+    drive_freqs_unit = rng.random(50).astype(np.float32)
 
     fast_calls: list[int] = []
     many_calls: list[int] = []
@@ -144,7 +144,7 @@ def test_unit_cube_compute_vectorized_many_dispatches_to_inner_exact():
     inner.compute_vectorized_many = _track_many
 
     try:
-        wrapped.compute_vectorized_many(xs, param_arrays)
+        wrapped.compute_vectorized_many(drive_freqs_unit, param_arrays)
         assert len(many_calls) == 1, "inner.compute_vectorized_many was not called"
         assert len(fast_calls) == 0, "fast kernel was called from exact path"
     finally:
@@ -157,10 +157,10 @@ def test_unit_cube_fast_and_exact_outputs_are_close():
     wrapped, _ = _make_unit_cube_nv_model()
     rng = np.random.default_rng(2)
     param_arrays = [rng.random(200).astype(np.float32) for _ in range(5)]
-    xs = rng.random(100).astype(np.float32)
+    drive_freqs_unit = rng.random(100).astype(np.float32)
 
-    out_exact = wrapped.compute_vectorized_many(xs, param_arrays)
-    out_fast = wrapped.compute_vectorized_many_fast(xs, param_arrays)
+    out_exact = wrapped.compute_vectorized_many(drive_freqs_unit, param_arrays)
+    out_fast = wrapped.compute_vectorized_many_fast(drive_freqs_unit, param_arrays)
 
     assert out_exact.shape == out_fast.shape
     np.testing.assert_allclose(out_fast, out_exact, rtol=1e-4, atol=1e-6)

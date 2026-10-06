@@ -48,7 +48,7 @@ class _FakeTrueSignal:
 
 
 class _FakeObs:
-    x = 0.0
+    drive_freq_unit = 0.0
     signal_value = 0.0
 
 

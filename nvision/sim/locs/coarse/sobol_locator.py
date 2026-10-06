@@ -812,8 +812,8 @@ class StagedSobolSweepLocator(Locator):
         n = 20000
         drive_freqs_phys = np.linspace(self.domain_lo, self.domain_hi, n)
         ys = np.array([self._true_signal(float(x)) for x in drive_freqs_phys], dtype=float)
-        xs_norm = (drive_freqs_phys - self.domain_lo) / domain_width
-        return self._detect_dip_segments(xs_norm, ys, noise_std=1e-6, min_width=0.0)
+        drive_freqs_unit = (drive_freqs_phys - self.domain_lo) / domain_width
+        return self._detect_dip_segments(drive_freqs_unit, ys, noise_std=1e-6, min_width=0.0)
 
     def _true_signal_dip_width(self) -> float | None:
         """Return the narrowest dip width of the ground-truth signal in physical units."""

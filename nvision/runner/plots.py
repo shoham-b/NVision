@@ -580,7 +580,11 @@ def _bayesian_auxiliary_entries(
         # is a full O(N x d) pass).
         actual_uncertainty_hist = param_hist  # Actual SMC uncertainty (already computed)
         fisher_hist, fisher_bounds_hist, fim_is_degenerate = fisher_history(
-            bayesian_snapshots, estimates_hist, param_names, physical_bounds
+            bayesian_snapshots,
+            estimates_hist,
+            param_names,
+            physical_bounds,
+            bayesian_snapshots[0].belief.drive_freq_bounds_phys,
         )
 
         # Oracle CRLB: the hard information limit for step+1 ideal (uniformly

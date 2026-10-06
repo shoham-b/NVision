@@ -1668,9 +1668,7 @@ class _TaskRunner:
         history_df = run_result_to_history_df(
             result, rid, experiment.drive_freq_min_phys, experiment.drive_freq_max_phys
         )
-        finalize_record = run_result_to_finalize_record(
-            result, locator_final_result, rid, experiment.drive_freq_min_phys, experiment.drive_freq_max_phys
-        )
+        finalize_record = run_result_to_finalize_record(result, locator_final_result, rid)
         # Used by the progress ETA estimator via cached `locator_results.parquet` metadata.
         finalize_record["duration_ms"] = (time.perf_counter() - repeat_start_time) * 1000
         if experiment.drift is not None:

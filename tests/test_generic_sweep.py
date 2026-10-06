@@ -57,7 +57,7 @@ def test_generic_sweep_classic_fit():
 
     # Simulate a sweep
     while not locator.done():
-        x = locator.next()
+        drive_freq_unit = locator.next()
 
         # Evaluate model to get y
         u_arrs = []
@@ -66,9 +66,9 @@ def test_generic_sweep_classic_fit():
             u = (true_params[name] - lo) / (hi - lo)
             u_arrs.append(np.array([u]))
 
-        y_true = unit_model.compute_vectorized_many(np.array([x]), u_arrs)[0, 0]
+        y_true = unit_model.compute_vectorized_many(np.array([drive_freq_unit]), u_arrs)[0, 0]
         y_obs = y_true + np.random.normal(0, 0.005)
-        locator.observe(Observation(x, y_obs))
+        locator.observe(Observation(drive_freq_unit, y_obs))
 
     locator.finalize()
     res = locator.result()

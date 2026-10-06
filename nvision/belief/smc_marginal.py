@@ -1448,8 +1448,8 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         ``obs.drive_freq_unit`` is a unit coordinate of the full drive-frequency range; the Fisher model is physical.
         """
         lo, hi = self.drive_freq_bounds_phys
-        x_phys = lo + obs.drive_freq_unit * (hi - lo)
-        self._fisher.add(x_phys, typed_parameters(self._fisher.model, self.estimates()), obs)
+        drive_freq_phys = lo + obs.drive_freq_unit * (hi - lo)
+        self._fisher.add(drive_freq_phys, typed_parameters(self._fisher.model, self.estimates()), obs)
 
     def crlb_per_param(self) -> dict[str, float]:
         """Marginal CRLB per model parameter in **physical** units; ``{}`` before any information."""
