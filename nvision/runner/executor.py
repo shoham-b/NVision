@@ -1621,7 +1621,7 @@ class _TaskRunner:
         # flush inside done() once the step budget is exhausted -- can mutate
         # locator_instance.belief *after* Observer.watch() already copied the
         # last snapshot. Re-sync so downstream metrics (final_err_primary, the
-        # freq milestone, etc.) read the same posterior that result() reports
+        # primary milestone, etc.) read the same posterior that result() reports
         # instead of a stale pre-flush copy. This is a no-op for locators that
         # update their belief every step (e.g. SBED), since the two already
         # match.

@@ -81,7 +81,7 @@ class SimpleSobolBayesianLocator(SequentialBayesianLocator):
     def _acquire(self) -> float:
         n = self.inference_step_count
         val = van_der_corput(n, base=2)
-        lo, hi = self._scan_lo, self._scan_hi
+        lo, hi = self._probe_lo_phys, self._probe_hi_phys
         return float(lo + val * (hi - lo))
 
     def _observe_acquisition(self, obs: Observation) -> None:

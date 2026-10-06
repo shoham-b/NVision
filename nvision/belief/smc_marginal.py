@@ -1044,8 +1044,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         """Return parameter estimates in internal unit/belief space.
 
         Memoized on ``_belief_version`` — pure function of (particles, weights),
-        which only change in update/batch_update/_resample/narrow_scan_parameter_
-        physical_bounds. Callers get their own fresh dict each time (built from the
+        which only change in update/batch_update/_resample. Callers get their own fresh dict each time (built from the
         cached values) so mutating the returned dict can never corrupt the cache.
         """
         if self._estimates_cache_version == self._belief_version and self._estimates_cache is not None:

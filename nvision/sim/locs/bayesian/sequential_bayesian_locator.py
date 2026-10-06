@@ -153,8 +153,8 @@ class SequentialBayesianLocator(Locator):
         self._true_signal = None
 
         # Set domain bounds for acquisition.
-        self._scan_lo, self._scan_hi = self.belief.physical_param_bounds[self._probe_axis_param]
-        self._full_domain_lo, self._full_domain_hi = float(self._scan_lo), float(self._scan_hi)
+        self._probe_lo_phys, self._probe_hi_phys = self.belief.physical_param_bounds[self._probe_axis_param]
+        self._full_domain_lo, self._full_domain_hi = float(self._probe_lo_phys), float(self._probe_hi_phys)
         # Which part of the probe axis candidates may be drawn from. Owned here (never by the belief):
         # narrowing it changes only where we scan, not the belief's parameter bounds or particles.
         self._focus = FocusWindow(

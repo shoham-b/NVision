@@ -771,8 +771,8 @@ def get_or_run_sobol_baseline(
         belief=belief,
         max_steps=10000,
     )
-    # See nvision/runner/executor.py's identical Sobol-baseline block: field names
-    # keep their historical "freq" spelling, only the tracked parameter changes.
+    # See nvision/runner/executor.py's identical Sobol-baseline block: tracked
+    # parameter is the locator's primary param (sobol_primary_* fields).
     primary_param = locator._primary_param or "center_freq"
 
     key = measurement_repeat_key(seed, generator_name, "sobol_baseline", noise_name, repeat_idx)
