@@ -534,7 +534,7 @@ def test_sweep_then_fit_finds_good_fit_at_low_snr(seed):
     rng = default_rng(seed)
     domain_width = domain_hi - domain_lo
     while not locator.done():
-        drive_freq_unit = locator.next()
+        drive_freq_unit = locator.next_drive_freq_unit()
         drive_freq_phys = domain_lo + drive_freq_unit * domain_width
         y_true = float(model.compute(drive_freq_phys, true_params))
         y_obs = y_true + rng.normal(0, noise_std)

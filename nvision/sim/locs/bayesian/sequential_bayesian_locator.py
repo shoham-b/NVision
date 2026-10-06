@@ -271,7 +271,7 @@ class SequentialBayesianLocator(Locator):
     # ------------------------------------------------------------------
 
     def next(self) -> float:
-        """Propose next measurement."""
+        """Propose the next drive frequency as ``drive_freq_unit`` (``_acquire`` works in Hz)."""
         self.step_count += 1
         self.inference_step_count += 1
 

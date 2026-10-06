@@ -76,3 +76,8 @@ Cache schema 13 / fingerprint `drive-freq-rename-v1`: re-run, not `nv render`.
 records unit observations, `GridMarginalDistribution` maps them to Hz itself via its own `drive_freq_bounds_phys`, and
 `infer_focus_window_physical` raises unless its history spans the requested domain. Side effect: the staged-Sobol
 locator's belief now receives unit (not physical) observations, as every other locator's belief does.
+
+`Locator.next()` is a unit drive frequency: always `drive_freq_unit` in `[0, 1]` over the full range (what
+`CoreExperiment.measure` takes), never Hz. SBED works in Hz inside `_acquire` and maps it in `next()`. Callers use
+`Locator.next_drive_freq_unit()`, which raises `ValueError` for anything outside `[0, 1]` (so a physical-Hz value cannot slip
+through).

@@ -141,7 +141,7 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         return candidate_drive_freq_phys[kept]
 
     def _acquire(self) -> float:
-        """Next measurement x (physical Hz): a decaying-probability uniform probe, else the EIG maximiser."""
+        """Next drive frequency in Hz (``next`` maps it to unit): uniform explore draw, else the EIG maximiser."""
         # Drawn first so the (much more expensive) EIG search is skipped on explore steps. The probe is
         # uniform over the *full* drive-frequency axis so it can still reach a location the focus has narrowed away
         # from; `_to_experiment_normalized` normalizes against that same full axis.

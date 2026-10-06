@@ -176,14 +176,14 @@ def run_loop(
     while not locator.done():
         _check_memory_limit()
         step += 1
-        x_current = locator.next()
+        drive_freq_unit = locator.next_drive_freq_unit()
 
         obs: Observation | None = None
         # Use cached observation if in sweep phase and cache available
         if cached_sweep is not None and step <= len(cached_sweep):
             cached_obs = cached_sweep[step - 1]
             obs = Observation(
-                drive_freq_unit=x_current,
+                drive_freq_unit=drive_freq_unit,
                 signal_value=cached_obs.signal_value,
                 noise_std=cached_obs.noise_std,
                 frequency_noise_model=cached_obs.frequency_noise_model,
@@ -194,14 +194,14 @@ def run_loop(
                 idx = frac.numerator * (dyadic_denominator // frac.denominator)
                 cached_obs = dyadic_table[idx]
                 obs = Observation(
-                    drive_freq_unit=x_current,
+                    drive_freq_unit=drive_freq_unit,
                     signal_value=cached_obs.signal_value,
                     noise_std=cached_obs.noise_std,
                     frequency_noise_model=cached_obs.frequency_noise_model,
                 )
 
         if obs is None:
-            obs = experiment.measure(x_current, rng, n_shots=n_shots, shot_index=shot_index)
+            obs = experiment.measure(drive_freq_unit, rng, n_shots=n_shots, shot_index=shot_index)
         shot_index += n_shots
 
         if collected_sweep_observations is not None:
@@ -1139,8 +1139,8 @@ class _TaskRunner:
         while not locator.done():
             _check_memory_limit()
             step += 1
-            x_current = locator.next()
-            obs = experiment.measure(x_current, sobol_rng, shot_index=step - 1)
+            drive_freq_unit = locator.next_drive_freq_unit()
+            obs = experiment.measure(drive_freq_unit, sobol_rng, shot_index=step - 1)
             locator.observe(obs)
             sobol_drive_freqs_unit.append(float(obs.drive_freq_unit))
             sobol_ys.append(float(obs.signal_value))
@@ -1218,8 +1218,8 @@ class _TaskRunner:
 
         while not locator.done():
             _check_memory_limit()
-            x_current = locator.next()
-            obs = experiment.measure(x_current, sweep_rng, shot_index=len(sweep_drive_freqs_unit))
+            drive_freq_unit = locator.next_drive_freq_unit()
+            obs = experiment.measure(drive_freq_unit, sweep_rng, shot_index=len(sweep_drive_freqs_unit))
             locator.observe(obs)
             sweep_drive_freqs_unit.append(float(obs.drive_freq_unit))
             sweep_ys.append(float(obs.signal_value))

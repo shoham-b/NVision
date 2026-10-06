@@ -153,7 +153,7 @@ def _matlab_loop(
     locator does — the run is not obliged to consume every point in the file.
     """
     while not locator.done():
-        drive_freq_unit = locator.next()
+        drive_freq_unit = locator.next_drive_freq_unit()
         obs = data.measure(drive_freq_unit, drive_freq_min_phys, drive_freq_max_phys)
         locator.observe(obs)
 

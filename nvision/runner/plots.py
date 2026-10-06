@@ -790,8 +790,8 @@ def get_or_run_sobol_baseline(
     true_primary = experiment.true_signal.get_param_value(primary_param)
 
     while not locator.done():
-        x_current = locator.next()
-        obs = experiment.measure(x_current, sobol_rng, shot_index=len(sobol_drive_freqs_unit))
+        drive_freq_unit = locator.next_drive_freq_unit()
+        obs = experiment.measure(drive_freq_unit, sobol_rng, shot_index=len(sobol_drive_freqs_unit))
         locator.observe(obs)
         sobol_drive_freqs_unit.append(float(obs.drive_freq_unit))
         sobol_ys.append(float(obs.signal_value))
@@ -915,8 +915,8 @@ def get_or_run_simplesweep_baseline(
     sweep_ys: list[float] = []
 
     while not locator.done():
-        x_current = locator.next()
-        obs = experiment.measure(x_current, sweep_rng, shot_index=len(sweep_drive_freqs_unit))
+        drive_freq_unit = locator.next_drive_freq_unit()
+        obs = experiment.measure(drive_freq_unit, sweep_rng, shot_index=len(sweep_drive_freqs_unit))
         locator.observe(obs)
         sweep_drive_freqs_unit.append(float(obs.drive_freq_unit))
         sweep_ys.append(float(obs.signal_value))

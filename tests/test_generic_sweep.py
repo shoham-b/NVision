@@ -57,7 +57,7 @@ def test_generic_sweep_classic_fit():
 
     # Simulate a sweep
     while not locator.done():
-        drive_freq_unit = locator.next()
+        drive_freq_unit = locator.next_drive_freq_unit()
 
         # Evaluate model to get y
         u_arrs = []

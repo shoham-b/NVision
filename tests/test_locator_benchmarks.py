@@ -158,8 +158,8 @@ class TestSBEDAcquireBottleneck:
 
         # Warmup
         for _ in range(4):
-            x = loc.next()
-            obs = exp.measure(x, rng)
+            drive_freq_unit = loc.next_drive_freq_unit()
+            obs = exp.measure(drive_freq_unit, rng)
             loc.observe(obs)
 
         benchmark.pedantic(loc._acquire, rounds=2, iterations=1)

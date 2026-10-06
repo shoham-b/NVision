@@ -13,6 +13,7 @@ import random
 import numpy as np
 
 from nvision.models.experiment import CoreExperiment
+from nvision.models.locator import Locator
 from nvision.models.measurement_noise import DEFAULT_MEASUREMENT_NOISE_STD
 from nvision.models.noise import CompositeNoise, CompositeOverFrequencyNoise
 from nvision.models.observation import Observation, aggregate_shots
@@ -164,12 +165,13 @@ def test_rb_single_shot_update_unchanged():
 # --------------------------------------------------------------------------- #
 # run_loop wiring: n_shots reaches experiment.measure
 # --------------------------------------------------------------------------- #
-class _FakeLocator:
-    """Minimal Locator stand-in that records every Observation it receives."""
+class _FakeLocator(Locator):
+    """Minimal Locator that records every Observation it receives."""
 
     REQUIRES_BELIEF = False
 
     def __init__(self, max_calls: int = 3):
+        super().__init__(belief=None)  # type: ignore[arg-type]
         self.max_calls = max_calls
         self.calls = 0
         self.received: list[Observation] = []
