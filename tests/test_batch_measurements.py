@@ -25,7 +25,7 @@ from nvision.noises.over_frequency.gaussian_noise import OverFrequencyGaussianNo
 # --------------------------------------------------------------------------- #
 def test_aggregate_shots_identical_shots():
     """Degenerate batch (all shots equal): mean is exact, empirical std is zero."""
-    obs = aggregate_shots(2.75e9, np.full(5, 0.7), prior_noise_std=0.05)
+    obs = aggregate_shots(0.5, np.full(5, 0.7), prior_noise_std=0.05)
     assert obs.signal_value == 0.7
     assert obs.n_shots == 5
     # s == 0 -> noise_std falls back to prior/sqrt(k); sample_var is still 0.0 (k >= 2)
@@ -36,7 +36,7 @@ def test_aggregate_shots_identical_shots():
 def test_aggregate_shots_known_variance():
     """Batch mean has precision s/sqrt(k) and sample_var matches np.var(ddof=1)."""
     ys = np.array([0.40, 0.50, 0.60, 0.55, 0.45])
-    obs = aggregate_shots(2.75e9, ys, prior_noise_std=0.05)
+    obs = aggregate_shots(0.5, ys, prior_noise_std=0.05)
     s = float(np.std(ys, ddof=1))
     assert obs.signal_value == float(np.mean(ys))
     assert obs.n_shots == 5
@@ -46,7 +46,7 @@ def test_aggregate_shots_known_variance():
 
 def test_aggregate_shots_single_shot():
     """k == 1 reproduces a single-measurement Observation (no variance estimable)."""
-    obs = aggregate_shots(2.75e9, np.array([0.3]), prior_noise_std=0.05)
+    obs = aggregate_shots(0.5, np.array([0.3]), prior_noise_std=0.05)
     assert obs.signal_value == 0.3
     assert obs.n_shots == 1
     assert obs.sample_var is None

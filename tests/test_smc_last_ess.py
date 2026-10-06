@@ -14,7 +14,7 @@ from nvision.spectra.nv_center import NVCenterLorentzianModel
 from tests.noise import gaussian_noise
 from tests.unit_cube_belief_factory import make_smc
 
-_LO, _HI = BOUNDS_FREQUENCY = (2.7e9, 2.8e9)
+_LO, _HI = BOUNDS_FREQUENCY = (2.8e9, 2.95e9)
 
 
 def _drive_freq_unit(drive_freq_phys: float) -> float:
@@ -23,7 +23,7 @@ def _drive_freq_unit(drive_freq_phys: float) -> float:
 
 
 BOUNDS = {
-    "center_freq": (2.7e9, 2.8e9),
+    "center_freq": (2.8e9, 2.95e9),
     "linewidth": (1e6, 3e6),
     "split": (4e6, 6e6),
     "k_np": (1.0, 5.0),
@@ -73,7 +73,7 @@ def test_last_ess_is_the_pre_resample_value():
 def test_last_ess_recorded_without_resampling():
     """Every step records it, not only resampling ones."""
     smc = _belief(auto_resample=False)
-    smc.update(Observation(drive_freq_unit=_drive_freq_unit(2.75e9), signal_value=0.9, noise_std=0.5))
+    smc.update(Observation(drive_freq_unit=_drive_freq_unit(2.875e9), signal_value=0.9, noise_std=0.5))
     assert not smc.resampled
     assert smc.last_ess == pytest.approx(_ess_of_weights(smc), rel=1e-5)
 

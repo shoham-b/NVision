@@ -67,6 +67,13 @@ class Observation:
     sample_var: float | None = field(default=None)
     sweep_index: int | None = field(default=None)
 
+    def __post_init__(self) -> None:
+        if not 0.0 <= self.drive_freq_unit <= 1.0:
+            raise ValueError(
+                f"Observation.drive_freq_unit must be a unit coordinate in [0, 1]; got {self.drive_freq_unit!r} "
+                "(convert physical Hz to unit before constructing the Observation)."
+            )
+
 
 def aggregate_shots(
     drive_freq_unit: float,

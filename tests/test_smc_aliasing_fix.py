@@ -16,7 +16,7 @@ def test_smc_stable_update_prevents_uniform_reset():
 
     model = NVCenterLorentzianModel()
     bounds = {
-        "center_freq": (2.7e9, 2.8e9),
+        "center_freq": (2.8e9, 2.95e9),
         "linewidth": (1e6, 3e6),
         "split": (4e6, 6e6),
         "k_np": (1.0, 5.0),
@@ -33,7 +33,7 @@ def test_smc_stable_update_prevents_uniform_reset():
         noise_model=gaussian_noise(1e-4, 2e-4),
     )
 
-    drive_freq_unit = (2.875e9 - 2.7e9) / (2.8e9 - 2.7e9)  # unit coordinate of the drive-frequency window
+    drive_freq_unit = (2.875e9 - 2.8e9) / (2.95e9 - 2.8e9)  # unit coordinate over the drive-frequency range
 
     # With a noise prior this tight (sigma ~1.5e-4), an observation that most particles' predictions
     # (0.77-0.99) miss by ~0.01 is thousands of sigmas off for them: their raw likelihoods are
