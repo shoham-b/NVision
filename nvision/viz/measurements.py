@@ -769,10 +769,10 @@ def _compute_scan_data_dict(
     belief_unit_cube: UnitCubeSignalModel | None = None,
     narrowed_param_bounds: dict[str, tuple[float, float]] | None = None,
     per_dip_windows: list[tuple[float, float]] | None = None,
-    sobol_xs: list[float] | None = None,
+    sobol_drive_freqs_unit: list[float] | None = None,
     sobol_ys: list[float] | None = None,
     sobol_mode_estimates: Mapping[str, float] | None = None,
-    sweep_xs: list[float] | None = None,
+    sweep_drive_freqs_unit: list[float] | None = None,
     sweep_ys: list[float] | None = None,
     sweep_mode_estimates: Mapping[str, float] | None = None,
     true_params: dict | None = None,
@@ -856,10 +856,10 @@ def _compute_scan_data_dict(
     if true_params and isinstance(true_params, dict):
         out["true_params"] = true_params
 
-    if sobol_xs and sobol_ys:
+    if sobol_drive_freqs_unit and sobol_ys:
         width = float(scan.drive_freq_max_phys - scan.drive_freq_min_phys)
         out["sobol_measurements"] = {
-            "x": float(scan.drive_freq_min_phys) + np.asarray(sobol_xs, dtype=float) * width,
+            "x": float(scan.drive_freq_min_phys) + np.asarray(sobol_drive_freqs_unit, dtype=float) * width,
             "y": np.asarray(sobol_ys, dtype=float),
         }
     if sobol_mode_estimates:
@@ -867,10 +867,10 @@ def _compute_scan_data_dict(
         if y_sobol_mode is not None and len(y_sobol_mode) > 0:
             out["sobol_mode_y"] = y_sobol_mode
 
-    if sweep_xs and sweep_ys:
+    if sweep_drive_freqs_unit and sweep_ys:
         width = float(scan.drive_freq_max_phys - scan.drive_freq_min_phys)
         out["sweep_measurements"] = {
-            "x": float(scan.drive_freq_min_phys) + np.asarray(sweep_xs, dtype=float) * width,
+            "x": float(scan.drive_freq_min_phys) + np.asarray(sweep_drive_freqs_unit, dtype=float) * width,
             "y": np.asarray(sweep_ys, dtype=float),
         }
     if sweep_mode_estimates:
@@ -908,10 +908,10 @@ class MeasurementsMixin:
         per_dip_windows: list[tuple[float, float]] | None = None,
         belief_unit_cube: UnitCubeSignalModel | None = None,
         narrowed_param_bounds: dict[str, tuple[float, float]] | None = None,
-        sobol_xs: list[float] | None = None,
+        sobol_drive_freqs_unit: list[float] | None = None,
         sobol_ys: list[float] | None = None,
         sobol_mode_estimates: Mapping[str, float] | None = None,
-        sweep_xs: list[float] | None = None,
+        sweep_drive_freqs_unit: list[float] | None = None,
         sweep_ys: list[float] | None = None,
         sweep_mode_estimates: Mapping[str, float] | None = None,
         true_params: dict | None = None,
@@ -930,10 +930,10 @@ class MeasurementsMixin:
             belief_unit_cube=belief_unit_cube,
             narrowed_param_bounds=narrowed_param_bounds,
             per_dip_windows=per_dip_windows,
-            sobol_xs=sobol_xs,
+            sobol_drive_freqs_unit=sobol_drive_freqs_unit,
             sobol_ys=sobol_ys,
             sobol_mode_estimates=sobol_mode_estimates,
-            sweep_xs=sweep_xs,
+            sweep_drive_freqs_unit=sweep_drive_freqs_unit,
             sweep_ys=sweep_ys,
             sweep_mode_estimates=sweep_mode_estimates,
             true_params=true_params,

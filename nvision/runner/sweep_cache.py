@@ -374,7 +374,11 @@ def _create_sweep_belief(experiment: CoreExperiment) -> AbstractMarginalDistribu
             )
         )
 
-    return GridMarginalDistribution(model=model, parameters=parameters)
+    return GridMarginalDistribution(
+        model=model,
+        parameters=parameters,
+        drive_freq_bounds_phys=(experiment.drive_freq_min_phys, experiment.drive_freq_max_phys),
+    )
 
 
 def precompute_sweep(

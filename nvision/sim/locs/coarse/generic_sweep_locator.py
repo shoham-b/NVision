@@ -241,25 +241,12 @@ class GenericSweepLocator(SweepingLocator):
         if not self._pending_obs:
             return
 
-        mapped_obs = []
-        is_unit_cube = type(self.belief.model).__name__ == "UnitCubeSignalModel"
-
-        if is_unit_cube:
-            mapped_obs = self._pending_obs
-        else:
-            from nvision.models.observation import Observation
-
-            width = self._domain_hi - self._domain_lo
-            for o in self._pending_obs:
-                x_phys = self._domain_lo + o.x * width
-                mapped_obs.append(
-                    Observation(
-                        x=x_phys,
-                        signal_value=o.signal_value,
-                        noise_std=o.noise_std,
-                        frequency_noise_model=o.frequency_noise_model,
-                    )
-                )
+        if not np.allclose(self.belief.drive_freq_bounds_phys, (self._domain_lo, self._domain_hi), rtol=1e-9, atol=0.0):
+            raise ValueError(
+                f"belief drive_freq_bounds_phys {self.belief.drive_freq_bounds_phys} do not match this locator's "
+                f"domain ({self._domain_lo}, {self._domain_hi}); observations are unit coordinates of one range."
+            )
+        mapped_obs = self._pending_obs
 
         if hasattr(self.belief, "batch_update"):
             chunk = NVISION_SWEEP_BATCH_CHUNK_SIZE
@@ -1100,7 +1087,7 @@ class GenericSweepLocator(SweepingLocator):
         if self.history.count == 0:
             return
         domain_width = self._domain_hi - self._domain_lo
-        center_freq_phys, uncert_phys = self._fit_model(self.history.xs, self.history.ys)
+        center_freq_phys, uncert_phys = self._fit_model(self.history.drive_freqs_unit, self.history.ys)
 
         self._flush_pending_obs()
 

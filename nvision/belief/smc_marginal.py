@@ -447,10 +447,10 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
     # Observation history as flat buffers (amortized growth). Only (x, y) are
     # ever consumed from history (dip detection), so full Observation objects
     # are not stored — see the _observations compatibility property.
-    _obs_x_arr: np.ndarray | None = field(init=False, repr=False, default=None)
+    _obs_drive_freqs_unit: np.ndarray | None = field(init=False, repr=False, default=None)
     _obs_y_arr: np.ndarray | None = field(init=False, repr=False, default=None)
     _obs_count: int = field(init=False, repr=False, default=0)
-    # Permutation of [0, _obs_count) such that _obs_x_arr[_obs_sort_order[:_obs_count]]
+    # Permutation of [0, _obs_count) such that _obs_drive_freqs_unit[_obs_sort_order[:_obs_count]]
     # is ascending, for indices < _obs_sort_valid_count. Maintained lazily by
     # sorted_observation_arrays() (one searchsorted + in-place shift per pending
     # point) so dip detection can consume an already-sorted observation view
@@ -527,7 +527,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
 
         self._weights = (np.ones(self.num_particles, dtype=FLOAT_DTYPE) / self.num_particles).astype(FLOAT_DTYPE)
         self._step_count = 0
-        self._obs_x_arr = np.empty(256, dtype=np.float64)
+        self._obs_drive_freqs_unit = np.empty(256, dtype=np.float64)
         self._obs_y_arr = np.empty(256, dtype=np.float64)
         self._obs_sort_order = np.empty(256, dtype=np.int64)
         self._obs_sort_valid_count = 0
@@ -567,12 +567,12 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         if not observations:
             return
         for obs in observations:
-            self._append_observation(obs.x, obs.signal_value)
+            self._append_observation(obs.drive_freq_unit, obs.signal_value)
         self.last_obs = observations[-1]
         self.resampled = False
 
         arrays_in_order = [self._particles[:, j] for j in range(self._d_signal)]
-        all_xs = np.array([obs.x for obs in observations], dtype=FLOAT_DTYPE)
+        all_xs = np.array([obs.drive_freq_unit for obs in observations], dtype=FLOAT_DTYPE)
         predictions = self.model.compute_vectorized_many(all_xs, arrays_in_order)
 
         # Accumulated in the persistent scratch buffer, seeded with the log of the prior weights.
@@ -604,7 +604,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
 
         Args:
             obs: The observation; ``obs.signal_value`` is the mean of ``obs.n_shots`` shots.
-            predicted: Model prediction at ``obs.x`` for every particle. shape: (n_particles,)
+            predicted: Model prediction at ``obs.drive_freq_unit`` for every particle. shape: (n_particles,)
 
         Returns:
             Tempered log-likelihood. shape: (n_particles,)
@@ -672,7 +672,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         These are views into the internal history buffers — callers must not
         mutate them.
         """
-        return self._obs_x_arr[: self._obs_count], self._obs_y_arr[: self._obs_count]
+        return self._obs_drive_freqs_unit[: self._obs_count], self._obs_y_arr[: self._obs_count]
 
     def sorted_observation_arrays(self) -> tuple[np.ndarray, np.ndarray]:
         """Return ``(x, signal_value)`` of all observations sorted ascending by x.
@@ -692,13 +692,13 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         n = self._obs_count
         order = self._obs_sort_order
         for i in range(self._obs_sort_valid_count, n):
-            sorted_xs_so_far = self._obs_x_arr[order[:i]]
-            pos = int(np.searchsorted(sorted_xs_so_far, self._obs_x_arr[i], side="right"))
+            sorted_xs_so_far = self._obs_drive_freqs_unit[order[:i]]
+            pos = int(np.searchsorted(sorted_xs_so_far, self._obs_drive_freqs_unit[i], side="right"))
             order[pos + 1 : i + 1] = order[pos:i]
             order[pos] = i
         self._obs_sort_valid_count = n
         order = order[:n]
-        return self._obs_x_arr[order], self._obs_y_arr[order]
+        return self._obs_drive_freqs_unit[order], self._obs_y_arr[order]
 
     @property
     def num_observations(self) -> int:
@@ -712,12 +712,12 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         ``sorted_observation_arrays()``.
         """
         n = self._obs_count
-        if n >= self._obs_x_arr.shape[0]:
-            cap = 2 * self._obs_x_arr.shape[0]
-            self._obs_x_arr = np.resize(self._obs_x_arr, cap)
+        if n >= self._obs_drive_freqs_unit.shape[0]:
+            cap = 2 * self._obs_drive_freqs_unit.shape[0]
+            self._obs_drive_freqs_unit = np.resize(self._obs_drive_freqs_unit, cap)
             self._obs_y_arr = np.resize(self._obs_y_arr, cap)
             self._obs_sort_order = np.resize(self._obs_sort_order, cap)
-        self._obs_x_arr[n] = x
+        self._obs_drive_freqs_unit[n] = x
         self._obs_y_arr[n] = y
         self._obs_count = n + 1
 
@@ -730,7 +730,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         Hot paths must use :meth:`observation_arrays` / :attr:`num_observations`.
         """
         return [
-            Observation(x=float(self._obs_x_arr[i]), signal_value=float(self._obs_y_arr[i]))
+            Observation(drive_freq_unit=float(self._obs_drive_freqs_unit[i]), signal_value=float(self._obs_y_arr[i]))
             for i in range(self._obs_count)
         ]
 
@@ -738,15 +738,15 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
     def _observations(self, observations: list[Observation]) -> None:
         n = len(observations)
         cap = max(256, n)
-        self._obs_x_arr = np.empty(cap, dtype=np.float64)
+        self._obs_drive_freqs_unit = np.empty(cap, dtype=np.float64)
         self._obs_y_arr = np.empty(cap, dtype=np.float64)
         self._obs_sort_order = np.empty(cap, dtype=np.int64)
         for i, o in enumerate(observations):
-            self._obs_x_arr[i] = o.x
+            self._obs_drive_freqs_unit[i] = o.drive_freq_unit
             self._obs_y_arr[i] = o.signal_value
         self._obs_count = n
         # Bulk-set path (not the hot per-observation append) — a single sort is fine.
-        self._obs_sort_order[:n] = np.argsort(self._obs_x_arr[:n])
+        self._obs_sort_order[:n] = np.argsort(self._obs_drive_freqs_unit[:n])
         self._obs_sort_valid_count = n
 
     def estimated_noise_std(self) -> float:
@@ -1280,7 +1280,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         dist._step_count = self._step_count
         dist.resampled = self.resampled
         dist.last_ess = self.last_ess
-        dist._obs_x_arr = self._obs_x_arr.copy()
+        dist._obs_drive_freqs_unit = self._obs_drive_freqs_unit.copy()
         dist._obs_y_arr = self._obs_y_arr.copy()
         dist._obs_sort_order = self._obs_sort_order.copy()
         dist._obs_sort_valid_count = self._obs_sort_valid_count
@@ -1436,7 +1436,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
     def _drive_freq_map(self) -> RescaleMap:
         """Unit <-> physical map of the full drive-frequency axis (``drive_freq_bounds_phys``); fixed for the whole run.
 
-        Converts the stored ``[0, 1]`` observation coordinate ``obs.x`` to physical Hz. It is the probe
+        Converts the stored ``[0, 1]`` observation coordinate ``obs.drive_freq_unit`` to physical Hz. It is the probe
         axis whether or not the dip centre ``center_freq`` is also a particle dimension.
         """
         lo, hi = self.drive_freq_bounds_phys
@@ -1445,10 +1445,10 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
     def accumulate_fim(self, obs: Observation) -> None:
         """Add ``obs``'s Fisher information, evaluated at the current posterior mean, to the running total.
 
-        ``obs.x`` is a unit coordinate of the original drive-frequency window; the Fisher model is the physical one.
+        ``obs.drive_freq_unit`` is a unit coordinate of the full drive-frequency range; the Fisher model is physical.
         """
         lo, hi = self.drive_freq_bounds_phys
-        x_phys = lo + obs.x * (hi - lo)
+        x_phys = lo + obs.drive_freq_unit * (hi - lo)
         self._fisher.add(x_phys, typed_parameters(self._fisher.model, self.estimates()), obs)
 
     def crlb_per_param(self) -> dict[str, float]:

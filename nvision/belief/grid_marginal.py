@@ -150,6 +150,8 @@ class GridMarginalDistribution(AbstractMarginalDistribution):
     """Belief distribution using independent 1D discrete grids."""
 
     parameters: list[GridParameter] = field(default_factory=list)
+    # Full drive-frequency range (Hz) that ``Observation.drive_freq_unit`` spans; the model is evaluated in Hz.
+    drive_freq_bounds_phys: tuple[float, float] = (0.0, 1.0)
 
     def __post_init__(self) -> None:
         expected = set(self.model.parameter_names())
@@ -162,6 +164,8 @@ class GridMarginalDistribution(AbstractMarginalDistribution):
 
         param_names = self.model.parameter_names()
         param_by_name = {p.name: p for p in self.parameters}
+        lo_phys, hi_phys = self.drive_freq_bounds_phys
+        drive_freq_phys = lo_phys + obs.drive_freq_unit * (hi_phys - lo_phys)
 
         for _param_idx, param in enumerate(self.parameters):
             grid = np.asarray(param.grid, dtype=np.float64)
@@ -173,7 +177,7 @@ class GridMarginalDistribution(AbstractMarginalDistribution):
                     other = param_by_name[name]
                     arrays_in_order.append(np.full(grid.shape, float(other.value), dtype=np.float64))
 
-            predicted = self.model.compute_vectorized(obs.x, *arrays_in_order)
+            predicted = self.model.compute_vectorized(drive_freq_phys, *arrays_in_order)
             noise_std = obs.noise_std
             likelihoods = likelihood_from_observation_model(
                 obs_y=obs.signal_value,
@@ -215,6 +219,7 @@ class GridMarginalDistribution(AbstractMarginalDistribution):
                 for p in self.parameters
             ],
             last_obs=self.last_obs,
+            drive_freq_bounds_phys=self.drive_freq_bounds_phys,
         )
 
     @property

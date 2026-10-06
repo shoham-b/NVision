@@ -70,5 +70,9 @@ The generic names for the measured axis are gone: `x`/`xs` (where it is the driv
 `matlab_probe_stats` → `matlab_drive_freq_stats`, `NVISION_NV_PROBE_DELTA_HZ` → `NVISION_NV_DRIVE_FREQ_DELTA_HZ`.
 Cache schema 13 / fingerprint `drive-freq-rename-v1`: re-run, not `nv render`.
 
-Not yet renamed: `Observation.x` (and `ObservationHistory.xs`) is a *unit* coordinate in the SBED/SMC path but a
-*physical* one in the sweep locators, so it cannot honestly be called `drive_freq_unit` until that is split.
+`Observation.x` → `Observation.drive_freq_unit`, `ObservationHistory.xs` → `.drive_freqs_unit` (always unit) plus
+`.drive_freqs_phys` (Hz, needs `drive_freq_bounds_phys` at construction). The unit/physical guessing in
+`refocus/window.py`, `StagedSobolSweepLocator.observe` and `convert.run_result_to_history_df` is gone: every locator now
+records unit observations, `GridMarginalDistribution` maps them to Hz itself via its own `drive_freq_bounds_phys`, and
+`infer_focus_window_physical` raises unless its history spans the requested domain. Side effect: the staged-Sobol
+locator's belief now receives unit (not physical) observations, as every other locator's belief does.

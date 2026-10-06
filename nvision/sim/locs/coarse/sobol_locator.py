@@ -222,7 +222,7 @@ class Stage2SobolLocator:
         if self.history.count < 10:
             return
 
-        xs = self.history.xs
+        xs = self.history.drive_freqs_phys
         ys = self.history.ys
 
         # Only consider points that fall inside Stage 2's window
@@ -356,7 +356,7 @@ class Stage3SobolLocator:
                 self._done = True
                 return
 
-        xs = self.history.xs
+        xs = self.history.drive_freqs_phys
         ys = self.history.ys
 
         # Only consider points that fall inside the (possibly expanded) window
@@ -518,7 +518,7 @@ class StagedSobolSweepLocator(Locator):
         self.center_param = center_param
 
         self.step_count = 0
-        self.history = ObservationHistory(self.max_steps)
+        self.history = ObservationHistory(self.max_steps, (self.domain_lo, self.domain_hi))
         self._sobol_gen = vdc_generator()
         self._signal_found = False
         self._true_signal = None
@@ -587,27 +587,14 @@ class StagedSobolSweepLocator(Locator):
         if self.step_count > self.max_steps:
             return
 
-        domain_width = self.domain_hi - self.domain_lo
-        if domain_width > 1.5 and obs.x <= 1.5:
-            from nvision.models.observation import Observation
-
-            obs_physical = Observation(
-                x=self.domain_lo + obs.x * domain_width,
-                signal_value=obs.signal_value,
-                noise_std=obs.noise_std,
-                frequency_noise_model=obs.frequency_noise_model,
-            )
-        else:
-            obs_physical = obs
-
-        self.history.append(obs_physical)
+        self.history.append(obs)
         # Set last_obs so Observer can create snapshots for plotting, every
         # step -- independent of the deferred/batched belief update below.
-        self.belief.last_obs = obs_physical
-        self._pending_obs.append(obs_physical)
+        self.belief.last_obs = obs
+        self._pending_obs.append(obs)
         if len(self._pending_obs) >= NVISION_SOBOL_BATCH_CHUNK_SIZE:
             self._flush_pending_obs()
-        self._active_locator.observe(obs_physical)
+        self._active_locator.observe(obs)
 
         if self._active_locator is self._stage1 and self._active_locator.done():
             self._stage1_end_step = self.step_count
@@ -703,7 +690,7 @@ class StagedSobolSweepLocator(Locator):
         """Return individual focus windows around each detected dip, or None."""
         if self.history.count < 6:
             return None
-        xs = self.history.xs
+        xs = self.history.drive_freqs_phys
         ys = self.history.ys
         order = np.argsort(xs)
         xs_s = xs[order]
@@ -892,7 +879,7 @@ class StagedSobolSweepLocator(Locator):
             return metrics
 
         init_steps = self.effective_initial_sweep_steps()
-        xs = self.history.xs[:init_steps]
+        xs = self.history.drive_freqs_phys[:init_steps]
         ys = self.history.ys[:init_steps]
         order = np.argsort(xs)
         xs_s = xs[order]

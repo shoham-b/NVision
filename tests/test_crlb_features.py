@@ -193,7 +193,9 @@ def testfisher_history_bounds_are_dicts_not_ndarrays() -> None:
     true_params = _GaussParams(amplitude=0.5, center=0.5)
     snapshots = [
         SimpleNamespace(
-            obs=Observation(x=float(x), signal_value=model.compute_from_params(float(x), true_params), noise_std=0.01),
+            obs=Observation(
+                drive_freq_unit=float(x), signal_value=model.compute_from_params(float(x), true_params), noise_std=0.01
+            ),
             belief=SimpleNamespace(model=model),
         )
         for x in xs
@@ -249,7 +251,9 @@ def testfisher_history_normalizes_across_wildly_different_scales() -> None:
     def _fisher_bounds_for_noise(noise_std: float) -> dict[str, float]:
         snapshots = [
             SimpleNamespace(
-                obs=Observation(x=float(x), signal_value=model.compute(float(x), true_params), noise_std=noise_std),
+                obs=Observation(
+                    drive_freq_unit=float(x), signal_value=model.compute(float(x), true_params), noise_std=noise_std
+                ),
                 belief=SimpleNamespace(model=model),
             )
             for x in xs
@@ -445,7 +449,7 @@ def test_crlb_stop_needs_consecutive_primary_passes() -> None:
 
     locator = _make_sbed_locator()
     for x in np.linspace(0.05, 0.95, 12):
-        locator.belief.update(Observation(x=float(x), signal_value=0.97, noise_std=0.02))
+        locator.belief.update(Observation(drive_freq_unit=float(x), signal_value=0.97, noise_std=0.02))
     patience = locator._convergence_patience_steps
 
     verdicts = iter([True] * (patience - 1) + [False] + [True] * patience)

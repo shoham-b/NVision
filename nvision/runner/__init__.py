@@ -12,7 +12,7 @@ Owns all logic for executing locator experiments end-to-end:
 """
 
 from nvision.runner.convert import (
-    denormalize_x,
+    denormalize_drive_freq,
     extract_peak_estimates,
     run_result_to_finalize_record,
     run_result_to_history_df,
@@ -25,7 +25,7 @@ from nvision.runner.task_builder import TaskListBuildConfig, build_task_list
 __all__ = [
     "TaskListBuildConfig",
     "build_task_list",
-    "denormalize_x",
+    "denormalize_drive_freq",
     "extract_peak_estimates",
     "generate_attempt_metrics",
     "generate_attempt_plots",

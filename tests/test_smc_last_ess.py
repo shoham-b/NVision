@@ -43,7 +43,7 @@ def _belief(**kwargs) -> SMCMarginalDistribution:
 
 
 # An observation near the dip that most particles' predictions (0.77-0.99) miss by several noise sigmas.
-SURPRISING = Observation(x=_unit_x(2.875e9), signal_value=0.8, noise_std=0.01)
+SURPRISING = Observation(drive_freq_unit=_unit_x(2.875e9), signal_value=0.8, noise_std=0.01)
 
 
 def _ess_of_weights(smc: SMCMarginalDistribution) -> float:
@@ -73,7 +73,7 @@ def test_last_ess_is_the_pre_resample_value():
 def test_last_ess_recorded_without_resampling():
     """Every step records it, not only resampling ones."""
     smc = _belief(auto_resample=False)
-    smc.update(Observation(x=_unit_x(2.75e9), signal_value=0.9, noise_std=0.5))
+    smc.update(Observation(drive_freq_unit=_unit_x(2.75e9), signal_value=0.9, noise_std=0.5))
     assert not smc.resampled
     assert smc.last_ess == pytest.approx(_ess_of_weights(smc), rel=1e-5)
 

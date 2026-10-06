@@ -12,7 +12,7 @@ import polars as pl
 from nvision.models.observer import RunResult
 
 
-def denormalize_x(x_norm: float, drive_freq_min_phys: float, drive_freq_max_phys: float) -> float:
+def denormalize_drive_freq(x_norm: float, drive_freq_min_phys: float, drive_freq_max_phys: float) -> float:
     """Convert normalized [0,1] x to physical domain."""
     return drive_freq_min_phys + x_norm * (drive_freq_max_phys - drive_freq_min_phys)
 
@@ -30,17 +30,13 @@ def run_result_to_history_df(
     """
     rows = []
     for step, snapshot in enumerate(result.snapshots):
-        x = snapshot.obs.x
-        # Detect if x is normalized [0,1] or already physical
-        # Normalized x is in [0, 1]; physical x for NV centers is ~2.72e9-3.02e9 (Hz)
-        x_phys = (
-            denormalize_x(x, drive_freq_min_phys, drive_freq_max_phys) if 0 <= x <= 1 else x
-        )  # x is already in physical coordinates (e.g., from SweepingLocator)
+        # Every locator records unit drive frequencies (Observation.drive_freq_unit).
+        drive_freq_phys = denormalize_drive_freq(snapshot.obs.drive_freq_unit, drive_freq_min_phys, drive_freq_max_phys)
         rows.append(
             {
                 "repeat_id": repeat_id,
                 "step": step,
-                "x": x_phys,
+                "x": drive_freq_phys,
                 "signal_values": snapshot.obs.signal_value,
                 "sweep_index": snapshot.obs.sweep_index,
             }
@@ -87,7 +83,7 @@ def extract_peak_estimates(
         )
         if is_position:
             estimates[key] = (
-                denormalize_x(value, drive_freq_min_phys, drive_freq_max_phys) if 0 <= value <= 1 else value
+                denormalize_drive_freq(value, drive_freq_min_phys, drive_freq_max_phys) if 0 <= value <= 1 else value
             )
         else:
             estimates[key] = value

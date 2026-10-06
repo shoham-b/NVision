@@ -156,7 +156,7 @@ def test_belief_sorted_observations_stay_consistent_across_updates_and_resamples
 
     rng = np.random.default_rng(123)
     for i in range(60):
-        b.update(Observation(x=float(rng.uniform(0.0, 1.0)), signal_value=float(rng.uniform(0.5, 1.0))))
+        b.update(Observation(drive_freq_unit=float(rng.uniform(0.0, 1.0)), signal_value=float(rng.uniform(0.5, 1.0))))
         if i % 10 == 9:
             b._resample()
 
@@ -196,7 +196,7 @@ def test_noise_sigma_updates_every_update_but_dip_detection_only_upon_resampling
     # 1. Update with a high-noise observation.
     # The noise estimate MUST change immediately because noise is updated on every update().
     # However, dip centers must remain empty because dip detection only runs upon resampling.
-    obs = Observation(x=0.5, signal_value=0.5)
+    obs = Observation(drive_freq_unit=0.5, signal_value=0.5)
     b.update(obs)
 
     post_update_noise_std = b.estimated_noise_std()

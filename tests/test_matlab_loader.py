@@ -331,7 +331,7 @@ def test_measure_returns_observation(simple_data):
 
 
 def test_measure_x_reports_the_bin_actually_measured(simple_data):
-    """obs.x is the grid point the value came from, not the requested x_unit.
+    """obs.drive_freq_unit is the grid point the value came from, not the requested x_unit.
 
     x_unit=0.3 is 2830 MHz, which snaps to the 2820 MHz bin (x_unit 0.25). Reporting the
     requested 0.3 would tell the locator the returned signal was measured 10 MHz away
@@ -339,7 +339,7 @@ def test_measure_x_reports_the_bin_actually_measured(simple_data):
     """
     drive_freq_min_phys, drive_freq_max_phys = 2770e6, 2970e6
     obs = simple_data.measure(0.3, drive_freq_min_phys, drive_freq_max_phys)
-    assert obs.x == pytest.approx(0.25)
+    assert obs.drive_freq_unit == pytest.approx(0.25)
 
 
 def test_measure_snaps_to_nearest_grid_point(simple_data):
@@ -391,7 +391,7 @@ def test_measure_keeps_the_chosen_frequency_past_its_shot_count(shot_data):
     """
     for _ in range(50):
         obs = shot_data.measure(0.5, 2770e6, 2970e6)
-        assert obs.x == pytest.approx(0.5)
+        assert obs.drive_freq_unit == pytest.approx(0.5)
         assert 0.20 <= obs.signal_value <= 0.23
 
 

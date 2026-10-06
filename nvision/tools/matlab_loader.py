@@ -269,7 +269,7 @@ class MatlabDataFile:
         value, sweep_index = self._draw_shot(idx)
         self._visit_counts[idx] += 1
         return Observation(
-            x=float(np.clip(x_used, 0.0, 1.0)),
+            drive_freq_unit=float(np.clip(x_used, 0.0, 1.0)),
             signal_value=value,
             noise_std=self.noise_std,
             sweep_index=sweep_index,

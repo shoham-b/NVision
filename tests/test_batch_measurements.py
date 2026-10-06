@@ -59,7 +59,7 @@ def test_measure_n_shots_1_identity():
     """n_shots=1 with no noise is value-identical to a single clean measurement."""
     exp = CoreExperiment(true_signal=lambda x: 0.7, noise=None, drive_freq_min_phys=2.7e9, drive_freq_max_phys=2.8e9)
     obs = exp.measure(0.5, random.Random(0), n_shots=1)
-    assert obs.x == 0.5
+    assert obs.drive_freq_unit == 0.5
     assert obs.signal_value == 0.7
     assert obs.noise_std == DEFAULT_MEASUREMENT_NOISE_STD
     assert obs.n_shots == 1
@@ -126,7 +126,7 @@ def test_rb_batch_tightens_noise_posterior():
     ys = np.array([0.40, 0.50, 0.60, 0.55, 0.45])
     k = len(ys)
     batch = aggregate_shots(0.5, ys, prior_noise_std=0.05)
-    single = Observation(x=0.5, signal_value=float(np.mean(ys)), noise_std=0.05)
+    single = Observation(drive_freq_unit=0.5, signal_value=float(np.mean(ys)), noise_std=0.05)
 
     b_batch = _make_rb_belief()
     b_single = _make_rb_belief()
@@ -148,8 +148,8 @@ def test_rb_batch_tightens_noise_posterior():
 
 def test_rb_single_shot_update_unchanged():
     """n_shots=1 (or absent) leaves the RB update numerically identical to before."""
-    plain = Observation(x=0.5, signal_value=0.42, noise_std=0.05)
-    with_default = Observation(x=0.5, signal_value=0.42, noise_std=0.05, n_shots=1)
+    plain = Observation(drive_freq_unit=0.5, signal_value=0.42, noise_std=0.05)
+    with_default = Observation(drive_freq_unit=0.5, signal_value=0.42, noise_std=0.05, n_shots=1)
 
     b_plain = _make_rb_belief()
     b_default = _make_rb_belief()

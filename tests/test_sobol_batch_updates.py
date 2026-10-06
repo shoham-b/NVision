@@ -116,7 +116,7 @@ def test_batch_flush_boundaries_are_exact():
     )
 
     for _ in range(n_total):
-        obs = Observation(x=0.5, signal_value=1.0, noise_std=0.01)
+        obs = Observation(drive_freq_unit=0.5, signal_value=1.0, noise_std=0.01)
         locator.observe(obs)
         assert len(locator._pending_obs) <= NVISION_SOBOL_BATCH_CHUNK_SIZE
 
@@ -139,7 +139,7 @@ def test_finalize_is_a_noop_when_nothing_pending():
     belief = _FakeBelief()
     locator = StagedSobolSweepLocator(belief=belief, signal_model=None, max_steps=10, domain_lo=0.0, domain_hi=1.0)
     for _ in range(5):
-        locator.observe(Observation(x=0.5, signal_value=1.0, noise_std=0.01))
+        locator.observe(Observation(drive_freq_unit=0.5, signal_value=1.0, noise_std=0.01))
 
     locator.finalize()
     assert belief.batch_update_sizes == [5]
@@ -161,7 +161,7 @@ def test_flush_triggered_by_done_when_step_budget_exhausted():
     )
     for _ in range(max_steps):
         locator.step_count += 1  # mirror next()'s bookkeeping without needing the sobol generator
-        locator.observe(Observation(x=0.5, signal_value=1.0, noise_std=0.01))
+        locator.observe(Observation(drive_freq_unit=0.5, signal_value=1.0, noise_std=0.01))
 
     assert belief.batch_update_sizes == [], "nothing should have flushed mid-run yet"
     assert locator.done() is True

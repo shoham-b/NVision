@@ -26,7 +26,7 @@ from nvision.sim.locs.refocus.window import infer_focus_window
 
 
 def _observation(x: float, y: float) -> Observation:
-    return Observation(x=x, signal_value=y)
+    return Observation(drive_freq_unit=x, signal_value=y)
 
 
 class TestInferFocusWindowFallbacks:

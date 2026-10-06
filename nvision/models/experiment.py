@@ -123,7 +123,7 @@ class CoreExperiment:
 
         # Aggregate into a single sufficient-statistic Observation (normalized space)
         return aggregate_shots(
-            x=x_normalized,
+            drive_freq_unit=x_normalized,
             ys=shots,
             prior_noise_std=noise_std,
             frequency_noise_model=frequency_noise_model,
@@ -163,7 +163,7 @@ class CoreExperiment:
                 shots[i] = clean
 
         return aggregate_shots(
-            x=x_normalized,
+            drive_freq_unit=x_normalized,
             ys=shots,
             prior_noise_std=noise_std,
             frequency_noise_model=frequency_noise_model,
@@ -180,6 +180,6 @@ class CoreExperiment:
         values = self.true_signal.parameter_values()
         return [value for name, value in values.items() if "center_freq" in name or "position" in name]
 
-    def denormalize_x(self, x_normalized: float) -> float:
+    def denormalize_drive_freq(self, x_normalized: float) -> float:
         """Convert normalized x to physical domain."""
         return self.drive_freq_min_phys + x_normalized * (self.drive_freq_max_phys - self.drive_freq_min_phys)

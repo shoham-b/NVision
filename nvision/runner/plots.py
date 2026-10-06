@@ -720,7 +720,7 @@ def get_or_run_sobol_baseline(
         repeat_idx,
     )
 
-    if sobol_data is not None and "sobol_xs" in sobol_data:
+    if sobol_data is not None and "sobol_drive_freqs_unit" in sobol_data:
         return sobol_data
 
     # Otherwise, simulate it dynamically!
@@ -778,7 +778,7 @@ def get_or_run_sobol_baseline(
     key = measurement_repeat_key(seed, generator_name, "sobol_baseline", noise_name, repeat_idx)
     sobol_rng = random.Random(repeat_seed_int(key))
 
-    sobol_xs = []
+    sobol_drive_freqs_unit = []
     sobol_ys = []
     sobol_primary_steps = None
     sobol_primary_uncert_at_conv = None
@@ -787,9 +787,9 @@ def get_or_run_sobol_baseline(
 
     while not locator.done():
         x_current = locator.next()
-        obs = experiment.measure(x_current, sobol_rng, shot_index=len(sobol_xs))
+        obs = experiment.measure(x_current, sobol_rng, shot_index=len(sobol_drive_freqs_unit))
         locator.observe(obs)
-        sobol_xs.append(float(obs.x))
+        sobol_drive_freqs_unit.append(float(obs.drive_freq_unit))
         sobol_ys.append(float(obs.signal_value))
 
         # Record metrics at the exact moment of primary-parameter convergence
@@ -812,7 +812,7 @@ def get_or_run_sobol_baseline(
         "sobol_primary_err_at_conv": sobol_primary_err_at_conv,
         "sobol_baseline_uncert": sobol_final_uncert,
         "sobol_baseline_err": sobol_final_err,
-        "sobol_xs": sobol_xs,
+        "sobol_drive_freqs_unit": sobol_drive_freqs_unit,
         "sobol_ys": sobol_ys,
         "sobol_mode_estimates": sobol_mode_estimates,
     }
@@ -840,7 +840,7 @@ def get_or_run_simplesweep_baseline(
     from nvision.runner.sweep_cache import get_cached_simplesweep_baseline, put_cached_simplesweep_baseline
 
     data = get_cached_simplesweep_baseline(experiment, seed, generator_name, noise_name, repeat_idx)
-    if data is not None and "sweep_xs" in data:
+    if data is not None and "sweep_drive_freqs_unit" in data:
         return data
 
     import math
@@ -907,14 +907,14 @@ def get_or_run_simplesweep_baseline(
     key = measurement_repeat_key(seed, generator_name, "simplesweep_baseline", noise_name, repeat_idx)
     sweep_rng = random.Random(repeat_seed_int(key))
 
-    sweep_xs: list[float] = []
+    sweep_drive_freqs_unit: list[float] = []
     sweep_ys: list[float] = []
 
     while not locator.done():
         x_current = locator.next()
-        obs = experiment.measure(x_current, sweep_rng, shot_index=len(sweep_xs))
+        obs = experiment.measure(x_current, sweep_rng, shot_index=len(sweep_drive_freqs_unit))
         locator.observe(obs)
-        sweep_xs.append(float(obs.x))
+        sweep_drive_freqs_unit.append(float(obs.drive_freq_unit))
         sweep_ys.append(float(obs.signal_value))
 
     # finalize() flushes the deferred belief updates and runs the dip fit;
@@ -928,7 +928,7 @@ def get_or_run_simplesweep_baseline(
         sweep_mode_estimates = belief_mode_estimates(locator.belief)
 
     new_data = {
-        "sweep_xs": sweep_xs,
+        "sweep_drive_freqs_unit": sweep_drive_freqs_unit,
         "sweep_ys": sweep_ys,
         "sweep_mode_estimates": sweep_mode_estimates,
     }
@@ -1031,10 +1031,10 @@ def generate_attempt_plots(
             belief_unit_cube = m
 
     # Retrieve Sobol and SimpleSweep baseline measurements & estimates
-    sobol_xs: list[float] | None = None
+    sobol_drive_freqs_unit: list[float] | None = None
     sobol_ys: list[float] | None = None
     sobol_mode_estimates: dict[str, float] | None = None
-    sweep_xs: list[float] | None = None
+    sweep_drive_freqs_unit: list[float] | None = None
     sweep_ys: list[float] | None = None
     sweep_mode_estimates: dict[str, float] | None = None
     wants_baselines = plots_wanted(strat_name, attempt_idx_in_combo) and not defer
@@ -1054,7 +1054,7 @@ def generate_attempt_plots(
                 attempt_idx_in_combo,
             )
             if sobol_data:
-                sobol_xs = sobol_data.get("sobol_xs")
+                sobol_drive_freqs_unit = sobol_data.get("sobol_drive_freqs_unit")
                 sobol_ys = sobol_data.get("sobol_ys")
                 sobol_mode_estimates = sobol_data.get("sobol_mode_estimates")
         except Exception as exc:
@@ -1071,7 +1071,7 @@ def generate_attempt_plots(
                 attempt_idx_in_combo,
             )
             if simplesweep_data:
-                sweep_xs = simplesweep_data.get("sweep_xs")
+                sweep_drive_freqs_unit = simplesweep_data.get("sweep_drive_freqs_unit")
                 sweep_ys = simplesweep_data.get("sweep_ys")
                 sweep_mode_estimates = simplesweep_data.get("sweep_mode_estimates")
         except Exception as exc:
@@ -1133,10 +1133,10 @@ def generate_attempt_plots(
             per_dip_windows=per_dip_windows,
             belief_unit_cube=belief_unit_cube,
             narrowed_param_bounds=run_result.narrowed_param_bounds if run_result is not None else None,
-            sobol_xs=sobol_xs,
+            sobol_drive_freqs_unit=sobol_drive_freqs_unit,
             sobol_ys=sobol_ys,
             sobol_mode_estimates=sobol_mode_estimates,
-            sweep_xs=sweep_xs,
+            sweep_drive_freqs_unit=sweep_drive_freqs_unit,
             sweep_ys=sweep_ys,
             sweep_mode_estimates=sweep_mode_estimates,
             true_params=_true_params_dict,

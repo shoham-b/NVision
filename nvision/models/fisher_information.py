@@ -323,7 +323,7 @@ def fisher_history(
     fisher_hist: list[np.ndarray] = []
     fisher_bounds_hist: list[dict[str, float]] = []
     for s, est in zip(snapshots, estimates_hist, strict=True):
-        fisher.add(s.obs.x, typed_parameters(inner_model, est), s.obs)
+        fisher.add(s.obs.drive_freq_unit, typed_parameters(inner_model, est), s.obs)
         fisher_hist.append(fisher.matrix_phys())
         bounds_now = fisher.marginal_crlbs(nan_below_floor=True)
         fisher_bounds_hist.append(bounds_now or {name: float("nan") for name in param_names})
@@ -348,7 +348,7 @@ def oracle_crlb_history(
     """
     names = list(model.parameter_names())
     ranges = ranges_from_bounds(names, bounds)
-    noise_only_obs = Observation(x=0.0, signal_value=0.0, noise_std=noise_std)  # only noise_std is read
+    noise_only_obs = Observation(drive_freq_unit=0.0, signal_value=0.0, noise_std=noise_std)  # only noise_std is read
     mean_fim = np.zeros((len(names), len(names)))
     valid = 0
     for xi in np.linspace(x_lo, x_hi, n_grid):

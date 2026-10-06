@@ -87,7 +87,7 @@ def _inject_sweep_data(
         x_phys = domain_lo + x_norm * (domain_hi - domain_lo)
         y_true = float(phys_model.compute(x_phys, true_params))
         y_obs = y_true + rng.normal(0, noise_std)
-        obs = Observation(x=x_norm, signal_value=y_obs, noise_std=noise_std)
+        obs = Observation(drive_freq_unit=x_norm, signal_value=y_obs, noise_std=noise_std)
         locator.history.append(obs)
         locator._pending_obs.append(obs)
     # step_count drives effective_step_count(); set it so metrics are computed correctly.
@@ -124,7 +124,7 @@ def _inject_sweep_data_for(locator, model, true_params, noise_std, seed=1) -> No
         x_phys = domain_lo + x_norm * (domain_hi - domain_lo)
         y_true = float(model.compute(x_phys, true_params))
         y_obs = y_true + rng.normal(0, noise_std)
-        obs = Observation(x=x_norm, signal_value=y_obs, noise_std=noise_std)
+        obs = Observation(drive_freq_unit=x_norm, signal_value=y_obs, noise_std=noise_std)
         locator.history.append(obs)
         locator._pending_obs.append(obs)
     locator.step_count = n
@@ -538,7 +538,7 @@ def test_sweep_then_fit_finds_good_fit_at_low_snr(seed):
         x_phys = domain_lo + x_norm * domain_width
         y_true = float(model.compute(x_phys, true_params))
         y_obs = y_true + rng.normal(0, noise_std)
-        locator.observe(Observation(x=x_norm, signal_value=y_obs, noise_std=noise_std))
+        locator.observe(Observation(drive_freq_unit=x_norm, signal_value=y_obs, noise_std=noise_std))
 
     locator.finalize()
     res = locator.result()

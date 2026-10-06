@@ -106,7 +106,7 @@ def _acquire(self) -> float:
                     obs_drive_freqs_phys = freq_rescale.to_phys(obs_drive_freqs_unit)
                 else:
                     obs_list = self.belief._observations
-                    obs_drive_freqs_phys = freq_rescale.to_phys(np.array([o.x for o in obs_list]))
+                    obs_drive_freqs_phys = freq_rescale.to_phys(np.array([o.drive_freq_unit for o in obs_list]))
                     obs_ys = np.array([o.signal_value for o in obs_list])
                 if (
                     hasattr(self.belief, "estimated_noise_std")

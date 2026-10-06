@@ -344,7 +344,7 @@ class TestClampToDomainRouting:
         hist = ObservationHistory(500)
         for xi in x:
             y = 1.0 - 0.9 * pow(2.718281828, -0.5 * ((xi - 0.5) / 0.025) ** 2)
-            hist.append(Observation(x=xi, signal_value=y))
+            hist.append(Observation(drive_freq_unit=xi, signal_value=y))
 
         refocus_window_mod.infer_focus_window(hist, 0.0, 1.0, expected_dips=1, noise_threshold=0.5)
         assert len(calls) >= 1
@@ -368,7 +368,7 @@ class TestClampToDomainRouting:
         locator.noise_std = 0.01
         from nvision.models.observation import ObservationHistory
 
-        hist = ObservationHistory(500)
+        hist = ObservationHistory(500, (0.0, 1.0))
         import math
 
         for i in range(200):
@@ -376,7 +376,7 @@ class TestClampToDomainRouting:
             y = 1.0
             y -= 0.8 * math.exp(-0.5 * ((xi - 0.3) / 0.02) ** 2)
             y -= 0.8 * math.exp(-0.5 * ((xi - 0.7) / 0.02) ** 2)
-            hist.append(sobol_mod.Observation(x=xi, signal_value=y))
+            hist.append(sobol_mod.Observation(drive_freq_unit=xi, signal_value=y))
         locator.history = hist
 
         windows = locator.per_dip_windows()
@@ -428,7 +428,7 @@ class TestSobolFailsFastOnCollapsedCandidate:
         monkeypatch.setattr(sobol_mod, "_infer_tight_focus_window", lambda *a, **k: (2.0, 3.0))
 
         for i in range(10):
-            stage3.history.append(sobol_mod.Observation(x=i / 9.0, signal_value=0.5))
+            stage3.history.append(sobol_mod.Observation(drive_freq_unit=i / 9.0, signal_value=0.5))
 
         with pytest.raises(ValueError, match="collapsed window"):
             stage3._check_for_remaining_dips()

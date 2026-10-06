@@ -183,7 +183,7 @@ def run_loop(
         if cached_sweep is not None and step <= len(cached_sweep):
             cached_obs = cached_sweep[step - 1]
             obs = Observation(
-                x=x_current,
+                drive_freq_unit=x_current,
                 signal_value=cached_obs.signal_value,
                 noise_std=cached_obs.noise_std,
                 frequency_noise_model=cached_obs.frequency_noise_model,
@@ -194,7 +194,7 @@ def run_loop(
                 idx = frac.numerator * (dyadic_denominator // frac.denominator)
                 cached_obs = dyadic_table[idx]
                 obs = Observation(
-                    x=x_current,
+                    drive_freq_unit=x_current,
                     signal_value=cached_obs.signal_value,
                     noise_std=cached_obs.noise_std,
                     frequency_noise_model=cached_obs.frequency_noise_model,
@@ -1129,7 +1129,7 @@ class _TaskRunner:
         primary_param = locator._primary_param or "center_freq"
 
         step = 0
-        sobol_xs = []
+        sobol_drive_freqs_unit = []
         sobol_ys = []
         sobol_primary_steps = None
         sobol_primary_uncert_at_conv = None
@@ -1142,7 +1142,7 @@ class _TaskRunner:
             x_current = locator.next()
             obs = experiment.measure(x_current, sobol_rng, shot_index=step - 1)
             locator.observe(obs)
-            sobol_xs.append(float(obs.x))
+            sobol_drive_freqs_unit.append(float(obs.drive_freq_unit))
             sobol_ys.append(float(obs.signal_value))
 
             # Record metrics at the exact moment of primary-parameter convergence
@@ -1168,7 +1168,7 @@ class _TaskRunner:
             "sobol_primary_err_at_conv": sobol_primary_err_at_conv,
             "sobol_baseline_uncert": sobol_final_uncert,
             "sobol_baseline_err": sobol_final_err,
-            "sobol_xs": sobol_xs,
+            "sobol_drive_freqs_unit": sobol_drive_freqs_unit,
             "sobol_ys": sobol_ys,
             "sobol_mode_estimates": sobol_mode_estimates,
         }
@@ -1213,15 +1213,15 @@ class _TaskRunner:
             **({} if signal_max_span is None else {"signal_max_span": signal_max_span}),
         )
 
-        sweep_xs: list[float] = []
+        sweep_drive_freqs_unit: list[float] = []
         sweep_ys: list[float] = []
 
         while not locator.done():
             _check_memory_limit()
             x_current = locator.next()
-            obs = experiment.measure(x_current, sweep_rng, shot_index=len(sweep_xs))
+            obs = experiment.measure(x_current, sweep_rng, shot_index=len(sweep_drive_freqs_unit))
             locator.observe(obs)
-            sweep_xs.append(float(obs.x))
+            sweep_drive_freqs_unit.append(float(obs.drive_freq_unit))
             sweep_ys.append(float(obs.signal_value))
 
         # finalize() flushes the deferred belief updates and runs the dip fit;
@@ -1235,7 +1235,7 @@ class _TaskRunner:
             sweep_mode_estimates = belief_mode_estimates(locator.belief)
 
         return {
-            "sweep_xs": sweep_xs,
+            "sweep_drive_freqs_unit": sweep_drive_freqs_unit,
             "sweep_ys": sweep_ys,
             "sweep_mode_estimates": sweep_mode_estimates,
         }

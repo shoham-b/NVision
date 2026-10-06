@@ -40,7 +40,7 @@ def test_smc_stable_update_prevents_uniform_reset():
     # astronomically small, and only the log-space update keeps the weights finite.
     target_y = 0.8
 
-    obs = Observation(x=x_obs, signal_value=target_y, noise_std=0.01)
+    obs = Observation(drive_freq_unit=x_obs, signal_value=target_y, noise_std=0.01)
     smc.update(obs)
 
     # If the old bug was present, ALL raw likelihoods would be 0.0, weight_sum=0,

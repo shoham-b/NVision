@@ -15,7 +15,7 @@ def _run(seed: int | None, *, global_seed: int) -> np.ndarray:
         unit_x = (x - belief.drive_freq_bounds_phys[0]) / (
             belief.drive_freq_bounds_phys[1] - belief.drive_freq_bounds_phys[0]
         )
-        belief.update(Observation(x=unit_x, signal_value=0.9 + 0.01 * (i % 3), noise_std=0.02))
+        belief.update(Observation(drive_freq_unit=unit_x, signal_value=0.9 + 0.01 * (i % 3), noise_std=0.02))
     belief._resample()
     return belief._particles.copy()
 
