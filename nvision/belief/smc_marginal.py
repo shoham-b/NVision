@@ -538,7 +538,10 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         prior_bounds = self.noise_model.spec.bounds
         lo, hi = prior_bounds.get("noise_sigma", (0.01, 0.1))
         nominal_sigma = float(np.sqrt(max(lo * hi, 0.0)))
-        self._noise_alphas = np.full(self.num_particles, self.noise_prior_strength, dtype=np.float32)
+        # Inverse-Gamma shape alpha is one scalar shared by every particle: its updates (discount, +0.5,
+        # +0.5*(k-1)) never depend on the particle's residual, so it cannot differ between particles.
+        # Only the scale beta is per particle. shape of _noise_betas: (n_particles,)
+        self._noise_alpha = float(self.noise_prior_strength)
         self._noise_betas = np.full(
             self.num_particles, self.noise_prior_strength * (nominal_sigma**2), dtype=np.float32
         )
@@ -617,7 +620,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         """
         k = obs.n_shots
         residuals = obs.signal_value - predicted
-        alpha = self._noise_alphas
+        alpha = self._noise_alpha
         beta = self._noise_betas
         z_sq = k * residuals**2 / beta
         log_liks = (
@@ -634,14 +637,14 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         #   between-batch: the fit residual, rescaled by k since the mean's variance is sigma^2/k,
         #                  so k*res^2 estimates sigma^2;
         #   within-batch:  the empirical sample variance s^2 with (k-1) dof.
-        self._noise_alphas *= self.noise_discount_factor
+        self._noise_alpha *= self.noise_discount_factor
         self._noise_betas *= self.noise_discount_factor
         np.square(residuals, out=residuals)
         residuals *= 0.5 * k
-        self._noise_alphas += 0.5
+        self._noise_alpha += 0.5
         self._noise_betas += residuals
         if k >= 2 and obs.sample_var is not None:
-            self._noise_alphas += 0.5 * (k - 1)
+            self._noise_alpha += 0.5 * (k - 1)
             self._noise_betas += 0.5 * (k - 1) * float(obs.sample_var)
         return log_liks
 
@@ -753,7 +756,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         distribution across the weighted particle population, using
         the mode of each particle's Inverse-Gamma posterior.
         """
-        sigmas = np.sqrt(self._noise_betas / (self._noise_alphas + 0.5))
+        sigmas = np.sqrt(self._noise_betas / (self._noise_alpha + 0.5))
 
         # Compute the 90th percentile of the weighted sigmas distribution
         weights = self._weights
@@ -778,11 +781,11 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         """
         # overall_var_sigma_sq is the variance of variance (sigma^2).
         # From _uncertainty_unit():
-        expected_vars = self._noise_betas / np.maximum(self._noise_alphas - 1.0, 1e-9)
+        expected_vars = self._noise_betas / max(self._noise_alpha - 1.0, 1e-9)
         mean_var = np.sum(self._weights * expected_vars)
 
-        denom = (self._noise_alphas - 1.0) ** 2 * np.maximum(self._noise_alphas - 2.0, 1e-9)
-        within_var = self._noise_betas**2 / np.maximum(denom, 1e-15)
+        denom = (self._noise_alpha - 1.0) ** 2 * max(self._noise_alpha - 2.0, 1e-9)
+        within_var = self._noise_betas**2 / max(denom, 1e-15)
 
         overall_var_sigma_sq = np.sum(self._weights * within_var) + np.sum(
             self._weights * (expected_vars - mean_var) ** 2
@@ -984,7 +987,6 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         self._particles = self._particles.T[:, new_indices].T
         self._weights = (np.ones(self.num_particles, dtype=FLOAT_DTYPE) / self.num_particles).astype(FLOAT_DTYPE)
 
-        self._noise_alphas = self._noise_alphas[new_indices]
         self._noise_betas = self._noise_betas[new_indices]
 
         # 4. Enforce minimum exploration variance based on parameter ranges.
@@ -1051,7 +1053,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
 
         means = _weighted_mean_axis0(self._particles, self._weights)
         res = {name: float(means[i]) for i, name in enumerate(self._param_names)}
-        est_sigmas = np.sqrt(self._noise_betas / self._noise_alphas)
+        est_sigmas = np.sqrt(self._noise_betas / self._noise_alpha)
         res["noise_sigma"] = float(np.sum(self._weights * est_sigmas))
 
         self._estimates_cache = res
@@ -1087,7 +1089,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         """
         idx = int(np.argmax(self._weights))
         res = {name: float(self._particles[idx, i]) for i, name in enumerate(self._param_names)}
-        res["noise_sigma"] = float(np.sqrt(self._noise_betas[idx] / self._noise_alphas[idx]))
+        res["noise_sigma"] = float(np.sqrt(self._noise_betas[idx] / self._noise_alpha))
         return self._unit_to_physical_values(res)
 
     def _uncertainty_unit(self) -> ParameterValues[float]:
@@ -1117,11 +1119,11 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         var = (w @ (diff**2)) / sw  # (d,)  weighted variance
         stds = {name: float(np.sqrt(max(0.0, var[i]))) for i, name in enumerate(self._param_names)}
 
-        expected_vars = self._noise_betas / np.maximum(self._noise_alphas - 1.0, 1e-9)
+        expected_vars = self._noise_betas / max(self._noise_alpha - 1.0, 1e-9)
         mean_var = np.sum(self._weights * expected_vars)
 
-        denom = (self._noise_alphas - 1.0) ** 2 * np.maximum(self._noise_alphas - 2.0, 1e-9)
-        within_var = self._noise_betas**2 / np.maximum(denom, 1e-15)
+        denom = (self._noise_alpha - 1.0) ** 2 * max(self._noise_alpha - 2.0, 1e-9)
+        within_var = self._noise_betas**2 / max(denom, 1e-15)
 
         overall_var_sigma_sq = np.sum(self._weights * within_var) + np.sum(
             self._weights * (expected_vars - mean_var) ** 2
@@ -1282,7 +1284,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         dist._obs_sort_order = self._obs_sort_order.copy()
         dist._obs_sort_valid_count = self._obs_sort_valid_count
         dist._obs_count = self._obs_count
-        dist._noise_alphas = self._noise_alphas.copy()
+        dist._noise_alpha = self._noise_alpha
         dist._noise_betas = self._noise_betas.copy()
         dist._dip_candidates = list(self._dip_candidates)
         return dist
@@ -1359,7 +1361,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         candidate_x_unit = (candidate_x_phys - lo) / (hi - lo)
         var_pred = self._eig_variance_cached(candidate_x_unit, self._particles.shape[0], NVISION_SMC_EIG_PARTICLES)
 
-        est_variances = self._noise_betas / np.maximum(self._noise_alphas, 1e-9)
+        est_variances = self._noise_betas / max(self._noise_alpha, 1e-9)
         noise_var = max(float(np.sum(self._weights * est_variances)), 1e-12)
 
         return 0.5 * np.log1p(var_pred / noise_var)
