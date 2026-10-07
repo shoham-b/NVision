@@ -33,7 +33,7 @@ function main() {
     let pendingHashBayesTab = null;
     // Splitting (zeeman_split) convergence is the primary milestone; 'full'/'all_converged'
     // are verification only. Default to primary_converged (falls back to 'full' when a
-    // loaded run has no splitting milestone — see updateStoppingCriteriaVisibility).
+    // loaded run has no primary milestone — see updateStoppingCriteriaVisibility).
     let currentStoppingCriteria = 'primary_converged'; // 'full' | 'primary_converged' | 'all_converged'
     try {
         plots = window.MANIFEST;
@@ -87,7 +87,7 @@ function main() {
     const scanPlots = plots.filter((p) => p.type === 'scan');
     // Real (MATLAB) runs only: per-drive-frequency-point mean/std/min/max of every recorded
     // shot, overlaid as candle-like whiskers on top of the sampled-measurements
-    // scan plot (see _getProbeStatsOverlayTraces) rather than shown as its own panel.
+    // scan plot (see _getDriveFreqStatsOverlayTraces) rather than shown as its own panel.
     const matlabDriveFreqStatsPlots = plots.filter((p) => p.type === 'matlab_drive_freq_stats');
     const bayesSection = document.getElementById('bayes-section-container');
     const bayesImage = document.getElementById('bayes-image');
@@ -289,7 +289,7 @@ function main() {
 
     // Renders clickable "jump to" markers on the global timeline for the
     // convergence milestones that used to be a separate "View at" button row
-    // (Full / Splitting converged / Converged) in single-scan ("Run") mode —
+    // (Full / Primary converged / Converged) in single-scan ("Run") mode —
     // clicking one both jumps the playhead there and sets currentStoppingCriteria,
     // same as the old buttons did.
     function renderTimelineMilestoneMarkers() {
@@ -300,9 +300,9 @@ function main() {
 
         const d = _phaseData(currentPlot);
         const milestones = [];
-        const splitStep = _mv(d, 'primary_converged_step', 'steps_to_primary');
-        if (splitStep != null) {
-            milestones.push({ value: 'primary_converged', label: 'Splitting converged', step: splitStep, cls: 'milestone-split' });
+        const primaryStep = _mv(d, 'primary_converged_step', 'steps_to_primary');
+        if (primaryStep != null) {
+            milestones.push({ value: 'primary_converged', label: 'Primary converged', step: primaryStep, cls: 'milestone-primary' });
         }
         const allStep = _mv(d, 'all_converged_step');
         if (allStep != null) {
@@ -1454,7 +1454,7 @@ function main() {
                 figData = built.data;
                 figLayout = Object.assign({}, built.layout, { autosize: true });
                 if (isScanFigure) {
-                    const withOverlay = await _withProbeStatsOverlay(figData, figLayout, plotAtStart, !!plain.has_metrics);
+                    const withOverlay = await _withDriveFreqStatsOverlay(figData, figLayout, plotAtStart, !!plain.has_metrics);
                     if (container._renderToken !== renderToken) return;
                     figData = withOverlay.data;
                     figLayout = withOverlay.layout;
@@ -1545,7 +1545,7 @@ function main() {
             let figLayout = Object.assign({}, built.layout, { autosize: true });
             // The per-drive-frequency-point stats overlay covers every recorded shot regardless of
             // inference step, so it's exempt from the step cap -- re-added at full extent.
-            const withOverlay = await _withProbeStatsOverlay(figData, figLayout, currentPlot, !!raw.has_metrics);
+            const withOverlay = await _withDriveFreqStatsOverlay(figData, figLayout, currentPlot, !!raw.has_metrics);
             figData = withOverlay.data;
             figLayout = withOverlay.layout;
             if (scanFlipViewEnabled) {
@@ -1606,7 +1606,7 @@ function main() {
     // spans the true min-max range, and a thicker, shorter marker+error-bar pair
     // centered exactly on the mean spans ±std with an explicit horizontal tick
     // at the mean itself.
-    function _buildProbeStatsOverlayTraces(data) {
+    function _buildDriveFreqStatsOverlayTraces(data) {
         const driveFreqPhys = Array.from(data.drive_freq_phys);
         const mean = Array.from(data.mean);
         const std = Array.from(data.std);
@@ -1631,7 +1631,7 @@ function main() {
                     color: 'rgba(180,83,9,0.9)',
                 },
                 customdata: min.map((m, i) => [m, max[i]]),
-                hovertemplate: 'drive-frequency axis=%{x}<br>min=%{customdata[0]:.4f}<br>max=%{customdata[1]:.4f}<extra></extra>',
+                hovertemplate: 'drive frequency=%{x}<br>min=%{customdata[0]:.4f}<br>max=%{customdata[1]:.4f}<extra></extra>',
                 name: 'Extremes (min–max)',
                 legendgroup: 'matlab-drive-freq-stats',
                 showlegend: true,
@@ -1652,8 +1652,8 @@ function main() {
                 thickness: 5, width: 0, color: 'rgba(217,119,6,0.55)',
             },
             customdata: std,
-            hovertemplate: 'drive-frequency axis=%{x}<br>average=%{y:.4f}<br>std=±%{customdata:.4f}<extra></extra>',
-            name: 'Actual averages per drive-frequency points (mean ± std)',
+            hovertemplate: 'drive frequency=%{x}<br>average=%{y:.4f}<br>std=±%{customdata:.4f}<extra></extra>',
+            name: 'Actual averages per drive-frequency point (mean ± std)',
             legendgroup: 'matlab-drive-freq-stats',
             showlegend: true,
         });
@@ -1664,13 +1664,13 @@ function main() {
     // matlab_drive_freq_stats companion data for the given scan plot and builds it into
     // overlay traces -- present only for MATLAB (real-data) generators, which
     // have a matching matlab_drive_freq_stats entry. Resolves null when there is none.
-    function _getProbeStatsOverlayTraces(plot) {
+    function _getDriveFreqStatsOverlayTraces(plot) {
         const statsPlot = plot ? matlabDriveFreqStatsPlots.find((p) => _matchesSelected(p, plot)) : null;
         if (!statsPlot) return Promise.resolve(null);
         if (!statsPlot._overlayTracesPromise) {
             statsPlot._overlayTracesPromise = _fetchJson(statsPlot.path).then((data) => {
                 if (data.schema !== 'matlab_drive_freq_stats_v1' || !data.drive_freq_phys) return null;
-                return _buildProbeStatsOverlayTraces(data);
+                return _buildDriveFreqStatsOverlayTraces(data);
             }).catch((e) => {
                 console.warn('Failed to load per-drive-frequency-point stats overlay', e);
                 return null;
@@ -1685,8 +1685,8 @@ function main() {
     // 'togglegroup'` makes clicking either of the two overlay legend entries (they
     // share legendgroup 'matlab-drive-freq-stats') hide/show both together, since they're
     // two halves of one statistic rather than independent series.
-    async function _withProbeStatsOverlay(figData, figLayout, plot, hasMetrics) {
-        const overlayTraces = await _getProbeStatsOverlayTraces(plot);
+    async function _withDriveFreqStatsOverlay(figData, figLayout, plot, hasMetrics) {
+        const overlayTraces = await _getDriveFreqStatsOverlayTraces(plot);
         if (!overlayTraces || !overlayTraces.length) return { data: figData, layout: figLayout };
         const traces = hasMetrics
             ? overlayTraces.map((t) => Object.assign({}, t, { xaxis: 'x', yaxis: 'y' }))
@@ -3142,13 +3142,13 @@ function main() {
                         : String(plot.repeat);
                     // For sweep-only runs, phaseData.measurements is the authoritative total.
                     const fullMeasurements = phaseData.measurements != null ? phaseData.measurements : totalMeasurements;
-                    const splittingConvergedStep = phaseData.primary_converged_step != null ? phaseData.primary_converged_step : (phaseData.metrics && phaseData.metrics.primary_converged_step != null ? phaseData.metrics.primary_converged_step : null);
+                    const primaryConvergedStep = phaseData.primary_converged_step != null ? phaseData.primary_converged_step : (phaseData.metrics && phaseData.metrics.primary_converged_step != null ? phaseData.metrics.primary_converged_step : null);
                     const allConvergedStep = phaseData.all_converged_step != null ? phaseData.all_converged_step : (phaseData.metrics && phaseData.metrics.all_converged_step != null ? phaseData.metrics.all_converged_step : null);
-                    const splitConvResolved = splittingConvergedStep != null ? splittingConvergedStep : phaseData.steps_to_primary;
+                    const primaryConvResolved = primaryConvergedStep != null ? primaryConvergedStep : phaseData.steps_to_primary;
 
                     let phaseMeasurements = fullMeasurements;
-                    if (currentStoppingCriteria === 'primary_converged' && splittingConvergedStep != null) {
-                        phaseMeasurements = splittingConvergedStep;
+                    if (currentStoppingCriteria === 'primary_converged' && primaryConvergedStep != null) {
+                        phaseMeasurements = primaryConvergedStep;
                     } else if (currentStoppingCriteria === 'all_converged' && allConvergedStep != null) {
                         phaseMeasurements = allConvergedStep;
                     }
@@ -3156,12 +3156,12 @@ function main() {
                     const items = [
                         { label: 'Attempt', val: attemptLabel, tip: 'Which repeat attempt this scan corresponds to (current/total).' },
                     ];
-                    if (splitConvResolved != null || allConvergedStep != null || fullMeasurements != null) {
+                    if (primaryConvResolved != null || allConvergedStep != null || fullMeasurements != null) {
                         items.push({
                             label: 'Converged',
-                            tip: 'Measurements at which splitting converged / all tracked parameters converged / the full run ended.',
+                            tip: 'Measurements at which primary converged / all tracked parameters converged / the full run ended.',
                             table: [
-                                { label: 'split', val: splitConvResolved != null ? formatCount(splitConvResolved) : '–' },
+                                { label: 'split', val: primaryConvResolved != null ? formatCount(primaryConvResolved) : '–' },
                                 { label: 'all', val: allConvergedStep != null ? formatCount(allConvergedStep) : '–' },
                                 { label: 'full', val: fullMeasurements != null ? formatCount(fullMeasurements) : '–' },
                             ]
@@ -3183,8 +3183,8 @@ function main() {
                     }
 
                     const phaseAbsErr = _mv(phaseData, 'abs_err_x', 'final_err_split', 'pair_rmse');
-                    const errPrimaryAtSplit = phaseData.err_primary_at_milestone;
-                    const uncertPrimaryAtSplit = phaseData.uncert_primary_at_milestone;
+                    const errPrimaryAtMilestone = phaseData.err_primary_at_milestone;
+                    const uncertPrimaryAtMilestone = phaseData.uncert_primary_at_milestone;
                     const errPrimaryAtAll = _mv(phaseData, 'err_primary_at_all_converged');
                     const uncertPrimaryAtAll = _mv(phaseData, 'uncert_primary_at_all_converged');
                     const errRows = [];
@@ -3201,8 +3201,8 @@ function main() {
                             unc != null ? formatHz(unc) : '–',
                         ] };
                     };
-                    if (errPrimaryAtSplit != null || uncertPrimaryAtSplit != null) {
-                        errRows.push(errRow('split', errPrimaryAtSplit, uncertPrimaryAtSplit));
+                    if (errPrimaryAtMilestone != null || uncertPrimaryAtMilestone != null) {
+                        errRows.push(errRow('split', errPrimaryAtMilestone, uncertPrimaryAtMilestone));
                     }
                     if (errPrimaryAtAll != null || uncertPrimaryAtAll != null) {
                         errRows.push(errRow('all', errPrimaryAtAll, uncertPrimaryAtAll));
@@ -3213,7 +3213,7 @@ function main() {
                     if (errRows.length > 0) {
                         items.push({
                             label: 'Error / uncertainty at each checkpoint',
-                            tip: 'Error and uncertainty of the splitting-parameter estimate at the moment splitting converged / at the moment all tracked parameters converged / at the end of the full run. Lower is better. Rows turn red when |error| > uncert, deep red when |error| > 2·uncert.',
+                            tip: 'Error and uncertainty of the primary-parameter estimate at the moment primary converged / at the moment all tracked parameters converged / at the end of the full run. Lower is better. Rows turn red when |error| > uncert, deep red when |error| > 2·uncert.',
                             table: { columns: ['error', 'uncert'], rows: errRows }
                         });
                     }
@@ -3243,21 +3243,21 @@ function main() {
                     return [
                         // Row 1: Steps — sobol - sbed
                         [
-                            { label: 'Sobol splitting convergence', val: sobolPrimarySteps != null ? formatCount(sobolPrimarySteps) : 'N/A', tip: 'Steps needed for simple Sobol splitting uncertainty to drop below threshold.', cardClass: primaryStepsExpected ? 'expected-card' : '' },
-                            { label: 'Sbed splitting convergence', val: stepsToPrimary != null ? formatCount(stepsToPrimary) : 'N/A', tip: 'Steps needed for Sbed splitting uncertainty to drop below threshold.', cardClass: primaryStepsExpected ? 'expected-card' : '' },
-                            { label: 'Splitting convergence savings', val: (sobolPrimarySteps != null && stepsToPrimary != null) ? formatCount(sobolPrimarySteps - stepsToPrimary) : 'N/A', tip: 'Difference in steps needed for splitting convergence (positive = Sbed was faster).', cardClass: primaryStepsExpected ? 'expected-card' : '' }
+                            { label: 'Sobol primary-parameter convergence', val: sobolPrimarySteps != null ? formatCount(sobolPrimarySteps) : 'N/A', tip: 'Steps needed for simple Sobol primary-parameter uncertainty to drop below threshold.', cardClass: primaryStepsExpected ? 'expected-card' : '' },
+                            { label: 'Sbed primary-parameter convergence', val: stepsToPrimary != null ? formatCount(stepsToPrimary) : 'N/A', tip: 'Steps needed for Sbed primary-parameter uncertainty to drop below threshold.', cardClass: primaryStepsExpected ? 'expected-card' : '' },
+                            { label: 'Primary-parameter convergence savings', val: (sobolPrimarySteps != null && stepsToPrimary != null) ? formatCount(sobolPrimarySteps - stepsToPrimary) : 'N/A', tip: 'Difference in steps needed for primary-parameter convergence (positive = Sbed was faster).', cardClass: primaryStepsExpected ? 'expected-card' : '' }
                         ],
-                        // Row 2: Uncertainty — splitting - overall
+                        // Row 2: Uncertainty — primary parameter - overall
                         [
-                            { label: 'Sobol splitting uncertainty', val: sobolPrimaryUncert != null ? formatHz(sobolPrimaryUncert) : 'N/A', tip: 'Uncertainty (standard deviation) of Sobol splitting estimate at the moment of convergence.', cardClass: sobolPrimaryErrExpected ? 'expected-card' : '' },
-                            { label: 'Sbed splitting uncertainty', val: uncertPrimary != null ? formatHz(uncertPrimary) : 'N/A', tip: 'Uncertainty (standard deviation) of Sbed splitting estimate at the moment of convergence.', cardClass: sbedPrimaryErrExpected ? 'expected-card' : '' },
-                            { label: 'Splitting uncert difference', val: (uncertPrimary != null && uncert != null) ? formatHz(uncertPrimary - uncert) : 'N/A', tip: 'Reduction in Sbed splitting uncertainty from convergence milestone to final (positive = uncertainty decreased).', cardClass: uncertPrimaryDiffExpected ? 'expected-card' : '' }
+                            { label: 'Sobol primary-parameter uncertainty', val: sobolPrimaryUncert != null ? formatHz(sobolPrimaryUncert) : 'N/A', tip: 'Uncertainty (standard deviation) of Sobol primary-parameter estimate at the moment of convergence.', cardClass: sobolPrimaryErrExpected ? 'expected-card' : '' },
+                            { label: 'Sbed primary-parameter uncertainty', val: uncertPrimary != null ? formatHz(uncertPrimary) : 'N/A', tip: 'Uncertainty (standard deviation) of Sbed primary-parameter estimate at the moment of convergence.', cardClass: sbedPrimaryErrExpected ? 'expected-card' : '' },
+                            { label: 'Primary uncert difference', val: (uncertPrimary != null && uncert != null) ? formatHz(uncertPrimary - uncert) : 'N/A', tip: 'Reduction in Sbed primary-parameter uncertainty from convergence milestone to final (positive = uncertainty decreased).', cardClass: uncertPrimaryDiffExpected ? 'expected-card' : '' }
                         ],
-                        // Row 3: Absolute Error — splitting - overall
+                        // Row 3: Absolute Error — primary parameter - overall
                         [
-                            { label: 'Sobol splitting error', val: sobolPrimaryErr != null ? formatHz(sobolPrimaryErr) : 'N/A', tip: 'Absolute error of Sobol splitting estimate vs ground truth at the moment of convergence.', cardClass: sobolPrimaryErrExpected ? 'expected-card' : '' },
-                            { label: 'Sbed splitting error', val: errPrimary != null ? formatHz(errPrimary) : 'N/A', tip: 'Absolute error of Sbed splitting estimate vs ground truth at the moment of convergence.', cardClass: sbedPrimaryErrExpected ? 'expected-card' : '' },
-                            { label: 'Splitting error difference', val: (errPrimary != null && absErr != null) ? formatHz(errPrimary - absErr) : 'N/A', tip: 'Change in Sbed absolute splitting error from convergence milestone to final (positive = error decreased, negative = error increased).', cardClass: errPrimaryDiffExpected ? 'expected-card' : '' }
+                            { label: 'Sobol primary-parameter error', val: sobolPrimaryErr != null ? formatHz(sobolPrimaryErr) : 'N/A', tip: 'Absolute error of Sobol primary-parameter estimate vs ground truth at the moment of convergence.', cardClass: sobolPrimaryErrExpected ? 'expected-card' : '' },
+                            { label: 'Sbed primary-parameter error', val: errPrimary != null ? formatHz(errPrimary) : 'N/A', tip: 'Absolute error of Sbed primary-parameter estimate vs ground truth at the moment of convergence.', cardClass: sbedPrimaryErrExpected ? 'expected-card' : '' },
+                            { label: 'Primary error difference', val: (errPrimary != null && absErr != null) ? formatHz(errPrimary - absErr) : 'N/A', tip: 'Change in Sbed absolute primary-parameter error from convergence milestone to final (positive = error decreased, negative = error increased).', cardClass: errPrimaryDiffExpected ? 'expected-card' : '' }
                         ]
                     ];
                 }
@@ -3291,15 +3291,15 @@ function main() {
                         ],
                         // Row 2: Uncertainty
                         [
-                            { label: 'Sobol overall uncertainty', val: sobolOverallUncert != null ? formatHz(sobolOverallUncert) : 'N/A', tip: 'Final estimated standard deviation of Sobol baseline splitting estimate.', cardClass: sobolOverallErrExpected ? 'expected-card' : '' },
-                            { label: 'Sbed overall uncertainty', val: uncert != null ? formatHz(uncert) : 'N/A', tip: 'Final estimated standard deviation of Sbed splitting estimate.', cardClass: sbedOverallErrExpected ? 'expected-card' : '' },
-                            { label: 'Overall uncert difference', val: (sobolOverallUncert != null && uncert != null) ? formatHz(sobolOverallUncert - uncert) : 'N/A', tip: 'Difference in final splitting estimate uncertainty (positive = SBED was more confident).', cardClass: overallUncertDiffExpected ? 'expected-card' : '' }
+                            { label: 'Sobol overall uncertainty', val: sobolOverallUncert != null ? formatHz(sobolOverallUncert) : 'N/A', tip: 'Final estimated standard deviation of Sobol baseline primary-parameter estimate.', cardClass: sobolOverallErrExpected ? 'expected-card' : '' },
+                            { label: 'Sbed overall uncertainty', val: uncert != null ? formatHz(uncert) : 'N/A', tip: 'Final estimated standard deviation of Sbed primary-parameter estimate.', cardClass: sbedOverallErrExpected ? 'expected-card' : '' },
+                            { label: 'Overall uncert difference', val: (sobolOverallUncert != null && uncert != null) ? formatHz(sobolOverallUncert - uncert) : 'N/A', tip: 'Difference in final primary-parameter estimate uncertainty (positive = SBED was more confident).', cardClass: overallUncertDiffExpected ? 'expected-card' : '' }
                         ],
                         // Row 3: Absolute Error
                         [
-                            { label: 'Sobol overall error', val: sobolOverallErr != null ? formatHz(sobolOverallErr) : 'N/A', tip: 'Final absolute splitting error of Sobol baseline.', cardClass: sobolOverallErrExpected ? 'expected-card' : '' },
-                            { label: 'Sbed overall error', val: absErr != null ? formatHz(absErr) : 'N/A', tip: 'Final absolute splitting error of Sbed.', cardClass: sbedOverallErrExpected ? 'expected-card' : '' },
-                            { label: 'Overall error difference', val: (sobolOverallErr != null && absErr != null) ? formatHz(sobolOverallErr - absErr) : 'N/A', tip: 'Difference in final absolute splitting error (positive = SBED was more accurate).', cardClass: overallErrDiffExpected ? 'expected-card' : '' }
+                            { label: 'Sobol overall error', val: sobolOverallErr != null ? formatHz(sobolOverallErr) : 'N/A', tip: 'Final absolute primary-parameter error of Sobol baseline.', cardClass: sobolOverallErrExpected ? 'expected-card' : '' },
+                            { label: 'Sbed overall error', val: absErr != null ? formatHz(absErr) : 'N/A', tip: 'Final absolute primary-parameter error of Sbed.', cardClass: sbedOverallErrExpected ? 'expected-card' : '' },
+                            { label: 'Overall error difference', val: (sobolOverallErr != null && absErr != null) ? formatHz(sobolOverallErr - absErr) : 'N/A', tip: 'Difference in final absolute primary-parameter error (positive = SBED was more accurate).', cardClass: overallErrDiffExpected ? 'expected-card' : '' }
                         ]
                     ];
                 }
@@ -3325,20 +3325,20 @@ function main() {
                         // Row 1: Steps
                         [
                             { label: 'Sbed overall steps', val: measurements != null ? formatCount(measurements) : 'N/A', tip: 'Total measurements taken during Sbed active locator run.', cardClass: earlyStopStepsExpected ? 'expected-card' : '' },
-                            { label: 'Sbed splitting convergence', val: stepsToPrimary != null ? formatCount(stepsToPrimary) : 'N/A', tip: 'Steps needed for Sbed splitting uncertainty to drop below threshold.', cardClass: earlyStopStepsExpected ? 'expected-card' : '' },
-                            { label: 'Early stopping savings', val: (measurements != null && stepsToPrimary != null) ? formatCount(measurements - stepsToPrimary) : 'N/A', tip: 'Measurements saved by stopping active locator immediately after splitting converges.', cardClass: earlyStopStepsExpected ? 'expected-card' : '' }
+                            { label: 'Sbed primary-parameter convergence', val: stepsToPrimary != null ? formatCount(stepsToPrimary) : 'N/A', tip: 'Steps needed for Sbed primary-parameter uncertainty to drop below threshold.', cardClass: earlyStopStepsExpected ? 'expected-card' : '' },
+                            { label: 'Early stopping savings', val: (measurements != null && stepsToPrimary != null) ? formatCount(measurements - stepsToPrimary) : 'N/A', tip: 'Measurements saved by stopping active locator immediately after primary converges.', cardClass: earlyStopStepsExpected ? 'expected-card' : '' }
                         ],
                         // Row 2: Uncertainty
                         [
-                            { label: 'Sbed final uncertainty', val: uncert != null ? formatHz(uncert) : 'N/A', tip: 'Final splitting estimate uncertainty (standard deviation) at locator termination.', cardClass: earlyStopUncertExpected ? 'expected-card' : '' },
-                            { label: 'Sbed splitting uncertainty', val: uncertPrimary != null ? formatHz(uncertPrimary) : 'N/A', tip: 'Splitting estimate uncertainty (standard deviation) at the moment splitting converged.', cardClass: earlyStopUncertExpected ? 'expected-card' : '' },
-                            { label: 'Milestone to final uncert diff', val: (uncert != null && uncertPrimary != null) ? formatHz(uncertPrimary - uncert) : 'N/A', tip: 'Uncertainty reduction achieved by continuing to run from the splitting-convergence milestone until locator termination.', cardClass: earlyStopUncertExpected ? 'expected-card' : '' }
+                            { label: 'Sbed final uncertainty', val: uncert != null ? formatHz(uncert) : 'N/A', tip: 'Final primary-parameter estimate uncertainty (standard deviation) at locator termination.', cardClass: earlyStopUncertExpected ? 'expected-card' : '' },
+                            { label: 'Sbed primary-parameter uncertainty', val: uncertPrimary != null ? formatHz(uncertPrimary) : 'N/A', tip: 'Primary-parameter estimate uncertainty (standard deviation) at the moment primary converged.', cardClass: earlyStopUncertExpected ? 'expected-card' : '' },
+                            { label: 'Milestone to final uncert diff', val: (uncert != null && uncertPrimary != null) ? formatHz(uncertPrimary - uncert) : 'N/A', tip: 'Uncertainty reduction achieved by continuing to run from the primary-parameter convergence milestone until locator termination.', cardClass: earlyStopUncertExpected ? 'expected-card' : '' }
                         ],
                         // Row 3: Absolute Error
                         [
-                            { label: 'Sbed final error', val: absErr != null ? formatHz(absErr) : 'N/A', tip: 'Final absolute splitting error vs ground truth at locator termination.', cardClass: earlyStopErrExpected ? 'expected-card' : '' },
-                            { label: 'Sbed splitting error', val: errPrimary != null ? formatHz(errPrimary) : 'N/A', tip: 'Absolute splitting error vs ground truth at the moment splitting converged.', cardClass: earlyStopErrExpected ? 'expected-card' : '' },
-                            { label: 'Milestone to final error diff', val: (absErr != null && errPrimary != null) ? formatHz(errPrimary - absErr) : 'N/A', tip: 'Absolute error reduction achieved by continuing to run from the splitting-convergence milestone until locator termination.', cardClass: earlyStopErrExpected ? 'expected-card' : '' }
+                            { label: 'Sbed final error', val: absErr != null ? formatHz(absErr) : 'N/A', tip: 'Final absolute primary-parameter error vs ground truth at locator termination.', cardClass: earlyStopErrExpected ? 'expected-card' : '' },
+                            { label: 'Sbed primary-parameter error', val: errPrimary != null ? formatHz(errPrimary) : 'N/A', tip: 'Absolute primary-parameter error vs ground truth at the moment primary converged.', cardClass: earlyStopErrExpected ? 'expected-card' : '' },
+                            { label: 'Milestone to final error diff', val: (absErr != null && errPrimary != null) ? formatHz(errPrimary - absErr) : 'N/A', tip: 'Absolute error reduction achieved by continuing to run from the primary-parameter convergence milestone until locator termination.', cardClass: earlyStopErrExpected ? 'expected-card' : '' }
                         ]
                     ];
                 }
@@ -3504,9 +3504,9 @@ function main() {
                 finalEst = plot.metrics["final_est_" + name];
             }
 
-            let fbAtMilestone = null;
+            let primaryAtMilestone = null;
             if (plot && plot.metrics && name === 'center_freq') {
-                fbAtMilestone = plot.metrics["primary_at_milestone"];
+                primaryAtMilestone = plot.metrics["primary_at_milestone"];
             }
 
             items.push({
@@ -3518,7 +3518,7 @@ function main() {
                 fmtHi: fmtHi,
                 name: name,
                 finalEst: finalEst,
-                fbAtMilestone: fbAtMilestone
+                primaryAtMilestone: primaryAtMilestone
             });
 
             // Derived magnetic field, shown right after zeeman_split (zeeman_split is
@@ -3534,7 +3534,7 @@ function main() {
                     fmtHi: null,
                     name: 'magnetic_field',
                     finalEst: null,
-                    fbAtMilestone: null
+                    primaryAtMilestone: null
                 });
             }
         }
@@ -5490,9 +5490,9 @@ function main() {
                     markersHtml += '<div class="param-range-marker" title="Final Inferred: ' + formattedFinal + '" style="left: ' + finalPct + '%; background-color: #ef4444; width: 8px; height: 8px; z-index: 9;"></div>';
                 }
 
-                if (typeof it.fbAtMilestone === 'number' && Number.isFinite(it.fbAtMilestone)) {
-                    const fbPct = Math.min(100, Math.max(0, (it.fbAtMilestone - lo) / (hi - lo) * 100));
-                    const formattedPrimary = formatHz(it.fbAtMilestone);
+                if (typeof it.primaryAtMilestone === 'number' && Number.isFinite(it.primaryAtMilestone)) {
+                    const fbPct = Math.min(100, Math.max(0, (it.primaryAtMilestone - lo) / (hi - lo) * 100));
+                    const formattedPrimary = formatHz(it.primaryAtMilestone);
                     markersHtml += '<div class="param-range-marker" title="Milestone (primary) estimate: ' + formattedPrimary + '" style="left: ' + fbPct + '%; background-color: #f59e0b; width: 8px; height: 8px; z-index: 8;"></div>';
                 }
 
@@ -5679,7 +5679,7 @@ function main() {
                 stepsType: 'measurements',
             };
             const primaryConv = {
-                id: id + '_primary', label: label + ' splitting converged',
+                id: id + '_primary', label: label + ' primary converged',
                 steps: [], uncert: [], err: [],
                 steps_to_primary: [], uncert_at_primary: [], err_at_primary: [],
                 f_spans: [], repeats: [],
@@ -5767,7 +5767,7 @@ function main() {
             const results = [base];
             if (primaryStep != null) {
                 results.push({
-                    id: id + '_primary', label: label + ' splitting converged',
+                    id: id + '_primary', label: label + ' primary converged',
                     steps: primaryStep,
                     uncert: _mv(d, 'uncert_primary_at_milestone'),
                     err:    _mv(d, 'err_primary_at_milestone'),
@@ -5837,11 +5837,11 @@ function main() {
             ]});
         };
         addRow('Steps to completion',       eA.steps,        eB.steps,        '#f472b6','#60a5fa','#22c55e', eA.stepsType || 'measurements');
-        addRow('Final splitting uncertainty',eA.uncert,       eB.uncert,       '#a78bfa','#34d399','#f59e0b','frequency');
-        addRow('Final splitting error',      eA.err,          eB.err,          '#c084fc','#10b981','#6366f1','frequency');
-        addRow('Steps to splitting convergence', eA.steps_to_primary,  eB.steps_to_primary,  '#fb923c','#38bdf8','#a3e635','steps');
-        addRow('Uncertainty @ splitting conv.',  eA.uncert_at_primary, eB.uncert_at_primary, '#818cf8','#2dd4bf','#fbbf24','frequency');
-        addRow('Error @ splitting conv.',        eA.err_at_primary,    eB.err_at_primary,    '#d946ef','#4ade80','#f43f5e','frequency');
+        addRow('Final primary-parameter uncertainty',eA.uncert,       eB.uncert,       '#a78bfa','#34d399','#f59e0b','frequency');
+        addRow('Final primary-parameter error',      eA.err,          eB.err,          '#c084fc','#10b981','#6366f1','frequency');
+        addRow('Steps to primary-parameter convergence', eA.steps_to_primary,  eB.steps_to_primary,  '#fb923c','#38bdf8','#a3e635','steps');
+        addRow('Uncertainty @ primary conv.',  eA.uncert_at_primary, eB.uncert_at_primary, '#818cf8','#2dd4bf','#fbbf24','frequency');
+        addRow('Error @ primary conv.',        eA.err_at_primary,    eB.err_at_primary,    '#d946ef','#4ade80','#f43f5e','frequency');
         return rows;
     }
 
@@ -5867,25 +5867,25 @@ function main() {
     }
 
     function baseLocatorLabel(label) {
-        if (label.endsWith(' splitting converged')) return label.slice(0, -20);
+        if (label.endsWith(' primary converged')) return label.slice(0, -20);
         if (label.endsWith(' converged')) return label.slice(0, -10);
         return label;
     }
 
     const SPEED_METRICS = [
         { key: 'steps',       label: 'Steps to completion',        type: 'measurements', color: '#f472b6', deltaColor: '#22c55e' },
-        { key: 'steps_to_primary', label: 'Steps to splitting convergence', type: 'steps',        color: '#fb923c', deltaColor: '#a3e635' },
+        { key: 'steps_to_primary', label: 'Steps to primary-parameter convergence', type: 'steps',        color: '#fb923c', deltaColor: '#a3e635' },
     ];
     const ACCURACY_METRICS = [
-        { key: 'uncert_at_primary', label: 'Claimed σ @ splitting conv.', type: 'frequency', color: '#818cf8', deltaColor: '#fbbf24' },
+        { key: 'uncert_at_primary', label: 'Claimed σ @ primary conv.', type: 'frequency', color: '#818cf8', deltaColor: '#fbbf24' },
         { key: 'uncert',       label: 'Claimed σ (final)',        type: 'frequency', color: '#a78bfa', deltaColor: '#f59e0b' },
     ];
     // Full set kept for backward compat (buildPairwiseRows single-scan view)
     const ENTITY_METRICS = [
         ...SPEED_METRICS,
         ...ACCURACY_METRICS,
-        { key: 'err',      label: 'Final splitting error',     type: 'frequency', color: '#c084fc', deltaColor: '#6366f1' },
-        { key: 'err_at_primary', label: 'Error @ splitting conv.',  type: 'frequency', color: '#d946ef', deltaColor: '#f43f5e' },
+        { key: 'err',      label: 'Final primary-parameter error',     type: 'frequency', color: '#c084fc', deltaColor: '#6366f1' },
+        { key: 'err_at_primary', label: 'Error @ primary conv.',  type: 'frequency', color: '#d946ef', deltaColor: '#f43f5e' },
     ];
 
     // Renders a group of entities (all criteria for one base locator) as a
@@ -6189,7 +6189,7 @@ function main() {
         let label = '';
         if (currentStoppingCriteria === 'primary_converged') {
             step = _mv(d, 'primary_converged_step', 'steps_to_primary');
-            label = 'Splitting converged';
+            label = 'Primary converged';
         } else if (currentStoppingCriteria === 'all_converged') {
             step = _mv(d, 'all_converged_step');
             label = 'Converged';
@@ -6724,7 +6724,7 @@ function main() {
         return (lw && lw > 0) ? Math.max(2.0 * lw, split + lw) / domainWidth : null;
     }
     function hlConvStep(p, mult) {
-        // 'u' (primary-parameter uncertainty, i.e. splitting) and 'tau' (its threshold)
+        // 'u' (primary-parameter uncertainty, the primary parameter) and 'tau' (its threshold)
         // in the series are the SAME quantities behind the backend's
         // primary_converged_step. At the
         // standard threshold the milestone is exact and full-resolution — use it
@@ -7582,7 +7582,7 @@ function main() {
         {
             const plotDiv = dashPanelDiv(container,
                 'Final claimed uncertainty vs noise',
-                'Median claimed 1σ splitting uncertainty at end of run. Lower = tighter result delivered.',
+                'Median claimed 1σ primary-parameter uncertainty at end of run. Lower = tighter result delivered.',
                 Math.max(240, 140 + 20 * strategies.length));
             const traces = strategies.map(strat => {
                 const color = hlStratColor(strategies, strat);
@@ -8350,7 +8350,7 @@ function main() {
             {
                 const plotDiv = dashPanelDiv(row,
                     'Final claimed uncertainty vs noise',
-                    'Median claimed 1σ splitting uncertainty at the end of the run. Lower = tighter result delivered. Compare locators to see who promises more precision, and whether louder noise forces a looser answer.',
+                    'Median claimed 1σ primary-parameter uncertainty at the end of the run. Lower = tighter result delivered. Compare locators to see who promises more precision, and whether louder noise forces a looser answer.',
                     Math.max(260, 160 + 20 * strategies.length));
                 const traces = strategies.map(strat => {
                     const color = hlStratColor(strategies, strat);
