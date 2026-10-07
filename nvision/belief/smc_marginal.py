@@ -73,6 +73,10 @@ if NVISION_SMC_EIG_SELECTION_MODE not in ("softmax", "hardmax"):
         f"NVISION_SMC_EIG_SELECTION_MODE must be 'softmax' or 'hardmax', got {NVISION_SMC_EIG_SELECTION_MODE!r}"
     )
 
+# Softmax temperature, in nats of EIG, for the "softmax" mode above: a chunk winner this many nats
+# below the best is selected e times less often. Smaller -> closer to hardmax.
+_EIG_SELECTION_TEMPERATURE_NATS: float = 0.01
+
 # Beyond this many standard deviations, scipy's truncnorm loses precision (both
 # CDF endpoints round to the same float), so the far-tail branch of
 # _sample_truncated_normal takes over.
@@ -1326,9 +1330,10 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         else:
             # Boltzmann sampling over chunk winners to avoid getting stuck at a
             # single numerical noise peak (same logic, now over the full grid).
-            temp = 0.01
-            shifted_scores = (winner_scores - np.max(winner_scores)) / temp
-            probs = np.exp(shifted_scores)
+            # P(winner) ∝ exp((eig - eig_best) / _EIG_SELECTION_TEMPERATURE_NATS): a winner that is
+            # this many nats worse than the best is picked e times less often.
+            gap_to_best_nats = winner_scores - np.max(winner_scores)  # shape: (n_chunks,), <= 0
+            probs = np.exp(gap_to_best_nats / _EIG_SELECTION_TEMPERATURE_NATS)
             probs /= np.sum(probs)
 
             best_chunk_order = self._rng.choice(len(winner_indices), size=n, replace=False, p=probs)
