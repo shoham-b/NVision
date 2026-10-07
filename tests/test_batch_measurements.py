@@ -213,3 +213,32 @@ def test_run_loop_default_n_shots_is_single_shot():
     locators = list(run_loop(_FakeLocator, exp, random.Random(0)))
     obs = locators[-1].received
     assert all(o.n_shots == 1 for o in obs)
+
+
+def test_recompute_noise_betas_matches_incremental_recursion():
+    """The closed-form replay reproduces the per-observation beta recursion (discount, multi-shot, within-batch)."""
+    belief = _make_rb_belief()
+    belief.auto_resample = False
+    rng = np.random.default_rng(3)
+    for i, k in enumerate([1, 4, 1, 3, 5, 1, 2]):
+        x = 2.7e9 + 1e7 * (i + 1)
+        belief.update(aggregate_shots(x, 0.5 + 0.1 * rng.standard_normal(k), prior_noise_std=0.05))
+
+    incremental = belief._noise_betas.copy()
+    belief._recompute_noise_betas(chunk=3)  # chunk < n_obs exercises the chunk loop
+    assert np.allclose(belief._noise_betas, incremental, rtol=1e-4)
+
+
+def test_resample_recomputes_noise_betas_at_nudged_theta():
+    """After a resample every particle's beta is the exact replay at its own (nudged) theta, not its parent's."""
+    belief = _make_rb_belief()
+    belief.auto_resample = False
+    for i in range(6):
+        belief.update(Observation(x=2.7e9 + 1e7 * (i + 1), signal_value=0.5 + 0.02 * i, noise_std=0.05))
+
+    belief._resample()
+    after = belief._noise_betas.copy()
+    belief._recompute_noise_betas()
+    assert np.allclose(belief._noise_betas, after)
+    # Identical-parent copies were nudged apart, so betas are not all equal.
+    assert np.unique(after).size > 1
