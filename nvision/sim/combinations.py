@@ -21,6 +21,7 @@ from nvision.noises import OverFrequencyGaussianNoise
 from nvision.sim import defaults as sim_defaults
 from nvision.sim import presets as sim_presets
 from nvision.sim.locs.bayesian.belief_builders import nv_center_smc_belief
+from nvision.sim.locs.bayesian.bisect_locator import BisectionFocusLocator
 from nvision.sim.locs.bayesian.sbed_locator import SequentialBayesianExperimentDesignLocator
 from nvision.sim.locs.bayesian.sobol_bayesian_locator import SimpleSobolBayesianLocator
 from nvision.sim.locs.coarse.generic_sweep_locator import GenericSweepLocator
@@ -197,6 +198,13 @@ class CombinationGrid:
                 "Bayesian-SBED",
                 {
                     "class": SequentialBayesianExperimentDesignLocator,
+                    "config": {"max_steps": sim_defaults.NVISION_SBED_MAX_STEPS, **nv_smc_config},
+                },
+            ),
+            (
+                "Bayesian-Bisect",
+                {
+                    "class": BisectionFocusLocator,
                     "config": {"max_steps": sim_defaults.NVISION_SBED_MAX_STEPS, **nv_smc_config},
                 },
             ),

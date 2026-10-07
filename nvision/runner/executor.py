@@ -1366,7 +1366,9 @@ class _TaskRunner:
             # re-measuring the same physical positions with fresh noise.
             return round_to_dyadic_points(NVISION_SIMPLESWEEP_MAX_STEPS)
 
-        if locator_class.__name__ == "SequentialBayesianExperimentDesignLocator":
+        from nvision.sim.locs.bayesian.sbed_locator import SequentialBayesianExperimentDesignLocator
+
+        if issubclass(locator_class, SequentialBayesianExperimentDesignLocator):
             from nvision.sim.defaults import NVISION_SBED_STEPS_FRACTION
 
             return max(1, int(np.ceil(simplesweep_steps * NVISION_SBED_STEPS_FRACTION)))

@@ -11,6 +11,7 @@ class StrategyFilter(StrEnum):
     SIMPLE_SWEEP = "SimpleSweep"
     STAGED_SOBOL_SWEEP = "StagedSobolSweep"
     BAYESIAN_SBED = "Bayesian-SBED"
+    BAYESIAN_BISECT = "Bayesian-Bisect"
     SIMPLE_SOBOL = "SimpleSobol"
 
 
