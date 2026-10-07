@@ -69,7 +69,7 @@ def create_mock_run_result(final_error=0.01, final_uncertainty=0.005, converged_
 
         from nvision.models.observation import Observation
 
-        obs = Observation(x=0.5, signal_value=1.0, noise_std=0.01)
+        obs = Observation(drive_freq_unit=0.5, signal_value=1.0, noise_std=0.01)
 
         snapshots.append(StepSnapshot(obs=obs, belief=belief, true_signal=true_signal))
 

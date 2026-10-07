@@ -44,14 +44,14 @@ from nvision.sim.locs.bayesian.sbed_locator import (
 
 
 def _acquire(self) -> float:
-    """Select the next measurement point by maximizing EIG over a probe-axis grid."""
+    """Select the next measurement point by maximizing EIG over a drive-frequency grid."""
     lo, hi = self._acquisition_bounds()
     if hi <= lo:
         return float(lo)
 
     # The belief's original (never-narrowed) domain -- used by the exploration branches
     # below so they can still reach a location resampling has already narrowed away from.
-    orig_lo, orig_hi = self.belief.physical_x_bounds
+    orig_lo, orig_hi = self.belief.drive_freq_bounds_phys
 
     # Forced background calibration: sample out-of-span until we have
     # enough background points to estimate noise for the CRLB early-stop.
@@ -102,11 +102,11 @@ def _acquire(self) -> float:
                     )
                 freq_rescale = rescale_maps["center_freq"]
                 if hasattr(self.belief, "observation_arrays"):
-                    obs_xs_unit, obs_ys = self.belief.observation_arrays()
-                    obs_xs_phys = freq_rescale.to_phys(obs_xs_unit)
+                    obs_drive_freqs_unit, obs_ys = self.belief.observation_arrays()
+                    obs_drive_freqs_phys = freq_rescale.to_phys(obs_drive_freqs_unit)
                 else:
                     obs_list = self.belief._observations
-                    obs_xs_phys = freq_rescale.to_phys(np.array([o.x for o in obs_list]))
+                    obs_drive_freqs_phys = freq_rescale.to_phys(np.array([o.drive_freq_unit for o in obs_list]))
                     obs_ys = np.array([o.signal_value for o in obs_list])
                 if (
                     hasattr(self.belief, "estimated_noise_std")
@@ -143,7 +143,7 @@ def _acquire(self) -> float:
                             per_particle_sigmas = raw_sigmas
 
                 dip_candidates = identify_dip_candidates(
-                    obs_xs_phys,
+                    obs_drive_freqs_phys,
                     obs_ys,
                     noise_std,
                     max_linewidth_hz,
@@ -182,11 +182,11 @@ def _acquire(self) -> float:
             if np.sum(weights) > 0:
                 idx = int(np.random.choice(len(weights), p=weights))
                 param_names = getattr(self.belief, "_param_names", [])
-                probe_axis_param = self._probe_axis_param
-                if probe_axis_param in param_names:
-                    p_idx = param_names.index(probe_axis_param)
+                center_param = self._center_param
+                if center_param in param_names:
+                    p_idx = param_names.index(center_param)
                     val = float(self.belief._particles[idx, p_idx])
-                    return self.belief._to_physical(probe_axis_param, val)
+                    return self.belief._to_physical(center_param, val)
 
     if _DUAL_WINDOW_ENABLED:
         dual = self._dual_window_acquire()
@@ -218,7 +218,7 @@ def _dual_window_acquire(self) -> float | None:
     if split_hat < 3.0 * lw_hat:
         return None
 
-    orig_lo, orig_hi = self.belief.physical_x_bounds
+    orig_lo, orig_hi = self.belief.drive_freq_bounds_phys
     half_width = 3.0 * lw_hat
     windows = {
         "left": (
@@ -247,8 +247,8 @@ def _dual_window_acquire(self) -> float | None:
 
 def _eig_acquire(self) -> float:
     """Maximize EIG over the belief's slope-targeted candidate grid."""
-    candidates = self.belief.get_candidate_x_phys()
-    candidates = self._thin_candidate_x_by_step(candidates)
+    candidates = self.belief.get_candidate_drive_freq_phys()
+    candidates = self._thin_candidate_drive_freq_by_step(candidates)
 
     lo, hi = self._acquisition_bounds()
     if (

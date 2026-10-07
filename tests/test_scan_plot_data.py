@@ -29,7 +29,7 @@ def _minimal_scan() -> CoreExperiment:
     }
     typed = GaussianSpectrum(center_freq=0.5, sigma=0.1, dip_depth=1.0, background=0.0)
     true_signal = TrueSignal.from_typed(model=GaussianModel(), params=typed, bounds=bounds)
-    return CoreExperiment(true_signal=true_signal, noise=None, x_min=0.0, x_max=1.0)
+    return CoreExperiment(true_signal=true_signal, noise=None, drive_freq_min_phys=0.0, drive_freq_max_phys=1.0)
 
 
 def test_compute_scan_plot_data_json_serializable() -> None:
@@ -55,9 +55,9 @@ def test_compute_scan_plot_data_phases() -> None:
 
 def test_compute_scan_plot_data_mode_curve_uses_belief_unit_cube() -> None:
     """MAP overlay uses the inference model when ground-truth parameter names differ."""
-    x_min, x_max = 2.6e9, 3.1e9
+    drive_freq_min_phys, drive_freq_max_phys = 2.6e9, 3.1e9
     lorentz_bounds = {
-        "center_freq": (x_min, x_max),
+        "center_freq": (drive_freq_min_phys, drive_freq_max_phys),
         "linewidth": (5e6, 100e6),
         "dip_depth": (1e-6, 1.0),
         "background": (0.5, 1.2),
@@ -73,15 +73,20 @@ def test_compute_scan_plot_data_mode_curve_uses_belief_unit_cube() -> None:
         params=typed,
         bounds=lorentz_bounds,
     )
-    scan = CoreExperiment(true_signal=true_signal, noise=None, x_min=x_min, x_max=x_max)
+    scan = CoreExperiment(
+        true_signal=true_signal,
+        noise=None,
+        drive_freq_min_phys=drive_freq_min_phys,
+        drive_freq_max_phys=drive_freq_max_phys,
+    )
 
     phys = {
-        "center_freq": (x_min, x_max),
+        "center_freq": (drive_freq_min_phys, drive_freq_max_phys),
         "sigma": (5e6, 100e6),
         "dip_depth": (0.1, 1.4),
         "background": (0.0, 0.5),
     }
-    belief_uc = UnitCubeSignalModel(GaussianModel(), phys, (x_min, x_max))
+    belief_uc = UnitCubeSignalModel(GaussianModel(), phys, (drive_freq_min_phys, drive_freq_max_phys))
     mode_estimates = {
         "center_freq": 2.85e9,
         "sigma": 30e6,

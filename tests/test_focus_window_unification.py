@@ -3,7 +3,7 @@
 What's actually unified, and what isn't
 ----------------------------------------
 ``clamp_to_domain`` is the one piece of arithmetic genuinely shared by every
-narrowing site: the Bayesian locator's probe-axis focus
+narrowing site: the Bayesian locator's drive-frequency focus
 (``nvision.belief.focus_window.next_focus_window``), the sweep locators'
 ``nvision.sim.locs.refocus.window``, and ``StagedSobolSweepLocator.per_dip_windows``.
 ``TestClampToDomainRouting`` proves each of those call sites actually calls the
@@ -37,7 +37,7 @@ from hypothesis import strategies as st
 from nvision.belief.focus_window import FocusWindow, clamp_to_domain
 
 # ---------------------------------------------------------------------------
-# FocusWindow construction and to_measure_x
+# FocusWindow construction and to_measure_drive_freq_unit
 # ---------------------------------------------------------------------------
 
 
@@ -57,14 +57,14 @@ class TestFocusWindowConstruction:
             FocusWindow(lo=0.0, hi=1.0, full_lo=1.0, full_hi=1.0)
 
     def test_to_measure_x_uses_full_bounds_not_narrowed_bounds(self):
-        """to_measure_x must always normalize against full_lo/full_hi, even
+        """to_measure_drive_freq_unit must always normalize against full_lo/full_hi, even
         once the window has narrowed away from them -- that's the entire
         point of keeping full_lo/full_hi immutable.
         """
         w = FocusWindow(lo=0.4, hi=0.6, full_lo=0.0, full_hi=1.0)
-        assert w.to_measure_x(0.5) == pytest.approx(0.5)
-        assert w.to_measure_x(0.0) == pytest.approx(0.0)
-        assert w.to_measure_x(1.0) == pytest.approx(1.0)
+        assert w.to_measure_drive_freq_unit(0.5) == pytest.approx(0.5)
+        assert w.to_measure_drive_freq_unit(0.0) == pytest.approx(0.0)
+        assert w.to_measure_drive_freq_unit(1.0) == pytest.approx(1.0)
 
 
 # ---------------------------------------------------------------------------
@@ -342,9 +342,9 @@ class TestClampToDomainRouting:
 
         x = [i / 299.0 for i in range(300)]
         hist = ObservationHistory(500)
-        for xi in x:
-            y = 1.0 - 0.9 * pow(2.718281828, -0.5 * ((xi - 0.5) / 0.025) ** 2)
-            hist.append(Observation(x=xi, signal_value=y))
+        for drive_freq_unit in x:
+            y = 1.0 - 0.9 * pow(2.718281828, -0.5 * ((drive_freq_unit - 0.5) / 0.025) ** 2)
+            hist.append(Observation(drive_freq_unit=drive_freq_unit, signal_value=y))
 
         refocus_window_mod.infer_focus_window(hist, 0.0, 1.0, expected_dips=1, noise_threshold=0.5)
         assert len(calls) >= 1
@@ -368,15 +368,15 @@ class TestClampToDomainRouting:
         locator.noise_std = 0.01
         from nvision.models.observation import ObservationHistory
 
-        hist = ObservationHistory(500)
+        hist = ObservationHistory(500, (0.0, 1.0))
         import math
 
         for i in range(200):
-            xi = i / 199.0
+            drive_freq_unit = i / 199.0
             y = 1.0
-            y -= 0.8 * math.exp(-0.5 * ((xi - 0.3) / 0.02) ** 2)
-            y -= 0.8 * math.exp(-0.5 * ((xi - 0.7) / 0.02) ** 2)
-            hist.append(sobol_mod.Observation(x=xi, signal_value=y))
+            y -= 0.8 * math.exp(-0.5 * ((drive_freq_unit - 0.3) / 0.02) ** 2)
+            y -= 0.8 * math.exp(-0.5 * ((drive_freq_unit - 0.7) / 0.02) ** 2)
+            hist.append(sobol_mod.Observation(drive_freq_unit=drive_freq_unit, signal_value=y))
         locator.history = hist
 
         windows = locator.per_dip_windows()
@@ -428,7 +428,7 @@ class TestSobolFailsFastOnCollapsedCandidate:
         monkeypatch.setattr(sobol_mod, "_infer_tight_focus_window", lambda *a, **k: (2.0, 3.0))
 
         for i in range(10):
-            stage3.history.append(sobol_mod.Observation(x=i / 9.0, signal_value=0.5))
+            stage3.history.append(sobol_mod.Observation(drive_freq_unit=i / 9.0, signal_value=0.5))
 
         with pytest.raises(ValueError, match="collapsed window"):
             stage3._check_for_remaining_dips()

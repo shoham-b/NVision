@@ -82,7 +82,7 @@ def test_smc_joint_parameter_tracking():
     assert hasattr(belief, "_noise_alpha")
 
     # Perform a dummy update
-    obs = Observation(x=0.5, signal_value=0.9, noise_std=0.05)
+    obs = Observation(drive_freq_unit=0.5, signal_value=0.9, noise_std=0.05)
     belief.update(obs)
 
     # Check that particles evolved

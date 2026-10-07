@@ -9,7 +9,7 @@ from __future__ import annotations
 import numpy as np
 
 from nvision.belief.focus_window import clamp_to_domain
-from nvision.models.observation import Observation, ObservationHistory
+from nvision.models.observation import ObservationHistory
 from nvision.sim.defaults import NVISION_WINDOW_MIN_PADDING_FRAC, NVISION_WINDOW_PADDING_FRAC
 from nvision.sim.locs.refocus.strategies import detect_dips, infer_dip_widths
 
@@ -61,7 +61,7 @@ def infer_focus_window(
         If ``history`` has fewer than 3 points or no dips are detected at the
         given ``noise_threshold``.
     """
-    xs = history.xs
+    xs = history.drive_freqs_unit
     ys = history.ys
 
     if len(xs) < 3:
@@ -144,50 +144,30 @@ def infer_focus_window_physical(
     signal_model: object | None = None,
     noise_threshold: float,
 ) -> tuple[float, float]:
-    """Infer focus window in physical units.
+    """Infer focus window in physical units (Hz).
 
-    Works whether ``history.xs`` is already normalized ``[0,1]`` or physical.
-    Internally normalises coordinates, runs :func:`infer_focus_window`, then
-    denormalises the result.
+    ``history`` must have been built with ``drive_freq_bounds_phys == (domain_lo, domain_hi)``: its unit
+    drive frequencies are inferred on ``[0, 1]`` by :func:`infer_focus_window`, then mapped back to Hz.
     """
-    xs = history.xs
-    ys = history.ys
+    if history.drive_freq_bounds_phys is None or tuple(history.drive_freq_bounds_phys) != (domain_lo, domain_hi):
+        raise ValueError(
+            f"infer_focus_window_physical: history spans {history.drive_freq_bounds_phys}, "
+            f"not the requested domain ({domain_lo}, {domain_hi})."
+        )
     domain_width = domain_hi - domain_lo
 
-    if domain_width <= 0 or len(xs) < 3:
+    if domain_width <= 0 or history.count < 3:
         return domain_lo, domain_hi
 
-    # Detect whether history.xs is already normalized [0,1] (as returned by
-    # experiment.measure) or physical (as returned by locator.next).
-    # Real physical domains in this codebase are >> 1 Hz, so any xs span ≤ 1.5
-    # with values inside [-0.5, 1.5] is treated as already normalized.
-    xs_range = float(np.max(xs) - np.min(xs))
-    xs_look_normalized = xs_range <= 1.5 and float(np.min(xs)) >= -0.5 and float(np.max(xs)) <= 1.5
-
-    if xs_look_normalized:
-        lo_norm, hi_norm = infer_focus_window(
-            history,
-            0.0,
-            1.0,
-            expected_dips=expected_dips,
-            signal_model=signal_model,
-            noise_threshold=noise_threshold,
-        )
-    else:
-        # history.xs is physical; normalise to [0,1] before inference
-        xs_norm = (xs - domain_lo) / domain_width
-        temp_history = ObservationHistory(history.max_steps)
-        for x_norm, y in zip(xs_norm, ys, strict=False):
-            temp_history.append(Observation(x=float(x_norm), signal_value=float(y)))
-        lo_norm, hi_norm = infer_focus_window(
-            temp_history,
-            0.0,
-            1.0,
-            expected_dips=expected_dips,
-            signal_model=signal_model,
-            noise_threshold=noise_threshold,
-        )
-    return (domain_lo + lo_norm * domain_width, domain_lo + hi_norm * domain_width)
+    lo_unit, hi_unit = infer_focus_window(
+        history,
+        0.0,
+        1.0,
+        expected_dips=expected_dips,
+        signal_model=signal_model,
+        noise_threshold=noise_threshold,
+    )
+    return (domain_lo + lo_unit * domain_width, domain_lo + hi_unit * domain_width)
 
 
 def dip_noise_threshold(

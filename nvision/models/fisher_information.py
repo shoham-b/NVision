@@ -126,7 +126,7 @@ def marginal_crlbs_at_budget(
     """Per-parameter marginal CRLB achievable with ``n_steps`` uniform measurements.
 
     Computes the expected Fisher information for a uniform grid of ``n_grid``
-    probe positions over ``[x_lo, x_hi]``, averages across them, scales by
+    drive frequencies over ``[x_lo, x_hi]``, averages across them, scales by
     ``n_steps``, and returns per-parameter marginal CRLBs (in each parameter's
     own physical units) as ``sqrt(diag(pinv(n_steps * mean_FIM)))``.
 
@@ -305,6 +305,7 @@ def fisher_history(
     estimates_hist: list[dict[str, float]],
     param_names: list[str],
     physical_bounds: dict[str, tuple[float, float]],
+    drive_freq_bounds_phys: tuple[float, float],
 ) -> tuple[list[np.ndarray], list[dict[str, float]], bool]:
     """Per-step cumulative Fisher info of a run: ``(fisher_hist, fisher_bounds_hist, fim_is_degenerate)``.
 
@@ -312,7 +313,8 @@ def fisher_history(
     ``fisher_bounds_hist[i]`` maps each parameter to its marginal CRLB (physical; NaN while the direction
     has no information). Each observation is evaluated at that step's own posterior estimate
     (``estimates_hist[i]``, physical), on the belief's *inner* physical model -- the unit-cube wrapper
-    would re-interpret the physical values as ``[0, 1]`` fractions.
+    would re-interpret the physical values as ``[0, 1]`` fractions. Each snapshot's ``obs.drive_freq_unit`` is
+    mapped to Hz over ``drive_freq_bounds_phys`` (the range it is a unit coordinate of) before evaluation.
     """
     inner_model = snapshots[0].belief.model
     inner_model = getattr(inner_model, "inner", inner_model)
@@ -322,8 +324,10 @@ def fisher_history(
 
     fisher_hist: list[np.ndarray] = []
     fisher_bounds_hist: list[dict[str, float]] = []
+    lo_phys, hi_phys = drive_freq_bounds_phys
     for s, est in zip(snapshots, estimates_hist, strict=True):
-        fisher.add(s.obs.x, typed_parameters(inner_model, est), s.obs)
+        drive_freq_phys = lo_phys + s.obs.drive_freq_unit * (hi_phys - lo_phys)
+        fisher.add(drive_freq_phys, typed_parameters(inner_model, est), s.obs)
         fisher_hist.append(fisher.matrix_phys())
         bounds_now = fisher.marginal_crlbs(nan_below_floor=True)
         fisher_bounds_hist.append(bounds_now or {name: float("nan") for name in param_names})
@@ -348,11 +352,11 @@ def oracle_crlb_history(
     """
     names = list(model.parameter_names())
     ranges = ranges_from_bounds(names, bounds)
-    probe_obs = Observation(x=0.0, signal_value=0.0, noise_std=noise_std)  # only noise_std is read
+    noise_only_obs = Observation(drive_freq_unit=0.0, signal_value=0.0, noise_std=noise_std)  # only noise_std is read
     mean_fim = np.zeros((len(names), len(names)))
     valid = 0
     for xi in np.linspace(x_lo, x_hi, n_grid):
-        fim = unit_normalized_fim(model, true_typed_params, float(xi), probe_obs, bounds)
+        fim = unit_normalized_fim(model, true_typed_params, float(xi), noise_only_obs, bounds)
         if fim is not None:
             mean_fim += fim
             valid += 1

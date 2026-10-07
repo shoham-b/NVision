@@ -15,7 +15,7 @@ class PeakSpec:
         width_key: Parameter name for the width field (e.g. ``"sigma"``
             for Gaussian, ``"linewidth"`` for Lorentzian).
         width_frac: ``(lo, hi)`` width range expressed as *fractions of the
-            domain width* (so ``0.01`` means 1 % of ``x_max - x_min``).
+            domain width* (so ``0.01`` means 1 % of ``drive_freq_max_phys - drive_freq_min_phys``).
         dip_depth: ``(lo, hi)`` allowed range for the dip depth parameter.
         background: ``(lo, hi)`` allowed range for the background parameter
             when used as a *standalone* (non-composite) peak.

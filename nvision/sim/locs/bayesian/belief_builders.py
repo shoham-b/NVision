@@ -9,7 +9,7 @@ at creation time.
 
 All Bayesian builders below use a **unit cube** in parameter space: each
 marginal prior is uniform on ``[0, 1]``, while
-:class:`~nvision.spectra.unit_cube_model.UnitCubeSignalModel` maps probe position
+:class:`~nvision.spectra.unit_cube_model.UnitCubeSignalModel` maps drive frequencies
 and parameters into physical units for forward-model likelihood evaluation.
 That keeps acquisition / convergence thresholds comparable across parameters
 while predictions stay on the same scale as measured signals.
@@ -28,8 +28,8 @@ from nvision.belief.smc_marginal import (
     SMCMarginalDistribution,
 )
 from nvision.sim.gen.nv_center_generator import (
-    DEFAULT_NV_PROBE_X_MAX,
-    DEFAULT_NV_PROBE_X_MIN,
+    DEFAULT_NV_DRIVE_FREQ_MAX_PHYS,
+    DEFAULT_NV_DRIVE_FREQ_MIN_PHYS,
 )
 from nvision.spectra.noise_model import NoiseSignalModel
 from nvision.spectra.unit_cube import UnitCubeSignalModel
@@ -123,8 +123,8 @@ def nv_center_smc_belief(
             with_fixed_center_freq=with_fixed_center_freq,
         )
         merged_bounds = nv_center_saturation_voigt_bounds_for_domain(
-            DEFAULT_NV_PROBE_X_MIN,
-            DEFAULT_NV_PROBE_X_MAX,
+            DEFAULT_NV_DRIVE_FREQ_MIN_PHYS,
+            DEFAULT_NV_DRIVE_FREQ_MAX_PHYS,
             hyperfine=hyperfine,
             infer_hyperfine=infer_hyperfine,
             with_zeeman_splitting=with_zeeman_splitting,
@@ -137,8 +137,8 @@ def nv_center_smc_belief(
             with_fixed_center_freq=with_fixed_center_freq,
         )
         merged_bounds = nv_center_voigt_bounds_for_domain(
-            DEFAULT_NV_PROBE_X_MIN,
-            DEFAULT_NV_PROBE_X_MAX,
+            DEFAULT_NV_DRIVE_FREQ_MIN_PHYS,
+            DEFAULT_NV_DRIVE_FREQ_MAX_PHYS,
             hyperfine=hyperfine,
             infer_hyperfine=infer_hyperfine,
             with_zeeman_splitting=with_zeeman_splitting,
@@ -151,8 +151,8 @@ def nv_center_smc_belief(
             with_fixed_center_freq=with_fixed_center_freq,
         )
         merged_bounds = nv_center_lorentzian_bounds_for_domain(
-            DEFAULT_NV_PROBE_X_MIN,
-            DEFAULT_NV_PROBE_X_MAX,
+            DEFAULT_NV_DRIVE_FREQ_MIN_PHYS,
+            DEFAULT_NV_DRIVE_FREQ_MAX_PHYS,
             hyperfine=hyperfine,
             infer_hyperfine=infer_hyperfine,
             with_zeeman_splitting=with_zeeman_splitting,
@@ -190,9 +190,9 @@ def nv_center_smc_belief(
                     unit_std = std / (hi - lo)
                     unit_priors[name] = (float(unit_mu), float(unit_std))
 
-    # The NV bound builders make the center_freq prior range span exactly the probe axis.
-    probe_x_phys = merged_bounds["center_freq"]
-    wrapped = UnitCubeSignalModel(model, merged_bounds, probe_x_phys)
+    # The NV bound builders make the center_freq prior range span exactly the drive-frequency axis.
+    drive_freq_bounds_phys = merged_bounds["center_freq"]
+    wrapped = UnitCubeSignalModel(model, merged_bounds, drive_freq_bounds_phys)
 
     return SMCMarginalDistribution(
         model=wrapped,
@@ -202,7 +202,7 @@ def nv_center_smc_belief(
         a_param=a_param,
         noise_model=noise_model,
         physical_param_bounds=merged_bounds,
-        physical_x_bounds=probe_x_phys,
+        drive_freq_bounds_phys=drive_freq_bounds_phys,
         priors=unit_priors,
         min_exploration_frac=min_exploration_frac,
         tempering_factor=tempering_factor,

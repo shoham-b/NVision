@@ -6,7 +6,7 @@ from typing import Any
 import plotly.graph_objects as go
 import polars as pl
 
-from nvision.spectra.nv_center import DEFAULT_NV_PROBE_X_MAX, DEFAULT_NV_PROBE_X_MIN
+from nvision.spectra.nv_center import DEFAULT_NV_DRIVE_FREQ_MAX_PHYS, DEFAULT_NV_DRIVE_FREQ_MIN_PHYS
 
 
 class ExperimentsMixin:
@@ -272,11 +272,11 @@ class ExperimentsMixin:
             hi_val = sweep_rows.get_column("acquisition_hi").drop_nulls().mean()
             lo_val = sweep_rows.get_column("acquisition_lo").drop_nulls().mean()
         else:
-            hi_val, lo_val = DEFAULT_NV_PROBE_X_MAX, DEFAULT_NV_PROBE_X_MIN
+            hi_val, lo_val = DEFAULT_NV_DRIVE_FREQ_MAX_PHYS, DEFAULT_NV_DRIVE_FREQ_MIN_PHYS
         domain_width = (
             hi_val - lo_val
             if hi_val is not None and lo_val is not None and hi_val > lo_val
-            else DEFAULT_NV_PROBE_X_MAX - DEFAULT_NV_PROBE_X_MIN
+            else DEFAULT_NV_DRIVE_FREQ_MAX_PHYS - DEFAULT_NV_DRIVE_FREQ_MIN_PHYS
         )
 
         # Lineshape-agnostic width source: prefer the derived effective-HWHM column

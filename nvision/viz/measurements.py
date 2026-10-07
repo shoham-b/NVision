@@ -149,7 +149,7 @@ def _mode_belief_dense_y(
     """Evaluate the forward model at ``mode_estimates`` along ``xs`` (physical domain).
 
     For :class:`~nvision.spectra.unit_cube.UnitCubeSignalModel`, ``mode_estimates`` are
-    physical parameters and ``xs`` are physical probe positions (same as the true-signal
+    physical parameters and ``xs`` are physical drive frequencies (same as the true-signal
     plot); internally normalized coordinates are applied for evaluation.
 
     When ``belief_unit_cube`` is set (Bayesian runs), it is used instead of
@@ -301,7 +301,7 @@ def _extract_history_xy(history: pl.DataFrame) -> tuple[list[Any], list[Any]]:
 
 
 def _dense_xs_with_measurements(scan: Any, history_xs: list[Any], *, n_dense: int = 5000) -> np.ndarray:
-    xs_base = np.linspace(scan.x_min, scan.x_max, n_dense)
+    xs_base = np.linspace(scan.drive_freq_min_phys, scan.drive_freq_max_phys, n_dense)
     if not history_xs:
         return xs_base
     history_xs_arr = np.asarray([float(x) for x in history_xs if x is not None], dtype=float)
@@ -309,7 +309,7 @@ def _dense_xs_with_measurements(scan: Any, history_xs: list[Any], *, n_dense: in
         return xs_base
     # Only include measurement xs that fall within the physical scan domain.
     # Old cached runs may have stored normalized [0, 1] x values; exclude them.
-    in_range = (history_xs_arr >= scan.x_min) & (history_xs_arr <= scan.x_max)
+    in_range = (history_xs_arr >= scan.drive_freq_min_phys) & (history_xs_arr <= scan.drive_freq_max_phys)
     history_xs_arr = history_xs_arr[in_range]
     if history_xs_arr.size == 0:
         return xs_base
@@ -471,7 +471,7 @@ def _measurements_from_history(history: pl.DataFrame) -> dict[str, Any]:
         "y": [_json_safe_float(y) for y in ys_s],
         "step": steps,
     }
-    # Real acquisitions (e.g. MATLAB replay) scan every probe point once per sweep, then
+    # Real acquisitions (e.g. MATLAB replay) scan every drive-frequency points once per sweep, then
     # scan them all again — so which *sweep* a shot came from is the real time axis, and a
     # better color choice than the locator's own adaptive visit order (`step` above), which
     # can revisit a bin many sweeps apart. Only include it when every point has one: a
@@ -769,10 +769,10 @@ def _compute_scan_data_dict(
     belief_unit_cube: UnitCubeSignalModel | None = None,
     narrowed_param_bounds: dict[str, tuple[float, float]] | None = None,
     per_dip_windows: list[tuple[float, float]] | None = None,
-    sobol_xs: list[float] | None = None,
+    sobol_drive_freqs_unit: list[float] | None = None,
     sobol_ys: list[float] | None = None,
     sobol_mode_estimates: Mapping[str, float] | None = None,
-    sweep_xs: list[float] | None = None,
+    sweep_drive_freqs_unit: list[float] | None = None,
     sweep_ys: list[float] | None = None,
     sweep_mode_estimates: Mapping[str, float] | None = None,
     true_params: dict | None = None,
@@ -856,10 +856,10 @@ def _compute_scan_data_dict(
     if true_params and isinstance(true_params, dict):
         out["true_params"] = true_params
 
-    if sobol_xs and sobol_ys:
-        width = float(scan.x_max - scan.x_min)
+    if sobol_drive_freqs_unit and sobol_ys:
+        width = float(scan.drive_freq_max_phys - scan.drive_freq_min_phys)
         out["sobol_measurements"] = {
-            "x": float(scan.x_min) + np.asarray(sobol_xs, dtype=float) * width,
+            "x": float(scan.drive_freq_min_phys) + np.asarray(sobol_drive_freqs_unit, dtype=float) * width,
             "y": np.asarray(sobol_ys, dtype=float),
         }
     if sobol_mode_estimates:
@@ -867,10 +867,10 @@ def _compute_scan_data_dict(
         if y_sobol_mode is not None and len(y_sobol_mode) > 0:
             out["sobol_mode_y"] = y_sobol_mode
 
-    if sweep_xs and sweep_ys:
-        width = float(scan.x_max - scan.x_min)
+    if sweep_drive_freqs_unit and sweep_ys:
+        width = float(scan.drive_freq_max_phys - scan.drive_freq_min_phys)
         out["sweep_measurements"] = {
-            "x": float(scan.x_min) + np.asarray(sweep_xs, dtype=float) * width,
+            "x": float(scan.drive_freq_min_phys) + np.asarray(sweep_drive_freqs_unit, dtype=float) * width,
             "y": np.asarray(sweep_ys, dtype=float),
         }
     if sweep_mode_estimates:
@@ -908,10 +908,10 @@ class MeasurementsMixin:
         per_dip_windows: list[tuple[float, float]] | None = None,
         belief_unit_cube: UnitCubeSignalModel | None = None,
         narrowed_param_bounds: dict[str, tuple[float, float]] | None = None,
-        sobol_xs: list[float] | None = None,
+        sobol_drive_freqs_unit: list[float] | None = None,
         sobol_ys: list[float] | None = None,
         sobol_mode_estimates: Mapping[str, float] | None = None,
-        sweep_xs: list[float] | None = None,
+        sweep_drive_freqs_unit: list[float] | None = None,
         sweep_ys: list[float] | None = None,
         sweep_mode_estimates: Mapping[str, float] | None = None,
         true_params: dict | None = None,
@@ -930,10 +930,10 @@ class MeasurementsMixin:
             belief_unit_cube=belief_unit_cube,
             narrowed_param_bounds=narrowed_param_bounds,
             per_dip_windows=per_dip_windows,
-            sobol_xs=sobol_xs,
+            sobol_drive_freqs_unit=sobol_drive_freqs_unit,
             sobol_ys=sobol_ys,
             sobol_mode_estimates=sobol_mode_estimates,
-            sweep_xs=sweep_xs,
+            sweep_drive_freqs_unit=sweep_drive_freqs_unit,
             sweep_ys=sweep_ys,
             sweep_mode_estimates=sweep_mode_estimates,
             true_params=true_params,

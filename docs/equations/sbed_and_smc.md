@@ -4,7 +4,7 @@ The SMC belief (unit-cube particles, with a free-center_freq variant), the SBED 
 
 > Scope: only the additive Gaussian measurement-noise path. The noise level is always inferred through its conjugate prior — a per-particle Inverse-Gamma state that is integrated out (§1.1a) — and that posterior is the only source of a noise σ anywhere in the stack. Poisson likelihoods and non-SBED locators are out of scope.
 >
-> Probe window: the NV spectrum is mirror-symmetric about the zero-field splitting D, so measuring both sides duplicates information. The probe window is the upper half `[D, D + Δ]` (`DEFAULT_NV_PROBE_X_MIN/MAX`, `nv_center.py`) and generated signals are centred on D, on the window's lower edge.
+> Probe window: the NV spectrum is mirror-symmetric about the zero-field splitting D, so measuring both sides duplicates information. The drive-frequency window is the upper half `[D, D + Δ]` (`DEFAULT_NV_DRIVE_FREQ_MIN_PHYS/MAX`, `nv_center.py`) and generated signals are centred on D, on the window's lower edge.
 
 ---
 
@@ -123,9 +123,9 @@ where d is the number of parameters.  The log-determinant is computed via `slogd
 ### 1.8 Epoch Candidate Grid
 
 After each resample, the candidate grid is rebuilt as a single deterministic
-**quantile placement** against a continuous density mixture over the probe axis
+**quantile placement** against a continuous density mixture over the drive-frequency axis
 domain `[f_lo, f_hi]`, rather than the union of several independently-sized
-uniform grids. `_generate_epoch_candidate_x()` (`smc_marginal.py`) builds three
+uniform grids. `_generate_epoch_candidate_drive_freq()` (`smc_marginal.py`) builds three
 kinds of Gaussian-kernel-weight `(center, bandwidth, weight)` mixture
 components, plus an optional flat baseline term:
 
@@ -136,7 +136,7 @@ components, plus an optional flat baseline term:
 
   where f_B = posterior mean center_freq (the fixed zero-field D when center_freq is not
   inferred), Δf_hf = posterior mean split, Ω_hw = posterior mean linewidth (HWHM). A slope
-  point that falls outside the probe window is measured at its mirror image about f_B
+  point that falls outside the drive-frequency window is measured at its mirror image about f_B
   (`2 f_B − s`) when that lies inside it, so the lower Zeeman group's slopes land on the
   upper half instead of wasting kernel mass outside the window. Each slope kernel has bandwidth
   σ_eff = √(σ_f² + σ_Ω²) (floored at Δ_min = `NVISION_SMC_EPOCH_GRID_MIN_STEP_HZ`
@@ -161,7 +161,7 @@ components, plus an optional flat baseline term:
 mixture's evenly-spaced CDF quantiles: the density is evaluated on an adaptive
 scaffold grid (locally dense around each kernel, coarse elsewhere), its CDF
 built by trapezoidal integration, and quantile positions read off by linear
-interpolation (`_quantile_place_candidate_x`). This is deterministic —
+interpolation (`_quantile_place_candidate_drive_freq`). This is deterministic —
 evenly-spaced quantile levels, not a random draw — so it does not touch
 `NVISION_RNG_SEED`-based reproducibility. The result is snapped to Δ_min,
 clipped to `[f_lo, f_hi]`, and deduplicated, which may reduce the final count
@@ -187,11 +187,11 @@ For parameter j with physical bounds [l_j, h_j]:
 
 $$\theta^{\rm phys}_j = l_j + u_j \cdot (h_j - l_j)$$
 
-The probe axis `physical_x_bounds` is the full domain and **never changes**, and neither do the parameter bounds, the particles' unit frame, or the model's x-range. The stored unit observation coordinate o.x therefore always converts the same way:
+The drive-frequency axis `drive_freq_bounds_phys` is the full domain and **never changes**, and neither do the parameter bounds, the particles' unit frame, or the model's x-range. The stored unit observation coordinate o.x therefore always converts the same way:
 
 $$x^{\rm phys} = l_x + o.x \cdot (h_x - l_x)$$
 
-Narrowing which part of the probe axis is *scanned* is the locator's job (§2.4), not the belief's.
+Narrowing which part of the drive-frequency axis is *scanned* is the locator's job (§2.4), not the belief's.
 
 ### 2.2 Physical Uncertainty
 
@@ -249,9 +249,9 @@ where `c_total` is the population-normalized contrast (a free parameter for plai
 
 ### 2.4 Probe-Axis Focus (locator-owned, at each resample)
 
-The **focus** is a sub-interval of the probe axis, owned by the locator (`SequentialBayesianLocator._focus`, a `FocusWindow`). It limits only *which candidate x positions may be scanned*: `_acquisition_bounds()` returns it and `_eig_acquire` drops every epoch candidate outside it (an empty result raises). The belief never sees it, so its parameter bounds, particles and the model's x-range are untouched. The exploration branches in `_acquire` still draw from the full probe axis.
+The **focus** is a sub-interval of the drive-frequency axis, owned by the locator (`SequentialBayesianLocator._focus`, a `FocusWindow`). It limits only *which candidate x positions may be scanned*: `_acquisition_bounds()` returns it and `_eig_acquire` drops every epoch candidate outside it (an empty result raises). The belief never sees it, so its parameter bounds, particles and the model's x-range are untouched. The exploration branches in `_acquire` still draw from the full drive-frequency axis.
 
-It is updated by the pure function `next_focus_window` (`focus_window.py`) right after a resample (weights uniform), and only when `center_freq` is a particle dimension (`with_fixed_center_freq=False`); with the default fixed `center_freq` the focus stays the full probe axis.
+It is updated by the pure function `next_focus_window` (`focus_window.py`) right after a resample (weights uniform), and only when `center_freq` is a particle dimension (`with_fixed_center_freq=False`); with the default fixed `center_freq` the focus stays the full drive-frequency axis.
 
 The focus narrows to the union of particle-predicted active regions. Each particle i covers
 
@@ -259,9 +259,9 @@ $$[f_i - \Delta f_{\rm zeeman,i} - \Delta f_{\rm hf,i} - k\Omega_i,\quad f_i + \
 
 with cover factor k = `NVISION_SMC_FOCUSING_COVER_FACTOR` = 3.0. The new bounds are the 5th / 95th percentiles of the `center_freq` particles widened by the 95th percentile of that half-span (`_FOCUSING_TAIL_PERCENTILE`); a narrowing is applied only if it shrinks the focus by at least 5 %, and only after `NVISION_MIN_STEPS_BEFORE_NARROWING` = 8 steps (and 8 steps after any expansion).
 
-When more than 15 % of the `center_freq` particles lie within 5 % of a focus edge *or beyond it*, the focus is instead expanded by max(width, 10·Ω + 2·zeeman) in that direction, never past the full probe axis.
+When more than 15 % of the `center_freq` particles lie within 5 % of a focus edge *or beyond it*, the focus is instead expanded by max(width, 10·Ω + 2·zeeman) in that direction, never past the full drive-frequency axis.
 
-Because the belief's unit cube is the full probe axis, the `min_exploration_frac` variance floor in §1.4 is a fraction of the *full* axis for `center_freq` (previously a fraction of the narrowed window), so it is larger in physical Hz for free-`center_freq` runs.
+Because the belief's unit cube is the full drive-frequency axis, the `min_exploration_frac` variance floor in §1.4 is a fraction of the *full* axis for `center_freq` (previously a fraction of the narrowed window), so it is larger in physical Hz for free-`center_freq` runs.
 
 ---
 
@@ -287,7 +287,7 @@ At each acquisition step a single uniform draw u selects the branch:
 
 | Condition | Action | Notes |
 |-----------|--------|-------|
-| u < 0.1·e^(−t/25) | Uniform sample over the full probe axis | Decaying exploration probability |
+| u < 0.1·e^(−t/25) | Uniform sample over the full drive-frequency axis | Decaying exploration probability |
 | otherwise | Full EIG maximisation over the candidates inside the focus (§2.4) | Main path |
 
 with t = `inference_step_count`.  The factor e^(−t/25) makes global exploration decay exponentially so steps concentrate on EIG as the scan progresses. There is no other acquisition branch: the dips the data show (§3.5) shape the EIG candidate set (§1.8) but are never probed directly.
@@ -308,7 +308,7 @@ Deterministic, classic dip finding from the measured scan alone — it never rea
 2. A *dip point* is an observation with b − y > n_σ·σ̂ (n_σ = `NVISION_DIP_N_SIGMA` = 3.0) and b − y > 1% of b.
 3. Consecutive dip points closer than 3·Ω_max form one cluster; clusters with fewer than `NVISION_DIP_MIN_CLUSTER` = 2 points are dropped.
 4. **Binomial test.** A cluster of k dip points with n_local observations within [f_min − 3Ω_max, f_max + 3Ω_max] is accepted when P(Binom(n_local, Φ(−n_σ)) ≤ k−1) ≥ `NVISION_DIP_CONFIDENCE` = 0.99, i.e. that many low points among the nearby ones cannot plausibly be noise.
-5. Centroid = depth-weighted mean probe-axis position; significance = k; candidates are returned most-significant first.
+5. Centroid = depth-weighted mean drive-frequency position; significance = k; candidates are returned most-significant first.
 
 When σ̂'s relative uncertainty is ≥ `NVISION_DIP_NOISE_UNCERTAINTY_THRESHOLD` = 0.15 the noise level is too poorly known to threshold against and no dips are reported.
 

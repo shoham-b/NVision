@@ -37,7 +37,7 @@ def _gaussian_experiment(center: float = 0.5, sigma: float = 0.1) -> CoreExperim
         "background": (0.0, 0.5),
     }
     true_signal = TrueSignal(model=model, typed_parameters=typed_params, bounds=bounds)
-    return CoreExperiment(true_signal=true_signal, noise=None, x_min=0.0, x_max=1.0)
+    return CoreExperiment(true_signal=true_signal, noise=None, drive_freq_min_phys=0.0, drive_freq_max_phys=1.0)
 
 
 def _dummy_belief(model):
@@ -65,8 +65,8 @@ def test_locator_proposes_valid_positions():
     rng = random.Random(1)
     for locator in run_loop(GenericSweepLocator, exp, rng, max_steps=5):
         assert locator.belief.last_obs is not None
-        x = locator.belief.last_obs.x
-        assert 0.0 <= x <= 1.0
+        drive_freq_unit = locator.belief.last_obs.drive_freq_unit
+        assert 0.0 <= drive_freq_unit <= 1.0
 
 
 def test_runner_yields_exactly_max_steps():
@@ -80,7 +80,7 @@ def test_runner_yields_exactly_max_steps():
 def test_observer_records_snapshots():
     exp = _gaussian_experiment()
     rng = random.Random(3)
-    observer = Observer(exp.true_signal, exp.x_min, exp.x_max)
+    observer = Observer(exp.true_signal, exp.drive_freq_min_phys, exp.drive_freq_max_phys)
     result = observer.watch(run_loop(GenericSweepLocator, exp, rng, max_steps=15))
     assert isinstance(result, RunResult)
     assert len(result.snapshots) > 0

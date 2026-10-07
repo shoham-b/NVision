@@ -36,14 +36,19 @@ def _make_experiment(generator, rng: random.Random, noise=None) -> CoreExperimen
     # "center_freq" is always in true_signal.bounds (the domain the signal was
     # generated over), even though it's fixed (not inferred, not in
     # parameter_names) by NVCenterCoreGenerator's default -- see its docstring.
-    x_min, x_max = true_signal.get_param_bounds("center_freq")
-    assert x_min is not None
-    return CoreExperiment(true_signal=true_signal, noise=noise, x_min=x_min, x_max=x_max)
+    drive_freq_min_phys, drive_freq_max_phys = true_signal.get_param_bounds("center_freq")
+    assert drive_freq_min_phys is not None
+    return CoreExperiment(
+        true_signal=true_signal,
+        noise=noise,
+        drive_freq_min_phys=drive_freq_min_phys,
+        drive_freq_max_phys=drive_freq_max_phys,
+    )
 
 
 def _nv_center_experiment() -> CoreExperiment:
     rng = random.Random(44)
-    gen = NVCenterCoreGenerator(x_min=2.6e9, x_max=3.1e9, variant="lorentzian")
+    gen = NVCenterCoreGenerator(drive_freq_min_phys=2.6e9, drive_freq_max_phys=3.1e9, variant="lorentzian")
     return _make_experiment(gen, rng)
 
 
@@ -102,11 +107,25 @@ class TestOverallNVCenter:
 
     def test_simple_sweep(self, benchmark):
         exp = _nv_center_experiment()
-        _overall_run_ms(benchmark, GenericSweepLocator, exp, max_steps=20, domain_lo=exp.x_min, domain_hi=exp.x_max)
+        _overall_run_ms(
+            benchmark,
+            GenericSweepLocator,
+            exp,
+            max_steps=20,
+            domain_lo=exp.drive_freq_min_phys,
+            domain_hi=exp.drive_freq_max_phys,
+        )
 
     def test_staged_sobol(self, benchmark):
         exp = _nv_center_experiment()
-        _overall_run_ms(benchmark, StagedSobolSweepLocator, exp, max_steps=20, domain_lo=exp.x_min, domain_hi=exp.x_max)
+        _overall_run_ms(
+            benchmark,
+            StagedSobolSweepLocator,
+            exp,
+            max_steps=20,
+            domain_lo=exp.drive_freq_min_phys,
+            domain_hi=exp.drive_freq_max_phys,
+        )
 
     @pytest.mark.skip(reason="SBEDLocator is slow")
     def test_sbed(self, benchmark):
@@ -139,8 +158,8 @@ class TestSBEDAcquireBottleneck:
 
         # Warmup
         for _ in range(4):
-            x = loc.next()
-            obs = exp.measure(x, rng)
+            drive_freq_unit = loc.next_drive_freq_unit()
+            obs = exp.measure(drive_freq_unit, rng)
             loc.observe(obs)
 
         benchmark.pedantic(loc._acquire, rounds=2, iterations=1)

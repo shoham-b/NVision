@@ -377,26 +377,26 @@ def write_fisher_data(
     return dump_gz(payload, out_path)
 
 
-def write_matlab_probe_stats_data(
-    probe_axis_phys: np.ndarray,
+def write_matlab_drive_freq_stats_data(
+    drive_freq_phys: np.ndarray,
     mean: np.ndarray,
     std: np.ndarray,
     min_vals: np.ndarray | None = None,
     max_vals: np.ndarray | None = None,
     out_path: Path | None = None,
 ) -> bytes | None:
-    """Write per-probe-point shot mean/std/min/max for a MATLAB run's "actual
-    averages per-probe-point" view — an alternative to the sampled-measurements
+    """Write per-drive-frequency-point shot mean/std/min/max for a MATLAB run's "actual
+    averages per-drive-frequency-point" view — an alternative to the sampled-measurements
     scatter, showing every recorded shot's per-bin average, spread, and extremes
     rather than just the subset the locator happened to visit. min_vals/max_vals
     are optional so older callers (and cached files) without them still decode.
     """
-    if probe_axis_phys is None or len(probe_axis_phys) == 0:
+    if drive_freq_phys is None or len(drive_freq_phys) == 0:
         return None
 
     payload = {
-        "schema": "matlab_probe_stats_v1",
-        "probe_axis_phys": np.asarray(probe_axis_phys, dtype=np.float64),
+        "schema": "matlab_drive_freq_stats_v1",
+        "drive_freq_phys": np.asarray(drive_freq_phys, dtype=np.float64),
         "mean": np.asarray(mean, dtype=np.float64),
         "std": np.asarray(std, dtype=np.float64),
     }

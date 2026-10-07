@@ -145,13 +145,13 @@ def create(
     max_steps: int,
     *,
     noise_std: float = 0.01,
-    probe_axis_param: str | None = None,
+    center_param: str | None = None,
     parameter_bounds: dict[str, tuple[float, float]] | None = None,
     **kwargs: Any,
 ) -> GenericSweepLocator:
     # Resolve the sweep domain from parameter_bounds when domain_lo/hi weren't
     # passed explicitly (see nvision/sim/locs/coarse/generic_sweep_locator.py
-    # for the full probe_axis_param resolution logic this elides).
+    # for the full center_param resolution logic this elides).
     domain_lo = kwargs.get("domain_lo", 0.0)
     domain_hi = kwargs.get("domain_hi", 1.0)
 
@@ -160,7 +160,7 @@ def create(
         signal_model=signal_model,
         max_steps=max_steps,
         noise_std=noise_std,
-        probe_axis_param=probe_axis_param,
+        center_param=center_param,
         domain_lo=domain_lo,
         domain_hi=domain_hi,
     )

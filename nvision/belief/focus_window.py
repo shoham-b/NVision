@@ -1,6 +1,6 @@
-"""The one shared procedure for narrowing a probe window.
+"""The one shared procedure for narrowing a drive-frequency window.
 
-Every part of the pipeline that shrinks the probe axis mid-run -- the
+Every part of the pipeline that shrinks the drive-frequency axis mid-run -- the
 Bayesian locator's particle-percentile focus (:func:`next_focus_window`, owned by
 the locator, never the belief)
 and the sweep locators' geometric dip-shape narrowing (``StagedSobolSweepLocator`` /
@@ -22,7 +22,7 @@ narrowing decision once a candidate ``(lo, hi)`` has been computed -- not the
 detector.
 
 ``FocusWindow`` is the value object every narrowing decision flows through:
-physical ``[lo, hi]`` sub-interval of the probe axis currently being
+physical ``[lo, hi]`` sub-interval of the drive-frequency axis currently being
 probed, plus the immutable ``full_lo``/``full_hi`` domain it can never escape.
 Owned by whichever locator or belief is doing the narrowing. Every mutation
 returns a new instance -- the object itself never changes in place.
@@ -37,7 +37,7 @@ import numpy as np
 
 _Numeric = float | np.ndarray
 
-# --- Probe-axis focus policy (see next_focus_window) -------------------------------------------
+# --- drive-frequency focus policy (see next_focus_window) -------------------------------------------
 # Narrowing waits this many steps so multi-modal hyperfine ambiguity resolves before the focus
 # settles on a (possibly wrong) place.
 NVISION_MIN_STEPS_BEFORE_NARROWING: int = int(os.getenv("NVISION_MIN_STEPS_BEFORE_NARROWING", "8"))
@@ -66,7 +66,7 @@ def clamp_to_domain(lo: float, hi: float, domain_lo: float, domain_hi: float) ->
 
 @dataclass(frozen=True)
 class FocusWindow:
-    """Physical ``[lo, hi]`` sub-interval of the probe axis.
+    """Physical ``[lo, hi]`` sub-interval of the drive-frequency axis.
 
     Owned by the locator or belief doing the narrowing. Can shrink (or, via
     :meth:`from_candidate`, grow back) during a run -- every mutation returns
@@ -78,10 +78,10 @@ class FocusWindow:
     Parameters
     ----------
     lo, hi:
-        Current (possibly narrowed) physical bounds of the probe window.
+        Current (possibly narrowed) physical bounds of the drive-frequency window.
     full_lo, full_hi:
         Original full-domain physical bounds. Immutable. Used exclusively by
-        :meth:`to_measure_x` so that experiment normalisation is always
+        :meth:`to_measure_drive_freq_unit` so that experiment normalisation is always
         relative to the full domain.
     """
 
@@ -163,14 +163,14 @@ class FocusWindow:
 
         return FocusWindow(lo=lo, hi=hi, full_lo=self.full_lo, full_hi=self.full_hi)
 
-    def to_measure_x(self, x_phys: _Numeric) -> _Numeric:
-        """Map a physical probe-axis position (scalar or array) to [0, 1] for ``CoreExperiment.measure()``.
+    def to_measure_drive_freq_unit(self, drive_freq_phys: _Numeric) -> _Numeric:
+        """Map a physical drive-frequency position (scalar or array) to [0, 1] for ``CoreExperiment.measure()``.
 
         Always uses ``full_lo`` / ``full_hi`` -- never the (possibly narrowed)
         ``lo`` / ``hi``. This is the **only** correct path into
         ``CoreExperiment.measure()``.
         """
-        return (x_phys - self.full_lo) / (self.full_hi - self.full_lo)
+        return (drive_freq_phys - self.full_lo) / (self.full_hi - self.full_lo)
 
 
 def next_focus_window(
@@ -183,14 +183,14 @@ def next_focus_window(
     step: int,
     last_expansion_step: int,
 ) -> tuple[FocusWindow, bool]:
-    """Decide the probe-axis focus for the next epoch from the posterior over ``center_freq``.
+    """Decide the drive-frequency focus for the next epoch from the posterior over ``center_freq``.
 
     The focus only limits *which candidate x positions may be scanned*; it never changes the belief's
-    parameter bounds, particles or the model's probe axis. Call it right after a resample, when the
+    parameter bounds, particles or the model's drive-frequency axis. Call it right after a resample, when the
     particle weights are uniform (the percentiles below are unweighted).
 
     Args:
-        focus: Current focus (sub-interval of the probe axis).
+        focus: Current focus (sub-interval of the drive-frequency axis).
         center_freq_particles_phys: Per-particle ``center_freq`` in Hz. shape: (n_particles,)
         active_half_span_particles_phys: Per-particle half-span of the dips, ``zeeman_split + split +
             NVISION_SMC_FOCUSING_COVER_FACTOR * hwhm``, in Hz. shape: (n_particles,)
@@ -209,7 +209,7 @@ def next_focus_window(
         )
 
     # Boundary escape: particles piling at/beyond a focus edge mean the true center_freq lies outside
-    # the focus, so expand it that way (never past the full probe axis).
+    # the focus, so expand it that way (never past the full drive-frequency axis).
     width = focus.hi - focus.lo
     u = (center_freq_particles_phys - focus.lo) / width
     left_piling = float(np.mean(u < _EDGE_BAND_FRACTION)) > _EDGE_PILING_FRACTION

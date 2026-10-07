@@ -22,7 +22,7 @@ from nvision.spectra.nv_center import NVCenterLorentzianModel
 
 
 def _make_experiment(rng: random.Random) -> CoreExperiment:
-    gen = NVCenterCoreGenerator(x_min=2.6e9, x_max=3.1e9, variant="lorentzian")
+    gen = NVCenterCoreGenerator(drive_freq_min_phys=2.6e9, drive_freq_max_phys=3.1e9, variant="lorentzian")
     true_signal = gen.generate(rng)
     # NVCenterCoreGenerator always fixes center_freq (a known instrument constant,
     # not inferred -- see its docstring), so the generated model's center_freq isn't
@@ -36,10 +36,15 @@ def _make_experiment(rng: random.Random) -> CoreExperiment:
         with_zeeman_splitting=gen.with_zeeman_splitting,
         with_fixed_center_freq=False,
     )
-    x_min, x_max = true_signal.get_param_bounds("center_freq")
-    assert x_min is not None
+    drive_freq_min_phys, drive_freq_max_phys = true_signal.get_param_bounds("center_freq")
+    assert drive_freq_min_phys is not None
     # noise=None -> zero measurement noise
-    return CoreExperiment(true_signal=true_signal, noise=None, x_min=x_min, x_max=x_max)
+    return CoreExperiment(
+        true_signal=true_signal,
+        noise=None,
+        drive_freq_min_phys=drive_freq_min_phys,
+        drive_freq_max_phys=drive_freq_max_phys,
+    )
 
 
 @pytest.mark.timeout(200)
@@ -59,7 +64,7 @@ def test_simplesweep_zero_noise_fit_beats_prior():
     rng = random.Random(7)
     exp = _make_experiment(rng)
     truth = float(exp.true_signal.get_param_value("center_freq"))
-    prior_std = (exp.x_max - exp.x_min) / math.sqrt(12)
+    prior_std = (exp.drive_freq_max_phys - exp.drive_freq_min_phys) / math.sqrt(12)
 
     # Full physical bounds for every model parameter (not just center_freq) —
     # GenericSweepLocator's finalize() now requires a complete parameter set
@@ -67,7 +72,7 @@ def test_simplesweep_zero_noise_fit_beats_prior():
     # heuristic when bounds are incomplete.
     parameter_bounds = {k: v for k, v in exp.true_signal.bounds.items() if not k.startswith("_")}
 
-    observer = Observer(exp.true_signal, exp.x_min, exp.x_max)
+    observer = Observer(exp.true_signal, exp.drive_freq_min_phys, exp.drive_freq_max_phys)
     result = observer.watch(
         run_loop(
             GenericSweepLocator,
@@ -90,7 +95,7 @@ def test_simplesweep_zero_noise_fit_beats_prior():
 
     # End-to-end through the finalize record + metrics extraction the
     # manifest entries are built from.
-    record = run_result_to_finalize_record(result, locator_result, 0, exp.x_min, exp.x_max)
+    record = run_result_to_finalize_record(result, locator_result, 0)
     metrics = _scan_attempt_metrics([truth], record)
 
     assert metrics["abs_err_x"] < 0.05 * prior_std, (

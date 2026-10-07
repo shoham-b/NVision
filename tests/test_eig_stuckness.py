@@ -35,7 +35,7 @@ def test_select_max_information_gain_diversity():
         num_particles=1000,
         seed=42,
         physical_param_bounds=phys_bounds,
-        physical_x_bounds=x_bounds,
+        drive_freq_bounds_phys=x_bounds,
         noise_model=gaussian_noise(),
     )
 

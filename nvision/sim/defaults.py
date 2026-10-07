@@ -118,9 +118,9 @@ NVISION_MIN_LINEWIDTH: float = float(os.getenv("NVISION_MIN_LINEWIDTH", "200e3")
 NVISION_MAX_LINEWIDTH: float = float(os.getenv("NVISION_MAX_LINEWIDTH", "5.0e6"))
 NVISION_MIN_SPLIT: float = float(os.getenv("NVISION_MIN_SPLIT", "2.0e6"))
 NVISION_MAX_SPLIT: float = float(os.getenv("NVISION_MAX_SPLIT", "8.5e6"))
-# NV center probe-axis domain is configured via NVISION_NV_ZERO_FIELD_SPLITTING_HZ /
-# NVISION_NV_PROBE_DELTA_HZ, read directly in nvision/spectra/nv_center.py
-# (DEFAULT_NV_PROBE_X_MIN/MAX): the window is the upper half [D, D + delta] of the
+# NV center drive-frequency domain is configured via NVISION_NV_ZERO_FIELD_SPLITTING_HZ /
+# NVISION_NV_DRIVE_FREQ_DELTA_HZ, read directly in nvision/spectra/nv_center.py
+# (DEFAULT_NV_DRIVE_FREQ_MIN_PHYS/MAX): the window is the upper half [D, D + delta] of the
 # mirror-symmetric spectrum around the physical zero-field center D.
 # --- Convergence Defaults ----------------------------------------------------
 

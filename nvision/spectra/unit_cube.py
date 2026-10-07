@@ -1,4 +1,4 @@
-"""Map unit-interval parameters and probe position to physical signal evaluation."""
+"""Map unit-interval parameters and drive frequencies to physical signal evaluation."""
 
 from __future__ import annotations
 
@@ -42,7 +42,7 @@ def _unit_interval_to_physical(u_raw: np.ndarray, lo: float, hi: float, param_na
 class UnitCubeSignalModel[ParamsT, SampleParamsT, UncertaintyT](SignalModel[ParamsT, SampleParamsT, UncertaintyT]):
     """Wrap a physical-domain :class:`SignalModel` for inference on ``[0, 1]``.
 
-    * ``x_unit`` — normalized probe coordinate in ``[0, 1]`` (same convention as
+    * ``drive_freq_unit`` — normalized probe coordinate in ``[0, 1]`` (same convention as
       :meth:`~nvision.models.experiment.CoreExperiment.measure`).
     * Each parameter value in ``params`` is interpreted as a fraction in ``[0, 1]``
       over the corresponding physical interval in ``param_bounds_phys``.
@@ -80,7 +80,7 @@ class UnitCubeSignalModel[ParamsT, SampleParamsT, UncertaintyT](SignalModel[Para
         u_values = self.spec.pack_params(params)
         names = self.parameter_names()
         x_lo, x_hi = self.x_bounds_phys
-        x_phys = x_lo + float(x) * (x_hi - x_lo)
+        drive_freq_phys = x_lo + float(x) * (x_hi - x_lo)
         phys_values: list[float] = []
         for name, u in zip(names, u_values, strict=True):
             lo, hi = self.param_bounds_phys[name]
@@ -89,7 +89,7 @@ class UnitCubeSignalModel[ParamsT, SampleParamsT, UncertaintyT](SignalModel[Para
                 raise ValueError(f"Parameter {name} value {v} outside bounds {(lo, hi)}")
             phys_values.append(min(max(v, lo), hi))
         phys_typed = self.inner.spec.unpack_params(phys_values)
-        return float(self.inner.compute(x_phys, phys_typed))
+        return float(self.inner.compute(drive_freq_phys, phys_typed))
 
     def gradient(self, x: float, params: ParamsT) -> dict[str, float]:
         """d(signal)/d(unit-cube parameter), delegating to the inner model's analytical gradient.
@@ -112,7 +112,7 @@ class UnitCubeSignalModel[ParamsT, SampleParamsT, UncertaintyT](SignalModel[Para
         u_values = self.spec.pack_params(params)
         names = self.parameter_names()
         x_lo, x_hi = self.x_bounds_phys
-        x_phys = x_lo + float(x) * (x_hi - x_lo)
+        drive_freq_phys = x_lo + float(x) * (x_hi - x_lo)
         phys_values: list[float] = []
         for name, u in zip(names, u_values, strict=True):
             lo, hi = self.param_bounds_phys[name]
@@ -121,7 +121,7 @@ class UnitCubeSignalModel[ParamsT, SampleParamsT, UncertaintyT](SignalModel[Para
                 raise ValueError(f"Parameter {name} value {v} outside bounds {(lo, hi)}")
             phys_values.append(min(max(v, lo), hi))
         phys_typed = self.inner.spec.unpack_params(phys_values)
-        phys_grad = self.inner.gradient(x_phys, phys_typed)
+        phys_grad = self.inner.gradient(drive_freq_phys, phys_typed)
         return {
             name: phys_grad[name] * (self.param_bounds_phys[name][1] - self.param_bounds_phys[name][0])
             for name in names
@@ -133,14 +133,14 @@ class UnitCubeSignalModel[ParamsT, SampleParamsT, UncertaintyT](SignalModel[Para
     def compute_from_params(self, x: float, params: ParamsT) -> float:
         return self.compute(x, params)
 
-    def compute_vectorized(self, x_unit: float, *param_arrays: object) -> np.ndarray:
+    def compute_vectorized(self, drive_freq_unit: float, *param_arrays: object) -> np.ndarray:
         """Vectorized one-x evaluation over many unit-cube parameter samples.
 
         ``param_arrays`` are passed in :meth:`parameter_names` order (same names as the
         wrapped physical inner model), but the values are in the unit-cube ``[0, 1]`` interval.
         """
         x_lo, x_hi = self.x_bounds_phys
-        x_phys = x_lo + float(x_unit) * (x_hi - x_lo)
+        drive_freq_phys = x_lo + float(drive_freq_unit) * (x_hi - x_lo)
 
         names = self.parameter_names()
         if len(param_arrays) == 1:
@@ -157,7 +157,7 @@ class UnitCubeSignalModel[ParamsT, SampleParamsT, UncertaintyT](SignalModel[Para
             u_raw = np.asarray(u_arr, dtype=FLOAT_DTYPE)
             phys_arrays.append(_unit_interval_to_physical(u_raw, lo, hi, name))
 
-        return self.inner.compute_vectorized(x_phys, *phys_arrays)
+        return self.inner.compute_vectorized(drive_freq_phys, *phys_arrays)
 
     def _get_param_arrays_norm(self, samples_norm: VectorizedManySamplesInput[object]) -> Sequence[np.ndarray]:
         """Convert samples_norm (dataclass, tuple, or list) into a sequence of parameter arrays."""
@@ -175,7 +175,7 @@ class UnitCubeSignalModel[ParamsT, SampleParamsT, UncertaintyT](SignalModel[Para
         samples_norm: VectorizedManySamplesInput[object],
     ) -> np.ndarray:
         """Vectorized signal evaluation at many unit x positions over unit samples."""
-        xs_norm = np.asarray(x_norm_array, dtype=FLOAT_DTYPE)
+        drive_freqs_unit = np.asarray(x_norm_array, dtype=FLOAT_DTYPE)
         param_arrays_norm = self._get_param_arrays_norm(samples_norm)
 
         names = self.parameter_names()
@@ -189,10 +189,10 @@ class UnitCubeSignalModel[ParamsT, SampleParamsT, UncertaintyT](SignalModel[Para
             phys_arrays.append(_unit_interval_to_physical(u_raw, lo, hi, name))
 
         x_lo, x_hi = self.x_bounds_phys
-        xs_phys = x_lo + xs_norm * (x_hi - x_lo)
+        drive_freqs_phys = x_lo + drive_freqs_unit * (x_hi - x_lo)
 
         typed_samples_phys = self.inner.spec.unpack_samples(tuple(phys_arrays))
-        return self.inner.compute_vectorized_many(xs_phys, typed_samples_phys)
+        return self.inner.compute_vectorized_many(drive_freqs_phys, typed_samples_phys)
 
     def compute_vectorized_many_fast(
         self,
@@ -206,7 +206,7 @@ class UnitCubeSignalModel[ParamsT, SampleParamsT, UncertaintyT](SignalModel[Para
         compiled kernel in the inner model.  Only call from EIG / acquisition
         scoring paths; never from weight updates.
         """
-        xs_norm = np.asarray(x_norm_array, dtype=FLOAT_DTYPE)
+        drive_freqs_unit = np.asarray(x_norm_array, dtype=FLOAT_DTYPE)
         param_arrays_norm = self._get_param_arrays_norm(samples_norm)
 
         names = self.parameter_names()
@@ -220,10 +220,10 @@ class UnitCubeSignalModel[ParamsT, SampleParamsT, UncertaintyT](SignalModel[Para
             phys_arrays.append(_unit_interval_to_physical(u_raw, lo, hi, name))
 
         x_lo, x_hi = self.x_bounds_phys
-        xs_phys = x_lo + xs_norm * (x_hi - x_lo)
+        drive_freqs_phys = x_lo + drive_freqs_unit * (x_hi - x_lo)
 
         typed_samples_phys = self.inner.spec.unpack_samples(tuple(phys_arrays))
-        return self.inner.compute_vectorized_many_fast(xs_phys, typed_samples_phys)
+        return self.inner.compute_vectorized_many_fast(drive_freqs_phys, typed_samples_phys)
 
     def is_scale_parameter(self, name: str) -> bool:
         return self.inner.is_scale_parameter(name)

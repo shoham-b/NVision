@@ -36,9 +36,9 @@ import numpy as np
 
 
 def _acquire(self) -> float:
-    """Select the next measurement point by maximizing EIG over a probe-axis grid.
+    """Select the next measurement point by maximizing EIG over a drive-frequency grid.
 
-    A decaying share of steps instead explores: uniformly over the whole probe window
+    A decaying share of steps instead explores: uniformly over the whole drive-frequency window
     (to find dips the posterior has narrowed away from), or near a dip the data already
     show (:meth:`SMCMarginalDistribution.dip_candidates`).
     """
@@ -46,11 +46,11 @@ def _acquire(self) -> float:
     if hi <= lo:
         return float(lo)
 
-    # The belief's original (never-narrowed) probe window -- used by the exploration branches
+    # The belief's original (never-narrowed) drive-frequency window -- used by the exploration branches
     # so they can still reach a location resampling has already narrowed away from.
     # `_to_experiment_normalized` normalizes against this same full domain, not
     # `_acquisition_bounds()`, so returning a value outside `lo, hi` here is valid.
-    orig_lo, orig_hi = self.belief.physical_x_bounds
+    orig_lo, orig_hi = self.belief.drive_freq_bounds_phys
 
     # The exploration branches are drawn first so the (much more expensive) EIG grid
     # search in _eig_acquire() is skipped entirely on steps where it would be discarded.
@@ -69,10 +69,10 @@ def _acquire(self) -> float:
             return center + float(np.random.uniform(max(-5e6, orig_lo - center), min(5e6, orig_hi - center)))
 
         # No dip found yet: Thompson sampling of the scanned parameter from the posterior.
-        if self._probe_axis_param in self.belief._param_names:
+        if self._center_param in self.belief._param_names:
             idx = int(np.random.choice(len(self.belief._weights), p=self.belief._weights))
-            p_idx = self.belief._param_names.index(self._probe_axis_param)
-            return self.belief._to_physical(self._probe_axis_param, float(self.belief._particles[idx, p_idx]))
+            p_idx = self.belief._param_names.index(self._center_param)
+            return self.belief._to_physical(self._center_param, float(self.belief._particles[idx, p_idx]))
 
     return self._eig_acquire()
 
@@ -80,12 +80,12 @@ def _acquire(self) -> float:
 def _eig_acquire(self) -> float:
     """Maximize EIG over the belief's slope-targeted candidate grid."""
     # Retrieve candidates directly from the belief (slope-targeted epoch grid)
-    candidates = self.belief.get_candidate_x_phys()
+    candidates = self.belief.get_candidate_drive_freq_phys()
 
     # Thin candidates to minimum physical step spacing.
     # The epoch grid window is ±3σ_f, so candidate count ≈ 6σ_f / step_hz:
     # many candidates early (large σ_f), few near convergence (σ_f ≈ step_hz).
-    candidates = self._thin_candidate_x_by_step(candidates)
+    candidates = self._thin_candidate_drive_freq_by_step(candidates)
 
     # Keep the most recently EIG-selected frequency in the candidate set so a
     # second batch there is a legitimate EIG outcome rather than being dropped

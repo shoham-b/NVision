@@ -9,7 +9,7 @@ Welcome to the NVision documentation.
 
 ## Developer Guides
 
--   [Glossary: probe axis / candidate_x / center_freq / zeeman_split](glossary.md)
+-   [Glossary: drive_freq / candidate_drive_freq / center_freq / zeeman_split](glossary.md)
 -   [Core Architecture](core_architecture.md)
 -   [Runner Orchestration](runner_architecture.md)
 -   [CLI Reference & Usage](cli_reference.md)
