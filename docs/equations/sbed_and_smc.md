@@ -366,10 +366,7 @@ comparable.
 `single_shot_marginal_stds_from_fim`'s ridge ε=1e−6 is absolute, so it is only meaningful in
 unit-cube coordinates (diagonal ~1e4–1e7, ridge negligible); handed a physical-coordinate FIM
 (Hz-scale entries ~1e−10) the ridge dominates and every CRLB comes back at exactly
-$\sqrt{1/\epsilon}=1000$ regardless of the data. This is why `marginal_crlbs_at_budget` (the
-pre-run feasibility gate in `runner/executor.py`) remains inert even after this fallback: it
-builds its FIM from physical parameters and would need gradient normalization by parameter range
-before it could be revived safely.
+$\sqrt{1/\epsilon}=1000$ regardless of the data.
 
 ---
 

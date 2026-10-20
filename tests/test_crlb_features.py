@@ -1,4 +1,4 @@
-"""Tests for the CRLB feasibility gate, Fisher information and the SBED step-budget backstop."""
+"""Tests for Fisher information and the SBED step-budget backstop."""
 
 from __future__ import annotations
 
@@ -8,12 +8,9 @@ from typing import ClassVar
 
 import numpy as np
 
-from nvision.models.fisher_information import marginal_crlbs_at_budget
 from nvision.sim.locs.bayesian.sbed_locator import SequentialBayesianExperimentDesignLocator
 from nvision.spectra.nv_center import (
     NVCenterLorentzianModel,
-    NVCenterVoigtModel,
-    NVCenterVoigtSpectrum,
 )
 from tests.noise import gaussian_noise
 
@@ -63,101 +60,6 @@ class _SimpleGaussModel:
             "amplitude": float(g),
             "center": float(p.amplitude * z / self._sigma * g),
         }
-
-
-# ---------------------------------------------------------------------------
-# marginal_crlbs_at_budget
-# ---------------------------------------------------------------------------
-
-
-def test_marginal_crlbs_feasible_clean_signal() -> None:
-    """Low noise + many steps → CRLB well below convergence threshold."""
-    model = _SimpleGaussModel()
-    params = _GaussParams(amplitude=0.5, center=0.5)
-
-    crlbs = marginal_crlbs_at_budget(
-        model=model,
-        true_typed_params=params,
-        x_lo=0.0,
-        x_hi=1.0,
-        noise_std=0.01,
-        n_steps=500,
-        n_grid=256,
-    )
-
-    assert "center" in crlbs
-    assert crlbs["center"] > 0
-    assert math.isfinite(crlbs["center"])
-    assert crlbs["center"] < 0.01, f"CRLB too large: {crlbs['center']:.4f}"
-
-
-def test_marginal_crlbs_infeasible_high_noise() -> None:
-    """Very high noise + few steps → CRLB above threshold."""
-    model = _SimpleGaussModel()
-    params = _GaussParams(amplitude=0.5, center=0.5)
-
-    crlbs_few = marginal_crlbs_at_budget(
-        model=model,
-        true_typed_params=params,
-        x_lo=0.0,
-        x_hi=1.0,
-        noise_std=1.0,
-        n_steps=5,
-        n_grid=256,
-    )
-    crlbs_many = marginal_crlbs_at_budget(
-        model=model,
-        true_typed_params=params,
-        x_lo=0.0,
-        x_hi=1.0,
-        noise_std=0.001,
-        n_steps=500,
-        n_grid=256,
-    )
-
-    assert crlbs_few["center"] > crlbs_many["center"], "High-noise/low-step CRLB should exceed low-noise/many-step CRLB"
-
-
-def test_marginal_crlbs_scales_with_noise() -> None:
-    """CRLB ∝ σ: doubling noise should roughly double the CRLB."""
-    model = _SimpleGaussModel()
-    params = _GaussParams(amplitude=0.5, center=0.5)
-    n_steps = 200
-
-    crlbs_low = marginal_crlbs_at_budget(
-        model=model, true_typed_params=params, x_lo=0.0, x_hi=1.0, noise_std=0.01, n_steps=n_steps
-    )
-    crlbs_high = marginal_crlbs_at_budget(
-        model=model, true_typed_params=params, x_lo=0.0, x_hi=1.0, noise_std=0.02, n_steps=n_steps
-    )
-
-    ratio = crlbs_high["center"] / crlbs_low["center"]
-    assert 1.8 < ratio < 2.2, f"CRLB ratio for 2× noise = {ratio:.3f}, expected ~2.0"
-
-
-def test_marginal_crlbs_empty_for_no_gradient() -> None:
-    """Returns empty dict for models with no gradient method.
-
-    NVCenterLorentzianModel now has an analytical gradient (see
-    NVCenterLorentzianModel.gradient), so this uses NVCenterVoigtModel --
-    still numerical-gradient-only -- to keep testing the actual no-gradient
-    fallback path rather than a premise the Lorentzian gradient rollout
-    invalidated.
-    """
-    model = NVCenterVoigtModel()  # has no .gradient
-    params = NVCenterVoigtSpectrum(
-        center_freq=2.87e9, homogeneous_linewidth=1e6, sigma_inhom=1e6, split=4e6, k_np=1.5, c_total=0.15
-    )
-
-    result = marginal_crlbs_at_budget(
-        model=model,
-        true_typed_params=params,
-        x_lo=2.6e9,
-        x_hi=3.1e9,
-        noise_std=0.01,
-        n_steps=100,
-    )
-    assert result == {}
 
 
 # ---------------------------------------------------------------------------

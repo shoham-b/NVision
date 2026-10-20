@@ -1534,74 +1534,21 @@ class _TaskRunner:
                 cfg["belief"] = _create_sweep_belief(experiment)
                 cfg["signal_model"] = experiment.true_signal.model
 
-        # --- Pre-run CRLB feasibility gate (Bayesian locators only) -------
-        # Uses true parameter values (oracle) to check whether ANY parameter's
-        # CRLB with uniform sampling at max_steps is above its convergence
-        # threshold.  Only valid in simulation (true values are known).
-        infeasible_crlb_params: list[str] = []
-        if requires_belief:
-            from nvision.models.fisher_information import marginal_crlbs_at_budget
-            from nvision.sim.defaults import (
-                NVISION_CRLB_FEASIBILITY_MARGIN,
-                PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS,
-            )
-
-            # Each acquisition step is now a batch of n_shots — use the same
-            # batch-precision noise as the locator's own prior so the gate
-            # stays consistent with the real batched run.
-            #
-            # param_bounds normalizes each parameter's gradient by its own range
-            # before the FIM is built -- required now that NVCenterLorentzianModel
-            # has an analytical gradient (see marginal_crlbs_at_budget's docstring):
-            # without it, Hz-scale widths vs a dimensionless contrast differ by ~7
-            # orders of magnitude and every CRLB silently saturates at a meaningless
-            # ridge-dominated 1000, independent of the data.
-            param_bounds_for_gate = self._injected_parameter_bounds(experiment)
-            crlbs_gate = marginal_crlbs_at_budget(
-                model=experiment.true_signal.model,
-                true_typed_params=experiment.true_signal.typed_parameters,
-                x_lo=float(experiment.drive_freq_min_phys),
-                x_hi=float(experiment.drive_freq_max_phys),
-                noise_std=batch_noise_std,
-                n_steps=max_steps,
-                param_bounds=param_bounds_for_gate,
-            )
-            if crlbs_gate:
-                convergence_threshold = float(locator_config.get("convergence_threshold", 0.01))
-                for param_name, crlb_val in crlbs_gate.items():
-                    absolute = PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS.get(param_name)
-                    if absolute is None:
-                        lo, hi = param_bounds_for_gate.get(param_name, (0.0, 0.0))
-                        absolute = (hi - lo) * convergence_threshold
-                    if absolute > 0 and crlb_val > absolute * NVISION_CRLB_FEASIBILITY_MARGIN:
-                        infeasible_crlb_params.append(param_name)
-
         observer = Observer(experiment.true_signal, experiment.drive_freq_min_phys, experiment.drive_freq_max_phys)
         token = set_combination_log_initials(self.generator_name, self.noise_name, self.strategy_name, repeat_idx=rid)
 
-        if infeasible_crlb_params:
+        try:
+            result = observer.watch(run_loop(locator_class, experiment, rng, self._sweep_cache, n_shots=n_shots, **cfg))
+            stop_reason = "locator_stop"
+        except TimeoutError:
             result = RunResult(
                 snapshots=observer.snapshots,
                 true_signal=experiment.true_signal,
                 focus_window=None,
             )
-            stop_reason = "infeasible_crlb"
+            stop_reason = "repeat_timeout"
+        finally:
             reset_combination_log_initials(token)
-        else:
-            try:
-                result = observer.watch(
-                    run_loop(locator_class, experiment, rng, self._sweep_cache, n_shots=n_shots, **cfg)
-                )
-                stop_reason = "locator_stop"
-            except TimeoutError:
-                result = RunResult(
-                    snapshots=observer.snapshots,
-                    true_signal=experiment.true_signal,
-                    focus_window=None,
-                )
-                stop_reason = "repeat_timeout"
-            finally:
-                reset_combination_log_initials(token)
 
         # Populate sweep cache from this repeat's observations (for sharing with subsequent repeats)
         if observer.last_locator is not None and experiment.drift is None:
@@ -1706,7 +1653,6 @@ class _TaskRunner:
             finalize_record["locator_steps"] = None
             finalize_record["primary_converged_step"] = None
             finalize_record["all_converged_step"] = None
-        finalize_record["infeasible_crlb_params"] = infeasible_crlb_params if infeasible_crlb_params else None
 
         # SBED-specific noise diagnostics
         from nvision.sim.locs.bayesian.sbed_locator import SequentialBayesianExperimentDesignLocator
