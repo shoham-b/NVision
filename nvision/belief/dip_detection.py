@@ -1,16 +1,39 @@
-"""Deterministic dip detection from the measured scan alone.
+"""Deterministic, shape-agnostic dip detection from the measured scan alone: a boxcar GLRT scan.
 
-Finds resonance dips the classic way: threshold the observations ``n_sigma`` noise standard
-deviations below the scan's baseline, cluster the below-threshold points, and accept a
-cluster only when a binomial test says that many low points among the nearby observations
-cannot be noise.
+A generalized likelihood ratio test for "a stretch of the scan sits below the baseline", with no
+assumption about the dip's lineshape (Lorentzian, Voigt, saturated, hyperfine-merged...):
 
-The result depends only on the observations and one scalar noise sigma -- the conjugate
-Inverse-Gamma posterior estimate supplied by the belief (see
-``SMCMarginalDistribution.estimated_noise_std``). It never reads the SMC particles' inferred
-signal parameters, so it is an independent, reproducible statement about where the data show
-dips. The belief uses it to place acquisition candidates on the dips it finds, and the SBED
-locator reports the same dips as its focus windows.
+1. Per-observation dip z-scores ``z_i = (b - y_i) / s``. The noise sigma is not known exactly: the
+   belief's conjugate posterior on sigma^2 is Inverse-Gamma(alpha, beta), and averaging over it makes
+   every score below Student-t with ``nu = 2 alpha`` degrees of freedom and scale ``s = sqrt(beta /
+   alpha)``. The baseline ``b`` is the 70th percentile of ``y`` minus its offset ``t_nu^-1(0.7) s``,
+   so the scores are centred under "no dip" while points inside dips (all below the baseline) cannot
+   drag ``b`` down until they outnumber the points above it -- SBED piles its measurements onto a dip
+   once it has found one, which would sink a plain median.
+2. Every contiguous window (from one distinct measured ``drive_freq`` to another, repeats included)
+   whose span lies in the linewidth prior's ``gamma_mean +/- 2 gamma_std`` (clipped to the prior's
+   FWHM range) gets the boxcar GLRT score ``sum(z_i) / sqrt(n)``, from prefix sums in O(1) per
+   window. The prior only sets which widths are tried. All points in a window share one sigma, so
+   under "no dip" the score is exactly Student-t with ``nu`` degrees of freedom.
+3. Family-wise error control: with ``N`` windows tested, a window is significant when
+   ``score > t_nu^-1(1 - p_fa / N)`` (Bonferroni). A poorly known sigma (small ``nu``) raises the
+   threshold smoothly; as ``nu`` grows it approaches the known-sigma normal quantile.
+4. Grouping: of the significant windows, only those whose edges fit the dip are kept -- the best end
+   for their start and the best start for their end (padding a window with baseline lowers its score,
+   so a strong narrow dip does not drag in every wider window containing it). Kept windows that
+   overlap or sit at neighbouring measured positions form one connected run, and each run is one
+   dip -- one :class:`DipCandidate` spanning the whole run. A hyperfine group's lines and a deep
+   dip's wings (also significantly below the baseline) therefore stay one dip, while dips separated
+   by baseline stay apart.
+
+On a uniform sweep this is exactly the prefix-sum scan over index widths. The window-in-Hz form
+also handles SBED's adaptive, irregular and repeated positions.
+
+The result depends only on the observations, the noise posterior's Student-t scale and degrees of
+freedom (supplied by the belief, see ``SMCMarginalDistribution.noise_student_t``) and the linewidth
+*prior* (never the SMC particles' signal parameters), so it is an independent, reproducible
+statement about where the data show dips. The belief uses it to place acquisition candidates on the
+dips it finds, and the SBED locator builds its focus sections from the same dips.
 
 This is distinct from ``nvision.sim.locs.refocus``, which is geometric (double-monotonic
 regions, no statistics) and is used by the coarse sweep locators to narrow their scan window.
@@ -24,47 +47,56 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 
 import numpy as np
-from scipy.stats import binom, norm
+from scipy.stats import t as student_t
 
-from nvision.sim.defaults import (
-    NVISION_DIP_CONFIDENCE,
-    NVISION_DIP_MIN_CLUSTER,
-    NVISION_DIP_N_SIGMA,
-    NVISION_DIP_NOISE_UNCERTAINTY_THRESHOLD,
-)
+from nvision.sim.defaults import NVISION_DIP_P_FA
+
+# Baseline percentile of the observed signal (see the module docstring, step 1).
+_BASELINE_PERCENTILE = 70.0
 
 
 @dataclass(frozen=True)
 class DipCandidate:
-    """A qualified resonance dip: a cluster of low observations that noise cannot explain."""
+    """A significant resonance dip: a stretch of the scan the noise cannot explain as baseline."""
 
-    centroid_hz: float  # depth-weighted mean drive-frequency position of the cluster
-    significance: float  # number of below-threshold observations in the cluster
-    n_points: int
-    f_min: float  # left extent of the cluster (Hz)
-    f_max: float  # right extent of the cluster (Hz)
-    confidence: float  # binomial confidence that the cluster is not noise
-    background: float  # empirical baseline (70th percentile of the observations)
+    centroid_hz: float  # middle of the run of significant windows (Hz)
+    significance: float  # best boxcar GLRT score in the run (noise sigmas; above the FWER threshold, so > 0)
+    n_points: int  # observations inside the run
+    f_min: float  # left edge of the run: a measured drive_freq (Hz)
+    f_max: float  # right edge of the run: a measured drive_freq (Hz)
+    confidence: float  # 1 - Bonferroni-corrected p-value of the best score
+    width_hz: float  # run span f_max - f_min (Hz); at least the narrowest window tested
 
 
-def effective_max_linewidth_hz(phys_bounds: Mapping[str, tuple[float, float]]) -> float:
-    """Upper-bound effective HWHM (Hz) implied by the parameter *prior bounds*.
+def linewidth_fwhm_prior_hz(phys_bounds: Mapping[str, tuple[float, float]]) -> tuple[float, float, float, float]:
+    """Mean, standard deviation, minimum and maximum (Hz) of the dip FWHM implied by the *prior bounds*.
 
-    Lineshape-agnostic: the dip finder only needs one width scale to decide how far apart
-    two low points can be and still belong to the same dip. Uses the prior bounds, never an
-    inferred estimate.
+    Lineshape-agnostic: the effective HWHM (``effective_hwhm``) at the lower and at the upper
+    bounds spans a uniform prior on the HWHM; the FWHM is twice it, so
+    ``mean = hwhm_lo + hwhm_hi``, ``std = 2 (hwhm_hi - hwhm_lo) / sqrt(12)``, ``min = 2 hwhm_lo`` and
+    ``max = 2 hwhm_hi``.
+    Uses the prior bounds, never an inferred estimate.
     """
     from nvision.spectra.nv_center import effective_hwhm
     from nvision.spectra.nv_center_drive import is_drive_param_dict
 
+    narrowest = {name: lo for name, (lo, _) in phys_bounds.items()}
     widest = {name: hi for name, (_, hi) in phys_bounds.items()}
     if is_drive_param_dict(widest):
+        from nvision.spectra.drive import DRIVE_AMP_MIN_UNIT
+
         # Drive-controlled: widest at full amplitude with the strongest coupling (smallest
-        # drive_amp_sat / largest rabi_per_amp).
+        # drive_amp_sat / largest rabi_per_amp), narrowest at the minimum amplitude with the weakest.
         if "drive_amp_sat" in phys_bounds:
-            widest["drive_amp_sat"] = phys_bounds["drive_amp_sat"][0]
-        return float(effective_hwhm(widest, drive_amp_unit=1.0))
-    return float(effective_hwhm(widest))
+            narrowest["drive_amp_sat"], widest["drive_amp_sat"] = phys_bounds["drive_amp_sat"][::-1]
+        hwhm_lo = float(effective_hwhm(narrowest, drive_amp_unit=DRIVE_AMP_MIN_UNIT))
+        hwhm_hi = float(effective_hwhm(widest, drive_amp_unit=1.0))
+    else:
+        hwhm_lo = float(effective_hwhm(narrowest))
+        hwhm_hi = float(effective_hwhm(widest))
+    if not (0.0 < hwhm_lo <= hwhm_hi) or not math.isfinite(hwhm_hi):
+        raise ValueError(f"linewidth_fwhm_prior_hz: invalid HWHM prior range [{hwhm_lo}, {hwhm_hi}] Hz")
+    return hwhm_lo + hwhm_hi, 2.0 * (hwhm_hi - hwhm_lo) / math.sqrt(12.0), 2.0 * hwhm_lo, 2.0 * hwhm_hi
 
 
 def min_linewidth_hz(phys_bounds: Mapping[str, tuple[float, float]]) -> float:
@@ -93,104 +125,183 @@ def min_linewidth_hz(phys_bounds: Mapping[str, tuple[float, float]]) -> float:
     )
 
 
+def _window_scores(
+    xu: np.ndarray, first: np.ndarray, end: np.ndarray, z: np.ndarray, width_lo_hz: float, width_hi_hz: float
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Boxcar GLRT score of every contiguous window whose span lies in ``[width_lo_hz, width_hi_hz]``.
+
+    A window runs from one distinct measured position to another (inclusive, all repeats at both
+    ends included); its score is ``sum(z_i) / sqrt(n)`` over its ``n`` observations, computed from
+    prefix sums in O(1) per window.
+
+    Args:
+        xu: Distinct measured drive frequencies, ascending (Hz). shape: (n_positions,)
+        first: Index of each distinct position's first observation. shape: (n_positions,)
+        end: One past the index of each distinct position's last observation. shape: (n_positions,)
+        z: Per-observation dip z-scores ``(baseline - y) / noise_scale``, sorted by drive frequency.
+            shape: (n_observations,)
+        width_lo_hz: Narrowest window span tested (Hz).
+        width_hi_hz: Widest window span tested (Hz).
+
+    Returns:
+        ``(score, a, b)``, each shape (n_windows,): the GLRT score and the first and last distinct
+        position index of every tested window.
+    """
+    prefix = np.concatenate(([0.0], np.cumsum(z)))
+    b_lo = np.searchsorted(xu, xu + width_lo_hz, side="left")
+    b_hi = np.searchsorted(xu, xu + width_hi_hz, side="right")
+    counts = np.maximum(b_hi - b_lo, 0)
+    total = int(counts.sum())
+    if total == 0:
+        return np.empty(0), np.empty(0, dtype=int), np.empty(0, dtype=int)
+    # Flatten every (start a, end b) pair: a repeated counts[a] times, b running b_lo[a] .. b_hi[a]-1.
+    a = np.repeat(np.arange(xu.size), counts)
+    b = b_lo[a] + np.arange(total) - np.repeat(np.cumsum(counts) - counts, counts)
+    score = (prefix[end[b]] - prefix[first[a]]) / np.sqrt(end[b] - first[a])
+    return score, a, b
+
+
+def _is_group_max(score: np.ndarray, group: np.ndarray) -> np.ndarray:
+    """Whether each window's score is the maximum among the windows sharing its ``group`` index.
+
+    Args:
+        score: Window scores. shape: (n_windows,)
+        group: Group index of each window (e.g. its start or end position). shape: (n_windows,)
+
+    Returns:
+        Boolean mask, shape (n_windows,); ties are all True.
+    """
+    order = np.argsort(group, kind="stable")
+    sorted_group = group[order]
+    starts = np.flatnonzero(np.r_[True, sorted_group[1:] != sorted_group[:-1]])
+    group_max = np.maximum.reduceat(score[order], starts)
+    counts = np.diff(np.r_[starts, order.size])
+    is_max = np.empty(score.size, dtype=bool)
+    is_max[order] = score[order] >= np.repeat(group_max, counts)
+    return is_max
+
+
 def find_dips(
     obs_drive_freqs_phys: np.ndarray,
     obs_ys: np.ndarray,
-    noise_std: float,
-    max_linewidth_hz: float,
+    noise_scale: float,
+    noise_dof: float,
+    gamma_mean_hz: float,
+    gamma_std_hz: float,
+    gamma_min_hz: float,
+    gamma_max_hz: float,
     *,
-    noise_std_unc: float | None = None,
-    n_sigma: float | None = None,
-    min_cluster_count: int | None = None,
-    confidence_threshold: float | None = None,
+    p_fa: float | None = None,
     assume_sorted: bool = False,
 ) -> list[DipCandidate]:
-    """Return the dips the observations show, most significant first.
+    """Return the significant dips the observations show, most significant first (see module docstring).
 
     Args:
-        obs_drive_freqs_phys: Measured frequencies (Hz). shape: (n_observations,)
+        obs_drive_freqs_phys: Measured drive frequencies (Hz). shape: (n_observations,)
         obs_ys: Measured signal values. shape: (n_observations,)
-        noise_std: Scalar noise standard deviation of a single observation.
-        max_linewidth_hz: Upper bound of the linewidth prior; two below-threshold points
-            further apart than ``3 * max_linewidth_hz`` are different dips.
-        noise_std_unc: Uncertainty of ``noise_std``. When its ratio to ``noise_std`` is at
-            least ``NVISION_DIP_NOISE_UNCERTAINTY_THRESHOLD`` the noise level is too poorly
-            known to threshold against, and no dips are reported.
-        n_sigma: Threshold below the baseline in noise sigmas (default ``NVISION_DIP_N_SIGMA``).
-        min_cluster_count: Minimum below-threshold points in a dip (default ``NVISION_DIP_MIN_CLUSTER``).
-        confidence_threshold: Minimum binomial confidence (default ``NVISION_DIP_CONFIDENCE``).
+        noise_scale: Student-t scale of one observation's noise, ``sqrt(beta / alpha)`` of the
+            Inverse-Gamma(alpha, beta) posterior on sigma^2.
+        noise_dof: Student-t degrees of freedom ``2 alpha`` (> 0); ``inf`` treats ``noise_scale`` as
+            the exactly known sigma (normal scores).
+        gamma_mean_hz: Prior mean of the dip FWHM (Hz), e.g. from :func:`linewidth_fwhm_prior_hz`.
+        gamma_std_hz: Prior standard deviation of the dip FWHM (Hz, >= 0).
+        gamma_min_hz: Narrowest FWHM the prior allows (Hz, in (0, gamma_mean_hz]); no window is
+            narrower.
+        gamma_max_hz: Widest FWHM the prior allows (Hz, >= gamma_mean_hz); no window is wider.
+        p_fa: Family-wise false-alarm probability over all windows tested
+            (default ``NVISION_DIP_P_FA``).
         assume_sorted: ``obs_drive_freqs_phys`` is already ascending (caller contract, checked): skips
             the sort. Passing True with unsorted input raises ``ValueError``.
     """
-    if noise_std <= 0 or not math.isfinite(noise_std):
-        raise ValueError(f"find_dips: noise_std must be positive and finite, got {noise_std!r}")
+    if not (noise_scale > 0) or not math.isfinite(noise_scale):
+        raise ValueError(f"find_dips: noise_scale must be positive and finite, got {noise_scale!r}")
+    if not (noise_dof > 0):
+        raise ValueError(f"find_dips: noise_dof must be positive, got {noise_dof!r}")
+    if not (gamma_mean_hz > 0) or not math.isfinite(gamma_mean_hz):
+        raise ValueError(f"find_dips: gamma_mean_hz must be positive and finite, got {gamma_mean_hz!r}")
+    if not (gamma_std_hz >= 0) or not math.isfinite(gamma_std_hz):
+        raise ValueError(f"find_dips: gamma_std_hz must be non-negative and finite, got {gamma_std_hz!r}")
+    if not (0.0 < gamma_min_hz <= gamma_mean_hz):
+        raise ValueError(
+            f"find_dips: gamma_min_hz must lie in (0, gamma_mean_hz={gamma_mean_hz}], got {gamma_min_hz!r}"
+        )
+    if not (gamma_max_hz >= gamma_mean_hz) or not math.isfinite(gamma_max_hz):
+        raise ValueError(
+            f"find_dips: gamma_max_hz must be finite and >= gamma_mean_hz={gamma_mean_hz}, got {gamma_max_hz!r}"
+        )
+    p_fa = NVISION_DIP_P_FA if p_fa is None else p_fa
+    if not (0.0 < p_fa < 1.0):
+        raise ValueError(f"find_dips: p_fa must lie in (0, 1), got {p_fa!r}")
     if len(obs_drive_freqs_phys) != len(obs_ys):
         raise ValueError(f"find_dips: {len(obs_drive_freqs_phys)} frequencies but {len(obs_ys)} signal values")
     if len(obs_drive_freqs_phys) == 0:
         return []
 
-    n_sigma = NVISION_DIP_N_SIGMA if n_sigma is None else n_sigma
-    min_cluster_count = NVISION_DIP_MIN_CLUSTER if min_cluster_count is None else min_cluster_count
-    confidence_threshold = NVISION_DIP_CONFIDENCE if confidence_threshold is None else confidence_threshold
-
-    if noise_std_unc is not None and noise_std_unc / noise_std >= NVISION_DIP_NOISE_UNCERTAINTY_THRESHOLD:
-        return []
-
+    xs = np.asarray(obs_drive_freqs_phys, dtype=float)
+    ys = np.asarray(obs_ys, dtype=float)
     if assume_sorted:
-        if len(obs_drive_freqs_phys) > 1 and not np.all(obs_drive_freqs_phys[:-1] <= obs_drive_freqs_phys[1:]):
+        if len(xs) > 1 and not np.all(xs[:-1] <= xs[1:]):
             raise ValueError("find_dips: assume_sorted=True but obs_drive_freqs_phys is not ascending.")
-        xs, ys = obs_drive_freqs_phys, obs_ys
     else:
-        order = np.argsort(obs_drive_freqs_phys, kind="stable")
-        xs, ys = obs_drive_freqs_phys[order], obs_ys[order]
+        order = np.argsort(xs, kind="stable")
+        xs, ys = xs[order], ys[order]
 
-    background = float(np.percentile(ys, 70))
-    depth = background - ys
-    # A point is a dip point when it lies n_sigma noise deviations below the baseline (and is
-    # a real, >1%-of-baseline drop).
-    is_low = (depth > n_sigma * noise_std) & (depth > 0.01 * max(background, 1e-9))
-    if not np.any(is_low):
-        logging.debug("find_dips: no observation is %.1f sigma below the baseline.", n_sigma)
+    # Baseline: the upper percentile minus its noise offset, centred under "no dip", which dip points
+    # (all below it) cannot drag down until they outnumber the points above it.
+    percentile_offset = float(student_t.ppf(_BASELINE_PERCENTILE / 100.0, noise_dof)) * noise_scale
+    baseline = float(np.percentile(ys, _BASELINE_PERCENTILE)) - percentile_offset
+    z = (baseline - ys) / noise_scale
+
+    # gamma_mean +/- 2 gamma_std overshoots both ends of a uniform prior (the low end even below 0); a
+    # window outside the allowed widths only spends hypotheses (raising the threshold).
+    width_lo_hz = max(gamma_min_hz, gamma_mean_hz - 2.0 * gamma_std_hz)
+    width_hi_hz = min(gamma_max_hz, gamma_mean_hz + 2.0 * gamma_std_hz)
+    xu, first = np.unique(xs, return_index=True)  # distinct positions and their first index
+    end = np.append(first[1:], len(xs))  # one past the last index of each distinct position
+    score, a, b = _window_scores(xu, first, end, z, width_lo_hz, width_hi_hz)
+    n_tests = score.size
+    if n_tests == 0:
         return []
 
-    low_idx = np.flatnonzero(is_low)
-    cluster_radius_hz = 3.0 * max_linewidth_hz
-    # Consecutive dip points closer than the radius share a cluster.
-    breaks = np.flatnonzero(np.diff(xs[low_idx]) > cluster_radius_hz) + 1
-    p_false = float(norm.cdf(-n_sigma))
+    z_thresh = float(student_t.isf(p_fa / n_tests, noise_dof))
+    significant = score > z_thresh
+    if not np.any(significant):
+        logging.debug(
+            "find_dips: best boxcar z %.2f <= FWER threshold %.2f (%d windows).",
+            float(np.max(score)),
+            z_thresh,
+            n_tests,
+        )
+        return []
+
+    # Only windows whose edges fit the dip join a run: the best end for their start and the best start
+    # for their end. A window padded with baseline scores lower than the same window without the
+    # padding, so a narrow strong dip does not drag in every wider window that happens to contain it.
+    keep = significant & _is_group_max(score, a) & _is_group_max(score, b)
+
+    # Connected runs: sorted by start, a window joins the current run when it starts no later than the
+    # position right after the furthest end so far (overlapping or neighbouring windows).
+    order = np.argsort(a[keep], kind="stable")
+    sig_score, sig_a, sig_b = score[keep][order], a[keep][order], b[keep][order]
+    reach = np.maximum.accumulate(sig_b)
+    starts = np.flatnonzero(np.r_[True, sig_a[1:] > reach[:-1] + 1])
+    run_lo = sig_a[starts]
+    run_hi = np.maximum.reduceat(sig_b, starts)
+    run_best = np.maximum.reduceat(sig_score, starts)
 
     candidates: list[DipCandidate] = []
-    for members in np.split(low_idx, breaks):
-        k = len(members)
-        if k < min_cluster_count:
-            continue
-        cx, cy = xs[members], ys[members]
-        f_min, f_max = float(cx[0]), float(cx[-1])
-        lo = int(np.searchsorted(xs, f_min - cluster_radius_hz, side="left"))
-        hi = int(np.searchsorted(xs, f_max + cluster_radius_hz, side="right"))
-        # P(at most k-1 of the n_local nearby points fall below the threshold by chance).
-        confidence = float(binom.cdf(k - 1, hi - lo, p_false))
-        if confidence < confidence_threshold:
-            logging.debug(
-                "Dip cluster at %.3f Hz dropped by confidence gate: %.4f < %.4f (k=%d, n_local=%d)",
-                float(np.mean(cx)),
-                confidence,
-                confidence_threshold,
-                k,
-                hi - lo,
-            )
-            continue
-        weights = background - cy
+    for k in np.argsort(-run_best, kind="stable"):
+        f_min, f_max = float(xu[run_lo[k]]), float(xu[run_hi[k]])
+        best = float(run_best[k])
         candidates.append(
             DipCandidate(
-                centroid_hz=float(np.sum(cx * weights) / np.sum(weights)),
-                significance=float(k),
-                n_points=k,
+                centroid_hz=0.5 * (f_min + f_max),
+                significance=best,
+                n_points=int(end[run_hi[k]] - first[run_lo[k]]),
                 f_min=f_min,
                 f_max=f_max,
-                confidence=confidence,
-                background=background,
+                confidence=float(1.0 - min(1.0, n_tests * student_t.sf(best, noise_dof))),
+                width_hz=f_max - f_min,
             )
         )
-
-    return sorted(candidates, key=lambda c: c.significance, reverse=True)
+    return candidates

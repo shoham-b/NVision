@@ -13,7 +13,7 @@ from scipy.special import gammaln
 
 from nvision.belief.abstract_marginal import AbstractMarginalDistribution, ParameterValues
 from nvision.belief.coordinate import RescaleMap
-from nvision.belief.dip_detection import DipCandidate, effective_max_linewidth_hz, find_dips
+from nvision.belief.dip_detection import DipCandidate, find_dips, linewidth_fwhm_prior_hz
 from nvision.models.fisher_information import CumulativeFisher, center_freq_crlb, typed_parameters
 from nvision.models.observation import Observation
 from nvision.spectra.drive import DRIVE_AMP_MIN_UNIT, DriveSetting, compute_vectorized_many_driven
@@ -826,6 +826,17 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
 
         return float(np.interp(0.90, cdf_vals, sorted_samples))
 
+    def noise_student_t(self) -> tuple[float, float]:
+        """Student-t ``(scale, dof)`` of one observation's noise, marginalised over the sigma^2 posterior.
+
+        With sigma^2 ~ Inverse-Gamma(alpha, beta), a Gaussian residual averaged over sigma is Student-t
+        with ``dof = 2 alpha`` and ``scale = sqrt(beta / alpha)``. ``beta`` is the same conservative
+        choice as :meth:`estimated_noise_std` (the particles' weighted 90th percentile; sigma is monotonic
+        in beta and alpha is shared), so ``scale = estimated_noise_std() * sqrt((alpha + 1/2) / alpha)``.
+        """
+        alpha = self._noise_alpha
+        return self.estimated_noise_std() * math.sqrt((alpha + 0.5) / alpha), 2.0 * alpha
+
     def noise_std_uncertainty(self, est_std: float | None = None) -> float:
         """Return the posterior uncertainty (standard deviation) of the noise parameter.
 
@@ -955,13 +966,17 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         # at the true dip locations, correcting for posterior bias when belief is wrong.
         if self._obs_count >= 5:
             obs_xs, obs_ys = self.sorted_observation_arrays()
-            noise_std = self.estimated_noise_std()
+            noise_scale, noise_dof = self.noise_student_t()
+            gamma_mean_hz, gamma_std_hz, gamma_min_hz, gamma_max_hz = linewidth_fwhm_prior_hz(phys_bounds)
             self._dip_candidates = find_dips(
                 self._drive_freq_map.to_phys(obs_xs),
                 obs_ys,
-                noise_std,
-                effective_max_linewidth_hz(phys_bounds),
-                noise_std_unc=self.noise_std_uncertainty(noise_std),
+                noise_scale,
+                noise_dof,
+                gamma_mean_hz,
+                gamma_std_hz,
+                gamma_min_hz,
+                gamma_max_hz,
                 assume_sorted=True,
             )
             if self._dip_candidates:
