@@ -195,60 +195,6 @@ def has_cached_sweep(experiment: CoreExperiment, sweep_steps: int) -> bool:
     return _sync_from_shm(key) is not None
 
 
-def _sobol_baseline_cache_key(
-    experiment: CoreExperiment, seed: int, generator_name: str, noise_name: str, repeat_idx: int
-) -> str:
-    """Generate cache key for Sobol baseline steps."""
-    return f"sobol_baseline:{seed}:{generator_name}:{noise_name}:{repeat_idx}"
-
-
-def get_cached_sobol_baseline(
-    experiment: CoreExperiment, seed: int, generator_name: str, noise_name: str, repeat_idx: int
-) -> dict[str, int | None] | None:
-    """Retrieve cached Sobol baseline steps if available."""
-    key = _sobol_baseline_cache_key(experiment, seed, generator_name, noise_name, repeat_idx)
-    cached = _DESERIALIZED_CACHE.get(key)
-    if cached is None:
-        cached = _sync_from_shm(key)
-    if cached is None:
-        return None
-    if isinstance(cached, int):
-        # Backward compatibility for old caches storing only the overall step count
-        return {"sobol_baseline_steps": cached, "sobol_primary_steps": None}
-    return cached
-
-
-def put_cached_sobol_baseline(
-    experiment: CoreExperiment,
-    seed: int,
-    generator_name: str,
-    noise_name: str,
-    repeat_idx: int,
-    steps: dict[str, int | None],
-) -> None:
-    """Store Sobol baseline steps in shared cache."""
-    key = _sobol_baseline_cache_key(experiment, seed, generator_name, noise_name, repeat_idx)
-
-    if _SHM_LOCK is not None:
-        try:
-            with _SHM_LOCK:
-                cached = _sync_from_shm(key)
-                if cached is None:
-                    _DESERIALIZED_CACHE[key] = steps
-                    _write_to_shm(key, steps)  # type: ignore
-        except (OSError, EOFError, RuntimeError) as exc:
-            log.debug("Shared lock connection closed in put_cached_sobol_baseline: %s", exc)
-            with _LOCK:
-                if key not in _SWEEP_OBSERVATIONS_BY_KEY:
-                    _SWEEP_OBSERVATIONS_BY_KEY[key] = steps  # type: ignore
-                    _DESERIALIZED_CACHE[key] = steps
-    else:
-        with _LOCK:
-            if key not in _SWEEP_OBSERVATIONS_BY_KEY:
-                _SWEEP_OBSERVATIONS_BY_KEY[key] = steps  # type: ignore
-                _DESERIALIZED_CACHE[key] = steps
-
-
 def _simplesweep_baseline_cache_key(
     experiment: CoreExperiment, seed: int, generator_name: str, noise_name: str, repeat_idx: int
 ) -> str:
@@ -321,22 +267,6 @@ class SweepCache:
     def has(self, experiment: CoreExperiment, sweep_steps: int) -> bool:
         return has_cached_sweep(experiment, sweep_steps)
 
-    def get_sobol_baseline(
-        self, experiment: CoreExperiment, seed: int, generator_name: str, noise_name: str, repeat_idx: int
-    ) -> dict[str, int | None] | None:
-        return get_cached_sobol_baseline(experiment, seed, generator_name, noise_name, repeat_idx)
-
-    def put_sobol_baseline(
-        self,
-        experiment: CoreExperiment,
-        seed: int,
-        generator_name: str,
-        noise_name: str,
-        repeat_idx: int,
-        steps: dict[str, int | None],
-    ) -> None:
-        put_cached_sobol_baseline(experiment, seed, generator_name, noise_name, repeat_idx, steps)
-
     def get_simplesweep_baseline(
         self, experiment: CoreExperiment, seed: int, generator_name: str, noise_name: str, repeat_idx: int
     ) -> dict | None:
@@ -397,7 +327,7 @@ def precompute_sweep(
     if not (is_bayesian or is_sweep):
         return None
 
-    needs_belief = getattr(locator_class, "REQUIRES_BELIEF", False)
+    needs_belief = getattr(locator_class, "REQUIRES_BELIEF", False) and "builder" not in locator_config
     if needs_belief and ("belief" not in locator_config or "signal_model" not in locator_config):
         locator_config.setdefault("belief", _create_sweep_belief(experiment))
         locator_config.setdefault("signal_model", experiment.true_signal.baseline_model)

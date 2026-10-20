@@ -11,6 +11,9 @@ from dataclasses import dataclass
 from functools import lru_cache
 
 from nvision.sim import presets as sim_presets
+from nvision.sim.combinations import SWEEP_SPACING_DIVISORS
+from nvision.sim.grid_enums import sweep_strategy_name
+from nvision.sim.locs.search_grid import SWEEP_POINTS_PER_FWHM
 
 
 @dataclass(frozen=True, slots=True)
@@ -28,7 +31,17 @@ class RunGroup:
     extra_generators: dict[str, object] | None = None
 
 
-_ALL_STRATEGIES = ["Bayesian-SBED", "SimpleSobol", "SimpleSweep"]
+_DEFAULT_SWEEP = sweep_strategy_name(SWEEP_POINTS_PER_FWHM)
+_ALL_STRATEGIES = ["Bayesian-SBED", _DEFAULT_SWEEP]
+
+# Resonance search after a field change: the sweeps at several spacings (points per FWHM) against the
+# plain SBED and the two locators that search coarsely first and then work inside the focus.
+_RESONANCE_STRATEGIES = [
+    *(sweep_strategy_name(k) for k in SWEEP_SPACING_DIVISORS),
+    "Smart-Sweep",
+    "Bayesian-SBED",
+    "Smart-SBED",
+]
 
 _BOTH_GRID = "Width x contrast x sigma_inhom x noise grid (plain Voigt; sigma_inhom=0 is the pure-Lorentzian limit) for"
 _DRIFT_GRID = (
@@ -88,7 +101,7 @@ def _group(
 def _group_both_sbed() -> RunGroup:
     return _group(
         "both-sbed",
-        f"{_BOTH_GRID} Bayesian-SBED/SimpleSobol/SimpleSweep.",
+        f"{_BOTH_GRID} Bayesian-SBED/SimpleSweep-3perFWHM.",
         _voigt_inhom_param_grid(),
         _sbed_noise_names(),
         _ALL_STRATEGIES,
@@ -98,7 +111,7 @@ def _group_both_sbed() -> RunGroup:
 def _group_both_sbed_only() -> RunGroup:
     return _group(
         "both-sbed-only",
-        f"{_BOTH_GRID} Bayesian-SBED only (no sweep/sobol baselines).",
+        f"{_BOTH_GRID} Bayesian-SBED only (no sweep baselines).",
         _voigt_inhom_param_grid(),
         _sbed_noise_names(),
         ["Bayesian-SBED"],
@@ -108,17 +121,17 @@ def _group_both_sbed_only() -> RunGroup:
 def _group_both_sweep_only() -> RunGroup:
     return _group(
         "both-sweep-only",
-        f"{_BOTH_GRID} SimpleSweep only (no SBED/Sobol baselines).",
+        f"{_BOTH_GRID} SimpleSweep-3perFWHM only (no SBED baseline).",
         _voigt_inhom_param_grid(),
         _sbed_noise_names(),
-        ["SimpleSweep"],
+        [_DEFAULT_SWEEP],
     )
 
 
 def _group_lorentzian_plain_drift() -> RunGroup:
     return _group(
         "lorentzian-plain-drift",
-        f"{_DRIFT_GRID} Bayesian-SBED/SimpleSobol/SimpleSweep.",
+        f"{_DRIFT_GRID} Bayesian-SBED/SimpleSweep-3perFWHM.",
         _lorentzian_plain_param_grid(),
         _drift_noise_names(),
         _ALL_STRATEGIES,
@@ -128,7 +141,7 @@ def _group_lorentzian_plain_drift() -> RunGroup:
 def _group_lorentzian_plain_drift_sbed_only() -> RunGroup:
     return _group(
         "lorentzian-plain-drift-sbed-only",
-        f"{_DRIFT_GRID} Bayesian-SBED only (no sweep/sobol baselines).",
+        f"{_DRIFT_GRID} Bayesian-SBED only (no sweep baselines).",
         _lorentzian_plain_param_grid(),
         _drift_noise_names(),
         ["Bayesian-SBED"],
@@ -147,6 +160,17 @@ def _group_drive_control() -> RunGroup:
     )
 
 
+def _group_resonance_search() -> RunGroup:
+    return _group(
+        "resonance-search",
+        "Width x contrast grid (Lorentzian), resonance moved by a field change (nuisance parameters known, "
+        "zeeman_split unknown): SimpleSweep-{1..5}perFWHM, Smart-Sweep, Bayesian-SBED, Smart-SBED.",
+        dict(sim_presets.resonance_search_generators()),
+        _sbed_noise_names(),
+        _RESONANCE_STRATEGIES,
+    )
+
+
 @lru_cache(maxsize=1)
 def _run_groups_tuple() -> tuple[RunGroup, ...]:
     return (
@@ -156,6 +180,7 @@ def _run_groups_tuple() -> tuple[RunGroup, ...]:
         _group_lorentzian_plain_drift(),
         _group_lorentzian_plain_drift_sbed_only(),
         _group_drive_control(),
+        _group_resonance_search(),
     )
 
 

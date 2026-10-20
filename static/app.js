@@ -971,9 +971,6 @@ function main() {
     function renderSweepMetricsPanel(container, metrics) {
         if (!container) return;
         container.innerHTML = '';
-        if (metrics.sobol_baseline_steps != null && metrics.sobol_primary_steps != null && metrics.sobol_conv_diff == null) {
-            metrics.sobol_conv_diff = metrics.sobol_baseline_steps - metrics.sobol_primary_steps;
-        }
         // Build a displayable focus_window string from acquisition bounds,
         // but only for sweep locators that support focus (indicated by
         // the presence of expected_focused_points).
@@ -3222,88 +3219,6 @@ function main() {
 
 
 
-                function buildPrimaryConvergenceRows(phaseData) {
-                    if (!phaseData) return [];
-                    const metrics = phaseData.metrics || {};
-                    const sobolPrimarySteps = phaseData.sobol_primary_steps != null ? phaseData.sobol_primary_steps : metrics.sobol_primary_steps;
-                    const stepsToPrimary = phaseData.steps_to_primary != null ? phaseData.steps_to_primary : metrics.steps_to_primary;
-                    const uncertPrimary = phaseData.uncert_primary_at_milestone != null ? phaseData.uncert_primary_at_milestone : metrics.uncert_primary_at_milestone;
-                    const errPrimary = phaseData.err_primary_at_milestone != null ? phaseData.err_primary_at_milestone : metrics.err_primary_at_milestone;
-                    const sobolPrimaryUncert = phaseData.sobol_primary_uncert_at_conv != null ? phaseData.sobol_primary_uncert_at_conv : metrics.sobol_primary_uncert_at_conv;
-                    const sobolPrimaryErr = phaseData.sobol_primary_err_at_conv != null ? phaseData.sobol_primary_err_at_conv : metrics.sobol_primary_err_at_conv;
-                    const uncert = phaseData.uncert != null ? phaseData.uncert : metrics.uncert;
-                    const absErr = _mv(phaseData, 'abs_err_x', 'final_err_split', 'pair_rmse');
-
-                    const primaryStepsExpected = (sobolPrimarySteps != null && stepsToPrimary != null && stepsToPrimary < sobolPrimarySteps);
-                    const sbedPrimaryErrExpected = (errPrimary != null && uncertPrimary != null && errPrimary < uncertPrimary);
-                    const sobolPrimaryErrExpected = (sobolPrimaryErr != null && sobolPrimaryUncert != null && sobolPrimaryErr < sobolPrimaryUncert);
-                    const uncertPrimaryDiffExpected = (uncertPrimary != null && uncert != null && uncertPrimary - uncert > 0);
-                    const errPrimaryDiffExpected = (errPrimary != null && absErr != null && errPrimary - absErr > 0);
-
-                    return [
-                        // Row 1: Steps — sobol - sbed
-                        [
-                            { label: 'Sobol primary-parameter convergence', val: sobolPrimarySteps != null ? formatCount(sobolPrimarySteps) : 'N/A', tip: 'Steps needed for simple Sobol primary-parameter uncertainty to drop below threshold.', cardClass: primaryStepsExpected ? 'expected-card' : '' },
-                            { label: 'Sbed primary-parameter convergence', val: stepsToPrimary != null ? formatCount(stepsToPrimary) : 'N/A', tip: 'Steps needed for Sbed primary-parameter uncertainty to drop below threshold.', cardClass: primaryStepsExpected ? 'expected-card' : '' },
-                            { label: 'Primary-parameter convergence savings', val: (sobolPrimarySteps != null && stepsToPrimary != null) ? formatCount(sobolPrimarySteps - stepsToPrimary) : 'N/A', tip: 'Difference in steps needed for primary-parameter convergence (positive = Sbed was faster).', cardClass: primaryStepsExpected ? 'expected-card' : '' }
-                        ],
-                        // Row 2: Uncertainty — primary parameter - overall
-                        [
-                            { label: 'Sobol primary-parameter uncertainty', val: sobolPrimaryUncert != null ? formatHz(sobolPrimaryUncert) : 'N/A', tip: 'Uncertainty (standard deviation) of Sobol primary-parameter estimate at the moment of convergence.', cardClass: sobolPrimaryErrExpected ? 'expected-card' : '' },
-                            { label: 'Sbed primary-parameter uncertainty', val: uncertPrimary != null ? formatHz(uncertPrimary) : 'N/A', tip: 'Uncertainty (standard deviation) of Sbed primary-parameter estimate at the moment of convergence.', cardClass: sbedPrimaryErrExpected ? 'expected-card' : '' },
-                            { label: 'Primary uncert difference', val: (uncertPrimary != null && uncert != null) ? formatHz(uncertPrimary - uncert) : 'N/A', tip: 'Reduction in Sbed primary-parameter uncertainty from convergence milestone to final (positive = uncertainty decreased).', cardClass: uncertPrimaryDiffExpected ? 'expected-card' : '' }
-                        ],
-                        // Row 3: Absolute Error — primary parameter - overall
-                        [
-                            { label: 'Sobol primary-parameter error', val: sobolPrimaryErr != null ? formatHz(sobolPrimaryErr) : 'N/A', tip: 'Absolute error of Sobol primary-parameter estimate vs ground truth at the moment of convergence.', cardClass: sobolPrimaryErrExpected ? 'expected-card' : '' },
-                            { label: 'Sbed primary-parameter error', val: errPrimary != null ? formatHz(errPrimary) : 'N/A', tip: 'Absolute error of Sbed primary-parameter estimate vs ground truth at the moment of convergence.', cardClass: sbedPrimaryErrExpected ? 'expected-card' : '' },
-                            { label: 'Primary error difference', val: (errPrimary != null && absErr != null) ? formatHz(errPrimary - absErr) : 'N/A', tip: 'Change in Sbed absolute primary-parameter error from convergence milestone to final (positive = error decreased, negative = error increased).', cardClass: errPrimaryDiffExpected ? 'expected-card' : '' }
-                        ]
-                    ];
-                }
-
-                function buildComparisonRows(phaseData, plotContext) {
-                    if (!phaseData) return [];
-                    const metrics = phaseData.metrics || {};
-                    const sobolBaseline = phaseData.sobol_baseline_steps != null ? phaseData.sobol_baseline_steps : metrics.sobol_baseline_steps;
-                    const measurements = phaseData.measurements != null ? phaseData.measurements : metrics.measurements;
-
-                    const uncert = phaseData.uncert != null ? phaseData.uncert : metrics.uncert;
-                    const absErr = _mv(phaseData, 'abs_err_x', 'final_err_split', 'pair_rmse');
-
-                    // Sobol baseline final uncertainty and error
-                    const sobolPlot = findSobolBaselineForPlot(plotContext);
-                    const sobolOverallUncert = sobolPlot ? sobolPlot.uncert : (phaseData.sobol_primary_uncert_at_conv || metrics.sobol_primary_uncert_at_conv);
-                    const sobolOverallErr = sobolPlot ? _mv(sobolPlot, 'abs_err_x', 'final_err_split', 'pair_rmse') : (phaseData.sobol_primary_err_at_conv || metrics.sobol_primary_err_at_conv);
-
-                    const overallStepsExpected = (sobolBaseline != null && measurements != null && measurements < sobolBaseline);
-                    const sbedOverallErrExpected = (absErr != null && uncert != null && absErr < uncert);
-                    const sobolOverallErrExpected = (sobolOverallErr != null && sobolOverallUncert != null && sobolOverallErr < sobolOverallUncert);
-                    const overallUncertDiffExpected = (sobolOverallUncert != null && uncert != null && sobolOverallUncert - uncert > 0);
-                    const overallErrDiffExpected = (sobolOverallErr != null && absErr != null && sobolOverallErr - absErr > 0);
-
-                    return [
-                        // Row 1: Steps
-                        [
-                            { label: 'Sobol baseline', val: sobolBaseline != null ? formatCount(sobolBaseline) : 'N/A', tip: 'Measurements required by a simple Sobol sweep with Bayesian convergence to resolve this distribution.', cardClass: overallStepsExpected ? 'expected-card' : '' },
-                            { label: 'Sbed overall steps', val: measurements != null ? formatCount(measurements) : 'N/A', tip: 'Total measurements taken during Sbed active locator run.', cardClass: overallStepsExpected ? 'expected-card' : '' },
-                            { label: 'Overall savings', val: (sobolBaseline != null && measurements != null) ? formatCount(sobolBaseline - measurements) : 'N/A', tip: 'Difference in total measurements required for overall convergence between simple Sobol baseline and Sbed.', cardClass: overallStepsExpected ? 'expected-card' : '' }
-                        ],
-                        // Row 2: Uncertainty
-                        [
-                            { label: 'Sobol overall uncertainty', val: sobolOverallUncert != null ? formatHz(sobolOverallUncert) : 'N/A', tip: 'Final estimated standard deviation of Sobol baseline primary-parameter estimate.', cardClass: sobolOverallErrExpected ? 'expected-card' : '' },
-                            { label: 'Sbed overall uncertainty', val: uncert != null ? formatHz(uncert) : 'N/A', tip: 'Final estimated standard deviation of Sbed primary-parameter estimate.', cardClass: sbedOverallErrExpected ? 'expected-card' : '' },
-                            { label: 'Overall uncert difference', val: (sobolOverallUncert != null && uncert != null) ? formatHz(sobolOverallUncert - uncert) : 'N/A', tip: 'Difference in final primary-parameter estimate uncertainty (positive = SBED was more confident).', cardClass: overallUncertDiffExpected ? 'expected-card' : '' }
-                        ],
-                        // Row 3: Absolute Error
-                        [
-                            { label: 'Sobol overall error', val: sobolOverallErr != null ? formatHz(sobolOverallErr) : 'N/A', tip: 'Final absolute primary-parameter error of Sobol baseline.', cardClass: sobolOverallErrExpected ? 'expected-card' : '' },
-                            { label: 'Sbed overall error', val: absErr != null ? formatHz(absErr) : 'N/A', tip: 'Final absolute primary-parameter error of Sbed.', cardClass: sbedOverallErrExpected ? 'expected-card' : '' },
-                            { label: 'Overall error difference', val: (sobolOverallErr != null && absErr != null) ? formatHz(sobolOverallErr - absErr) : 'N/A', tip: 'Difference in final absolute primary-parameter error (positive = SBED was more accurate).', cardClass: overallErrDiffExpected ? 'expected-card' : '' }
-                        ]
-                    ];
-                }
-
                 function buildEarlyStopComparisonRows(phaseData) {
                     if (!phaseData) return [];
                     const metrics = phaseData.metrics || {};
@@ -5517,16 +5432,6 @@ function main() {
         }).join('');
     }
 
-    function findSobolBaselineForPlot(plot) {
-        if (!window.MANIFEST || !plot) return null;
-        return window.MANIFEST.find(p =>
-            p.strategy === "SimpleSobol" &&
-            p.generator === plot.generator &&
-            p.noise === plot.noise &&
-            p.repeat === plot.repeat
-        );
-    }
-
     function findOtherStrategyPlots(plot) {
         if (!window.MANIFEST || !plot) return [];
         return window.MANIFEST.filter(p =>
@@ -5534,8 +5439,7 @@ function main() {
             p.generator === plot.generator &&
             p.noise === plot.noise &&
             p.repeat === plot.repeat &&
-            p.strategy !== plot.strategy &&
-            p.strategy !== 'SimpleSobol'
+            p.strategy !== plot.strategy
         );
     }
 
@@ -5659,9 +5563,7 @@ function main() {
     function _shortStratLabel(strategy) {
         return strategy
             .replace('Bayesian-', '')
-            .replace('SimpleSobol', 'Sobol')
             .replace('SimpleSweep', 'Sweep')
-            .replace('StagedSobolSweep', 'StagedSobol')
             .replace('GaussianMixture', 'GaussMix');
     }
 
@@ -6053,6 +5955,83 @@ function main() {
         }
     }
 
+    // Plain sweeps run at several spacings (SimpleSweep-<k>perFWHM = k grid points per FWHM). The pickers list
+    // "Sweep" once and offer the spacing in a second dropdown that appears after Sweep is chosen.
+    function sweepParts(id) {
+        const m = /^simplesweep_(\d+)perfwhm(.*)$/.exec(id || '');
+        return m ? { k: Number(m[1]), rest: m[2] } : null;
+    }
+    function pickerFamilyKey(e) {
+        const sp = sweepParts(e.id);
+        return sp ? 'simplesweep' + sp.rest : e.id;
+    }
+    function pickerFamilyLabel(e) {
+        return sweepParts(e.id) ? e.label.replace(/-\d+perFWHM/, '') : e.label;
+    }
+
+    // One entity picker: a family dropdown (+ a spacing dropdown for the sweep family). Calls onChange when the
+    // selection changes by the user; setEntities() swaps the offered entities without notifying.
+    function makeEntityPicker(onChange) {
+        const box = document.createElement('span');
+        box.style.cssText = 'display:inline-flex;gap:0.3em;align-items:center;';
+        const fam = document.createElement('select');
+        fam.className = 'control-select';
+        const spc = document.createElement('select');
+        spc.className = 'control-select';
+        spc.title = 'Sweep spacing: grid points per FWHM of the dip';
+        spc.hidden = true;
+        box.appendChild(fam);
+        box.appendChild(spc);
+        let entities = [];
+
+        const fillSpacing = (preferK) => {
+            const key = fam.value;
+            const ks = entities.filter(e => pickerFamilyKey(e) === key && sweepParts(e.id))
+                .map(e => sweepParts(e.id).k).sort((x, y) => x - y);
+            spc.innerHTML = '';
+            for (const k of ks) {
+                const opt = document.createElement('option');
+                opt.value = String(k);
+                opt.textContent = `${k} per FWHM`;
+                spc.appendChild(opt);
+            }
+            spc.hidden = ks.length < 2;
+            if (ks.length) spc.value = ks.includes(preferK) ? String(preferK) : String(ks[0]);
+        };
+        const current = () => {
+            const key = fam.value;
+            if (!spc.hidden || sweepParts((entities.find(e => pickerFamilyKey(e) === key) || {}).id)) {
+                const k = Number(spc.value);
+                return entities.find(e => pickerFamilyKey(e) === key && (sweepParts(e.id) || {}).k === k) || null;
+            }
+            return entities.find(e => pickerFamilyKey(e) === key) || null;
+        };
+        const setEntities = (list, preferId) => {
+            entities = list;
+            const prevKey = fam.value;
+            const prefer = list.find(e => e.id === preferId);
+            const wantKey = prefer ? pickerFamilyKey(prefer) : prevKey;
+            const wantK = prefer && sweepParts(prefer.id) ? sweepParts(prefer.id).k : Number(spc.value);
+            fam.innerHTML = '';
+            const seen = new Set();
+            for (const e of list) {
+                const key = pickerFamilyKey(e);
+                if (seen.has(key)) continue;
+                seen.add(key);
+                const opt = document.createElement('option');
+                opt.value = key;
+                opt.textContent = pickerFamilyLabel(e);
+                fam.appendChild(opt);
+            }
+            if (seen.has(wantKey)) fam.value = wantKey;
+            fillSpacing(wantK);
+            fam.disabled = list.length === 0;
+        };
+        fam.addEventListener('change', () => { fillSpacing(Number(spc.value)); onChange(); });
+        spc.addEventListener('change', onChange);
+        return { el: box, setEntities, current };
+    }
+
     function buildTwoDropdownSelector(entities, onPairChange, defaultAId, defaultBId) {
         const wrapper = document.createElement('div');
         wrapper.className = 'control-row';
@@ -6060,55 +6039,38 @@ function main() {
         const lbl = document.createElement('span');
         lbl.className = 'control-label';
         lbl.textContent = 'Compare:';
-        const selA = document.createElement('select');
-        selA.className = 'control-select';
         const vs = document.createElement('span');
         vs.style.cssText = 'padding:0 0.3em;color:#64748b;font-size:0.9em;';
         vs.textContent = 'with';
-        const selB = document.createElement('select');
-        selB.className = 'control-select';
         const hint = document.createElement('span');
         hint.style.cssText = 'color:#94a3b8;font-size:0.78em;';
         hint.textContent = 'Only pairs with the same stopping criterion are comparable.';
-        for (const e of entities) {
-            const opt = document.createElement('option');
-            opt.value = e.id;
-            opt.textContent = e.label;
-            selA.appendChild(opt);
-        }
+
         // B only ever offers entities with the same stopping criterion as A:
         // cross-criterion pairs vary both quality and cost at once and answer
         // neither question, so they are not offered at all.
-        const refreshBOptions = () => {
-            const crit = entityCriterion(selA.value || '');
-            const prev = selB.value;
-            selB.innerHTML = '';
-            const candidates = entities.filter(e => e.id !== selA.value && entityCriterion(e.id) === crit);
-            for (const e of candidates) {
-                const opt = document.createElement('option');
-                opt.value = e.id;
-                opt.textContent = e.label;
-                selB.appendChild(opt);
-            }
-            if (candidates.some(e => e.id === prev)) selB.value = prev;
-            selB.disabled = candidates.length === 0;
+        const refreshBOptions = (preferId) => {
+            const eA = pickerA.current();
+            const crit = entityCriterion(eA ? eA.id : '');
+            pickerB.setEntities(
+                entities.filter(e => (!eA || pickerFamilyKey(e) !== pickerFamilyKey(eA)) && entityCriterion(e.id) === crit
+                    || (eA && pickerFamilyKey(e) === pickerFamilyKey(eA) && sweepParts(e.id) && e.id !== eA.id && entityCriterion(e.id) === crit)),
+                preferId,
+            );
         };
-        if (defaultAId) { const i = entities.findIndex(e => e.id === defaultAId); if (i >= 0) selA.selectedIndex = i; }
-        refreshBOptions();
-        if (defaultBId && entityCriterion(defaultBId) === entityCriterion(selA.value || '') && defaultBId !== selA.value) {
-            selB.value = defaultBId;
-        }
         const notify = () => {
-            const eA = entities.find(e => e.id === selA.value);
-            const eB = entities.find(e => e.id === selB.value);
-            if (eA && eB) onPairChange(eA, eB);
+            const eA = pickerA.current();
+            const eB = pickerB.current();
+            if (eA && eB && eA.id !== eB.id) onPairChange(eA, eB);
         };
-        selA.addEventListener('change', () => { refreshBOptions(); notify(); });
-        selB.addEventListener('change', notify);
+        const pickerA = makeEntityPicker(() => { refreshBOptions(); notify(); });
+        const pickerB = makeEntityPicker(notify);
+        pickerA.setEntities(entities, defaultAId);
+        refreshBOptions(defaultBId && defaultBId !== defaultAId ? defaultBId : undefined);
         wrapper.appendChild(lbl);
-        wrapper.appendChild(selA);
+        wrapper.appendChild(pickerA.el);
         wrapper.appendChild(vs);
-        wrapper.appendChild(selB);
+        wrapper.appendChild(pickerB.el);
         wrapper.appendChild(hint);
         return { wrapper, notify };
     }
@@ -6522,8 +6484,9 @@ function main() {
     let hlSpeedCriteria = 'primary';  // 'primary' | 'all'
     let hlLastArgs = null;
 
+    // The plain (non-adaptive) sweeps: SimpleSweep and its SimpleSweep-d<k> spacings. Smart-Sweep is adaptive.
     function isSweepBaseline(strategy) {
-        return /sweep/i.test(strategy || '') && !/sobol/i.test(strategy || '');
+        return /^SimpleSweep/.test(strategy || '');
     }
 
     function hlSorted(values) {
@@ -6992,12 +6955,107 @@ function main() {
             renderSpeedNoise(gen);
             renderSpeedSpan();
             renderHlSpan(byStrategy, strategies, sweepName);
+            renderHlStages(gen, noises);
             renderSpeedEntityCards(gen, noises);
         }).catch(err => {
             const warn = document.getElementById('hl-warning');
             if (warn) warn.innerHTML = `<div style="padding:1em;color:#721c24;background:#f8d7da;border:1px solid #f5c6cb;border-radius:6px;margin:1em 0;"><strong>Speed render error:</strong> ${err.message || err}<br><pre style="white-space:pre-wrap;font-size:11px">${err.stack || ''}</pre></div>`;
         });
         });
+    }
+
+    // ── Stages: search -> focus -> refine ────────────────────────────────────
+    // Boundaries and per-stage metrics come from one detector (nvision/metrics/stages.py) applied to every
+    // run, so locators are compared stage by stage on equal terms. Runs that failed outright (no data) are
+    // skipped; runs that merely hit their step budget are kept.
+    const HL_STAGES = [
+        { n: 1, label: 'Search' },
+        { n: 2, label: 'Focus' },
+        { n: 3, label: 'Refine' },
+    ];
+
+    function hlStageRuns(generator, noises) {
+        const noiseSet = new Set((Array.isArray(noises) ? noises : [noises]).filter(Boolean));
+        const genSet = toGenSet(generator);
+        const byStrategy = new Map();
+        for (const p of scanPlots) {
+            if (!genSet.has(p.generator) || !noiseSet.has(p.noise) || !p.strategy) continue;
+            if (p.failure_reason != null && p.failure_reason !== 'max_steps') continue;
+            if (!byStrategy.has(p.strategy)) byStrategy.set(p.strategy, []);
+            byStrategy.get(p.strategy).push(p);
+        }
+        return byStrategy;
+    }
+
+    function hlStageBarTraces(byStrategy, strategies, field, hoverLabel) {
+        return strategies.map(strat => {
+            const runs = byStrategy.get(strat);
+            const x = [], y = [], up = [], down = [], text = [];
+            for (const st of HL_STAGES) {
+                const vals = hlSorted(runs.map(p => _mv(p, `stage${st.n}_${field}`)));
+                if (!vals.length) continue;
+                const med = hlQuantileSorted(vals, 0.5);
+                x.push(st.label);
+                y.push(med);
+                up.push(hlQuantileSorted(vals, 0.75) - med);
+                down.push(med - hlQuantileSorted(vals, 0.25));
+                text.push(`${vals.length}/${runs.length} repeats reached this stage`);
+            }
+            return {
+                x, y, type: 'bar', name: _shortStratLabel(strat), text, textposition: 'none',
+                marker: { color: hlStratColor(strategies, strat) },
+                error_y: { type: 'data', symmetric: false, array: up, arrayminus: down, color: '#475569', thickness: 1 },
+                hovertemplate: `%{x}: %{y:.3g} ${hoverLabel}<br>%{text}<extra>%{fullData.name}</extra>`,
+            };
+        });
+    }
+
+    function renderHlStages(generator, noises) {
+        const tableDiv = document.getElementById('hl-stages-table');
+        const stepsDiv = document.getElementById('hl-stages-steps');
+        const ratioDiv = document.getElementById('hl-stages-ratio');
+        if (!tableDiv || !stepsDiv || !ratioDiv) return;
+        const byStrategy = hlStageRuns(generator, noises);
+        const strategies = [...byStrategy.keys()]
+            .filter(s => byStrategy.get(s).some(p => _mv(p, 'stage1_steps') != null))
+            .sort();
+        if (!strategies.length) {
+            tableDiv.innerHTML = '<p style="color:#94a3b8;padding:1em;font-size:0.9em;">No stage metrics for this selection — these runs predate the stage export. Re-run to include them.</p>';
+            Plotly.purge(stepsDiv);
+            Plotly.purge(ratioDiv);
+            return;
+        }
+
+        const pct = (k, n) => (n ? `${Math.round((100 * k) / n)}%` : '–');
+        const med = (vals) => { const m = hlMedian(vals); return m == null ? '–' : formatCount(Math.round(m)); };
+        const rows = strategies.map(strat => {
+            const runs = byStrategy.get(strat);
+            const focus = runs.map(p => _mv(p, 'focus_found_step'));
+            const maxInfo = runs.map(p => _mv(p, 'max_info_step'));
+            const kFocus = focus.filter(v => v != null).length;
+            const kMax = maxInfo.filter(v => v != null).length;
+            return `<tr><td>${_shortStratLabel(strat)}</td><td>${runs.length}</td>` +
+                `<td>${pct(kFocus, runs.length)}</td><td>${med(focus)}</td>` +
+                `<td>${pct(kMax, runs.length)}</td><td>${med(maxInfo)}</td></tr>`;
+        });
+        tableDiv.innerHTML =
+            '<table class="metric-table" style="border-collapse:collapse;font-size:0.85em;">' +
+            '<thead><tr><th style="text-align:left;padding:2px 12px 2px 0">Strategy</th><th>Repeats</th>' +
+            '<th>Focus found</th><th>Median step</th><th>Max information reached</th><th>Median step</th></tr></thead>' +
+            `<tbody>${rows.join('')}</tbody></table>`;
+
+        const stepsLayout = hlBaseLayout();
+        stepsLayout.barmode = 'group';
+        stepsLayout.yaxis = { ...stepsLayout.yaxis, title: { text: 'Measurements in stage (median)', font: { size: 11 } } };
+        Plotly.react(stepsDiv, hlStageBarTraces(byStrategy, strategies, 'steps', 'measurements'), stepsLayout,
+            { displayModeBar: false, responsive: true });
+
+        const ratioLayout = hlBaseLayout();
+        ratioLayout.barmode = 'group';
+        ratioLayout.yaxis = { ...ratioLayout.yaxis, type: 'log', title: { text: 'Uncertainty end / start (median)', font: { size: 11 } } };
+        ratioLayout.shapes = [{ type: 'line', xref: 'paper', x0: 0, x1: 1, yref: 'y', y0: 1, y1: 1, line: { color: '#94a3b8', width: 1, dash: 'dash' } }];
+        Plotly.react(ratioDiv, hlStageBarTraces(byStrategy, strategies, 'unc_ratio', '(end / start)'), ratioLayout,
+            { displayModeBar: false, responsive: true });
     }
 
     function renderSpeedNoise(gen) {
@@ -7878,7 +7936,7 @@ function main() {
         const div = document.getElementById('hl-span');
         const decompDiv = document.getElementById('hl-firstsignal');
         if (!div) return;
-        // SimpleSweep is always the reference; SBED/Sobol are plotted as savings vs it.
+        // SimpleSweep is always the reference; SBED is plotted as savings vs it.
         const baseline = sweepName;
         const adaptive = strategies.filter(s => s !== sweepName);
 

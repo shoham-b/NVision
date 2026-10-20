@@ -80,18 +80,6 @@ class ComparisonsMixin:
                     manifest_entries=manifest_entries,
                 )
 
-            # Metric 4: Sobol Sweep Measurement Savings
-            if "sobol_difference" in sub_df.columns:
-                self._create_comparison_plot(
-                    sub_df,
-                    gen,
-                    noise,
-                    metric="sobol_difference",
-                    title_metric="Sobol Sweep Measurement Savings",
-                    y_axis_title="Savings",
-                    manifest_entries=manifest_entries,
-                )
-
             # Metric 5: Splitting convergence step
             if "primary_converged_step" in sub_df.columns:
                 conv_df = sub_df.filter(pl.col("primary_converged_step").is_not_null())
@@ -120,7 +108,41 @@ class ComparisonsMixin:
                         manifest_entries=manifest_entries,
                     )
 
+            manifest_entries.extend(self._stage_comparison_entries(gen, noise, sub_df))
+
         return manifest_entries
+
+    # (column, title, y-axis label) for the search / focus / refine stage comparisons (see metrics/stages.py).
+    _STAGE_METRICS: tuple[tuple[str, str, str], ...] = (
+        ("focus_found_step", "Steps Until the Focus Window Is Found", "Step #"),
+        ("max_info_step", "Steps Until Max Information (Primary Uncertainty Below Threshold)", "Step #"),
+        ("stage1_steps", "Stage 1 (Search) Duration", "Measurements"),
+        ("stage2_steps", "Stage 2 (Focus) Duration", "Measurements"),
+        ("stage3_steps", "Stage 3 (Refine) Duration", "Measurements"),
+        ("stage1_unc_ratio", "Stage 1 (Search) Uncertainty Ratio, End / Start", "Ratio"),
+        ("stage2_unc_ratio", "Stage 2 (Focus) Uncertainty Ratio, End / Start", "Ratio"),
+        ("stage3_unc_ratio", "Stage 3 (Refine) Uncertainty Ratio, End / Start", "Ratio"),
+    )
+
+    def _stage_comparison_entries(self, gen: str, noise: str, sub_df: pl.DataFrame) -> list[dict[str, Any]]:
+        """Box plots comparing every strategy stage by stage; a stage no repeat reached gets no plot."""
+        entries: list[dict[str, Any]] = []
+        for column, title, y_title in self._STAGE_METRICS:
+            if column not in sub_df.columns:
+                continue
+            reached = sub_df.filter(pl.col(column).is_not_null())
+            if reached.is_empty():
+                continue
+            self._create_comparison_plot(
+                reached,
+                gen,
+                noise,
+                metric=column,
+                title_metric=title,
+                y_axis_title=y_title,
+                manifest_entries=entries,
+            )
+        return entries
 
     @staticmethod
     def _resolve_error_metric_column(df: pl.DataFrame) -> str | None:

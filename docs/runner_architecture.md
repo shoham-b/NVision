@@ -12,15 +12,14 @@ Instead of running a single long simulation, the runner breaks down tasks into *
 - Measurements within a single repeat are deterministic given that repeat's specific seed.
 - If a repeat is aborted, it can be resumed later without affecting others.
 
-### 2. The Sobol Baseline (`_run_sobol_baseline`)
-For every **Bayesian** strategy being tested (e.g., `SequentialBayesianExperimentDesignLocator`), the runner automatically performs a "Sobol Baseline" measurement first.
-
-- **Purpose**: To provide a ground-truth benchmark of how a completely uniform, un-targeted random sequence (a van der Corput Sobol sequence) would converge given the same amount of time/noise. It calculates the expected uniform points needed.
-- **Isolation**: The baseline is completely decoupled from the actual strategy execution. It instantiates a fresh `SimpleSobolBayesianLocator` and a fresh `SMCMarginalDistribution` (belief). 
-- **Decoupling**: Non-Bayesian locators (like `StagedSobolSweepLocator` in `coarse/sobol_locator.py`) might still track a "belief" internally to observe data, but the executor explicitly avoids running the 10,000-step Bayesian baseline on them to prevent heavy inference algorithms from throttling coarse, fast sweep strategies.
+### 2. The SimpleSweep Baseline (`_run_simplesweep_baseline`)
+For every **Bayesian** strategy, the runner also measures a FWHM/3 `GenericSweepLocator` sweep of the same signal
+(its own RNG stream, cached per repeat) so the scan plot can overlay a plain sweep and its fit. It is decoupled
+from the strategy under test and feeds figures only, not the manifest metrics. Strategy-vs-strategy comparison
+is done by the `SimpleSweep*` / `Smart-*` strategies themselves (see [resonance_search.md](resonance_search.md)).
 
 ### 3. The Main Locator Phase
-After the baseline completes (or is skipped), a fresh belief is instantiated for the primary locator strategy.
+A fresh belief is instantiated for the primary locator strategy.
 - The `_run_single_repeat` method drives the primary locator's `.next()`, `.observe()`, and `.done()` hooks.
 - A hard timeout is enforced via a threading monitor (e.g., stopping the loop if it exceeds `timeout_s`).
 - At the end of the acquisition loop, if it's a Bayesian locator, the runner dumps the full posterior sample array into a parquet/feather artifact for downstream visualization.

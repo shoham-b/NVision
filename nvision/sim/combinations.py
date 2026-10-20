@@ -20,12 +20,15 @@ from nvision.models.noise import CompositeNoise, CompositeOverFrequencyNoise
 from nvision.noises import OverFrequencyGaussianNoise
 from nvision.sim import defaults as sim_defaults
 from nvision.sim import presets as sim_presets
+from nvision.sim.grid_enums import sweep_strategy_name
 from nvision.sim.locs.bayesian.belief_builders import nv_center_smc_belief
 from nvision.sim.locs.bayesian.sbed_drive_locator import DriveChoosingSBEDLocator
-from nvision.sim.locs.bayesian.sbed_locator import SequentialBayesianExperimentDesignLocator
-from nvision.sim.locs.bayesian.sobol_bayesian_locator import SimpleSobolBayesianLocator
+from nvision.sim.locs.bayesian.sbed_locator import (
+    SequentialBayesianExperimentDesignLocator,
+    SmartSBEDLocator,
+    SmartSweepLocator,
+)
 from nvision.sim.locs.coarse.generic_sweep_locator import GenericSweepLocator
-from nvision.sim.locs.coarse.sobol_locator import StagedSobolSweepLocator
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,6 +42,9 @@ class Combination:
     strategy_name: str
     strategy: type | dict[str, Any]
 
+
+# Sweep spacings studied, as grid points per prior FWHM (SWEEP_POINTS_PER_FWHM is the derived default).
+SWEEP_SPACING_DIVISORS: tuple[int, ...] = (1, 2, 3, 4, 5)
 
 _NV_SMC: dict[str, object] = {
     "builder": nv_center_smc_belief,
@@ -131,6 +137,7 @@ class CombinationGrid:
         self._resolve_generators.update(dict(sim_presets.param_grid_generators()))
         self._resolve_generators.update(dict(sim_presets.param_grid_generators(variant="voigt")))
         self._resolve_generators.update(dict(sim_presets.saturation_voigt_param_grid_generators()))
+        self._resolve_generators.update(dict(sim_presets.resonance_search_generators()))
         # Also registered here (a pre-existing gap this fixes): without it,
         # strategies_for() has no generator object to read the real hyperfine value
         # off of for this grid and has to fall back to parsing it out of the name.
@@ -204,26 +211,20 @@ class CombinationGrid:
                 if hyperfine is not None:
                     nv_smc_config["hyperfine"] = hyperfine
 
+        sbed_config = {"max_steps": sim_defaults.NVISION_SBED_MAX_STEPS, **nv_smc_config}
+
+        def sweep(spacing_divisor: int) -> dict[str, Any]:
+            # Sweeps infer with the same belief as SBED (same builder/prior), so their uncertainty
+            # trajectories are comparable; the spacing is the prior FWHM / spacing_divisor.
+            return {"class": GenericSweepLocator, "config": {**nv_smc_config, "spacing_divisor": spacing_divisor}}
+
         strats = [
-            ("SimpleSweep", GenericSweepLocator),
-            ("StagedSobolSweep", StagedSobolSweepLocator),
-            (
-                "Bayesian-SBED",
-                {
-                    "class": SequentialBayesianExperimentDesignLocator,
-                    "config": {"max_steps": sim_defaults.NVISION_SBED_MAX_STEPS, **nv_smc_config},
-                },
-            ),
-            (
-                "SimpleSobol",
-                {
-                    "class": SimpleSobolBayesianLocator,
-                    "config": {
-                        "max_steps": 10000,
-                        **nv_smc_config,
-                    },
-                },
-            ),
+            ("Bayesian-SBED", {"class": SequentialBayesianExperimentDesignLocator, "config": sbed_config}),
+            ("Smart-SBED", {"class": SmartSBEDLocator, "config": sbed_config}),
+            ("Smart-Sweep", {"class": SmartSweepLocator, "config": sbed_config}),
+            # The sweep spacings under study, named by their points per FWHM; the analytically derived
+            # default is SWEEP_POINTS_PER_FWHM.
+            *((sweep_strategy_name(k), sweep(k)) for k in SWEEP_SPACING_DIVISORS),
         ]
         if drive_lineshape is not None:
             # Only drive-controlled generators have a drive to choose.
@@ -270,7 +271,7 @@ class CombinationGrid:
             for strat_name, strat_obj in self.strategies_for(gen_name):
                 if filter_strategy:
                     # Support comma-separated strategy filters with optional regex
-                    # (e.g., "Sweep,Sobol" matches both, "^Bayesian.*" uses regex)
+                    # (e.g., "Sweep,SBED" matches both, "^Bayesian.*" uses regex)
                     patterns = [p.strip() for p in filter_strategy.split(",")]
                     if not any(_strategy_matches(p, strat_name) for p in patterns):
                         continue

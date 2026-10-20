@@ -16,12 +16,9 @@ class ExperimentsMixin:
 
     @staticmethod
     def _find_sweep_baseline(columns: list[str]) -> str | None:
-        """Find the sweep baseline strategy. Prioritizes 'sweep', then falls back to 'sobol'."""
+        """Find the sweep baseline strategy (first column whose name contains 'sweep')."""
         for col in columns:
             if "sweep" in col.lower():
-                return col
-        for col in columns:
-            if "sobol" in col.lower():
                 return col
         return None
 

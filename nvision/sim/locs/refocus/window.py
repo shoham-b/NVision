@@ -237,7 +237,7 @@ def infer_max_dip_width(
 ) -> float | None:
     """Return the smallest inferred dip width (tightest upper bound).
 
-    Convenience wrapper used by StagedSobolSweepLocator Stage 2/3.
+    Convenience wrapper over :func:`detect_dips`.
     """
     dips = detect_dips(xs, ys, noise_threshold=noise_threshold)
     if not dips:

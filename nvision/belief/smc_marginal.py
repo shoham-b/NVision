@@ -696,6 +696,39 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         """
         return list(self._dip_candidates)
 
+    def refresh_candidates(self) -> None:
+        """Regenerate the epoch candidate grid (and :attr:`dip_candidates`) from the observations so far.
+
+        A resample does this itself; call it when the candidates must reflect new measurements without one
+        (e.g. the locator's focus just moved to a dip found since the last resample).
+        """
+        self._generate_epoch_candidate_drive_freq()
+
+    def current_dips(self) -> list[DipCandidate]:
+        """Dips the observations measured *so far* show, most significant first (``find_dips``).
+
+        Computed now from the current observations and the conjugate noise estimate, unlike
+        :attr:`dip_candidates`, which is frozen when the epoch's candidates were generated. This is the one
+        statement of "the data show a dip" shared by the locators' focus logic and by the stage metrics, so
+        every locator's stages are detected by the same rule. Empty until 5 observations exist.
+        """
+        if self._obs_count < 5:
+            return []
+        obs_xs, obs_ys = self.sorted_observation_arrays()
+        noise_scale, noise_dof = self.noise_student_t()
+        gamma_mean_hz, gamma_std_hz, gamma_min_hz, gamma_max_hz = linewidth_fwhm_prior_hz(self.physical_param_bounds)
+        return find_dips(
+            self._drive_freq_map.to_phys(obs_xs),
+            obs_ys,
+            noise_scale,
+            noise_dof,
+            gamma_mean_hz,
+            gamma_std_hz,
+            gamma_min_hz,
+            gamma_max_hz,
+            assume_sorted=True,
+        )
+
     def get_candidate_drive_freq_phys(self) -> np.ndarray:
         """Return the current epoch's slope-targeted candidate grid in **physical** drive-frequency units.
 
@@ -877,7 +910,6 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         self._eig_epoch += 1
         self._eig_cache = None
         self._dip_candidates = []
-        phys_bounds = self.physical_param_bounds
         est = self.estimates()
         unc = self.uncertainty()
 
@@ -964,32 +996,18 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         # 4b. Observation-driven dip focusing.
         # Use empirically measured low-signal values to add dense candidates directly
         # at the true dip locations, correcting for posterior bias when belief is wrong.
-        if self._obs_count >= 5:
-            obs_xs, obs_ys = self.sorted_observation_arrays()
-            noise_scale, noise_dof = self.noise_student_t()
-            gamma_mean_hz, gamma_std_hz, gamma_min_hz, gamma_max_hz = linewidth_fwhm_prior_hz(phys_bounds)
-            self._dip_candidates = find_dips(
-                self._drive_freq_map.to_phys(obs_xs),
-                obs_ys,
-                noise_scale,
-                noise_dof,
-                gamma_mean_hz,
-                gamma_std_hz,
-                gamma_min_hz,
-                gamma_max_hz,
-                assume_sorted=True,
-            )
-            if self._dip_candidates:
-                total_sig = sum(c.significance for c in self._dip_candidates)
-                # The dip family competes with the slope family on equal aggregate
-                # footing (each gets n_slope_kernels total mixture weight); within
-                # the dip family, individual dips are still split by significance.
-                dip_family_weight = float(n_slope_kernels)
-                for candidate in self._dip_candidates:
-                    frac = candidate.significance / total_sig
-                    window_phys = max(3.0 * omega_phys, sigma_eff_phys, NVISION_SMC_DIP_WINDOW_MIN_HZ)
-                    dip_bw_phys = max(window_phys / 3.0, min_step_physical)
-                    kernels.append((candidate.centroid_hz, dip_bw_phys, frac * dip_family_weight))
+        self._dip_candidates = self.current_dips()
+        if self._dip_candidates:
+            total_sig = sum(c.significance for c in self._dip_candidates)
+            # The dip family competes with the slope family on equal aggregate
+            # footing (each gets n_slope_kernels total mixture weight); within
+            # the dip family, individual dips are still split by significance.
+            dip_family_weight = float(n_slope_kernels)
+            for candidate in self._dip_candidates:
+                frac = candidate.significance / total_sig
+                window_phys = max(3.0 * omega_phys, sigma_eff_phys, NVISION_SMC_DIP_WINDOW_MIN_HZ)
+                dip_bw_phys = max(window_phys / 3.0, min_step_physical)
+                kernels.append((candidate.centroid_hz, dip_bw_phys, frac * dip_family_weight))
 
         # 5. Flat baseline term for domain-wide backstop coverage, gated
         # by use_global_grid. Scaled relative to the local (slope + dip) mass so

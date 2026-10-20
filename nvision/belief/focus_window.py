@@ -5,9 +5,8 @@ Two kinds of narrowing share only the clamping arithmetic (:func:`clamp_to_domai
 * The Bayesian locator's dip-based focus is a :class:`FocusRegion` -- one padded section per
   statistically significant dip (``find_dips``: shape-agnostic boxcar GLRT), overlapping sections
   merged -- decided by :func:`next_focus_region`. Owned by the locator, never the belief.
-* The sweep locators' geometric dip-shape narrowing (``StagedSobolSweepLocator`` /
-  ``nvision.sim.locs.refocus``) uses a single-interval :class:`FocusWindow`, built with
-  :meth:`FocusWindow.from_candidate` (clamp + reject a collapsed window).
+* The geometric dip-shape narrowing in ``nvision.sim.locs.refocus`` uses a single-interval
+  :class:`FocusWindow`, built with :meth:`FocusWindow.from_candidate` (clamp + reject a collapsed window).
 
 How a candidate is *computed* stays separate, deliberately: the Bayesian locator uses the
 extents of significant dips in its observations; the sweep locators detect dips geometrically (see

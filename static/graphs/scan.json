@@ -118,18 +118,6 @@
       "name": "locator most likely signal",
       "line": { "color": "#d62728", "width": 2, "dash": "dash" }
     },
-    "sobol_meas": {
-      "type": "scatter",
-      "mode": "markers",
-      "name": "sobol measurements (noisy)",
-      "marker": { "size": 7, "color": "rgba(23,190,207,0.85)", "line": { "width": 0.6, "color": "#0e7c86" } }
-    },
-    "sobol_mode": {
-      "type": "scatter",
-      "mode": "lines",
-      "name": "sobol most likely signal",
-      "line": { "color": "#17becf", "width": 2, "dash": "dot" }
-    },
     "sweep_meas": {
       "type": "scatter",
       "mode": "markers",

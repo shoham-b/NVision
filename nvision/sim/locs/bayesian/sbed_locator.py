@@ -17,6 +17,12 @@ from nvision.sim.defaults import (
     NVISION_SMC_CANDIDATE_STEP_HZ,
 )
 from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBayesianLocator
+from nvision.sim.locs.search_grid import (
+    SBED_COARSE_POINTS_PER_FWHM,
+    SWEEP_POINTS_PER_FWHM,
+    RefiningGrid,
+    prior_fwhm_phys,
+)
 from nvision.spectra.nv_center import effective_hwhm
 
 # Minimum number of consecutive converged checks before declaring convergence.
@@ -176,11 +182,19 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         self.belief.accumulate_fim(obs)
         self._check_and_resample()
 
-    def _update_focus_window(self) -> None:
-        """Re-decide the drive-frequency focus from the dips the observations show (right after a resample).
+    def _focus_dips(self):
+        """The dips the focus is decided from: those found when the current epoch's candidates were generated.
 
-        ``_resample`` regenerates the epoch candidates, which refreshes ``belief.dip_candidates`` from
-        the current observations (``find_dips``), so those dips are fresh here. The focus has one
+        ``_resample`` regenerates the candidates, which refreshes ``belief.dip_candidates`` from the
+        measurements (``find_dips``), so right after a resample they are current.
+        """
+        return self.belief.dip_candidates
+
+    def _update_focus_window(self) -> None:
+        """Re-decide the drive-frequency focus from the dips the observations show.
+
+        The dips are those the measurements showed when the epoch's candidates were generated (see
+        :meth:`_focus_dips`). The focus has one
         section per dip -- its extent padded by ``NVISION_SMC_FOCUSING_COVER_FACTOR`` x the posterior-mean
         effective HWHM, overlapping sections merged (see :func:`next_focus_region`); with no significant
         dip the focus is unchanged.
@@ -193,7 +207,7 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         width_amp = None if width_amps == [None] else max(width_amps)
         self._focus, expanded = next_focus_region(
             self._focus,
-            dips=belief.dip_candidates,
+            dips=self._focus_dips(),
             pad_phys=NVISION_SMC_FOCUSING_COVER_FACTOR
             * float(effective_hwhm(belief.estimates(), drive_amp_unit=width_amp)),
             step=belief._step_count,
@@ -471,3 +485,88 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
 
         if all_milestone_done and self.all_converged_step is None:
             self.all_converged_step = self.step_count
+
+
+class _SearchThenFocusMixin:
+    """Shared structure of the two locators that search a coarse grid first, then work inside the focus.
+
+    The focus (the :class:`~nvision.belief.focus_window.FocusRegion` of the dips measured so far) is
+    re-decided after every measurement, not only at resamples, so the switch from search to focus happens
+    the step the data first show a dip. Both subclasses are Bayesian-SBED locators in everything but
+    acquisition -- same belief, same convergence/plateau/CRLB stopping, same focus rule -- so a comparison
+    with :class:`SequentialBayesianExperimentDesignLocator` or with each other isolates how the next
+    measurement is chosen. Neither makes SBED's random exploration probe: the grid is the exploration.
+    """
+
+    _grid: RefiningGrid
+    _last_focus: object
+
+    def _init_search_grid(self, points_per_fwhm: int) -> None:
+        """Size the search grid from the prior FWHM: ``points_per_fwhm`` grid points per FWHM."""
+        self._fwhm_prior_phys = prior_fwhm_phys(self.belief)
+        self._grid = RefiningGrid(
+            self._drive_freq_min_phys, self._drive_freq_max_phys, self._fwhm_prior_phys / points_per_fwhm
+        )
+        self._last_focus = self._focus
+
+    def _focus_dips(self):
+        """Dips from every measurement so far (``belief.current_dips()``), not only as of the last resample."""
+        return self.belief.current_dips()
+
+    def _refresh_focus(self) -> bool:
+        """Re-decide the focus from the dips measured so far; True if it changed."""
+        self._update_focus_window()
+        changed = self._focus is not self._last_focus
+        self._last_focus = self._focus
+        return changed
+
+    def _acquire(self) -> float:
+        changed = self._refresh_focus()
+        drive_freq_phys = self._pick(focus_changed=changed)
+        self._grid.record(drive_freq_phys)
+        return drive_freq_phys
+
+    def _pick(self, *, focus_changed: bool) -> float:
+        raise NotImplementedError
+
+
+class SmartSBEDLocator(_SearchThenFocusMixin, SequentialBayesianExperimentDesignLocator):
+    """SBED that searches a coarse FWHM-spaced grid first, then runs ordinary SBED inside the focus.
+
+    Before the data show a dip, the candidates are the not-yet-measured points of a uniform grid with one
+    point per prior FWHM (refined by halving if the whole axis is covered without a dip) and the
+    expected-information-gain maximiser among them is measured. Once a dip is found the focus narrows to it
+    and acquisition is plain SBED: the EIG maximiser over the epoch's slope-targeted candidates inside the
+    focus. Intended for a resonance whose width is already known and whose position moved.
+    """
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self._init_search_grid(SBED_COARSE_POINTS_PER_FWHM)
+
+    def _pick(self, *, focus_changed: bool) -> float:
+        if self._focus.is_full_domain():
+            candidates = self._grid.next_unmeasured(self._focus)
+            return float(self.belief.select_max_information_gain(candidates, 1)[0])
+        if focus_changed:
+            # The epoch candidates predate the dip that moved the focus; rebuild them around it.
+            self.belief.refresh_candidates()
+        return self._eig_acquire()
+
+
+class SmartSweepLocator(_SearchThenFocusMixin, SequentialBayesianExperimentDesignLocator):
+    """A sweep at FWHM/3 spacing over the axis, then a sweep (with halving spacing) inside the focus.
+
+    Each step measures the lowest-frequency grid point not yet measured inside the current focus. With the
+    focus still the whole axis that is a plain FWHM/3 sweep, so a dip cannot be stepped over. Once the data
+    show one, the focus narrows to it and the sweep stays there -- finishing the FWHM/3 grid across the dip,
+    then halving the spacing -- until the (SBED) convergence rule stops the run. No information-gain
+    criterion is involved: the point of this locator is the sweep it compares against SBED.
+    """
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+        self._init_search_grid(SWEEP_POINTS_PER_FWHM)
+
+    def _pick(self, *, focus_changed: bool) -> float:
+        return float(self._grid.next_unmeasured(self._focus)[0])

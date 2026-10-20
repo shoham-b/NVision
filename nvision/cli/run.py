@@ -921,7 +921,11 @@ def run(  # noqa: C901
     ] = None,
     run_group: Annotated[
         str | None,
-        typer.Option("--run-group", help="Run group name to use for preset combinations (overrides filter options)."),
+        typer.Option(
+            "--run-group",
+            help="Run group name to use for preset combinations (overrides the other filters; --filter-signal and "
+            "--filter-strategy still narrow it).",
+        ),
     ] = None,
     all_experiments: Annotated[
         bool,
@@ -1062,6 +1066,17 @@ def run(  # noqa: C901
         combination_names = [
             (g, n, s) for g in group.generator_names for n in group.noise_names for s in group.strategy_names
         ]
+        # --filter-signal / --filter-strategy narrow a group the same way they narrow the plain grid:
+        # a substring of the generator name, and comma-separated strategy patterns (regex or substring).
+        if filter_signal is not None:
+            combination_names = [c for c in combination_names if filter_signal in c[0]]
+        if filter_strategy is not None:
+            from nvision.sim.combinations import _strategy_matches
+
+            patterns = [p.strip() for p in filter_strategy.split(",")]
+            combination_names = [c for c in combination_names if any(_strategy_matches(p, c[2]) for p in patterns)]
+        if not combination_names:
+            raise typer.BadParameter(f"--filter-signal/--filter-strategy leave nothing to run in group {run_group!r}.")
         extra_generators = group.extra_generators
         log.info(
             "Running group: %s (%s combinations: %s generators x %s noises x %s strategies)",

@@ -49,8 +49,8 @@ def test_task_builder_resume_cache_flag(tmp_path: Path) -> None:
     monitor = ProgressMonitor(Console(), queue.Queue(), log_incoming=None, error_incoming=None, live_mode=False)
 
     combos = [
-        ("NVCenter-lorentzian", "Gauss(0.0)", "SimpleSweep"),
-        ("NVCenter-lorentzian", "Gauss(0.05)", "SimpleSweep"),
+        ("NVCenter-lorentzian", "Gauss(0.0)", "SimpleSweep-3perFWHM"),
+        ("NVCenter-lorentzian", "Gauss(0.05)", "SimpleSweep-3perFWHM"),
     ]
     # Session where only the first combo ran, not the second
     ran_session = {combos[0]}

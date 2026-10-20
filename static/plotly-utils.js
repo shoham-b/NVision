@@ -513,18 +513,6 @@ function _buildScanFigure(def, data) {
         traces.push(Object.assign({}, T.mode_signal, { x: data.x_dense, y: data.y_dense_mode }, sa));
     }
 
-    // Sobol overlay
-    if (data.sobol_measurements && data.sobol_measurements.x && data.sobol_measurements.x.length) {
-        const sm = data.sobol_measurements;
-        traces.push(Object.assign({}, T.sobol_meas, {
-            x: sm.x, y: sm.y,
-            customdata: Array.from(sm.y).map(y => _depthPct(y, baseline)),
-        }, sa));
-    }
-    if (data.sobol_mode_y && data.sobol_mode_y.length) {
-        traces.push(Object.assign({}, T.sobol_mode, { x: data.x_dense, y: data.sobol_mode_y }, sa));
-    }
-
     // Sweep overlay
     if (data.sweep_measurements && data.sweep_measurements.x && data.sweep_measurements.x.length) {
         const sm = data.sweep_measurements;

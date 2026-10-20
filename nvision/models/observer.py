@@ -76,15 +76,9 @@ class RunResult:
     sweep_steps: int = 0
     secondary_sweep_steps: int = 0
     tertiary_sweep_steps: int = 0
-    expected_uniform_points: float = 0.0
     fit_mode_estimates: dict[str, float] | None = None
-
-    @property
-    def sobol_difference(self) -> float:
-        """Difference between simple Sobol sweep required points and actual measurements."""
-        if self.expected_uniform_points <= 0:
-            return 0.0
-        return self.expected_uniform_points - float(self.num_steps())
+    # Standard deviation of each fitted parameter, for locators whose reported estimate is a fit (sweeps).
+    fit_mode_uncertainties: dict[str, float] | None = None
 
     def convergence_step(self, param: str, threshold: float) -> int | None:
         """Find first step where parameter converged below threshold.
@@ -183,7 +177,7 @@ class Observer:
 
         last_locator: Locator | None = None
         # Dedup key for belief copies: locators that buffer observations and
-        # batch-update every N steps (SimpleSobol, SimpleSweep) leave the
+        # batch-update every N steps (SimpleSweep) leave the
         # belief untouched between flushes, so the per-step deep copies are
         # identical. Sharing the previous copy in that case turns O(steps)
         # belief copies into O(flushes) with no semantic change — snapshot
@@ -241,7 +235,6 @@ class Observer:
         sweep_steps = 0
         secondary_sweep_steps = 0
         tertiary_sweep_steps = 0
-        expected_uniform_points = 0.0
         if last_locator is not None:
             # Use duck typing with hasattr for optional locator capabilities
             if hasattr(last_locator, "bayesian_focus_window"):
@@ -264,14 +257,6 @@ class Observer:
             if hasattr(last_locator, "tertiary_sweep_count"):
                 tertiary_sweep_steps = last_locator.tertiary_sweep_count()
 
-            if hasattr(last_locator, "result") and callable(last_locator.result):
-                try:
-                    res = last_locator.result()
-                    if isinstance(res, dict) and "expected_uniform_points" in res:
-                        expected_uniform_points = float(res["expected_uniform_points"])
-                except Exception:
-                    pass
-
         return RunResult(
             snapshots=self.snapshots,
             true_signal=self.true_signal,
@@ -281,5 +266,4 @@ class Observer:
             sweep_steps=sweep_steps,
             secondary_sweep_steps=secondary_sweep_steps,
             tertiary_sweep_steps=tertiary_sweep_steps,
-            expected_uniform_points=expected_uniform_points,
         )

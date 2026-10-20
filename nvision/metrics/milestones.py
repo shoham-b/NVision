@@ -10,6 +10,27 @@ from nvision.models.observer import RunResult
 from nvision.sim.defaults import NVISION_CONVERGENCE_THRESHOLD, PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS
 
 
+def convergence_threshold(
+    run_result: RunResult,
+    param: str,
+    threshold: float = NVISION_CONVERGENCE_THRESHOLD,
+    relative: bool = True,
+) -> float:
+    """Uncertainty ceiling (physical units) below which *param* counts as converged.
+
+    The parameter's absolute ceiling when it has one, else ``threshold`` as a fraction of its prior
+    bound width (``relative=True``), else ``threshold`` itself.
+    """
+    if param in PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS:
+        return PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS[param]
+    if relative:
+        bounds = run_result.snapshots[0].belief.physical_param_bounds.get(param)
+        if bounds:
+            lo, hi = bounds
+            return threshold * (hi - lo)
+    return threshold
+
+
 def detect_milestone(
     run_result: RunResult,
     param: str,
@@ -30,14 +51,7 @@ def detect_milestone(
     if not run_result.snapshots:
         return None
 
-    if param in PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS:
-        threshold = PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS[param]
-    elif relative:
-        # Get bounds for relative threshold
-        bounds = run_result.snapshots[0].belief.physical_param_bounds.get(param)
-        if bounds:
-            lo, hi = bounds
-            threshold = threshold * (hi - lo)
+    threshold = convergence_threshold(run_result, param, threshold, relative)
 
     for i, snapshot in enumerate(run_result.snapshots):
         uncert = snapshot.belief.uncertainty().get(param)

@@ -5,15 +5,14 @@ What's actually unified, and what isn't
 ``clamp_to_domain`` is the one piece of arithmetic genuinely shared by every
 narrowing site: the Bayesian locator's drive-frequency focus
 (``nvision.belief.focus_window.next_focus_region``, via ``FocusRegion.from_intervals``),
-the sweep locators' ``nvision.sim.locs.refocus.window``, and
-``StagedSobolSweepLocator.per_dip_windows``. ``TestClampToDomainRouting`` proves
+and the sweep locators' ``nvision.sim.locs.refocus.window``.
+``TestClampToDomainRouting`` proves
 each of those call sites actually calls the shared function rather than a copy
 of its arithmetic.
 
 The Bayesian focus is a multi-section ``FocusRegion`` (tested in
-``test_focus_policy.py``). The sweep locators' ``StagedSobolSweepLocator``/
-``Stage3SobolLocator`` window updates go through ``FocusWindow.from_candidate``,
-which only clamps and rejects a collapsed window -- it does not know about a
+``test_focus_policy.py``). The sweep locators' window updates go through
+``FocusWindow.from_candidate``, which only clamps and rejects a collapsed window -- it does not know about a
 width floor or a minimum-shrink-fraction. ``test_from_candidate_has_no_gating_parameters``
 pins that boundary down so a future refactor can't quietly claim more sharing
 than actually exists.
@@ -221,86 +220,3 @@ class TestClampToDomainRouting:
         refocus_window_mod.infer_focus_window(hist, 0.0, 1.0, expected_dips=1, noise_threshold=0.5)
         assert len(calls) >= 1
         assert all(c[2:] == (0.0, 1.0) for c in calls)
-
-    def test_staged_sobol_per_dip_windows_routes_through_clamp(self, monkeypatch):
-        import nvision.sim.locs.coarse.sobol_locator as sobol_mod
-
-        calls: list[tuple] = []
-        real_clamp = sobol_mod.clamp_to_domain
-
-        def spy(lo, hi, domain_lo, domain_hi):
-            calls.append((lo, hi, domain_lo, domain_hi))
-            return real_clamp(lo, hi, domain_lo, domain_hi)
-
-        monkeypatch.setattr(sobol_mod, "clamp_to_domain", spy)
-
-        locator = sobol_mod.StagedSobolSweepLocator.__new__(sobol_mod.StagedSobolSweepLocator)
-        locator.domain_lo = 0.0
-        locator.domain_hi = 1.0
-        locator.noise_std = 0.01
-        from nvision.models.observation import ObservationHistory
-
-        hist = ObservationHistory(500, (0.0, 1.0))
-        import math
-
-        for i in range(200):
-            drive_freq_unit = i / 199.0
-            y = 1.0
-            y -= 0.8 * math.exp(-0.5 * ((drive_freq_unit - 0.3) / 0.02) ** 2)
-            y -= 0.8 * math.exp(-0.5 * ((drive_freq_unit - 0.7) / 0.02) ** 2)
-            hist.append(sobol_mod.Observation(drive_freq_unit=drive_freq_unit, signal_value=y))
-        locator.history = hist
-
-        windows = locator.per_dip_windows()
-        assert windows is not None
-        assert len(windows) >= 2
-        assert len(calls) == len(windows)
-
-
-# ---------------------------------------------------------------------------
-# Fail-fast: a collapsed candidate from _infer_tight_focus_window must raise,
-# not silently keep the previous window (AGENTS.md "No Algorithmic Fallbacks").
-# ---------------------------------------------------------------------------
-
-
-class TestSobolFailsFastOnCollapsedCandidate:
-    def _make_stage3(self, monkeypatch, collapsed_tuple):
-        import nvision.sim.locs.coarse.sobol_locator as sobol_mod
-
-        monkeypatch.setattr(sobol_mod, "_infer_tight_focus_window", lambda *a, **k: collapsed_tuple)
-
-        def vdc():
-            while True:
-                yield 0.5
-
-        from nvision.models.observation import ObservationHistory
-
-        return sobol_mod.Stage3SobolLocator(
-            vdc(),
-            0.0,
-            1.0,
-            ObservationHistory(50),
-            expected_dips=1,
-            noise_std=0.01,
-        )
-
-    def test_infer_bounds_raises_on_collapsed_candidate(self, monkeypatch):
-        with pytest.raises(ValueError, match="collapsed window"):
-            self._make_stage3(monkeypatch, (0.5, 0.5))
-
-    def test_check_for_remaining_dips_raises_on_collapsed_candidate(self, monkeypatch):
-        import nvision.sim.locs.coarse.sobol_locator as sobol_mod
-
-        stage3 = self._make_stage3(monkeypatch, (0.0, 1.0))
-        # Shrink the tracked window first so a later "wider but out-of-domain"
-        # candidate from re-inference is what triggers the expand branch.
-        stage3.window = sobol_mod.FocusWindow(lo=0.4, hi=0.6, full_lo=0.0, full_hi=1.0)
-        # Width 1.0 > current window's 0.2, so the expand branch fires; but the
-        # candidate lies entirely outside [0, 1], so clamping collapses it.
-        monkeypatch.setattr(sobol_mod, "_infer_tight_focus_window", lambda *a, **k: (2.0, 3.0))
-
-        for i in range(10):
-            stage3.history.append(sobol_mod.Observation(drive_freq_unit=i / 9.0, signal_value=0.5))
-
-        with pytest.raises(ValueError, match="collapsed window"):
-            stage3._check_for_remaining_dips()

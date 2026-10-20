@@ -38,9 +38,7 @@ from nvision.runner.sweep_cache import (
 )
 from nvision.sim.combinations import CombinationGrid
 from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBayesianLocator
-from nvision.sim.locs.bayesian.sobol_bayesian_locator import SimpleSobolBayesianLocator
 from nvision.sim.locs.coarse import SweepingLocator
-from nvision.sim.locs.dyadic import van_der_corput_fraction
 from nvision.spectra.drive import DriveSetting
 from nvision.tools import stall_watch
 from nvision.tools.log_context import reset_combination_log_initials, set_combination_log_initials
@@ -125,19 +123,20 @@ def run_loop(
     ``CoreExperiment.measure``. Defaults to 1 (single-shot, unchanged behavior).
     """
     if experiment.drift is not None:
-        # Cached sweep observations were measured by another run at other times (and, for
-        # the dyadic table, in another order); replaying them would feed this run a truth
-        # from the wrong moment.
+        # Cached sweep observations were measured by another run at other times; replaying
+        # them would feed this run a truth from the wrong moment.
         sweep_cache = None
     # Sweep locators are handed a belief + signal model; Bayesian locators build their own belief.
-    needs_belief = getattr(locator_class, "REQUIRES_BELIEF", False) and not issubclass(
-        locator_class, SequentialBayesianLocator
+    needs_belief = (
+        getattr(locator_class, "REQUIRES_BELIEF", False)
+        and not issubclass(locator_class, SequentialBayesianLocator)
+        and "builder" not in locator_config
     )
     if needs_belief and ("belief" not in locator_config or "signal_model" not in locator_config):
         locator_config.setdefault("belief", _create_sweep_belief(experiment))
         locator_config.setdefault("signal_model", experiment.true_signal.baseline_model)
 
-    if issubclass(locator_class, SequentialBayesianLocator):
+    if issubclass(locator_class, SequentialBayesianLocator) or "builder" in locator_config:
         # Seeds the belief's own random stream from (but without consuming) the repeat's rng.
         seed_rng = random.Random()
         seed_rng.setstate(rng.getstate())
@@ -147,38 +146,13 @@ def run_loop(
 
     # Check if we can use cached sweep for Bayesian locators or sweep locators
     cached_sweep: list[Observation] | None = None
-    if sweep_cache is not None:
-        if isinstance(locator, SequentialBayesianLocator):
-            sweep_steps = getattr(locator, "initial_sweep_steps", 0)
-            if sweep_cache.has(experiment, sweep_steps):
-                cached_sweep = sweep_cache.get(experiment, sweep_steps)
-        elif isinstance(locator, SweepingLocator):
-            sweep_steps = getattr(locator, "max_steps", 0)
-            if sweep_cache.has(experiment, sweep_steps):
-                cached_sweep = sweep_cache.get(experiment, sweep_steps)
+    if sweep_cache is not None and isinstance(locator, SweepingLocator):
+        sweep_steps = getattr(locator, "max_steps", 0)
+        if sweep_cache.has(experiment, sweep_steps):
+            cached_sweep = sweep_cache.get(experiment, sweep_steps)
 
-    # SimpleSweep and SimpleSobol sample the same nested dyadic grid (see
-    # nvision/sim/locs/dyadic.py): SimpleSweep's uniform 2**k+1-point scan and
-    # SimpleSobol's base-2 van der Corput sequence visit identical physical
-    # positions, just in a different order. If SimpleSweep already ran for this
-    # experiment (same generator/noise/repeat -- the sweep_cache key is a pure
-    # function of the experiment, not the strategy), reuse its measurements
-    # instead of drawing fresh noise at the same positions.
-    dyadic_table: list[Observation] | None = None
-    dyadic_denominator = 0
-    is_sobol = sweep_cache is not None and isinstance(locator, SimpleSobolBayesianLocator)
-    if is_sobol:
-        from nvision.sim.defaults import NVISION_SIMPLESWEEP_MAX_STEPS
-        from nvision.sim.locs.dyadic import round_to_dyadic_points
-
-        dyadic_n = round_to_dyadic_points(NVISION_SIMPLESWEEP_MAX_STEPS)
-        if sweep_cache.has(experiment, dyadic_n):
-            dyadic_table = sweep_cache.get(experiment, dyadic_n)
-            dyadic_denominator = dyadic_n - 1
-
-    # SimpleSweep, symmetrically, records its own full sweep so a SimpleSobol
-    # run for the same experiment (in this process or another, via the shared
-    # sweep_cache) can reuse it -- see the dyadic_table lookup above.
+    # Sweep locators record their full sweep so another run of the same experiment (in this
+    # process or another, via the shared sweep_cache) can reuse the measurements.
     is_sweep_locator = sweep_cache is not None and isinstance(locator, SweepingLocator) and cached_sweep is None
     collected_sweep_observations: list[Observation] | None = [] if is_sweep_locator else None
 
@@ -201,18 +175,6 @@ def run_loop(
                 frequency_noise_model=cached_obs.frequency_noise_model,
                 drive=_replayed_drive(cached_obs, drive),
             )
-        elif dyadic_table is not None:
-            frac = van_der_corput_fraction(getattr(locator, "inference_step_count", step))
-            if dyadic_denominator % frac.denominator == 0:
-                idx = frac.numerator * (dyadic_denominator // frac.denominator)
-                cached_obs = dyadic_table[idx]
-                obs = Observation(
-                    drive_freq_unit=drive_freq_unit,
-                    signal_value=cached_obs.signal_value,
-                    noise_std=cached_obs.noise_std,
-                    frequency_noise_model=cached_obs.frequency_noise_model,
-                    drive=_replayed_drive(cached_obs, drive),
-                )
 
         if obs is None:
             obs = experiment.measure(drive_freq_unit, rng, n_shots=n_shots, shot_index=shot_index, drive=drive)
@@ -904,7 +866,6 @@ class _TaskRunner:
             noise_obj=self.task.noise,
             strat_obj=self.task.strategy,
             run_result=run_result,
-            sobol_baseline=self._sweep_cache.get_sobol_baseline(experiment, seed, gen, noise, attempt_idx),
             simplesweep_baseline=self._sweep_cache.get_simplesweep_baseline(experiment, seed, gen, noise, attempt_idx),
         )
 
@@ -1089,104 +1050,12 @@ class _TaskRunner:
         )
         return random.Random(repeat_seed_int(key))
 
-    def _rng_for_sobol_baseline(self, repeat_idx: int) -> random.Random:
-        """RNG for Sobol baseline measurement noise — strategy-independent."""
-        key = measurement_repeat_key(self.task.seed, self.generator_name, "sobol_baseline", self.noise_name, repeat_idx)
-        return random.Random(repeat_seed_int(key))
-
     def _rng_for_simplesweep_baseline(self, repeat_idx: int) -> random.Random:
         """RNG for SimpleSweep baseline measurement noise — strategy-independent."""
         key = measurement_repeat_key(
             self.task.seed, self.generator_name, "simplesweep_baseline", self.noise_name, repeat_idx
         )
         return random.Random(repeat_seed_int(key))
-
-    def _run_sobol_baseline(
-        self,
-        rid: int,
-        experiment: CoreExperiment,
-        locator_config: dict[str, Any],
-    ) -> dict[str, Any]:
-        """Simulate the SimpleSobolBayesianLocator until convergence and return detailed stats."""
-        import math
-
-        from nvision.runner.convert import belief_mode_estimates
-        from nvision.sim.locs.bayesian.belief_builders import nv_center_smc_belief, nv_lineshape_for_model
-        from nvision.sim.locs.bayesian.sobol_bayesian_locator import SimpleSobolBayesianLocator
-
-        # Create a fresh RNG for the Sobol baseline measurements
-        sobol_rng = self._rng_for_sobol_baseline(rid)
-
-        parameter_bounds = self._injected_parameter_bounds(experiment)
-
-        from nvision.sim.defaults import NVISION_SOBOL_STEPS_FRACTION
-
-        _domain = float(
-            experiment.drive_freq_max_phys - experiment.drive_freq_min_phys
-        )  # full drive-frequency axis width, Hz
-        _min_lw = min_linewidth_hz(parameter_bounds)
-        _sobol_max_steps = max(1, math.ceil(math.ceil(_domain / _min_lw) * NVISION_SOBOL_STEPS_FRACTION))
-
-        # Build belief directly
-        belief = nv_center_smc_belief(
-            parameter_bounds,
-            noise_model=experiment.true_signal.noise_model,
-            lineshape=nv_lineshape_for_model(experiment.true_signal.model),
-            fixed_drive=experiment.true_signal.baseline_drive,
-        )
-
-        locator = SimpleSobolBayesianLocator(
-            belief=belief,
-            max_steps=_sobol_max_steps,
-        )
-        # The parameter these "sobol_primary_*" stats are about -- zeeman_split (or split) once
-        # center_freq is fixed by default, else center_freq itself for free-center_freq configs.
-        primary_param = locator._primary_param or "center_freq"
-
-        step = 0
-        sobol_drive_freqs_unit = []
-        sobol_ys = []
-        sobol_primary_steps = None
-        sobol_primary_uncert_at_conv = None
-        sobol_primary_err_at_conv = None
-        true_primary = experiment.true_signal.get_param_value(primary_param)
-
-        while not locator.done():
-            _check_memory_limit()
-            step += 1
-            drive_freq_unit = locator.next_drive_freq_unit()
-            obs = experiment.measure(drive_freq_unit, sobol_rng, shot_index=step - 1)
-            locator.observe(obs)
-            sobol_drive_freqs_unit.append(float(obs.drive_freq_unit))
-            sobol_ys.append(float(obs.signal_value))
-
-            # Record metrics at the exact moment of primary-parameter convergence
-            if sobol_primary_steps is None and locator.primary_converged_step is not None:
-                sobol_primary_steps = locator.primary_converged_step
-                sobol_primary_uncert_at_conv = float(locator.belief.reported_uncertainty().get(primary_param, math.nan))
-                est_f = float(locator.belief.estimates().get(primary_param, math.nan))
-                sobol_primary_err_at_conv = abs(est_f - true_primary) if not math.isnan(est_f) else math.nan
-
-        sobol_mode_estimates = belief_mode_estimates(locator.belief)
-
-        # Capture FINAL belief state after the sweep terminates (separate from the
-        # "at convergence" snapshot above). Without these the UI has no
-        # way to compare Sobol's final uncertainty/error against another locator's.
-        sobol_final_uncert = float(locator.belief.reported_uncertainty().get(primary_param, math.nan))
-        est_f_final = float(locator.belief.estimates().get(primary_param, math.nan))
-        sobol_final_err = abs(est_f_final - true_primary) if not math.isnan(est_f_final) else math.nan
-
-        return {
-            "sobol_baseline_steps": locator.step_count,
-            "sobol_primary_steps": sobol_primary_steps,
-            "sobol_primary_uncert_at_conv": sobol_primary_uncert_at_conv,
-            "sobol_primary_err_at_conv": sobol_primary_err_at_conv,
-            "sobol_baseline_uncert": sobol_final_uncert,
-            "sobol_baseline_err": sobol_final_err,
-            "sobol_drive_freqs_unit": sobol_drive_freqs_unit,
-            "sobol_ys": sobol_ys,
-            "sobol_mode_estimates": sobol_mode_estimates,
-        }
 
     def _run_simplesweep_baseline(
         self,
@@ -1197,7 +1066,6 @@ class _TaskRunner:
         signal_max_span: float | None,
     ) -> dict[str, Any]:
         """Run GenericSweepLocator baseline and return xs/ys/mode_estimates for visualization."""
-        import math
 
         from nvision.runner.convert import belief_mode_estimates
         from nvision.sim.locs.bayesian.belief_builders import nv_center_smc_belief, nv_lineshape_for_model
@@ -1212,11 +1080,14 @@ class _TaskRunner:
             fixed_drive=experiment.true_signal.baseline_drive,
         )
 
-        domain_width = float(
-            experiment.drive_freq_max_phys - experiment.drive_freq_min_phys
-        )  # full drive-frequency axis width, Hz
-        min_linewidth = min_linewidth_hz(parameter_bounds)
-        max_steps = max(30, math.ceil(domain_width / min_linewidth))
+        from nvision.sim.locs.search_grid import SWEEP_POINTS_PER_FWHM, max_sweep_points
+
+        max_steps = max_sweep_points(
+            float(experiment.drive_freq_min_phys),
+            float(experiment.drive_freq_max_phys),
+            min_linewidth_hz(parameter_bounds),
+            SWEEP_POINTS_PER_FWHM,
+        )
 
         locator = GenericSweepLocator(
             belief=belief,
@@ -1362,50 +1233,49 @@ class _TaskRunner:
             return None, None
         return (drive_freq_min_phys, drive_freq_max_phys) if drive_freq_max_phys > drive_freq_min_phys else (None, None)
 
-    def _resolve_sweep_max_steps(self, experiment: CoreExperiment) -> int:
-        """Return the step count for this experiment, derived from the signal model.
+    def _sbed_step_budget(self, experiment: CoreExperiment) -> int:
+        """``ceil(domain / min_linewidth)`` times ``NVISION_SBED_STEPS_FRACTION``: the SBED family's step budget.
 
-        SimpleSweep runs with a fixed NVISION_SIMPLESWEEP_MAX_STEPS budget.
-        SBED and Sobol baselines are still sized as a fraction of
-        ceil(domain / min_linewidth) (the "full resolution" step count), independent
-        of SimpleSweep's own budget. All other locators use compute_sweep_max_steps,
-        which applies coverage-factor and env-var caps.
+        Also the budget the pre-run CRLB feasibility gate assumes for *every* strategy, so a repeat is gated (or
+        not) identically whichever locator would run it -- a gate keyed to each locator's own budget would drop
+        different repeats for different strategies and bias their comparison.
         """
-        bounds = self._injected_parameter_bounds(experiment)
-        domain_width = (
-            experiment.drive_freq_max_phys - experiment.drive_freq_min_phys
-        )  # full drive-frequency axis width, Hz
-        min_linewidth = min_linewidth_hz(bounds)
         import numpy as np
 
-        simplesweep_steps = int(np.ceil(domain_width / min_linewidth))
+        from nvision.sim.defaults import NVISION_SBED_STEPS_FRACTION
+
+        width = float(experiment.drive_freq_max_phys - experiment.drive_freq_min_phys)
+        min_linewidth = min_linewidth_hz(self._injected_parameter_bounds(experiment))
+        return max(1, int(np.ceil(width / min_linewidth * NVISION_SBED_STEPS_FRACTION)))
+
+    def _resolve_sweep_max_steps(self, experiment: CoreExperiment) -> int:
+        """Return the step budget for this experiment, derived from the signal model's prior bounds.
+
+        * Plain sweeps (:class:`GenericSweepLocator`): the number of grid points needed at the narrowest
+          dip the prior allows. The sweep derives its actual (smaller or equal) step count from its own
+          prior FWHM; this is the cap, and a stable cache key across repeats.
+        * Bayesian-SBED family: ``ceil(domain / min_linewidth)`` times ``NVISION_SBED_STEPS_FRACTION``.
+        * Any other locator: ``compute_sweep_max_steps`` (coverage factor and env-var caps).
+        """
+        from nvision.sim.locs.bayesian.sbed_locator import SequentialBayesianExperimentDesignLocator
+        from nvision.sim.locs.coarse.generic_sweep_locator import GenericSweepLocator
+        from nvision.sim.locs.search_grid import SWEEP_POINTS_PER_FWHM, max_sweep_points
+
+        bounds = self._injected_parameter_bounds(experiment)
+        lo, hi = float(experiment.drive_freq_min_phys), float(experiment.drive_freq_max_phys)
+        min_linewidth = min_linewidth_hz(bounds)
 
         locator_class = self.task.strategy_spec.locator_class
-        if self.strategy_name == "SimpleSweep" or locator_class.__name__ == "GenericSweepLocator":
-            from nvision.sim.defaults import NVISION_SIMPLESWEEP_MAX_STEPS
-            from nvision.sim.locs.dyadic import round_to_dyadic_points
-
-            # Rounded to a 2**k + 1 point grid so SimpleSobol (whose base-2 van der
-            # Corput sequence visits exactly this grid's interior, see
-            # nvision/sim/locs/dyadic.py) can reuse its measurements instead of
-            # re-measuring the same physical positions with fresh noise.
-            return round_to_dyadic_points(NVISION_SIMPLESWEEP_MAX_STEPS)
-
-        from nvision.sim.locs.bayesian.sbed_locator import SequentialBayesianExperimentDesignLocator
+        if issubclass(locator_class, GenericSweepLocator):
+            divisor = int(self.task.strategy_spec.locator_config.get("spacing_divisor", SWEEP_POINTS_PER_FWHM))
+            return max_sweep_points(lo, hi, min_linewidth, divisor)
 
         if issubclass(locator_class, SequentialBayesianExperimentDesignLocator):
-            # Includes the drive-choosing SBED subclass: same budget, so the comparison is fair.
-            from nvision.sim.defaults import NVISION_SBED_STEPS_FRACTION
-
-            return max(1, int(np.ceil(simplesweep_steps * NVISION_SBED_STEPS_FRACTION)))
+            return self._sbed_step_budget(experiment)
 
         from nvision.sim.locs.coarse.sweep_steps import compute_sweep_max_steps
 
-        return compute_sweep_max_steps(
-            experiment.true_signal.model,
-            float(experiment.drive_freq_min_phys),
-            float(experiment.drive_freq_max_phys),
-        )
+        return compute_sweep_max_steps(experiment.true_signal.model, lo, hi)
 
     def _precompute_sweep_for_task(
         self,
@@ -1451,8 +1321,8 @@ class _TaskRunner:
             **({} if signal_max_span is None else {"signal_max_span": signal_max_span}),
         }
 
-        # For locators that require belief, add belief and signal_model
-        if requires_belief:
+        # Locators given a belief builder make their own belief; otherwise hand them one.
+        if requires_belief and "builder" not in cfg:
             cfg["belief"] = _create_sweep_belief(experiment)
             cfg["signal_model"] = experiment.true_signal.baseline_model
 
@@ -1483,42 +1353,25 @@ class _TaskRunner:
             model.signal_min_span(domain_width)
         if hasattr(model, "signal_max_span") and callable(model.signal_max_span):
             signal_max_span = model.signal_max_span(domain_width)
-        # Run Sobol Sweep baseline for this signal repeat — skip when we ARE the Sobol baseline
-        sobol_baseline_steps: int | None = None
-        sobol_primary_steps: int | None = None
-        sobol_data: dict[str, Any] | None = None
-
         from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBayesianLocator
 
-        if issubclass(locator_class, SequentialBayesianLocator) and self.strategy_name != "SimpleSobol":
-            sobol_data = self._sweep_cache.get_sobol_baseline(
+        # Run SimpleSweep baseline for visualization (cached only, no manifest metrics)
+        if (
+            issubclass(locator_class, SequentialBayesianLocator)
+            and self._sweep_cache.get_simplesweep_baseline(
                 experiment, self.task.seed, self.generator_name, self.noise_name, rid
             )
-            if sobol_data is None:
-                sobol_data = self._run_sobol_baseline(rid, experiment, locator_config)
-                self._sweep_cache.put_sobol_baseline(
-                    experiment, self.task.seed, self.generator_name, self.noise_name, rid, sobol_data
+            is None
+        ):
+            try:
+                simplesweep_data = self._run_simplesweep_baseline(
+                    rid, experiment, noise_std, noise_max_dev, signal_max_span
                 )
-            if sobol_data is not None:
-                sobol_baseline_steps = sobol_data.get("sobol_baseline_steps")
-                sobol_primary_steps = sobol_data.get("sobol_primary_steps")
-
-            # Run SimpleSweep baseline for visualization (cached only, no manifest metrics)
-            if (
-                self._sweep_cache.get_simplesweep_baseline(
-                    experiment, self.task.seed, self.generator_name, self.noise_name, rid
+                self._sweep_cache.put_simplesweep_baseline(
+                    experiment, self.task.seed, self.generator_name, self.noise_name, rid, simplesweep_data
                 )
-                is None
-            ):
-                try:
-                    simplesweep_data = self._run_simplesweep_baseline(
-                        rid, experiment, noise_std, noise_max_dev, signal_max_span
-                    )
-                    self._sweep_cache.put_simplesweep_baseline(
-                        experiment, self.task.seed, self.generator_name, self.noise_name, rid, simplesweep_data
-                    )
-                except Exception as exc:
-                    log.warning("Failed to run SimpleSweep baseline: %s", exc)
+            except Exception as exc:
+                log.warning("Failed to run SimpleSweep baseline: %s", exc)
 
         requires_belief = getattr(locator_class, "REQUIRES_BELIEF", False)
         max_steps = self._resolve_sweep_max_steps(experiment)
@@ -1529,7 +1382,7 @@ class _TaskRunner:
         # acquisition step is a batch of n_shots with precision noise_std/sqrt(n_shots).
         # Sweep locators (which take a noise_std hint) get that batch precision; Bayesian locators
         # take no noise_std (their belief infers the noise level), and the un-batched baselines
-        # (Sobol/SimpleSweep, built directly above) keep the single-shot noise_std as their reference.
+        # (SimpleSweep, built directly above) keep the single-shot noise_std as their reference.
         n_shots = int(locator_config.get("n_shots", 1))
         batch_noise_std = noise_std / math.sqrt(n_shots)
 
@@ -1553,7 +1406,7 @@ class _TaskRunner:
                 cfg["noise_max_dev"] = noise_max_dev
             if signal_max_span is not None:
                 cfg["signal_max_span"] = signal_max_span
-            if requires_belief:
+            if requires_belief and "builder" not in cfg:
                 cfg["belief"] = _create_sweep_belief(experiment)
                 cfg["signal_model"] = experiment.true_signal.baseline_model
 
@@ -1573,18 +1426,6 @@ class _TaskRunner:
         finally:
             reset_combination_log_initials(token)
 
-        # Populate sweep cache from this repeat's observations (for sharing with subsequent repeats)
-        if observer.last_locator is not None and experiment.drift is None:
-            last_loc = observer.last_locator
-            if isinstance(last_loc, SequentialBayesianLocator):
-                # Use initial_sweep_steps (calculated) for cache key consistency with lookup
-                sweep_steps = getattr(last_loc, "initial_sweep_steps", 0)
-                # _sweep_observations is on the staged_sobol, not the Bayesian locator itself
-                staged_sobol = getattr(last_loc, "_staged_sobol", None)
-                sweep_obs = getattr(staged_sobol, "_sweep_observations", []) if staged_sobol is not None else []
-                if sweep_steps > 0 and sweep_obs and not self._sweep_cache.has(experiment, sweep_steps):
-                    self._sweep_cache.put(experiment, sweep_steps, list(sweep_obs))
-
         last_loc = observer.last_locator
         if last_loc is not None:
             locator_instance = last_loc
@@ -1603,7 +1444,7 @@ class _TaskRunner:
         if callable(finalize_hook):
             finalize_hook()
         # Locators that defer belief updates -- sweep locators via finalize(),
-        # and chunked/buffered Bayesian locators like SimpleSobol via a final
+        # and chunked/buffered Bayesian locators via a final
         # flush inside done() once the step budget is exhausted -- can mutate
         # locator_instance.belief *after* Observer.watch() already copied the
         # last snapshot. Re-sync so downstream metrics (final_err_primary, the
@@ -1621,6 +1462,7 @@ class _TaskRunner:
             # belief is batch-updated without resampling during a sweep and
             # can collapse, drawing a garbage curve even on clean data.
             result.fit_mode_estimates = locator_instance.fit_mode_estimates()
+            result.fit_mode_uncertainties = locator_instance.fit_mode_uncertainties()
         locator_final_result = locator_instance.result()
         # Fold the sweep's full least-squares fit (linewidth/homogeneous_linewidth/
         # sigma_inhom/split/k_np/c_total/zeeman_split/...) into the estimate dict so the generic
@@ -1631,9 +1473,9 @@ class _TaskRunner:
         from nvision.sim.locs.coarse.generic_sweep_locator import GenericSweepLocator
 
         if isinstance(locator_instance, GenericSweepLocator):
-            fit_mode_estimates = locator_instance.fit_mode_estimates()
-            if fit_mode_estimates:
-                locator_final_result = {**fit_mode_estimates, **locator_final_result}
+            fitted_estimates = locator_instance.fitted_estimates()
+            if fitted_estimates:
+                locator_final_result = {**fitted_estimates, **locator_final_result}
 
         history_df = run_result_to_history_df(
             result, rid, experiment.drive_freq_min_phys, experiment.drive_freq_max_phys
@@ -1697,24 +1539,6 @@ class _TaskRunner:
             with suppress(Exception):
                 true_noise_std = float(over_freq_noise.noise_std())
         finalize_record["true_noise_std"] = true_noise_std
-
-        finalize_record["sobol_baseline_steps"] = sobol_baseline_steps
-        finalize_record["sobol_primary_steps"] = sobol_primary_steps
-        if sobol_baseline_steps is not None and sobol_primary_steps is not None:
-            finalize_record["sobol_conv_diff"] = sobol_baseline_steps - sobol_primary_steps
-        else:
-            finalize_record["sobol_conv_diff"] = None
-
-        if self.strategy_name != "SimpleSobol" and sobol_data is not None:
-            finalize_record["sobol_primary_uncert_at_conv"] = sobol_data.get("sobol_primary_uncert_at_conv")
-            finalize_record["sobol_primary_err_at_conv"] = sobol_data.get("sobol_primary_err_at_conv")
-            finalize_record["sobol_baseline_uncert"] = sobol_data.get("sobol_baseline_uncert")
-            finalize_record["sobol_baseline_err"] = sobol_data.get("sobol_baseline_err")
-        else:
-            finalize_record["sobol_primary_uncert_at_conv"] = None
-            finalize_record["sobol_primary_err_at_conv"] = None
-            finalize_record["sobol_baseline_uncert"] = None
-            finalize_record["sobol_baseline_err"] = None
 
         return history_df, finalize_record, stop_reason, result
 

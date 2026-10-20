@@ -15,7 +15,7 @@ GENERATORS = [
 
 @pytest.mark.parametrize("gen_name", GENERATORS)
 def test_voigt_compute_many_float64_matches_scalar_loop(gen_name: str):
-    combo = CombinationGrid().resolve(gen_name, "Gauss(0.01)", "SimpleSweep")
+    combo = CombinationGrid().resolve(gen_name, "Gauss(0.01)", "SimpleSweep-3perFWHM")
     assert combo is not None
     signal = combo.generator.generate(random.Random(3))
     model = signal.model

@@ -111,7 +111,7 @@ class OverFrequencyNoise(ABC):
         Override for a real scalar fast path -- this is the per-measurement
         acquisition hot loop (:meth:`~nvision.models.experiment.CoreExperiment.measure`
         calls it once per step), so the Polars round-trip dominates runtime at
-        the thousands-of-steps scale (SimpleSweep/SimpleSobol).
+        the thousands-of-steps scale (SimpleSweep).
         """
         batch = DataBatch(x=[x], signal_values=[signal_value])
         noisy = self.apply(batch, rng)

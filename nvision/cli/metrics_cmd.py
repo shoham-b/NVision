@@ -55,12 +55,6 @@ _METRIC_KEYS: tuple[str, ...] = (
     "duration_ms",
     "sweep_steps",
     "locator_steps",
-    "sobol_baseline_steps",
-    "sobol_primary_steps",
-    "sobol_conv_diff",
-    "sobol_primary_uncert_at_conv",
-    "sobol_primary_err_at_conv",
-    "sobol_difference",
     "steps_to_primary",
     "err_primary_at_milestone",
     "err_split_at_milestone",
@@ -167,7 +161,7 @@ def recalc_metrics(
     """Recalculate UI metrics from cached run data and refresh plots_manifest.json.
 
     Re-derives abs_err_x / uncert from the stored estimates and ground truth,
-    then propagates all remaining metric fields (sweep_steps, sobol_*, milestone
+    then propagates all remaining metric fields (sweep_steps, milestone
     metrics, convergence steps, …) from the cached main_result_row into the
     manifest scan entries.  Rewrites both the cache entries and
     plots_manifest.json so the UI reflects updated values immediately — no

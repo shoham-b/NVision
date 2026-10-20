@@ -628,9 +628,6 @@ def plot_data_from_scan_figure(fig: go.Figure) -> dict[str, Any] | None:
     has_metrics = any(getattr(t, "name", None) in ("Entropy", "Uncertainty") for t in fig.data)
 
     y_dense_mode: list[float] | None = None
-    y_dense_sobol_mode: list[float] | None = None
-    sobol_x: list[float] = []
-    sobol_y: list[float | None] = []
     for tr in fig.data:
         name = getattr(tr, "name", None) or ""
         mode = getattr(tr, "mode", "") or ""
@@ -638,11 +635,6 @@ def plot_data_from_scan_figure(fig: go.Figure) -> dict[str, Any] | None:
             _, ym = _trace_xy_lists(tr)
             if ym and all(v is not None for v in ym):
                 y_dense_mode = [float(v) for v in ym if v is not None]
-            continue
-        if name == "sobol most likely signal" and "lines" in mode:
-            _, ym = _trace_xy_lists(tr)
-            if ym and all(v is not None for v in ym):
-                y_dense_sobol_mode = [float(v) for v in ym if v is not None]
             continue
         if name == "true signal" and "lines" in mode:
             x_dense, y_dense = _trace_xy_lists(tr)
@@ -679,9 +671,6 @@ def plot_data_from_scan_figure(fig: go.Figure) -> dict[str, Any] | None:
                 if c is not None and hasattr(c, "__iter__") and not isinstance(c, str | bytes):
                     step_idx = [float(v) for v in c]
             continue
-        if name == "sobol measurements (noisy)":
-            sobol_x, sobol_y = _trace_xy_lists(tr)
-            continue
 
     if x_dense is None or y_dense is None:
         return None
@@ -693,16 +682,8 @@ def plot_data_from_scan_figure(fig: go.Figure) -> dict[str, Any] | None:
     }
     if y_dense_mode is not None and len(y_dense_mode) == len(out["x_dense"]):
         out["y_dense_mode"] = y_dense_mode
-    if y_dense_sobol_mode is not None and len(y_dense_sobol_mode) == len(out["x_dense"]):
-        out["y_dense_sobol_mode"] = y_dense_sobol_mode
     if y_dense_noisy is not None and len(y_dense_noisy) == len(out["x_dense"]):
         out["y_dense_noisy"] = y_dense_noisy
-
-    if sobol_x:
-        out["sobol_measurements"] = {
-            "x": sobol_x,
-            "y": [float(y) for y in sobol_y if y is not None],
-        }
 
     if coarse_x or fine_x:
         if len(fine_step) != len(fine_x):
@@ -788,9 +769,6 @@ def _compute_scan_data_dict(
     belief_unit_cube: UnitCubeSignalModel | None = None,
     narrowed_param_bounds: dict[str, tuple[float, float]] | None = None,
     per_dip_windows: list[tuple[float, float]] | None = None,
-    sobol_drive_freqs_unit: list[float] | None = None,
-    sobol_ys: list[float] | None = None,
-    sobol_mode_estimates: Mapping[str, float] | None = None,
     sweep_drive_freqs_unit: list[float] | None = None,
     sweep_ys: list[float] | None = None,
     sweep_mode_estimates: Mapping[str, float] | None = None,
@@ -875,17 +853,6 @@ def _compute_scan_data_dict(
     if true_params and isinstance(true_params, dict):
         out["true_params"] = true_params
 
-    if sobol_drive_freqs_unit and sobol_ys:
-        width = float(scan.drive_freq_max_phys - scan.drive_freq_min_phys)
-        out["sobol_measurements"] = {
-            "x": float(scan.drive_freq_min_phys) + np.asarray(sobol_drive_freqs_unit, dtype=float) * width,
-            "y": np.asarray(sobol_ys, dtype=float),
-        }
-    if sobol_mode_estimates:
-        y_sobol_mode = _mode_belief_dense_y(scan, xs, sobol_mode_estimates, belief_unit_cube=belief_unit_cube)
-        if y_sobol_mode is not None and len(y_sobol_mode) > 0:
-            out["sobol_mode_y"] = y_sobol_mode
-
     if sweep_drive_freqs_unit and sweep_ys:
         width = float(scan.drive_freq_max_phys - scan.drive_freq_min_phys)
         out["sweep_measurements"] = {
@@ -927,9 +894,6 @@ class MeasurementsMixin:
         per_dip_windows: list[tuple[float, float]] | None = None,
         belief_unit_cube: UnitCubeSignalModel | None = None,
         narrowed_param_bounds: dict[str, tuple[float, float]] | None = None,
-        sobol_drive_freqs_unit: list[float] | None = None,
-        sobol_ys: list[float] | None = None,
-        sobol_mode_estimates: Mapping[str, float] | None = None,
         sweep_drive_freqs_unit: list[float] | None = None,
         sweep_ys: list[float] | None = None,
         sweep_mode_estimates: Mapping[str, float] | None = None,
@@ -949,9 +913,6 @@ class MeasurementsMixin:
             belief_unit_cube=belief_unit_cube,
             narrowed_param_bounds=narrowed_param_bounds,
             per_dip_windows=per_dip_windows,
-            sobol_drive_freqs_unit=sobol_drive_freqs_unit,
-            sobol_ys=sobol_ys,
-            sobol_mode_estimates=sobol_mode_estimates,
             sweep_drive_freqs_unit=sweep_drive_freqs_unit,
             sweep_ys=sweep_ys,
             sweep_mode_estimates=sweep_mode_estimates,

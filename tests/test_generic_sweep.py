@@ -48,6 +48,7 @@ def test_generic_sweep_classic_fit():
 
     locator = GenericSweepLocator(
         belief=belief,
+        spacing_divisor=None,
         signal_model=unit_model,
         max_steps=20,
         noise_std=0.005,

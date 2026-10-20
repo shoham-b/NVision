@@ -75,8 +75,7 @@ class GraphJob:
     noise_obj: Any
     strat_obj: Any
     run_result: Any  # RunResult
-    sobol_baseline: dict[str, Any] | None  # the SBED task's own baselines, so the worker need not re-simulate
-    simplesweep_baseline: dict[str, Any] | None
+    simplesweep_baseline: dict[str, Any] | None  # the SBED task's own baseline, so the worker need not re-simulate
 
 
 def spool_dir(cache_dir: Path) -> Path:
@@ -171,17 +170,13 @@ def _generate_and_save(job: GraphJob, bridge: Any) -> None:
     """Build one repeat's full graph entries and re-save the repeat with them."""
     from nvision.runner.cache import embed_graph_content
     from nvision.runner.plots import generate_attempt_plots
-    from nvision.runner.sweep_cache import put_cached_simplesweep_baseline, put_cached_sobol_baseline
+    from nvision.runner.sweep_cache import put_cached_simplesweep_baseline
     from nvision.sim.combinations import CombinationGrid
     from nvision.viz import Viz
 
     kw = job.combo_kw
-    # This process has no SBED task's in-memory baselines; hand it the ones that task computed,
-    # otherwise the plots would re-simulate them.
-    if job.sobol_baseline is not None:
-        put_cached_sobol_baseline(
-            job.current_scan, kw["seed"], kw["generator"], kw["noise"], job.rid, job.sobol_baseline
-        )
+    # This process has no SBED task's in-memory baseline; hand it the one that task computed,
+    # otherwise the plots would re-simulate it.
     if job.simplesweep_baseline is not None:
         put_cached_simplesweep_baseline(
             job.current_scan, kw["seed"], kw["generator"], kw["noise"], job.rid, job.simplesweep_baseline

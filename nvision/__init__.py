@@ -32,7 +32,7 @@ from nvision.sim.gen import (
     nv_center_lorentzian_bounds_for_domain,
 )
 from nvision.sim.locs.bayesian.belief_builders import nv_center_smc_belief
-from nvision.sim.locs.coarse import GenericSweepLocator, StagedSobolSweepLocator
+from nvision.sim.locs.coarse import GenericSweepLocator
 from nvision.spectra.gaussian import GaussianModel, GaussianSpectrum
 from nvision.spectra.likelihood import likelihood_from_observation_model
 from nvision.spectra.lorentzian import LorentzianModel, LorentzianSpectrum
@@ -98,7 +98,6 @@ __all__ = [
     "RunResult",
     # Belief
     "SMCMarginalDistribution",
-    "StagedSobolSweepLocator",
     "TrueSignal",
     "UnitCubeSignalModel",
     "VoigtZeemanModel",

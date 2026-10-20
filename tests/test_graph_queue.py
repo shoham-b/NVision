@@ -35,7 +35,6 @@ def _job(slug: str, rid: int) -> graph_queue.GraphJob:
         noise_obj=None,
         strat_obj=None,
         run_result=None,
-        sobol_baseline=None,
         simplesweep_baseline=None,
     )
 
