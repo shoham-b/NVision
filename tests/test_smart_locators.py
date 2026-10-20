@@ -7,6 +7,7 @@ focus happens as soon as the data show a dip, and from then on every measurement
 
 from __future__ import annotations
 
+import itertools
 import random
 
 import numpy as np
@@ -131,3 +132,57 @@ def test_smart_variants_share_sbed_inference_and_stop_rules():
         assert loc.convergence_threshold == plain.convergence_threshold
         assert isinstance(loc._focus, FocusRegion)
         assert loc._focus.is_full_domain()
+
+
+def _true_dip_center_phys(true_signal, lo_phys: float, hi_phys: float) -> float:
+    """Drive frequency (Hz) of the true signal's minimum, located on a dense grid then a fine one around it."""
+    coarse = np.linspace(lo_phys, hi_phys, 200_001)
+    x0 = coarse[int(np.argmin([true_signal(float(x)) for x in coarse]))]
+    fine = np.linspace(x0 - 3e3, x0 + 3e3, 601)
+    return float(fine[int(np.argmin([true_signal(float(x)) for x in fine]))])
+
+
+def test_smart_sweep_refines_at_both_steepest_slopes_once_the_dip_is_known():
+    linewidth = 2.75e6
+    exp, bounds = _experiment(linewidth=linewidth)
+    loc = _locator(SmartSweepLocator, bounds, max_steps=200)
+    trace = _drive(loc, exp, random.Random(11), 200)
+
+    assert loc.refine_steps, "a 0.4-contrast dip must be pinned down well enough to switch to refine mode"
+    first_refine = loc.refine_steps[0]
+    assert not trace[first_refine][0].is_full_domain(), "refine mode only starts once a focus exists"
+    refine_x = np.array([trace[i][1] for i in loc.refine_steps])
+
+    # Lorentzian: the d signal / d zeeman_split maxima are x0 +- HWHM / sqrt(3). The locator finds them
+    # numerically from its own estimate; within 0.15 HWHM of the true ones they carry >= 90% of the information.
+    x0 = _true_dip_center_phys(exp.true_signal, exp.drive_freq_min_phys, exp.drive_freq_max_phys)
+    optima = np.array([x0 - linewidth / np.sqrt(3.0), x0 + linewidth / np.sqrt(3.0)])
+    offset = np.min(np.abs(refine_x[:, None] - optima[None, :]), axis=1)
+    assert np.all(offset < 0.15 * linewidth)
+    sides = refine_x > x0
+    assert sides.any(), "the upper slope is measured"
+    assert (~sides).any(), "the lower slope is measured"
+    consecutive = [b - a == 1 for a, b in itertools.pairwise(loc.refine_steps)]
+    alternating = [s != t for s, t in itertools.pairwise(sides)]
+    assert all(a for a, c in zip(alternating, consecutive, strict=True) if c), "back-to-back refine picks alternate"
+
+
+def test_smart_sweep_refine_points_come_from_the_model_not_a_lorentzian_formula():
+    gen = NVCenterCoreGenerator(variant="voigt", linewidth=1.5e6, c_total=0.4, sigma_inhom=1.0e6, resonance_search=True)
+    true_signal = gen.generate(random.Random(5))
+    noise = CompositeNoise(over_frequency_noise=CompositeOverFrequencyNoise([OverFrequencyGaussianNoise(NOISE_SIGMA)]))
+    exp = CoreExperiment(
+        true_signal=true_signal,
+        noise=noise,
+        drive_freq_min_phys=gen.drive_freq_min_phys,
+        drive_freq_max_phys=gen.drive_freq_max_phys,
+    )
+    loc = _locator(SmartSweepLocator, true_signal.bounds, max_steps=200)
+    trace = _drive(loc, exp, random.Random(11), 200)
+    assert loc.refine_steps, "the Voigt dip must also reach refine mode"
+    refine_x = np.array([trace[i][1] for i in loc.refine_steps])
+    x0 = _true_dip_center_phys(true_signal, exp.drive_freq_min_phys, exp.drive_freq_max_phys)
+    assert (refine_x > x0).any()
+    assert (refine_x < x0).any()
+    # On the slopes, not at the (zero-sensitivity) dip centre.
+    assert np.min(np.abs(refine_x - x0)) > 0.2 * loc._fwhm_prior_phys / 2
