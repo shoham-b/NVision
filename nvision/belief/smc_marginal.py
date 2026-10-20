@@ -1077,7 +1077,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         if n == 0:
             return
         d = self.noise_discount_factor
-        xs_unit = self._obs_x_arr[:n]  # shape: (n_obs,), drive-frequency positions in [0, 1]
+        xs_unit = self._obs_drive_freqs_unit[:n]  # shape: (n_obs,), drive-frequency positions in [0, 1]
         ys = self._obs_y_arr[:n]
         ks = self._obs_shots_arr[:n]
         within = self._obs_within_arr[:n]
