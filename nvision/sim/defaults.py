@@ -58,10 +58,10 @@ NVISION_SWEEP_FIT_EARLY_STOP_SIGMAS: float = float(os.getenv("NVISION_SWEEP_FIT_
 
 # --- Robust Dip Detection Defaults -----------------------------------------
 
-NVISION_DIP_N_SIGMA: float = float(os.getenv("NVISION_DIP_N_SIGMA", "3.0"))
-NVISION_DIP_MIN_CLUSTER: int = int(os.getenv("NVISION_DIP_MIN_CLUSTER", "2"))
 NVISION_DIP_NOISE_UNCERTAINTY_THRESHOLD: float = float(os.getenv("NVISION_DIP_NOISE_UNCERTAINTY_THRESHOLD", "0.15"))
-NVISION_DIP_CONFIDENCE: float = float(os.getenv("NVISION_DIP_CONFIDENCE", "0.99"))
+# Family-wise false-alarm probability of the matched-filter dip test (Bonferroni over every
+# (centre, linewidth) hypothesis tested), see nvision.belief.dip_detection.find_dips.
+NVISION_DIP_P_FA: float = float(os.getenv("NVISION_DIP_P_FA", "0.01"))
 
 
 # --- Sobol Sweep Defaults (sobol_locator.py) ---------------------------------

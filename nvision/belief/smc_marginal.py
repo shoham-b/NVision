@@ -13,7 +13,7 @@ from scipy.special import gammaln
 
 from nvision.belief.abstract_marginal import AbstractMarginalDistribution, ParameterValues
 from nvision.belief.coordinate import RescaleMap
-from nvision.belief.dip_detection import DipCandidate, effective_max_linewidth_hz, find_dips
+from nvision.belief.dip_detection import DipCandidate, find_dips, linewidth_fwhm_prior_hz
 from nvision.models.fisher_information import CumulativeFisher, center_freq_crlb, typed_parameters
 from nvision.models.observation import Observation
 from nvision.spectra.dtypes import FLOAT_DTYPE
@@ -914,11 +914,15 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         if self._obs_count >= 5:
             obs_xs, obs_ys = self.sorted_observation_arrays()
             noise_std = self.estimated_noise_std()
+            gamma_mean_hz, gamma_std_hz, gamma_min_hz, gamma_max_hz = linewidth_fwhm_prior_hz(phys_bounds)
             self._dip_candidates = find_dips(
                 self._drive_freq_map.to_phys(obs_xs),
                 obs_ys,
                 noise_std,
-                effective_max_linewidth_hz(phys_bounds),
+                gamma_mean_hz,
+                gamma_std_hz,
+                gamma_min_hz,
+                gamma_max_hz,
                 noise_std_unc=self.noise_std_uncertainty(noise_std),
                 assume_sorted=True,
             )

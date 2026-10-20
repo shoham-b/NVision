@@ -3,8 +3,8 @@
 Two kinds of narrowing share only the clamping arithmetic (:func:`clamp_to_domain`):
 
 * The Bayesian locator's dip-based focus is a :class:`FocusRegion` -- one padded section per
-  statistically significant dip (``find_dips``), overlapping sections merged -- decided by
-  :func:`next_focus_region`. Owned by the locator, never the belief.
+  statistically significant dip (``find_dips``: Lorentzian matched-filter GLRT), overlapping sections
+  merged -- decided by :func:`next_focus_region`. Owned by the locator, never the belief.
 * The sweep locators' geometric dip-shape narrowing (``StagedSobolSweepLocator`` /
   ``nvision.sim.locs.refocus``) uses a single-interval :class:`FocusWindow`, built with
   :meth:`FocusWindow.from_candidate` (clamp + reject a collapsed window).
@@ -34,9 +34,9 @@ _Numeric = float | np.ndarray
 # settles on a (possibly wrong) place.
 NVISION_MIN_STEPS_BEFORE_NARROWING: int = int(os.getenv("NVISION_MIN_STEPS_BEFORE_NARROWING", "8"))
 # Each significant dip's extent is padded by k * hwhm on each side to form its focus section; k is
-# this cover factor. Dip extents only span the points measured >= n_sigma below baseline, i.e. the
-# line core, so the pad restores the wings (3 HWHM of a Lorentzian carries ~90% of its depth).
-NVISION_SMC_FOCUSING_COVER_FACTOR: float = float(os.getenv("NVISION_SMC_FOCUSING_COVER_FACTOR", "3.0"))
+# this cover factor. Dip extents are already the matched-filter window (centre +/- 1.5 FWHM = 3 HWHM,
+# ~90% of a Lorentzian's depth), so the pad only adds one HWHM of margin for the centre's uncertainty.
+NVISION_SMC_FOCUSING_COVER_FACTOR: float = float(os.getenv("NVISION_SMC_FOCUSING_COVER_FACTOR", "1.0"))
 # A narrowing is only applied when it shrinks the focus's total covered width by at least this fraction.
 _MIN_NARROWING_FRACTION: float = 0.05
 
@@ -240,8 +240,9 @@ def next_focus_region(
     """Decide the drive-frequency focus for the next epoch from the dips the observations show.
 
     The target region has one section per significant dip: its ``[f_min, f_max]`` extent (see
-    :func:`nvision.belief.dip_detection.find_dips`: measurements ``NVISION_DIP_N_SIGMA`` noise sigmas
-    below the baseline that pass the binomial test), padded by ``pad_phys`` on each side, clamped to the
+    :func:`nvision.belief.dip_detection.find_dips`: the matched-filter window ``centre +/- 1.5 FWHM`` of
+    every dip whose z-score passes the ``NVISION_DIP_P_FA`` family-wise test), padded by ``pad_phys`` on
+    each side, clamped to the
     full axis, with overlapping sections merged. It depends on the measurements only, never on the
     particle belief.
 

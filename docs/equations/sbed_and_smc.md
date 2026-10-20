@@ -251,7 +251,7 @@ where `c_total` is the population-normalized contrast (a free parameter for plai
 
 The **focus** is a set of disjoint sections of the drive-frequency axis, owned by the locator (`SequentialBayesianLocator._focus`, a `FocusRegion`). It limits only *which candidate x positions may be scanned*: `_eig_acquire` drops every epoch candidate outside all sections (`FocusRegion.contains`; an empty result raises). The belief never sees it, so its parameter bounds, particles and the model's x-range are untouched. The exploration branches in `_acquire` still draw from the full drive-frequency axis.
 
-It is updated by the pure function `next_focus_region` (`focus_window.py`) right after a resample (weights uniform), from the significant dips `find_dips` reports: one section per dip, its `[f_min, f_max]` extent padded by `NVISION_SMC_FOCUSING_COVER_FACTOR` × the posterior-mean effective HWHM per side, clamped to the axis, overlapping sections merged. A dip section outside the focus expands it (union) immediately; narrowing to the target waits `NVISION_MIN_STEPS_BEFORE_NARROWING` steps (and as many since the last expansion) and must shrink the total covered width by ≥5%. With no significant dip the focus is unchanged. Dips are measurement facts, so this is active with the default fixed `center_freq` too.
+It is updated by the pure function `next_focus_region` (`focus_window.py`) right after a resample (weights uniform), from the significant dips `find_dips` reports: one section per dip, its `[f_min, f_max]` matched-filter window (already ±3 HWHM) padded by `NVISION_SMC_FOCUSING_COVER_FACTOR` (= 1.0) × the posterior-mean effective HWHM per side, clamped to the axis, overlapping sections merged. A dip section outside the focus expands it (union) immediately; narrowing to the target waits `NVISION_MIN_STEPS_BEFORE_NARROWING` steps (and as many since the last expansion) and must shrink the total covered width by ≥5%. With no significant dip the focus is unchanged. Dips are measurement facts, so this is active with the default fixed `center_freq` too.
 
 The focus narrows to the union of particle-predicted active regions. Each particle i covers
 
@@ -302,17 +302,18 @@ The locator has exactly one noise estimate: the belief's Inverse-Gamma posterior
 
 ### 3.5 Dip Detection (`find_dips`, `belief/dip_detection.py`)
 
-Deterministic, classic dip finding from the measured scan alone — it never reads the SMC particles' inferred signal parameters. Inputs are the observations (x, y), the scalar noise σ̂ of §3.3 (and its uncertainty) and the linewidth prior's upper bound Ω_max, taken from the parameter *bounds*:
+Deterministic dip finding from the measured scan alone — a generalized likelihood ratio test with a zero-sum Lorentzian matched filter. It never reads the SMC particles. Inputs are the observations (x, y), the scalar noise σ̂ of §3.3 (and its uncertainty) and the FWHM prior Γ̄ ± σ_Γ (range [Γ_min, Γ_max]) taken from the parameter *bounds* (`linewidth_fwhm_prior_hz`: the effective HWHM at the lower and upper bounds spans a uniform prior, FWHM = 2·HWHM):
 
-1. Baseline b = 70th percentile of y.
-2. A *dip point* is an observation with b − y > n_σ·σ̂ (n_σ = `NVISION_DIP_N_SIGMA` = 3.0) and b − y > 1% of b.
-3. Consecutive dip points closer than 3·Ω_max form one cluster; clusters with fewer than `NVISION_DIP_MIN_CLUSTER` = 2 points are dropped.
-4. **Binomial test.** A cluster of k dip points with n_local observations within [f_min − 3Ω_max, f_max + 3Ω_max] is accepted when P(Binom(n_local, Φ(−n_σ)) ≤ k−1) ≥ `NVISION_DIP_CONFIDENCE` = 0.99, i.e. that many low points among the nearby ones cannot plausibly be noise.
-5. Centroid = depth-weighted mean drive-frequency position; significance = k; candidates are returned most-significant first.
+1. **Linewidth grid.** Five FWHMs Γ evenly spaced on [max(Γ_min, Γ̄ − 2σ_Γ), min(Γ_max, Γ̄ + 2σ_Γ)], where Γ_min = 2·HWHM_lo and Γ_max = 2·HWHM_hi are the narrowest and widest FWHM the prior allows (±2σ of a uniform prior overshoots both ends, the low one even below 0).
+2. **Matched filter.** For each Γ and each candidate centre c (every distinct measured x), take the observations with |x_i − c| ≤ 1.5Γ and build the template at their actual positions,
+   $$w_i = \frac{(\Gamma/2)^2}{(x_i - c)^2 + (\Gamma/2)^2},\qquad \tilde w_i = \frac{w_i - \bar w}{\lVert w - \bar w\rVert_2},\qquad z(c,\Gamma) = -\frac{\sum_i \tilde w_i\, y_i}{\hat\sigma}.$$
+   The zero mean annihilates the local baseline, so z ∼ N(0, 1) under "no dip". On a uniform sweep this is the cross-correlation of −y with the template; the per-window form also handles SBED's irregular, repeated positions. Windows with < 3 points (or a flat template) are not testable.
+3. **Family-wise test.** With N testable (c, Γ) hypotheses, a hypothesis is significant when z > Φ⁻¹(1 − p_fa/N) (Bonferroni), p_fa = `NVISION_DIP_P_FA` = 0.01.
+4. **Peeling.** Significant hypotheses are taken best-z first; one whose centre lies within 1.5·max(Γ, Γ_d) of an accepted dip d is that dip's echo and is skipped. Each accepted dip gives centroid c, window [c − 1.5Γ, c + 1.5Γ], significance z, confidence 1 − min(1, N·Φ(−z)) and its FWHM Γ.
 
-When σ̂'s relative uncertainty is ≥ `NVISION_DIP_NOISE_UNCERTAINTY_THRESHOLD` = 0.15 the noise level is too poorly known to threshold against and no dips are reported.
+When σ̂'s relative uncertainty is ≥ `NVISION_DIP_NOISE_UNCERTAINTY_THRESHOLD` = 0.15 the noise level is too poorly known to normalise z-scores and no dips are reported.
 
-The belief runs the detector at each resample once ≥5 observations exist; the result is `belief.dip_candidates`. It supplies the dip kernels of §1.8 and the focus windows the UI animates (`bayesian_focus_window`, `per_dip_windows`, `focus_window_candidates` are the extents [f_min, f_max] of the detected dips).
+The belief runs the detector at each resample once ≥5 observations exist; the result is `belief.dip_candidates`. It supplies the dip kernels of §1.8 and the focus windows the UI animates (`bayesian_focus_window`, `per_dip_windows`, `focus_window_candidates` are the matched-filter windows [f_min, f_max] of the detected dips).
 
 **Sorted observations.** Detection needs the observations ordered by x. `SMCMarginalDistribution.sorted_observation_arrays()` keeps them sorted incrementally (one `searchsorted` insertion per new observation, lazily applied) so `find_dips(..., assume_sorted=True)` can use binary search instead of re-sorting the full history on every call.
 
@@ -530,8 +531,7 @@ that margin at a 2.2× rather than 3.6× saving.
 | K_safety | `NVISION_CENTER_FREQ_CRLB_SAFETY_FACTOR` | 4.0 | — |
 | patience | `NVISION_CONVERGENCE_PATIENCE` | 8 | steps |
 | threshold | `NVISION_CONVERGENCE_THRESHOLD` | 0.01 | relative |
-| p_conf | `NVISION_DIP_CONFIDENCE` | 0.99 | — |
-| n_σ | `NVISION_DIP_N_SIGMA` | 3.0 | noise σ |
+| p_fa | `NVISION_DIP_P_FA` | 0.01 | — (family-wise) |
 | f_expl | `NVISION_SMC_MIN_EXPLORATION_FRAC` | 0.01 | — |
 | W | `NVISION_SBED_PLATEAU_WINDOW` | 30 | steps |
 | f_σ | `NVISION_SBED_PLATEAU_SIGMA_FRAC` | 0.25 | — |

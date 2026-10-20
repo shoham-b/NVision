@@ -42,7 +42,7 @@ def _dip(f_min: float, f_max: float) -> DipCandidate:
         f_min=f_min,
         f_max=f_max,
         confidence=0.999,
-        background=1.0,
+        fwhm_hz=(f_max - f_min) / 3.0,
     )
 
 

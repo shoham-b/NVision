@@ -1,4 +1,4 @@
-"""Unit tests for deterministic dip detection and the belief's conjugate noise estimate."""
+"""Unit tests for the matched-filter dip detector and the belief's conjugate noise estimate."""
 
 from __future__ import annotations
 
@@ -6,102 +6,193 @@ import numpy as np
 import pytest
 
 from nvision import nv_center_smc_belief
-from nvision.belief.dip_detection import effective_max_linewidth_hz, find_dips
+from nvision.belief.dip_detection import find_dips, linewidth_fwhm_prior_hz
 from tests.noise import gaussian_noise
 
-# A clean scan: baseline 1.0 with one dip (three points ~0.2-0.3 below it) around 2.822 GHz.
-_DIP_XS = np.array([2.8e9, 2.81e9, 2.82e9, 2.822e9, 2.824e9, 2.83e9, 2.84e9, 2.85e9, 2.86e9, 2.87e9])
-_DIP_YS = np.array([1.0, 1.0, 0.8, 0.7, 0.8, 1.0, 1.0, 1.0, 1.0, 1.0])
+# FWHM prior used throughout: 10 MHz +/- 2 MHz, allowed range 4-16 MHz.
+_G_MEAN, _G_STD, _G_MIN, _G_MAX = 10e6, 2e6, 4e6, 16e6
+
+
+def _lorentzian_scan(xs, centers, depth=1.0, fwhm=10e6):
+    """Baseline 1.0 minus a Lorentzian dip of the given depth (and FWHM) at each centre. shape: like xs."""
+    hw = 0.5 * fwhm
+    ys = np.ones_like(xs, dtype=float)
+    for c in centers:
+        ys -= depth * hw**2 / ((xs - c) ** 2 + hw**2)
+    return ys
+
+
+# Clean uniform sweep, 1 MHz step, one dip at 2.85 GHz.
+_DIP_XS = np.arange(2.80e9, 2.90e9 + 1, 1e6)
+_DIP_YS = _lorentzian_scan(_DIP_XS, [2.85e9], depth=0.2)
 
 
 def test_find_dips_empty():
-    assert find_dips(np.array([]), np.array([]), 0.02, 5e6) == []
+    assert find_dips(np.array([]), np.array([]), 0.02, _G_MEAN, _G_STD, _G_MIN, _G_MAX) == []
 
 
-def test_find_dips_no_dips():
-    # Every point is ~1.0, within noise of the baseline: nothing sits 3 sigma below it.
-    obs_xs = np.linspace(2.8e9, 2.9e9, 10)
-    obs_ys = np.ones(10) + np.random.default_rng(0).uniform(-0.01, 0.01, 10)
-    assert find_dips(obs_xs, obs_ys, 0.02, 5e6, n_sigma=3.0, min_cluster_count=2) == []
+def test_find_dips_too_few_positions():
+    xs, ys = np.array([2.8e9, 2.8e9, 2.81e9]), np.array([1.0, 0.5, 1.0])
+    assert find_dips(xs, ys, 0.02, _G_MEAN, _G_STD, _G_MIN, _G_MAX) == []
 
 
-def test_find_dips_single_isolated_low_point_is_filtered():
-    obs_xs = np.linspace(2.8e9, 2.9e9, 10)
-    obs_ys = np.ones(10)
-    obs_ys[5] = 0.8  # deep, but alone: below min_cluster_count
-    assert find_dips(obs_xs, obs_ys, 0.02, 5e6, n_sigma=3.0, min_cluster_count=2) == []
+def test_find_dips_pure_noise_has_no_false_alarms():
+    # Many independent pure-noise scans: at p_fa = 0.01 the family-wise false alarm rate is <= 1%.
+    rng = np.random.default_rng(0)
+    xs = np.arange(2.80e9, 2.90e9 + 1, 0.5e6)
+    false_alarms = sum(
+        bool(find_dips(xs, 1.0 + 0.05 * rng.standard_normal(xs.size), 0.05, _G_MEAN, _G_STD, _G_MIN, _G_MAX))
+        for _ in range(200)
+    )
+    assert false_alarms <= 6
 
 
-def test_find_dips_cluster_centroid_is_depth_weighted():
-    # 2.82/2.822/2.824 GHz are all > 3 sigma below the 1.0 baseline and within 3 * 5 MHz of each
-    # other, so they form one dip; depth weights are 0.2, 0.3, 0.2.
-    dips = find_dips(_DIP_XS, _DIP_YS, 0.02, 5e6, n_sigma=3.0, min_cluster_count=2)
+def test_find_dips_locates_a_clean_dip():
+    dips = find_dips(_DIP_XS, _DIP_YS, 0.02, _G_MEAN, _G_STD, _G_MIN, _G_MAX)
     assert len(dips) == 1
-    assert np.isclose(dips[0].centroid_hz, 2.822e9)
-    assert dips[0].n_points == 3
-    assert dips[0].significance == 3.0
-    assert (dips[0].f_min, dips[0].f_max) == (2.82e9, 2.824e9)
-    assert np.isclose(dips[0].background, 1.0)
+    d = dips[0]
+    assert d.centroid_hz == 2.85e9
+    assert d.significance > 0
+    assert 0.0 < d.confidence <= 1.0
+    assert np.isclose(d.f_max - d.f_min, 3.0 * d.fwhm_hz)
+    assert np.isclose(0.5 * (d.f_min + d.f_max), d.centroid_hz)
+    assert _G_MEAN - 2 * _G_STD <= d.fwhm_hz <= _G_MEAN + 2 * _G_STD
 
 
-def test_find_dips_separates_distant_dips_and_ranks_by_significance():
-    xs = np.array([2.80e9, 2.802e9, 2.804e9, 2.85e9, 2.90e9, 2.902e9, 2.95e9, 2.96e9])
-    ys = np.array([0.7, 0.7, 0.7, 1.0, 0.7, 0.7, 1.0, 1.0])
-    dips = find_dips(xs, ys, 0.03, 5e6, n_sigma=3.0, min_cluster_count=2, confidence_threshold=0.0)
-    assert [d.n_points for d in dips] == [3, 2]
-    assert dips[0].centroid_hz < 2.81e9 < 2.89e9 < dips[1].centroid_hz
+def test_find_dips_detects_snr_one_dip_on_irregular_repeated_positions():
+    # Depth equal to the noise sigma (SNR ~ 1 per point) -- invisible to any per-point threshold --
+    # sampled irregularly with repeats, as SBED's adaptive acquisition produces. Only the matched
+    # filter's coherent sum over the ~500 points in the window lifts it above the FWER threshold.
+    rng = np.random.default_rng(3)
+    xs = np.sort(np.concatenate([rng.uniform(2.80e9, 2.90e9, 1500), np.repeat(rng.uniform(2.84e9, 2.86e9, 40), 3)]))
+    ys = _lorentzian_scan(xs, [2.85e9], depth=0.05) + 0.05 * rng.standard_normal(xs.size)
+    dips = find_dips(xs, ys, 0.05, _G_MEAN, _G_STD, _G_MIN, _G_MAX, assume_sorted=True)
+    assert len(dips) >= 1
+    assert abs(dips[0].centroid_hz - 2.85e9) < 3e6
+
+
+def test_find_dips_ignores_a_constant_baseline_offset():
+    # The zero-sum template annihilates the local baseline: shifting every value changes nothing.
+    a = find_dips(_DIP_XS, _DIP_YS, 0.02, _G_MEAN, _G_STD, _G_MIN, _G_MAX)
+    b = find_dips(_DIP_XS, _DIP_YS + 7.0, 0.02, _G_MEAN, _G_STD, _G_MIN, _G_MAX)
+    assert [d.centroid_hz for d in a] == [d.centroid_hz for d in b]
+    assert np.allclose([d.significance for d in a], [d.significance for d in b])
+
+
+def test_find_dips_peels_separated_dips_and_ranks_by_significance():
+    xs = np.arange(2.80e9, 2.95e9 + 1, 1e6)
+    ys = 1.0 - (1.0 - _lorentzian_scan(xs, [2.83e9], depth=0.3)) - (1.0 - _lorentzian_scan(xs, [2.91e9], depth=0.15))
+    dips = find_dips(xs, ys, 0.02, _G_MEAN, _G_STD, _G_MIN, _G_MAX)
+    assert [d.centroid_hz for d in dips] == [2.83e9, 2.91e9]
+    assert dips[0].significance > dips[1].significance
 
 
 def test_find_dips_is_deterministic_and_ignores_input_order():
     order = np.random.default_rng(1).permutation(len(_DIP_XS))
-    a = find_dips(_DIP_XS, _DIP_YS, 0.02, 5e6)
-    b = find_dips(_DIP_XS, _DIP_YS, 0.02, 5e6)
-    c = find_dips(_DIP_XS[order], _DIP_YS[order], 0.02, 5e6)
+    a = find_dips(_DIP_XS, _DIP_YS, 0.02, _G_MEAN, _G_STD, _G_MIN, _G_MAX)
+    b = find_dips(_DIP_XS, _DIP_YS, 0.02, _G_MEAN, _G_STD, _G_MIN, _G_MAX)
+    c = find_dips(_DIP_XS[order], _DIP_YS[order], 0.02, _G_MEAN, _G_STD, _G_MIN, _G_MAX)
     assert a == b == c
 
 
-def test_find_dips_binomial_confidence_gate():
-    # Two low points (0.1 below the baseline, ~1 sigma at noise 0.1) among ten nearby points: at
-    # a 1-sigma threshold a pair of low points is quite likely to be chance, so the 0.99 gate
-    # rejects it; with no gate it is reported.
-    xs = np.array([2.800e9, 2.802e9] + [2.805e9 + i * 1e6 for i in range(8)])
-    ys = np.array([0.9, 0.9] + [1.0] * 8)
-    kwargs = dict(noise_std=0.09, max_linewidth_hz=5e6, n_sigma=1.0, min_cluster_count=2)
-    assert find_dips(xs, ys, confidence_threshold=0.99, **kwargs) == []
-    assert len(find_dips(xs, ys, confidence_threshold=0.0, **kwargs)) == 1
+def test_find_dips_p_fa_gate():
+    # A shallow dip: its z-score passes a lenient family-wise false-alarm rate but not a strict one.
+    ys = _lorentzian_scan(_DIP_XS, [2.85e9], depth=0.02)
+    z = find_dips(_DIP_XS, ys, 0.01, _G_MEAN, _G_STD, _G_MIN, _G_MAX, p_fa=0.5)[0].significance
+    assert find_dips(_DIP_XS, ys, 0.01 * z / 4.0, _G_MEAN, _G_STD, _G_MIN, _G_MAX, p_fa=0.5)
+    assert find_dips(_DIP_XS, ys, 0.01 * z / 4.0, _G_MEAN, _G_STD, _G_MIN, _G_MAX, p_fa=1e-12) == []
 
 
 def test_find_dips_assume_sorted_matches_default():
-    order = np.argsort(_DIP_XS)
-    xs, ys = _DIP_XS[order], _DIP_YS[order]
-    assert find_dips(xs, ys, 0.02, 5e6, assume_sorted=True) == find_dips(xs, ys, 0.02, 5e6)
+    assert find_dips(_DIP_XS, _DIP_YS, 0.02, _G_MEAN, _G_STD, _G_MIN, _G_MAX, assume_sorted=True) == find_dips(
+        _DIP_XS, _DIP_YS, 0.02, _G_MEAN, _G_STD, _G_MIN, _G_MAX
+    )
 
 
 def test_find_dips_assume_sorted_raises_on_unsorted_input():
     with pytest.raises(ValueError, match="assume_sorted"):
-        find_dips(np.array([2.8e9, 2.9e9, 2.85e9]), np.array([1.0, 1.0, 1.0]), 0.02, 5e6, assume_sorted=True)
+        find_dips(
+            np.array([2.8e9, 2.9e9, 2.85e9]),
+            np.array([1.0, 1.0, 1.0]),
+            0.02,
+            _G_MEAN,
+            _G_STD,
+            _G_MIN,
+            _G_MAX,
+            assume_sorted=True,
+        )
 
 
 @pytest.mark.parametrize("noise_std", [0.0, -0.01, float("nan")])
 def test_find_dips_rejects_a_non_positive_noise_sigma(noise_std):
     with pytest.raises(ValueError, match="noise_std"):
-        find_dips(_DIP_XS, _DIP_YS, noise_std, 5e6)
+        find_dips(_DIP_XS, _DIP_YS, noise_std, _G_MEAN, _G_STD, _G_MIN, _G_MAX)
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "match"),
+    [
+        ({"gamma_mean_hz": 0.0}, "gamma_mean_hz"),
+        ({"gamma_std_hz": -1.0}, "gamma_std_hz"),
+        ({"gamma_min_hz": 0.0}, "gamma_min_hz"),
+        ({"gamma_min_hz": 2 * _G_MEAN}, "gamma_min_hz"),
+        ({"gamma_max_hz": 0.5 * _G_MEAN}, "gamma_max_hz"),
+        ({"p_fa": 1.0}, "p_fa"),
+    ],
+)
+def test_find_dips_rejects_invalid_prior_and_p_fa(kwargs, match):
+    args = {
+        "gamma_mean_hz": _G_MEAN,
+        "gamma_std_hz": _G_STD,
+        "gamma_min_hz": _G_MIN,
+        "gamma_max_hz": _G_MAX,
+        "p_fa": None,
+        **kwargs,
+    }
+    with pytest.raises(ValueError, match=match):
+        find_dips(_DIP_XS, _DIP_YS, 0.02, **args)
+
+
+def test_find_dips_never_tests_a_template_narrower_than_the_prior_minimum():
+    # A one-point spike is best matched by the narrowest template. With gamma_mean - 2 gamma_std = 2 MHz
+    # that would be 2 MHz, but the prior allows no dip narrower than 8 MHz, so no 2 MHz template is tested.
+    ys = np.ones_like(_DIP_XS)
+    ys[50] -= 0.5
+    unfloored = find_dips(_DIP_XS, ys, 0.02, 10e6, 4e6, 2e6, 30e6)
+    assert np.isclose(unfloored[0].fwhm_hz, 2e6)
+    floored = find_dips(_DIP_XS, ys, 0.02, 10e6, 4e6, 8e6, 30e6)
+    assert all(d.fwhm_hz >= 8e6 for d in floored)
+
+
+def test_find_dips_never_tests_a_template_wider_than_the_prior_maximum():
+    # A broad 30 MHz dip is best matched by the widest template. gamma_mean + 2 gamma_std = 18 MHz, but
+    # the prior allows no dip wider than 12 MHz, so no template wider than that is tested.
+    xs = np.arange(2.70e9, 3.00e9 + 1, 1e6)
+    ys = _lorentzian_scan(xs, [2.85e9], depth=0.3, fwhm=30e6)
+    assert np.isclose(find_dips(xs, ys, 0.02, 10e6, 4e6, 2e6, 30e6)[0].fwhm_hz, 18e6)
+    assert all(d.fwhm_hz <= 12e6 for d in find_dips(xs, ys, 0.02, 10e6, 4e6, 2e6, 12e6))
 
 
 def test_find_dips_uncertainty_gating():
     # noise_std_unc / noise_std = 20% >= the 15% default threshold: the noise level is too poorly
-    # known to threshold against, so nothing is reported. At 4% the dip is found.
-    assert find_dips(_DIP_XS, _DIP_YS, 0.05, 5e6, noise_std_unc=0.01) == []
-    dips = find_dips(_DIP_XS, _DIP_YS, 0.05, 5e6, noise_std_unc=0.002)
+    # known to normalise z-scores, so nothing is reported. At 4% the dip is found.
+    assert find_dips(_DIP_XS, _DIP_YS, 0.05, _G_MEAN, _G_STD, _G_MIN, _G_MAX, noise_std_unc=0.01) == []
+    dips = find_dips(_DIP_XS, _DIP_YS, 0.05, _G_MEAN, _G_STD, _G_MIN, _G_MAX, noise_std_unc=0.002)
     assert len(dips) == 1
-    assert np.isclose(dips[0].centroid_hz, 2.822e9)
+    assert dips[0].centroid_hz == 2.85e9
 
 
-def test_effective_max_linewidth_hz_uses_prior_bounds():
-    assert effective_max_linewidth_hz({"linewidth": (1e6, 5e6)}) == 5e6
-    assert effective_max_linewidth_hz({"homogeneous_linewidth": (1e6, 4e6)}) == 4e6
+def test_linewidth_fwhm_prior_hz_uses_prior_bounds():
+    # Uniform HWHM on [1, 5] MHz -> FWHM mean 6 MHz, std 2 * 4 / sqrt(12) MHz, range 2-10 MHz.
+    mean, std, minimum, maximum = linewidth_fwhm_prior_hz({"linewidth": (1e6, 5e6)})
+    assert np.isclose(mean, 6e6)
+    assert np.isclose(std, 8e6 / np.sqrt(12.0))
+    assert np.isclose(minimum, 2e6)
+    assert np.isclose(maximum, 10e6)
+    mean, _, _, _ = linewidth_fwhm_prior_hz({"homogeneous_linewidth": (1e6, 4e6)})
+    assert np.isclose(mean, 5e6)
     with pytest.raises(ValueError, match="no linewidth parameter"):
-        effective_max_linewidth_hz({"center_freq": (2.8e9, 2.9e9)})
+        linewidth_fwhm_prior_hz({"center_freq": (2.8e9, 2.9e9)})
 
 
 def test_sorted_observation_arrays_matches_full_sort():

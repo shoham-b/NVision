@@ -252,6 +252,10 @@ def physics_config_fingerprint() -> str:
         # Bumped when the SBED focus became one padded section per significant dip (overlaps merged)
         # instead of a single bounding interval: the empty axis between separated dips is no longer scanned.
         "sbed-focus-sections-v1",
+        # Bumped when find_dips became a zero-sum Lorentzian matched-filter GLRT (FWER p_fa, peeled
+        # per dip) instead of n-sigma thresholding + binomial clustering, and the focus cover factor dropped
+        # 3 -> 1 HWHM (the matched-filter window already spans +/- 3 HWHM): dips, focus and candidates differ.
+        "dip-matched-filter-v1",
         MIN_LINEWIDTH,
         MAX_LINEWIDTH,
         MIN_SPLIT,
