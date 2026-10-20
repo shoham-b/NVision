@@ -1538,9 +1538,7 @@ class _TaskRunner:
         token = set_combination_log_initials(self.generator_name, self.noise_name, self.strategy_name, repeat_idx=rid)
 
         try:
-            result = observer.watch(
-                run_loop(locator_class, experiment, rng, self._sweep_cache, n_shots=n_shots, **cfg)
-            )
+            result = observer.watch(run_loop(locator_class, experiment, rng, self._sweep_cache, n_shots=n_shots, **cfg))
             stop_reason = "locator_stop"
         except TimeoutError:
             result = RunResult(
