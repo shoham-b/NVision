@@ -1,16 +1,16 @@
-"""SBED reports the window it actually restricts acquisition to as the UI focus window.
+"""SBED reports the sections it actually restricts acquisition to as the UI focus window.
 
-``bayesian_focus_window()`` / ``focus_window_candidates()`` expose the locator's ``_focus`` (the
-interval ``_acquire`` filters EIG candidates by; derived from the significant dips) and feed the UI timeline
-(``StepSnapshot.focus_window_candidates``). ``per_dip_windows()`` is separate, display-only evidence
-from the belief's deterministic dip detection (``SMCMarginalDistribution.dip_candidates``), covered
-by ``test_dip_detection.py``.
+``focus_window_candidates()`` exposes the locator's ``_focus`` sections (what ``_eig_acquire`` filters
+EIG candidates by; derived from the significant dips) and feeds the UI timeline
+(``StepSnapshot.focus_window_candidates``); ``bayesian_focus_window()`` is their outer extent.
+``per_dip_windows()`` is separate, display-only evidence from the belief's deterministic dip detection
+(``SMCMarginalDistribution.dip_candidates``), covered by ``test_dip_detection.py``.
 """
 
 from __future__ import annotations
 
 from nvision.belief.dip_detection import DipCandidate
-from nvision.belief.focus_window import FocusWindow
+from nvision.belief.focus_window import FocusRegion
 from nvision.belief.smc_marginal import SMCMarginalDistribution
 from nvision.sim.locs.bayesian.sbed_locator import SequentialBayesianExperimentDesignLocator
 from nvision.spectra.nv_center import NVCenterLorentzianModel
@@ -54,9 +54,9 @@ def _dip(left: float, right: float) -> DipCandidate:
     )
 
 
-def _narrow(locator: SequentialBayesianExperimentDesignLocator, lo: float, hi: float) -> None:
+def _narrow(locator: SequentialBayesianExperimentDesignLocator, *sections: tuple[float, float]) -> None:
     full = locator._focus
-    locator._focus = FocusWindow(lo=lo, hi=hi, full_lo=full.full_lo, full_hi=full.full_hi)
+    locator._focus = FocusRegion.from_intervals(list(sections), full_lo=full.full_lo, full_hi=full.full_hi)
 
 
 class TestFocusWindowMethods:
@@ -68,11 +68,16 @@ class TestFocusWindowMethods:
 
     def test_narrowed_focus_is_the_reported_window(self):
         locator = _make_locator()
-        _narrow(locator, 2.865e9, 2.872e9)
+        _narrow(locator, (2.865e9, 2.872e9))
         assert locator.bayesian_focus_window() == (2.865e9, 2.872e9)
         assert locator.focus_window_candidates() == [(2.865e9, 2.872e9)]
-        # The acquisition filter and the reported window are the same interval.
-        assert locator._acquisition_bounds() == locator.bayesian_focus_window()
+
+    def test_multiple_sections_are_each_reported(self):
+        locator = _make_locator()
+        _narrow(locator, (2.862e9, 2.864e9), (2.875e9, 2.877e9))
+        # The timeline gets the exact sections; the end-of-run field gets their outer extent.
+        assert locator.focus_window_candidates() == [(2.862e9, 2.864e9), (2.875e9, 2.877e9)]
+        assert locator.bayesian_focus_window() == (2.862e9, 2.877e9)
 
     def test_significant_dips_drive_the_focus_window(self, monkeypatch):
         # This test axis is only 20 MHz wide: shrink the pad so the window can be narrower than the axis.
@@ -88,7 +93,7 @@ class TestFocusWindowMethods:
         assert lo < 2.869e9
         assert hi > 2.871e9
         assert locator.focus_window_candidates() == [(lo, hi)]
-        assert locator._acquisition_bounds() == (lo, hi)
+        assert locator._focus.sections == ((lo, hi),)
 
     def test_per_dip_windows_still_expose_competing_dips(self):
         locator = _make_locator()

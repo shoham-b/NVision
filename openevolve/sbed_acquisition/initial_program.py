@@ -15,7 +15,7 @@ and names must stay identical — the evaluator binds them by name.
 
 Each function receives ``self`` explicitly (the locator instance) exactly
 as the original bound methods did, so the bodies are otherwise unchanged
-and free to use ``self.belief``, ``self._acquisition_bounds()``, etc.
+and free to use ``self.belief``, ``self._focus`` (a ``FocusRegion``), etc.
 Returned frequencies are physical Hz and MUST fall strictly within the
 domain bounds used elsewhere in the method (see the existing bounds checks
 below) — this codebase fails fast on out-of-domain values instead of
@@ -42,14 +42,14 @@ def _acquire(self) -> float:
     (to find dips the posterior has narrowed away from), or near a dip the data already
     show (:meth:`SMCMarginalDistribution.dip_candidates`).
     """
-    lo, hi = self._acquisition_bounds()
+    lo, hi = self._focus.lo, self._focus.hi
     if hi <= lo:
         return float(lo)
 
     # The belief's original (never-narrowed) drive-frequency window -- used by the exploration branches
     # so they can still reach a location resampling has already narrowed away from.
     # `_to_experiment_normalized` normalizes against this same full domain, not
-    # `_acquisition_bounds()`, so returning a value outside `lo, hi` here is valid.
+    # the focus, so returning a value outside the focus sections here is valid.
     orig_lo, orig_hi = self.belief.drive_freq_bounds_phys
 
     # The exploration branches are drawn first so the (much more expensive) EIG grid
@@ -91,10 +91,9 @@ def _eig_acquire(self) -> float:
     # second batch there is a legitimate EIG outcome rather than being dropped
     # by minimum-spacing thinning. EIG's diminishing returns decide when
     # re-batching stops paying off (no explicit repeat counter needed).
-    lo, hi = self._acquisition_bounds()
     if (
         self._last_eig_physical_x is not None
-        and lo <= self._last_eig_physical_x <= hi
+        and self._focus.contains(np.array([self._last_eig_physical_x]))[0]
         and not np.any(np.isclose(candidates, self._last_eig_physical_x))
     ):
         candidates = np.append(candidates, self._last_eig_physical_x)
