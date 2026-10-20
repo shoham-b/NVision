@@ -356,7 +356,7 @@ class SweepCache:
 
 def _create_sweep_belief(experiment: CoreExperiment) -> AbstractMarginalDistribution:
     """Create a minimal GridMarginalDistribution for sweeping locators."""
-    model = experiment.true_signal.model
+    model = experiment.true_signal.baseline_model
     param_names = model.parameter_names()
 
     parameters = []
@@ -400,7 +400,7 @@ def precompute_sweep(
     needs_belief = getattr(locator_class, "REQUIRES_BELIEF", False)
     if needs_belief and ("belief" not in locator_config or "signal_model" not in locator_config):
         locator_config.setdefault("belief", _create_sweep_belief(experiment))
-        locator_config.setdefault("signal_model", experiment.true_signal.model)
+        locator_config.setdefault("signal_model", experiment.true_signal.baseline_model)
 
     locator = locator_class.create(**locator_config)
 

@@ -135,6 +135,18 @@ def _group_lorentzian_plain_drift_sbed_only() -> RunGroup:
     )
 
 
+def _group_drive_control() -> RunGroup:
+    """Drive-choosing SBED vs fixed-drive SBED on the CW and pulsed drive-controlled generators."""
+    return _group(
+        "drive-control",
+        "CW and pulsed drive-controlled NV generators: Bayesian-SBED-Drive (chooses the microwave amplitude) "
+        "vs Bayesian-SBED at the fixed baseline drive.",
+        dict(sim_presets.drive_controlled_generators()),
+        _sbed_noise_names(),
+        ["Bayesian-SBED", "Bayesian-SBED-Drive"],
+    )
+
+
 @lru_cache(maxsize=1)
 def _run_groups_tuple() -> tuple[RunGroup, ...]:
     return (
@@ -143,6 +155,7 @@ def _run_groups_tuple() -> tuple[RunGroup, ...]:
         _group_both_sweep_only(),
         _group_lorentzian_plain_drift(),
         _group_lorentzian_plain_drift_sbed_only(),
+        _group_drive_control(),
     )
 
 

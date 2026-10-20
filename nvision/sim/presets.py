@@ -548,3 +548,30 @@ def gauss_with_drift(sigma: float, drift: DriftSpec | None) -> CompositeNoise:
         over_frequency_noise=CompositeOverFrequencyNoise([OverFrequencyGaussianNoise(sigma)]),
         drift=drift,
     )
+
+
+def drive_controlled_generators() -> list[tuple[str, object]]:
+    """Generators whose microwave drive is a per-measurement setting (CW and pulsed ODMR).
+
+    Both use the default Zeeman-split, unresolved-hyperfine NV spectrum; the drive physics lives in
+    :mod:`nvision.spectra.nv_center_drive`. Locators that do not choose the drive measure at the
+    generator's baseline drive; ``Bayesian-SBED-Drive`` chooses it per step.
+    """
+    return [
+        (
+            "NVCenter-cw-drive",
+            NVCenterCoreGenerator(
+                drive_freq_min_phys=DEFAULT_NV_DRIVE_FREQ_MIN_PHYS,
+                drive_freq_max_phys=DEFAULT_NV_DRIVE_FREQ_MAX_PHYS,
+                variant="cw_drive",
+            ),
+        ),
+        (
+            "NVCenter-pulsed-drive",
+            NVCenterCoreGenerator(
+                drive_freq_min_phys=DEFAULT_NV_DRIVE_FREQ_MIN_PHYS,
+                drive_freq_max_phys=DEFAULT_NV_DRIVE_FREQ_MAX_PHYS,
+                variant="pulsed_drive",
+            ),
+        ),
+    ]

@@ -16,6 +16,7 @@ from nvision.belief.coordinate import RescaleMap
 from nvision.belief.dip_detection import DipCandidate, effective_max_linewidth_hz, find_dips
 from nvision.models.fisher_information import CumulativeFisher, center_freq_crlb, typed_parameters
 from nvision.models.observation import Observation
+from nvision.spectra.drive import DRIVE_AMP_MIN_UNIT, DriveSetting, compute_vectorized_many_driven
 from nvision.spectra.dtypes import FLOAT_DTYPE
 from nvision.spectra.noise_model import NoiseSignalModel
 from nvision.spectra.nv_center import effective_hwhm
@@ -457,6 +458,8 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
     # shots per observation, and the theta-independent within-batch term 0.5*(k-1)*sample_var (0 if k < 2).
     _obs_shots_arr: np.ndarray | None = field(init=False, repr=False, default=None)
     _obs_within_arr: np.ndarray | None = field(init=False, repr=False, default=None)
+    # Microwave drive of each observation (None entries without drive control), aligned with the flat buffers above.
+    _obs_drives: list = field(init=False, repr=False, default_factory=list)
     _obs_count: int = field(init=False, repr=False, default=0)
     # Permutation of [0, _obs_count) such that _obs_drive_freqs_unit[_obs_sort_order[:_obs_count]]
     # is ascending, for indices < _obs_sort_valid_count. Maintained lazily by
@@ -542,6 +545,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         self._obs_sort_order = np.empty(256, dtype=np.int64)
         self._obs_sort_valid_count = 0
         self._obs_count = 0
+        self._obs_drives = []
         self._scratch_logw = np.empty(self.num_particles, dtype=FLOAT_DTYPE)
         self._dip_candidates = []
 
@@ -578,13 +582,15 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         for obs in observations:
             has_within = obs.n_shots >= 2 and obs.sample_var is not None
             within = 0.5 * (obs.n_shots - 1) * float(obs.sample_var) if has_within else 0.0
-            self._append_observation(obs.drive_freq_unit, obs.signal_value, n_shots=obs.n_shots, within_term=within)
+            self._append_observation(
+                obs.drive_freq_unit, obs.signal_value, n_shots=obs.n_shots, within_term=within, drive=obs.drive
+            )
         self.last_obs = observations[-1]
         self.resampled = False
 
         arrays_in_order = [self._particles[:, j] for j in range(self._d_signal)]
         all_xs = np.array([obs.drive_freq_unit for obs in observations], dtype=FLOAT_DTYPE)
-        predictions = self.model.compute_vectorized_many(all_xs, arrays_in_order)
+        predictions = self._predict_observations(all_xs, arrays_in_order, observations)
 
         # Accumulated in the persistent scratch buffer, seeded with the log of the prior weights.
         log_weights = self._scratch_logw
@@ -609,6 +615,28 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         self.last_ess = float(ess)
         if self.auto_resample and ess < self.ess_threshold * self.num_particles:
             self._resample()
+
+    def _predict_observations(
+        self, xs_unit: np.ndarray, particle_arrays: list[np.ndarray], observations: list[Observation]
+    ) -> np.ndarray:
+        """Model prediction for each observation over every particle. shape: (n_observations, n_particles)"""
+        return self._predict_at_drives(xs_unit, particle_arrays, [obs.drive for obs in observations])
+
+    def _predict_at_drives(
+        self, xs_unit: np.ndarray, particle_arrays: list[np.ndarray], drives: list[DriveSetting | None]
+    ) -> np.ndarray:
+        """Model prediction at each drive-frequency position, taken at its drive. shape: (n_points, n_particles)
+
+        A drive-controlled model is evaluated at each measurement's own drive. Any other model (including a
+        fixed-drive view) must only ever see measurements taken at its own fixed drive.
+        """
+        if self.model.controls_drive:
+            return compute_vectorized_many_driven(self.model, xs_unit, particle_arrays, drives)
+        fixed = self.model.fixed_drive
+        for drive in drives:
+            if drive != fixed:
+                raise ValueError(f"Observation taken at drive {drive!r} but this belief's model is fixed at {fixed!r}.")
+        return self.model.compute_vectorized_many(xs_unit, particle_arrays)
 
     def _log_likelihood_and_update_noise(self, obs: Observation, predicted: np.ndarray) -> np.ndarray:
         """Per-particle log-likelihood of ``obs`` (noise integrated out), then advance the noise posterior.
@@ -716,7 +744,9 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         """Number of observations recorded so far."""
         return self._obs_count
 
-    def _append_observation(self, x: float, y: float, n_shots: int = 1, within_term: float = 0.0) -> None:
+    def _append_observation(
+        self, x: float, y: float, n_shots: int = 1, within_term: float = 0.0, drive: DriveSetting | None = None
+    ) -> None:
         """Record one observation into the flat history buffers (amortized growth).
 
         Does not touch ``_obs_sort_order`` — that's maintained lazily by
@@ -734,6 +764,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         self._obs_y_arr[n] = y
         self._obs_shots_arr[n] = n_shots
         self._obs_within_arr[n] = within_term
+        self._obs_drives.append(drive)
         self._obs_count = n + 1
 
     @property
@@ -745,7 +776,11 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         Hot paths must use :meth:`observation_arrays` / :attr:`num_observations`.
         """
         return [
-            Observation(drive_freq_unit=float(self._obs_drive_freqs_unit[i]), signal_value=float(self._obs_y_arr[i]))
+            Observation(
+                drive_freq_unit=float(self._obs_drive_freqs_unit[i]),
+                signal_value=float(self._obs_y_arr[i]),
+                drive=self._obs_drives[i],
+            )
             for i in range(self._obs_count)
         ]
 
@@ -762,6 +797,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             self._obs_drive_freqs_unit[i] = o.drive_freq_unit
             self._obs_y_arr[i] = o.signal_value
         self._obs_count = n
+        self._obs_drives = [o.drive for o in observations]
         # Bulk-set path (not the hot per-observation append) — a single sort is fine.
         self._obs_sort_order[:n] = np.argsort(self._obs_drive_freqs_unit[:n])
         self._obs_sort_valid_count = n
@@ -845,9 +881,14 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         df_hf_phys = est.get("split", 0.0)
         df_zeeman_phys = est.get("zeeman_split", 0.0)
 
-        # 1. Linewidth Omega (HWHM, physical) and its spread over the posterior
-        omega_phys = float(effective_hwhm(est))
-        hwhm_particles = effective_hwhm(self.particles_phys())
+        # 1. Linewidth Omega (HWHM, physical) and its spread over the posterior. A drive-controlled
+        # model's width depends on the drive, so slopes are targeted at every reference amplitude
+        # (see width_drive_amp_units); the spread is taken at the widest one.
+        width_amps = self.width_drive_amp_units()
+        particles_phys = self.particles_phys()
+        omegas_phys = [float(effective_hwhm(est, drive_amp_unit=a)) for a in width_amps]
+        omega_phys = max(omegas_phys)
+        hwhm_particles = effective_hwhm(particles_phys, drive_amp_unit=width_amps[int(np.argmax(omegas_phys))])
         hwhm_mean = float(self._weights @ hwhm_particles)
         sigma_omega_phys = float(np.sqrt(self._weights @ (hwhm_particles - hwhm_mean) ** 2))
 
@@ -877,8 +918,9 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         # (see DEFAULT_NV_DRIVE_FREQ_MIN_PHYS), so a slope point falling outside it is
         # measured at its mirror image about the signal center instead.
         slopes_phys = []
+        slope_offsets = sorted({o for omega in omegas_phys for o in (-omega, omega)})
         for c in centers_phys:
-            for s in (c - omega_phys, c + omega_phys):
+            for s in (c + o for o in slope_offsets):
                 if not (phys_f_lo <= s <= phys_f_hi):
                     mirror = 2.0 * f_b_phys - s
                     if phys_f_lo <= mirror <= phys_f_hi:
@@ -1088,7 +1130,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         beta += float(np.sum(decay * within))
         for start in range(0, n, chunk):
             sl = slice(start, min(start + chunk, n))
-            predicted = self.model.compute_vectorized_many(xs_unit[sl].astype(FLOAT_DTYPE), arrays_in_order)
+            predicted = self._predict_at_drives(xs_unit[sl].astype(FLOAT_DTYPE), arrays_in_order, self._obs_drives[sl])
             residuals_sq = (ys[sl, None] - predicted) ** 2  # shape: (chunk, n_particles)
             beta += 0.5 * ((decay[sl] * ks[sl]) @ residuals_sq)
         self._noise_betas = beta.astype(np.float32)
@@ -1339,6 +1381,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         dist._obs_sort_order = self._obs_sort_order.copy()
         dist._obs_sort_valid_count = self._obs_sort_valid_count
         dist._obs_count = self._obs_count
+        dist._obs_drives = list(self._obs_drives)
         dist._noise_alpha = self._noise_alpha
         dist._noise_betas = self._noise_betas.copy()
         dist._dip_candidates = list(self._dip_candidates)
@@ -1371,6 +1414,10 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         # Evaluate EIG over all candidate points in one vectorized call.
         eig_scores = self.expected_information_gain(candidate_drive_freq_phys).astype(FLOAT_DTYPE)
 
+        return candidate_drive_freq_phys[self._select_eig_indices(eig_scores, n)]
+
+    def _select_eig_indices(self, eig_scores: np.ndarray, n: int) -> np.ndarray:
+        """Indices of the top-n candidates by EIG: per-chunk argmax, then softmax/hardmax among chunk winners."""
         winner_indices = _chunk_argmax(eig_scores, _EIG_CHUNK_SIZE)
         winner_scores = eig_scores[winner_indices]
         n = min(n, len(winner_indices))
@@ -1390,9 +1437,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             best_chunk_order = self._rng.choice(len(winner_indices), size=n, replace=False, p=probs)
             best_chunk_order = best_chunk_order[np.argsort(winner_scores[best_chunk_order])][::-1]
 
-        best_indices = winner_indices[best_chunk_order]
-
-        return candidate_drive_freq_phys[best_indices]
+        return winner_indices[best_chunk_order]
 
     def expected_information_gain(self, candidate_drive_freq_phys: np.ndarray) -> np.ndarray:
         """Compute the approximate expected information gain for candidate locations.
@@ -1424,7 +1469,74 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
 
         return 0.5 * np.log1p(var_pred / noise_var)
 
-    def _eig_variance_cached(self, candidate_drive_freq_unit: np.ndarray, n_total: int, n_eig: int) -> np.ndarray:
+    def expected_information_gain_driven(
+        self, candidate_drive_freq_phys: np.ndarray, drives: tuple[DriveSetting, ...]
+    ) -> np.ndarray:
+        """EIG over the joint (drive, drive frequency) grid, for drive-controlled models.
+
+        Args:
+            candidate_drive_freq_phys: Candidate drive frequencies in Hz. shape: (n_freqs,)
+            drives: Candidate drive settings. shape: (n_drives,)
+
+        Returns:
+            EIG in nats for every pair. shape: (n_drives, n_freqs)
+
+        Same approximation as :meth:`expected_information_gain`; the prediction matrix is cached for
+        the epoch as long as the frequency candidates and the drive tuple are unchanged.
+        """
+        if not self.model.controls_drive:
+            raise ValueError("expected_information_gain_driven needs a drive-controlled model.")
+        if not drives:
+            raise ValueError("expected_information_gain_driven: no drive candidates.")
+        lo, hi = self.drive_freq_bounds_phys
+        candidate_drive_freq_unit = (np.asarray(candidate_drive_freq_phys, dtype=np.float64) - lo) / (hi - lo)
+        var_pred = self._eig_variance_cached(
+            candidate_drive_freq_unit, self._particles.shape[0], NVISION_SMC_EIG_PARTICLES, drives=tuple(drives)
+        )
+        est_variances = self._noise_betas / max(self._noise_alpha, 1e-9)
+        noise_var = max(float(np.sum(self._weights * est_variances)), 1e-12)
+        eig = 0.5 * np.log1p(var_pred / noise_var)
+        return eig.reshape(len(drives), candidate_drive_freq_unit.shape[0])
+
+    def select_max_information_gain_driven(
+        self, candidate_drive_freq_phys: np.ndarray, drives: tuple[DriveSetting, ...]
+    ) -> tuple[float, DriveSetting]:
+        """The (drive frequency in Hz, drive) pair to measure next, by EIG over the joint grid.
+
+        Same chunked softmax/hardmax selection as :meth:`select_max_information_gain`, applied to the
+        drive-major flattened grid.
+        """
+        if len(candidate_drive_freq_phys) == 0:
+            raise ValueError("select_max_information_gain_driven: no candidates to choose from.")
+        eig = self.expected_information_gain_driven(candidate_drive_freq_phys, drives)
+        flat_index = int(self._select_eig_indices(eig.ravel().astype(FLOAT_DTYPE), 1)[0])
+        drive_index, freq_index = divmod(flat_index, eig.shape[1])
+        return float(candidate_drive_freq_phys[freq_index]), drives[drive_index]
+
+    def width_drive_amp_units(self) -> list[float | None]:
+        """Drive amplitudes at which this belief's dip width is evaluated for candidate placement.
+
+        ``[None]`` without drive control; the view's own amplitude for a fixed-drive view; and both ends
+        of the amplitude range (``DRIVE_AMP_MIN_UNIT`` and full amplitude) for a drive-controlled model,
+        since the locator may pick any amplitude in between.
+        """
+        if self.model.controls_drive:
+            return [DRIVE_AMP_MIN_UNIT, 1.0]
+        fixed = self.model.fixed_drive
+        return [None] if fixed is None else [fixed.drive_amp_unit]
+
+    @property
+    def epoch(self) -> int:
+        """Candidate-grid epoch: bumped whenever the particles are resampled and the candidates rebuilt."""
+        return self._eig_epoch
+
+    def _eig_variance_cached(
+        self,
+        candidate_drive_freq_unit: np.ndarray,
+        n_total: int,
+        n_eig: int,
+        drives: tuple[DriveSetting, ...] | None = None,
+    ) -> np.ndarray:
         """Weighted prediction variance per candidate via a cached prediction matrix.
 
         Between resamples the particles and candidate grid are frozen, so the
@@ -1438,6 +1550,10 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         The particle subset is fixed for the epoch (drawn when the matrix is
         built, right after a resample when the weights are ~uniform) and the
         estimator applies the current weights to it explicitly.
+
+        With ``drives`` (drive-controlled models) the candidates are the full grid ``drives x
+        candidate_drive_freq_unit``: rows are drive-major, so the result has shape
+        ``(len(drives) * n_candidates,)``.
         """
         n_c = candidate_drive_freq_unit.shape[0]
         # Key from the raw array -- no dtype/contiguity conversion needed just to
@@ -1449,6 +1565,8 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             if n_c
             else (self._eig_epoch, 0, 0.0, 0.0)
         )
+        if drives is not None:
+            key = (*key, drives)
 
         cache = self._eig_cache
         if cache is not None and cache[0] == key:
@@ -1471,7 +1589,13 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
 
             # M[candidate, particle]; C-contiguous so each row (candidate) is a
             # contiguous dot against the weight vector.
-            mat = np.ascontiguousarray(self.model.compute_vectorized_many_fast(cand, part_cols), dtype=np.float32)
+            if drives is None:
+                predictions = self.model.compute_vectorized_many_fast(cand, part_cols)
+            else:
+                grid_x = np.tile(cand, len(drives))
+                grid_drives = [drive for drive in drives for _ in range(cand.shape[0])]
+                predictions = compute_vectorized_many_driven(self.model, grid_x, part_cols, grid_drives, fast=True)
+            mat = np.ascontiguousarray(predictions, dtype=np.float32)
             mat2 = mat * mat
             self._eig_cache = (key, mat, mat2, sub_idx)
 

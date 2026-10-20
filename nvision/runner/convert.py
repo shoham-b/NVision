@@ -25,7 +25,8 @@ def run_result_to_history_df(
 ) -> pl.DataFrame:
     """Convert a RunResult's snapshots to a history DataFrame in physical domain.
 
-    Returns a DataFrame with columns: repeat_id, step, x, signal_values.
+    Returns a DataFrame with columns: repeat_id, step, x, signal_values, sweep_index, drive_amp_unit,
+    pulse_duration_s (the last two null without drive control).
     Returns an empty typed DataFrame when the result has no snapshots.
     """
     rows = []
@@ -39,6 +40,9 @@ def run_result_to_history_df(
                 "x": drive_freq_phys,
                 "signal_values": snapshot.obs.signal_value,
                 "sweep_index": snapshot.obs.sweep_index,
+                # Microwave drive of the measurement (drive-controlled experiments only, else None).
+                "drive_amp_unit": snapshot.obs.drive_amp_unit,
+                "pulse_duration_s": None if snapshot.obs.drive is None else snapshot.obs.drive.pulse_duration_s,
             }
         )
 
@@ -50,6 +54,8 @@ def run_result_to_history_df(
                 "x": pl.Series("x", [], dtype=pl.Float64),
                 "signal_values": pl.Series("signal_values", [], dtype=pl.Float64),
                 "sweep_index": pl.Series("sweep_index", [], dtype=pl.Int64),
+                "drive_amp_unit": pl.Series("drive_amp_unit", [], dtype=pl.Float64),
+                "pulse_duration_s": pl.Series("pulse_duration_s", [], dtype=pl.Float64),
             }
         )
 

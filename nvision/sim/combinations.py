@@ -21,6 +21,7 @@ from nvision.noises import OverFrequencyGaussianNoise
 from nvision.sim import defaults as sim_defaults
 from nvision.sim import presets as sim_presets
 from nvision.sim.locs.bayesian.belief_builders import nv_center_smc_belief
+from nvision.sim.locs.bayesian.sbed_drive_locator import DriveChoosingSBEDLocator
 from nvision.sim.locs.bayesian.sbed_locator import SequentialBayesianExperimentDesignLocator
 from nvision.sim.locs.bayesian.sobol_bayesian_locator import SimpleSobolBayesianLocator
 from nvision.sim.locs.coarse.generic_sweep_locator import GenericSweepLocator
@@ -92,6 +93,15 @@ def _parse_noise(name: str) -> CompositeNoise | None:
     )
 
 
+def _drive_lineshape_for(generator_name: str) -> str | None:
+    """Belief lineshape of a drive-controlled generator (see sim.presets.drive_controlled_generators), else None."""
+    if generator_name.startswith("NVCenter-cw-drive"):
+        return "cw_drive"
+    if generator_name.startswith("NVCenter-pulsed-drive"):
+        return "pulsed_drive"
+    return None
+
+
 def _strategy_matches(pattern: str, strat_name: str) -> bool:
     """Match strategy name against pattern (regex if valid, else substring)."""
     # Try regex first
@@ -125,6 +135,7 @@ class CombinationGrid:
         # strategies_for() has no generator object to read the real hyperfine value
         # off of for this grid and has to fall back to parsing it out of the name.
         self._resolve_generators.update(dict(sim_presets.voigt_sigma_inhom_param_grid_generators()))
+        self._resolve_generators.update(dict(sim_presets.drive_controlled_generators()))
         if extra_generators:
             self._resolve_generators.update(extra_generators)
         self._noises: dict[str, CompositeNoise | None] = dict(sim_presets.noises_single_each())
@@ -152,7 +163,10 @@ class CombinationGrid:
         # the bare "NVCenter-voigt" generator from generators_basic() has the same
         # gap but is intentionally left alone here (pre-existing, separate issue).
         nv_smc_config = dict(_NV_SMC)
-        if generator_name.startswith("NVCenter-saturation_voigt"):
+        drive_lineshape = _drive_lineshape_for(generator_name)
+        if drive_lineshape is not None:
+            nv_smc_config["lineshape"] = drive_lineshape
+        elif generator_name.startswith("NVCenter-saturation_voigt"):
             nv_smc_config["lineshape"] = "saturation_voigt"
         elif generator_name.startswith("NVCenter-voigt-w"):
             nv_smc_config["lineshape"] = "voigt"
@@ -211,6 +225,17 @@ class CombinationGrid:
                 },
             ),
         ]
+        if drive_lineshape is not None:
+            # Only drive-controlled generators have a drive to choose.
+            strats.append(
+                (
+                    "Bayesian-SBED-Drive",
+                    {
+                        "class": DriveChoosingSBEDLocator,
+                        "config": {"max_steps": sim_defaults.NVISION_SBED_MAX_STEPS, **nv_smc_config},
+                    },
+                )
+            )
 
         return strats
 

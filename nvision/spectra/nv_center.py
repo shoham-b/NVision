@@ -1425,13 +1425,24 @@ def saturation_voigt_effective_hwhm_and_unc(
     return omega, sigma_omega
 
 
-def effective_hwhm(params):
+def effective_hwhm(params, drive_amp_unit: float | None = None):
     """Effective dip HWHM (Hz) implied by the linewidth parameter(s) in ``params`` (physical units).
 
     Lineshape-agnostic: Lorentzian ``linewidth``; plain Voigt ``homogeneous_linewidth`` plus the
     Gaussian HWHM ``sqrt(2 ln2)*sigma_inhom``; saturation-Voigt ``gamma0*sqrt(1+s)`` plus the same
     Gaussian term. Values may be scalars or arrays (e.g. one entry per particle).
+
+    Drive-controlled models (``drive_amp_sat`` / ``rabi_per_amp``) have no width until a drive is
+    applied, so they require ``drive_amp_unit``; it must be ``None`` for every other model.
     """
+    from nvision.spectra.nv_center_drive import drive_effective_hwhm, is_drive_param_dict
+
+    if is_drive_param_dict(params):
+        if drive_amp_unit is None:
+            raise ValueError("effective_hwhm: a drive-controlled model's width needs drive_amp_unit.")
+        return drive_effective_hwhm(params, drive_amp_unit)
+    if drive_amp_unit is not None:
+        raise ValueError(f"effective_hwhm: drive_amp_unit given for a model without a drive ({sorted(params)}).")
     if "linewidth" in params:
         return params["linewidth"]
     if "saturation" in params and "sigma_inhom" in params:

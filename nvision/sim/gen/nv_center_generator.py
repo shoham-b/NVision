@@ -80,7 +80,7 @@ class NVCenterCoreGenerator:
 
     drive_freq_min_phys: float = DEFAULT_NV_DRIVE_FREQ_MIN_PHYS  # 2.6 GHz
     drive_freq_max_phys: float = DEFAULT_NV_DRIVE_FREQ_MAX_PHYS  # 3.1 GHz
-    variant: str = "lorentzian"  # "lorentzian", "voigt", or "saturation_voigt"
+    variant: str = "lorentzian"  # "lorentzian", "voigt", "saturation_voigt", "cw_drive" or "pulsed_drive"
     hyperfine: str = "unresolved"  # resolved hyperfine structure: "unresolved" (default) / "n14" / "n15"
     infer_hyperfine: bool = False  # randomize + infer split/k_np instead of using the isotope constant
     with_zeeman_splitting: bool = True  # default: Zeeman-split two-dip model
@@ -225,6 +225,8 @@ class NVCenterCoreGenerator:
                     "c_total": (_widened_prior_mean(rng, c_total, c_total_std), c_total_std),
                     "center_freq": ("sin^2", np.pi / (2.0 * MIN_LINEWIDTH)),
                 }
+        elif self.variant in ("cw_drive", "pulsed_drive"):
+            return self._generate_drive_controlled(rng, center_freq, zeeman_split)
         elif self.variant == "saturation_voigt":
             sv_bounds = nv_center_saturation_voigt_bounds_for_domain(
                 self.drive_freq_min_phys,
@@ -434,3 +436,97 @@ class NVCenterCoreGenerator:
                 }
 
         return _true_signal_from_typed(model=model, typed_params=typed_params, bounds=bounds)
+
+    def _generate_drive_controlled(self, rng: random.Random, center_freq: float, zeeman_split: float):
+        """Drive-controlled CW (``variant="cw_drive"``) or pulsed (``"pulsed_drive"``) NV signal.
+
+        The microwave drive is a per-measurement setting (see nvision/spectra/nv_center_drive.py); the
+        repeat draws the sample's *response* to it (``drive_amp_sat`` for CW, ``rabi_per_amp`` and
+        ``c_total`` for pulsed) plus ``sigma_inhom`` and ``zeeman_split``. The baseline drive -- used by
+        locators that do not choose the drive -- is ``BASELINE_DRIVE_AMP_UNIT``; for pulsed ODMR its
+        pulse is the π-pulse calibrated from the repeat's *prior mean* Rabi frequency (an experimenter's
+        rough calibration, not the true value), so fixed-drive baselines get no oracle calibration.
+        """
+        from nvision.spectra.drive import DriveSetting
+        from nvision.spectra.nv_center_drive import (
+            BASELINE_DRIVE_AMP_UNIT,
+            NVCenterCWDriveModel,
+            NVCenterCWDriveSpectrum,
+            NVCenterCWDriveZeemanSpectrum,
+            NVCenterPulsedDriveModel,
+            NVCenterPulsedSpectrum,
+            NVCenterPulsedZeemanSpectrum,
+            nv_center_drive_bounds_for_domain,
+            pi_pulse_duration_s,
+        )
+
+        if self.infer_hyperfine:
+            raise ValueError(f"variant {self.variant!r} does not support infer_hyperfine=True.")
+        mode = "cw" if self.variant == "cw_drive" else "pulsed"
+        bounds = nv_center_drive_bounds_for_domain(
+            mode,
+            self.drive_freq_min_phys,
+            self.drive_freq_max_phys,
+            hyperfine=self.hyperfine,
+            with_zeeman_splitting=self.with_zeeman_splitting,
+        )
+
+        def _std(name: str) -> float:
+            lo, hi = bounds[name]
+            return (hi - lo) * PRIOR_STD_FRACTION
+
+        sigma_inhom = self.sigma_inhom if self.sigma_inhom is not None else rng.uniform(*bounds["sigma_inhom"])
+        priors: dict[str, tuple] = {
+            "sigma_inhom": (_widened_prior_mean(rng, sigma_inhom, _std("sigma_inhom")), _std("sigma_inhom")),
+            "center_freq": ("sin^2", np.pi / (2.0 * MIN_LINEWIDTH)),
+        }
+        if self.with_zeeman_splitting:
+            priors["zeeman_split"] = (
+                _widened_prior_mean(rng, zeeman_split, _std("zeeman_split")),
+                _std("zeeman_split"),
+            )
+
+        if mode == "cw":
+            # Log-uniform: the response scale spans a decade.
+            a_lo, a_hi = bounds["drive_amp_sat"]
+            drive_amp_sat = math.exp(rng.uniform(math.log(a_lo), math.log(a_hi)))
+            priors["drive_amp_sat"] = (
+                _widened_prior_mean(rng, drive_amp_sat, _std("drive_amp_sat")),
+                _std("drive_amp_sat"),
+            )
+            model = NVCenterCWDriveModel(hyperfine=self.hyperfine, with_zeeman_splitting=self.with_zeeman_splitting)
+            common = {"center_freq": center_freq, "drive_amp_sat": drive_amp_sat, "sigma_inhom": sigma_inhom}
+            typed_params = (
+                NVCenterCWDriveZeemanSpectrum(**common, zeeman_split=zeeman_split)
+                if self.with_zeeman_splitting
+                else NVCenterCWDriveSpectrum(**common)
+            )
+            baseline_drive = DriveSetting(BASELINE_DRIVE_AMP_UNIT)
+        else:
+            rabi_per_amp = rng.uniform(*bounds["rabi_per_amp"])
+            c_total = self.c_total if self.c_total is not None else rng.uniform(*bounds["c_total"])
+            priors["rabi_per_amp"] = (
+                _widened_prior_mean(rng, rabi_per_amp, _std("rabi_per_amp")),
+                _std("rabi_per_amp"),
+            )
+            priors["c_total"] = (_widened_prior_mean(rng, c_total, _std("c_total")), _std("c_total"))
+            model = NVCenterPulsedDriveModel(hyperfine=self.hyperfine, with_zeeman_splitting=self.with_zeeman_splitting)
+            common = {
+                "center_freq": center_freq,
+                "rabi_per_amp": rabi_per_amp,
+                "c_total": c_total,
+                "sigma_inhom": sigma_inhom,
+            }
+            typed_params = (
+                NVCenterPulsedZeemanSpectrum(**common, zeeman_split=zeeman_split)
+                if self.with_zeeman_splitting
+                else NVCenterPulsedSpectrum(**common)
+            )
+            r_lo, r_hi = bounds["rabi_per_amp"]
+            calibrated_rabi = min(max(priors["rabi_per_amp"][0], r_lo), r_hi) * BASELINE_DRIVE_AMP_UNIT
+            baseline_drive = DriveSetting(BASELINE_DRIVE_AMP_UNIT, pi_pulse_duration_s(calibrated_rabi))
+
+        bounds["_priors"] = priors
+        return _true_signal_from_typed(
+            model=model, typed_params=typed_params, bounds=bounds, baseline_drive=baseline_drive
+        )

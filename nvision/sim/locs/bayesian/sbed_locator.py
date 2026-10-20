@@ -154,12 +154,16 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
 
     def _eig_acquire(self) -> float:
         """The EIG-maximising candidate among the belief's epoch candidate points inside a focus section."""
+        candidate_drive_freq_phys = self._eig_candidate_drive_freq_phys()
+        return float(self.belief.select_max_information_gain(candidate_drive_freq_phys, 1)[0])
+
+    def _eig_candidate_drive_freq_phys(self) -> np.ndarray:
+        """The epoch's candidate drive frequencies (Hz) inside a focus section, thinned to ``candidate_step_hz``."""
         candidate_drive_freq_phys = self.belief.get_candidate_drive_freq_phys()
         candidate_drive_freq_phys = candidate_drive_freq_phys[self._focus.contains(candidate_drive_freq_phys)]
         if candidate_drive_freq_phys.size == 0:
             raise ValueError(f"No epoch candidate lies inside the focus sections {self._focus.sections} Hz.")
-        candidate_drive_freq_phys = self._thin_candidate_drive_freq_by_step(candidate_drive_freq_phys)
-        return float(self.belief.select_max_information_gain(candidate_drive_freq_phys, 1)[0])
+        return self._thin_candidate_drive_freq_by_step(candidate_drive_freq_phys)
 
     def _observe_acquisition(self, obs: Observation) -> None:
         """Handle acquisition observations and manually trigger resample checks.
@@ -184,10 +188,14 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         Changes only which candidates may be scanned.
         """
         belief = self.belief
+        # Widest width the drive can produce (drive-controlled), so each section covers every candidate drive.
+        width_amps = belief.width_drive_amp_units()
+        width_amp = None if width_amps == [None] else max(width_amps)
         self._focus, expanded = next_focus_region(
             self._focus,
             dips=belief.dip_candidates,
-            pad_phys=NVISION_SMC_FOCUSING_COVER_FACTOR * float(effective_hwhm(belief.estimates())),
+            pad_phys=NVISION_SMC_FOCUSING_COVER_FACTOR
+            * float(effective_hwhm(belief.estimates(), drive_amp_unit=width_amp)),
             step=belief._step_count,
             last_expansion_step=self._last_focus_expansion_step,
         )

@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from nvision.models.measurement_noise import DEFAULT_MEASUREMENT_NOISE_STD
+from nvision.spectra.drive import DriveSetting
 
 if TYPE_CHECKING:
     import numpy as np
@@ -57,6 +58,10 @@ class Observation:
         — shot column *j* is sweep *j* for every drive-frequency point). ``None`` when the
         source has no such notion (e.g. the simulated generators, which draw
         a fresh sample on demand with no fixed sweep order).
+    drive : DriveSetting | None
+        Microwave drive (amplitude, and pulse duration for pulsed ODMR) this measurement was taken
+        at, for drive-controlled experiments; ``None`` otherwise. Always the drive actually applied,
+        including the experiment's baseline drive when the locator did not choose one.
     """
 
     drive_freq_unit: float
@@ -66,6 +71,7 @@ class Observation:
     n_shots: int = field(default=1)
     sample_var: float | None = field(default=None)
     sweep_index: int | None = field(default=None)
+    drive: DriveSetting | None = field(default=None)
 
     def __post_init__(self) -> None:
         if not 0.0 <= self.drive_freq_unit <= 1.0:
@@ -73,6 +79,13 @@ class Observation:
                 f"Observation.drive_freq_unit must be a unit coordinate in [0, 1]; got {self.drive_freq_unit!r} "
                 "(convert physical Hz to unit before constructing the Observation)."
             )
+        if self.drive is not None and not isinstance(self.drive, DriveSetting):
+            raise TypeError(f"Observation.drive must be a DriveSetting or None; got {type(self.drive).__name__}")
+
+    @property
+    def drive_amp_unit(self) -> float | None:
+        """Microwave drive amplitude of this measurement (fraction of max field), or None without drive control."""
+        return None if self.drive is None else self.drive.drive_amp_unit
 
 
 def aggregate_shots(
@@ -80,6 +93,7 @@ def aggregate_shots(
     ys: np.ndarray,
     prior_noise_std: float,
     frequency_noise_model: tuple[dict[str, Any], ...] | None = None,
+    drive: DriveSetting | None = None,
 ) -> Observation:
     """Collapse a batch of repeated shots at one drive frequency into a sufficient-statistic Observation.
 
@@ -98,6 +112,8 @@ def aggregate_shots(
         or degenerate (s == 0). The returned ``noise_std`` is then prior/√k.
     frequency_noise_model : tuple[dict, ...] | None
         Passed through to the returned Observation unchanged.
+    drive : DriveSetting | None
+        The drive the shots were taken at; passed through unchanged.
 
     Returns
     -------
@@ -127,6 +143,7 @@ def aggregate_shots(
         frequency_noise_model=frequency_noise_model,
         n_shots=k,
         sample_var=sample_var,
+        drive=drive,
     )
 
 
