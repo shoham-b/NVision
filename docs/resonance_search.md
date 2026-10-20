@@ -78,3 +78,18 @@ section and the `model_comparison` box plots show them.
 
 Strategy names, cache keys, and the sweep belief all changed: a **full re-run** is required (`nv render` is not
 enough). The Sobol locators, the Sobol baseline inside SBED runs, and the "Sobol savings" metric are removed.
+
+## The comparison report in the web UI
+
+`nv compare` has a counterpart in the results UI: Speed tab → *Stages* lists the same three tables (accuracy,
+stage boundaries, per-stage measurements and uncertainty ratio) for the selected generator(s) and noise levels,
+one row per strategy (each `SimpleSweep-<k>perFWHM` spacing is its own row). The per-run fields come from
+`/api/scan-fields` (`compare`), and runs are filtered as in `metrics/compare.py` `usable_runs`.
+
+Manual check that UI and CLI agree on a tiny run:
+
+```bash
+NVISION_SBED_NOISE_STEPS=1 uv run nv run --run-group resonance-search --filter-signal c0.25 --repeats 3 --runners 2 --out scratch/x
+uv run nv compare --out scratch/x --filter-signal w2.75MHz --filter-noise "Gauss(0.01)"
+uv run nv serve --dir scratch/x   # Speed tab, generator w2.75MHz-c0.25, noise Gauss(0.01), compare the tables
+```

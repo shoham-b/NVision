@@ -6779,6 +6779,8 @@ function main() {
                     if (p) {
                         if (row.series != null) p.series = row.series;
                         if (row.true_params != null) p.true_params = row.true_params;
+                        // Locator-comparison fields (final error, uncertainty, stage metrics).
+                        if (row.compare) p.metrics = { ...(p.metrics || {}), ...row.compare };
                     }
                 }
                 hlFetchedSelections.add(key);
@@ -6980,12 +6982,52 @@ function main() {
         const byStrategy = new Map();
         for (const p of scanPlots) {
             if (!genSet.has(p.generator) || !noiseSet.has(p.noise) || !p.strategy) continue;
+            // Same rule as metrics/compare.py usable_runs: drop timeouts/failures and runs with no measurements.
             if (p.failure_reason != null && p.failure_reason !== 'max_steps') continue;
+            const nMeas = _mv(p, 'measurements');
+            if (nMeas == null || !(nMeas > 0)) continue;
             if (!byStrategy.has(p.strategy)) byStrategy.set(p.strategy, []);
             byStrategy.get(p.strategy).push(p);
         }
         return byStrategy;
     }
+
+    // Polars' default quantile interpolation ("nearest"), so the p90 matches `nv compare` exactly.
+    function hlQuantileNearest(sorted, q) {
+        return sorted.length ? sorted[Math.round((sorted.length - 1) * q)] : null;
+    }
+
+    // One strategy's row of the `nv compare` tables (nvision/metrics/compare.py compare_locators).
+    function hlCompareRow(strat, runs) {
+        const vals = (key) => runs.map(p => _mv(p, key));
+        const med = (key) => hlMedian(vals(key));
+        const share = (key) => runs.length ? vals(key).filter(v => v != null).length / runs.length : null;
+        const errs = hlSorted(vals('final_err_primary'));
+        const paired = runs.map(p => [_mv(p, 'final_err_primary'), _mv(p, 'uncert')])
+            .filter(([e, u]) => e != null && u != null && isFinite(e) && isFinite(u));
+        const row = {
+            strat, runs: runs.length,
+            measurements: med('measurements'),
+            errMedian: hlQuantileSorted(errs, 0.5),
+            errP90: hlQuantileNearest(errs, 0.9),
+            uncMedian: med('uncert'),
+            cover2: paired.length ? paired.filter(([e, u]) => e <= 2 * u).length / paired.length : null,
+            focusFound: share('focus_found_step'), focusStep: med('focus_found_step'),
+            maxInfo: share('max_info_step'), maxInfoStep: med('max_info_step'),
+            stageSteps: {}, stageRatio: {},
+        };
+        for (const st of HL_STAGES) {
+            row.stageSteps[st.n] = med(`stage${st.n}_steps`);
+            row.stageRatio[st.n] = med(`stage${st.n}_unc_ratio`);
+        }
+        return row;
+    }
+    const HL_CMP_FMT = {
+        count: (v) => (v == null ? '–' : Math.round(v).toLocaleString()),
+        pct: (v) => (v == null ? '–' : `${Math.round(100 * v)}%`),
+        khz: (v) => (v == null ? '–' : `${Math.round(v / 1e3)} kHz`),
+        ratio: (v) => (v == null ? '–' : v.toFixed(3)),
+    };
 
     function hlStageBarTraces(byStrategy, strategies, field, hoverLabel) {
         return strategies.map(strat => {
@@ -7026,23 +7068,25 @@ function main() {
             return;
         }
 
-        const pct = (k, n) => (n ? `${Math.round((100 * k) / n)}%` : '–');
-        const med = (vals) => { const m = hlMedian(vals); return m == null ? '–' : formatCount(Math.round(m)); };
-        const rows = strategies.map(strat => {
-            const runs = byStrategy.get(strat);
-            const focus = runs.map(p => _mv(p, 'focus_found_step'));
-            const maxInfo = runs.map(p => _mv(p, 'max_info_step'));
-            const kFocus = focus.filter(v => v != null).length;
-            const kMax = maxInfo.filter(v => v != null).length;
-            return `<tr><td>${_shortStratLabel(strat)}</td><td>${runs.length}</td>` +
-                `<td>${pct(kFocus, runs.length)}</td><td>${med(focus)}</td>` +
-                `<td>${pct(kMax, runs.length)}</td><td>${med(maxInfo)}</td></tr>`;
-        });
-        tableDiv.innerHTML =
+        const rows = strategies.map(strat => hlCompareRow(strat, byStrategy.get(strat)));
+        const th = (t) => `<th style="padding:2px 8px;text-align:right">${t}</th>`;
+        const td = (v) => `<td style="padding:2px 8px;text-align:right">${v}</td>`;
+        const section = (title, heads, cell) =>
+            `<h4 style="margin:0.8em 0 0.2em;font-size:0.85em;color:#475569;">${title}</h4>` +
             '<table class="metric-table" style="border-collapse:collapse;font-size:0.85em;">' +
-            '<thead><tr><th style="text-align:left;padding:2px 12px 2px 0">Strategy</th><th>Repeats</th>' +
-            '<th>Focus found</th><th>Median step</th><th>Max information reached</th><th>Median step</th></tr></thead>' +
-            `<tbody>${rows.join('')}</tbody></table>`;
+            `<thead><tr><th style="text-align:left;padding:2px 12px 2px 0">Strategy</th>${heads.map(th).join('')}</tr></thead>` +
+            `<tbody>${rows.map(r => `<tr><td style="padding:2px 12px 2px 0">${_shortStratLabel(r.strat)}</td>${cell(r).map(td).join('')}</tr>`).join('')}</tbody></table>`;
+        const f = HL_CMP_FMT;
+        tableDiv.innerHTML =
+            section('Accuracy (final primary-parameter error vs reported uncertainty)',
+                ['Runs', 'Measurements', 'Error median', 'Error p90', 'Uncertainty median', 'Error ≤ 2σ'],
+                r => [r.runs, f.count(r.measurements), f.khz(r.errMedian), f.khz(r.errP90), f.khz(r.uncMedian), f.pct(r.cover2)]) +
+            section('Stage boundaries (share of runs that reached them, median step)',
+                ['Focus found', 'Median step', 'Max information', 'Median step'],
+                r => [f.pct(r.focusFound), f.count(r.focusStep), f.pct(r.maxInfo), f.count(r.maxInfoStep)]) +
+            section('Per stage (reached runs only): median measurements, median uncertainty ratio end / start',
+                HL_STAGES.flatMap(st => [`${st.label} steps`, `${st.label} ratio`]),
+                r => HL_STAGES.flatMap(st => [f.count(r.stageSteps[st.n]), f.ratio(r.stageRatio[st.n])]));
 
         const stepsLayout = hlBaseLayout();
         stepsLayout.barmode = 'group';

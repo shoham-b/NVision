@@ -382,3 +382,20 @@ def test_manifest_scoped_request_does_not_deadlock_with_unscoped_cache_fill(tmp_
 
     r = client.get("/api/manifest")
     assert r.status_code == 200
+
+
+def test_scan_fields_carries_compare_fields(tmp_path):
+    """The Speed tab's `nv compare` tables read stage/accuracy fields from /api/scan-fields (metrics are
+    stripped from the bulk manifest)."""
+    cache_dir, static_dir = _build_client(tmp_path)
+    extra = dict(_BULK_FIELDS_EXTRA)
+    extra["metrics"] = {**extra["metrics"], "final_err_primary": 4.0, "focus_found_step": 3, "stage2_unc_ratio": 0.5}
+    _seed_one_repeat(cache_dir, entry_extra=extra)
+    client = TestClient(build_app(cache_dir, static_dir))
+
+    rows = client.get("/api/scan-fields", params={"generator": "NVCenter-lorentzian", "noise": "Gauss(0.01)"}).json()
+    compare = rows[0]["compare"]
+    assert compare["final_err_primary"] == 4.0
+    assert compare["focus_found_step"] == 3
+    assert compare["stage2_unc_ratio"] == 0.5
+    assert compare["max_info_step"] is None
