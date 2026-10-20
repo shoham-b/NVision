@@ -11,11 +11,6 @@ definition and make every historical comparison meaningless.
 ``evaluator.py`` is loaded **by path**, not as ``openevolve.sbed_acquisition``:
 that directory is not a package, and OpenEvolve itself loads it by path too.
 
-Import ordering matters. ``evaluator.py`` sets
-``NVISION_CRLB_FEASIBILITY_MARGIN`` at module scope and that must happen before
-``nvision.sim.defaults`` is imported anywhere (it snapshots the variable once, at
-module load). Loading the evaluator is therefore the first thing this module
-does, and nothing here imports ``nvision`` at module scope.
 """
 
 from __future__ import annotations

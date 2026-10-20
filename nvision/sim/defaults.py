@@ -149,11 +149,7 @@ NVISION_SMC_CANDIDATE_STEP_HZ: float = float(
 )
 
 
-# --- CRLB feasibility gate & background-noise estimation --------------------
-
-# Pre-run fail gate: infeasible if any param CRLB > threshold × this margin.
-# 1.0 = require CRLB strictly below threshold; increase to allow slight infeasibility.
-NVISION_CRLB_FEASIBILITY_MARGIN: float = float(os.getenv("NVISION_CRLB_FEASIBILITY_MARGIN", "1.0"))
+# --- Background-noise estimation ---------------------------------------------
 
 
 def _optional_env_float(name: str) -> float | None:

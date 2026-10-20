@@ -33,24 +33,12 @@ from __future__ import annotations
 import importlib.util
 import logging
 import math
-import os
 import queue
 import statistics
 import sys
 import tempfile
 import uuid
 from pathlib import Path
-
-# Must be set before nvision.sim.defaults is first imported anywhere (it reads
-# this env var once, at module load, into a module-level constant). The
-# feasibility gate is an oracle check computed from the true signal params
-# before any measurement is taken, independent of the acquisition strategy
-# under evolution -- at its default margin (1.0) it skips a large fraction of
-# repeats outright (0 measurements) for this generator/locator combination,
-# which is pure noise for a search that can only ever affect what happens
-# *after* that gate. Raising it lets those repeats actually run so the
-# evolved strategy is judged on them instead of losing the sample.
-os.environ.setdefault("NVISION_CRLB_FEASIBILITY_MARGIN", "50")
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 if str(REPO_ROOT) not in sys.path:
