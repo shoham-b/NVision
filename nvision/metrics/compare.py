@@ -25,7 +25,9 @@ def compare_locators(df: pl.DataFrame, *, group_by: tuple[str, ...] = ()) -> pl.
       ``cover_2sigma``: share of runs with error within 2x their reported uncertainty.
     * ``focus_found`` / ``max_info``: share of runs that reached the stage boundary; ``*_step``: median step.
     * ``stage{1,2,3}_steps``: median measurements in the search / focus / refine stage (reached runs only);
-      ``stage{1,2,3}_unc_ratio``: median of (uncertainty at stage end) / (at its start).
+      ``stage{1,2,3}_unc_ratio``: median of (uncertainty at stage end) / (at its start);
+      ``stage{1,2,3}_sens_eff``: median of the stage's mean sensitivity efficiency (1 = measuring at the most
+      informative drive frequency; see ``metrics/stages.py``).
 
     Every stage column is computed over the runs that reached that stage, so read it with ``focus_found`` and
     ``max_info``: a stage few runs reach is a finding about the locator, not missing data.
@@ -55,5 +57,6 @@ def compare_locators(df: pl.DataFrame, *, group_by: tuple[str, ...] = ()) -> pl.
         exprs += [
             med(f"stage{k}_steps").alias(f"stage{k}_steps"),
             med(f"stage{k}_unc_ratio").alias(f"stage{k}_unc_ratio"),
+            med(f"stage{k}_sens_eff").alias(f"stage{k}_sens_eff"),
         ]
     return data.group_by(keys).agg(exprs).sort(keys)
