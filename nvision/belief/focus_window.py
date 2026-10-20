@@ -34,8 +34,8 @@ _Numeric = float | np.ndarray
 # settles on a (possibly wrong) place.
 NVISION_MIN_STEPS_BEFORE_NARROWING: int = int(os.getenv("NVISION_MIN_STEPS_BEFORE_NARROWING", "8"))
 # Each significant dip's extent is padded by k * hwhm on each side to form its focus section; k is
-# this cover factor. Dip extents are the winning boxcar window, about one FWHM -- the line core -- so
-# the pad restores the wings and the centre's uncertainty (3 HWHM of a Lorentzian carries ~90% of its depth).
+# this cover factor. Dip extents are the run of significant boxcar windows -- at least the line core --
+# so the pad restores the wings and the centre's uncertainty (3 HWHM of a Lorentzian carries ~90% of its depth).
 NVISION_SMC_FOCUSING_COVER_FACTOR: float = float(os.getenv("NVISION_SMC_FOCUSING_COVER_FACTOR", "3.0"))
 # A narrowing is only applied when it shrinks the focus's total covered width by at least this fraction.
 _MIN_NARROWING_FRACTION: float = 0.05
@@ -240,8 +240,8 @@ def next_focus_region(
     """Decide the drive-frequency focus for the next epoch from the dips the observations show.
 
     The target region has one section per significant dip: its ``[f_min, f_max]`` extent (see
-    :func:`nvision.belief.dip_detection.find_dips`: the boxcar window of every dip whose GLRT score
-    passes the ``NVISION_DIP_P_FA`` family-wise test), padded by ``pad_phys`` on each side, clamped to
+    :func:`nvision.belief.dip_detection.find_dips`: the connected run of boxcar windows whose GLRT
+    scores pass the ``NVISION_DIP_P_FA`` family-wise test), padded by ``pad_phys`` on each side, clamped to
     the full axis, with overlapping sections merged. It depends on the measurements only, never on the
     particle belief.
 

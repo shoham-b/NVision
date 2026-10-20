@@ -14,9 +14,13 @@ assumption about the dip's lineshape (Lorentzian, Voigt, saturated, hyperfine-me
    from prefix sums in O(1) per window. The prior only sets which widths are tried.
 3. Family-wise error control: with ``N`` windows tested, a window is significant when
    ``score > Phi^-1(1 - p_fa / N)`` (Bonferroni).
-4. Peeling: the best significant window is reported, every window reaching within one window width of
-   it (the dip's wings, which a deep dip also pushes below the baseline) is suppressed as its echo, and
-   the next best is taken -- one :class:`DipCandidate` per significant dip.
+4. Grouping: of the significant windows, only those whose edges fit the dip are kept -- the best end
+   for their start and the best start for their end (padding a window with baseline lowers its score,
+   so a strong narrow dip does not drag in every wider window containing it). Kept windows that
+   overlap or sit at neighbouring measured positions form one connected run, and each run is one
+   dip -- one :class:`DipCandidate` spanning the whole run. A hyperfine group's lines and a deep
+   dip's wings (also significantly below the baseline) therefore stay one dip, while dips separated
+   by baseline stay apart.
 
 On a uniform sweep this is exactly the prefix-sum scan over index widths. The window-in-Hz form
 also handles SBED's adaptive, irregular and repeated positions.
@@ -52,13 +56,13 @@ _BASELINE_PERCENTILE = 70.0
 class DipCandidate:
     """A significant resonance dip: a stretch of the scan the noise cannot explain as baseline."""
 
-    centroid_hz: float  # middle of the winning window (Hz)
-    significance: float  # boxcar GLRT score (noise sigmas; above the FWER threshold, so > 0)
-    n_points: int  # observations inside the window
-    f_min: float  # left window edge: a measured drive_freq (Hz)
-    f_max: float  # right window edge: a measured drive_freq (Hz)
-    confidence: float  # 1 - Bonferroni-corrected p-value of the score
-    width_hz: float  # window span f_max - f_min (Hz), within the prior's FWHM range
+    centroid_hz: float  # middle of the run of significant windows (Hz)
+    significance: float  # best boxcar GLRT score in the run (noise sigmas; above the FWER threshold, so > 0)
+    n_points: int  # observations inside the run
+    f_min: float  # left edge of the run: a measured drive_freq (Hz)
+    f_max: float  # right edge of the run: a measured drive_freq (Hz)
+    confidence: float  # 1 - Bonferroni-corrected p-value of the best score
+    width_hz: float  # run span f_max - f_min (Hz); at least the narrowest window tested
 
 
 def linewidth_fwhm_prior_hz(phys_bounds: Mapping[str, tuple[float, float]]) -> tuple[float, float, float, float]:
@@ -119,8 +123,8 @@ def min_linewidth_hz(phys_bounds: Mapping[str, tuple[float, float]]) -> float:
 
 
 def _window_scores(
-    xs: np.ndarray, z: np.ndarray, width_lo_hz: float, width_hi_hz: float
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    xu: np.ndarray, first: np.ndarray, end: np.ndarray, z: np.ndarray, width_lo_hz: float, width_hi_hz: float
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Boxcar GLRT score of every contiguous window whose span lies in ``[width_lo_hz, width_hi_hz]``.
 
     A window runs from one distinct measured position to another (inclusive, all repeats at both
@@ -128,31 +132,50 @@ def _window_scores(
     prefix sums in O(1) per window.
 
     Args:
-        xs: Ascending measured drive frequencies (Hz). shape: (n_observations,)
-        z: Per-observation dip z-scores ``(baseline - y) / sigma``. shape: (n_observations,)
+        xu: Distinct measured drive frequencies, ascending (Hz). shape: (n_positions,)
+        first: Index of each distinct position's first observation. shape: (n_positions,)
+        end: One past the index of each distinct position's last observation. shape: (n_positions,)
+        z: Per-observation dip z-scores ``(baseline - y) / sigma``, sorted by drive frequency.
+            shape: (n_observations,)
         width_lo_hz: Narrowest window span tested (Hz).
         width_hi_hz: Widest window span tested (Hz).
 
     Returns:
-        ``(score, lo_hz, hi_hz, n_points)``, each shape (n_windows,): the GLRT score, left and right
-        edge (Hz) and observation count of every tested window.
+        ``(score, a, b)``, each shape (n_windows,): the GLRT score and the first and last distinct
+        position index of every tested window.
     """
     prefix = np.concatenate(([0.0], np.cumsum(z)))
-    xu, first = np.unique(xs, return_index=True)  # distinct positions and their first index
-    end = np.append(first[1:], len(xs))  # one past the last index of each distinct position
     b_lo = np.searchsorted(xu, xu + width_lo_hz, side="left")
     b_hi = np.searchsorted(xu, xu + width_hi_hz, side="right")
     counts = np.maximum(b_hi - b_lo, 0)
     total = int(counts.sum())
     if total == 0:
-        empty = np.empty(0)
-        return empty, empty, empty, np.empty(0, dtype=int)
+        return np.empty(0), np.empty(0, dtype=int), np.empty(0, dtype=int)
     # Flatten every (start a, end b) pair: a repeated counts[a] times, b running b_lo[a] .. b_hi[a]-1.
     a = np.repeat(np.arange(xu.size), counts)
     b = b_lo[a] + np.arange(total) - np.repeat(np.cumsum(counts) - counts, counts)
-    n_points = end[b] - first[a]
-    score = (prefix[end[b]] - prefix[first[a]]) / np.sqrt(n_points)
-    return score, xu[a], xu[b], n_points
+    score = (prefix[end[b]] - prefix[first[a]]) / np.sqrt(end[b] - first[a])
+    return score, a, b
+
+
+def _is_group_max(score: np.ndarray, group: np.ndarray) -> np.ndarray:
+    """Whether each window's score is the maximum among the windows sharing its ``group`` index.
+
+    Args:
+        score: Window scores. shape: (n_windows,)
+        group: Group index of each window (e.g. its start or end position). shape: (n_windows,)
+
+    Returns:
+        Boolean mask, shape (n_windows,); ties are all True.
+    """
+    order = np.argsort(group, kind="stable")
+    sorted_group = group[order]
+    starts = np.flatnonzero(np.r_[True, sorted_group[1:] != sorted_group[:-1]])
+    group_max = np.maximum.reduceat(score[order], starts)
+    counts = np.diff(np.r_[starts, order.size])
+    is_max = np.empty(score.size, dtype=bool)
+    is_max[order] = score[order] >= np.repeat(group_max, counts)
+    return is_max
 
 
 def find_dips(
@@ -232,15 +255,16 @@ def find_dips(
     # window outside the allowed widths only spends hypotheses (raising the threshold).
     width_lo_hz = max(gamma_min_hz, gamma_mean_hz - 2.0 * gamma_std_hz)
     width_hi_hz = min(gamma_max_hz, gamma_mean_hz + 2.0 * gamma_std_hz)
-    score, lo_hz, hi_hz, n_points = _window_scores(xs, z, width_lo_hz, width_hi_hz)
+    xu, first = np.unique(xs, return_index=True)  # distinct positions and their first index
+    end = np.append(first[1:], len(xs))  # one past the last index of each distinct position
+    score, a, b = _window_scores(xu, first, end, z, width_lo_hz, width_hi_hz)
     n_tests = score.size
     if n_tests == 0:
         return []
 
     z_thresh = float(norm.isf(p_fa / n_tests))
-    ranked = np.argsort(-score, kind="stable")
-    ranked = ranked[score[ranked] > z_thresh]
-    if ranked.size == 0:
+    significant = score > z_thresh
+    if not np.any(significant):
         logging.debug(
             "find_dips: best boxcar z %.2f <= FWER threshold %.2f (%d windows).",
             float(np.max(score)),
@@ -249,24 +273,33 @@ def find_dips(
         )
         return []
 
+    # Only windows whose edges fit the dip join a run: the best end for their start and the best start
+    # for their end. A window padded with baseline scores lower than the same window without the
+    # padding, so a narrow strong dip does not drag in every wider window that happens to contain it.
+    keep = significant & _is_group_max(score, a) & _is_group_max(score, b)
+
+    # Connected runs: sorted by start, a window joins the current run when it starts no later than the
+    # position right after the furthest end so far (overlapping or neighbouring windows).
+    order = np.argsort(a[keep], kind="stable")
+    sig_score, sig_a, sig_b = score[keep][order], a[keep][order], b[keep][order]
+    reach = np.maximum.accumulate(sig_b)
+    starts = np.flatnonzero(np.r_[True, sig_a[1:] > reach[:-1] + 1])
+    run_lo = sig_a[starts]
+    run_hi = np.maximum.reduceat(sig_b, starts)
+    run_best = np.maximum.reduceat(sig_score, starts)
+
     candidates: list[DipCandidate] = []
-    while ranked.size:
-        k = int(ranked[0])
-        f_min, f_max = float(lo_hz[k]), float(hi_hz[k])
-        # Peeling: the window covers only the dip's core, and a deep dip's wings sit significantly below
-        # the baseline too, so every remaining window reaching within one window width of it is its echo.
-        margin = f_max - f_min
-        rest = ranked[1:]
-        ranked = rest[(lo_hz[rest] > f_max + margin) | (hi_hz[rest] < f_min - margin)]
-        z_k = float(score[k])
+    for k in np.argsort(-run_best, kind="stable"):
+        f_min, f_max = float(xu[run_lo[k]]), float(xu[run_hi[k]])
+        best = float(run_best[k])
         candidates.append(
             DipCandidate(
                 centroid_hz=0.5 * (f_min + f_max),
-                significance=z_k,
-                n_points=int(n_points[k]),
+                significance=best,
+                n_points=int(end[run_hi[k]] - first[run_lo[k]]),
                 f_min=f_min,
                 f_max=f_max,
-                confidence=float(1.0 - min(1.0, n_tests * norm.sf(z_k))),
+                confidence=float(1.0 - min(1.0, n_tests * norm.sf(best))),
                 width_hz=f_max - f_min,
             )
         )

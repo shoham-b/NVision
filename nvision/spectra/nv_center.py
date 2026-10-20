@@ -253,8 +253,8 @@ def physics_config_fingerprint() -> str:
         # instead of a single bounding interval: the empty axis between separated dips is no longer scanned.
         "sbed-focus-sections-v1",
         # Bumped when find_dips became a shape-agnostic boxcar GLRT scan (prefix sums over windows of the
-        # prior's FWHM range, FWER p_fa, peeled per dip) instead of n-sigma thresholding + binomial
-        # clustering: dips, focus sections and dip candidates differ.
+        # prior's FWHM range, FWER p_fa, one dip per connected run of significant windows) instead of
+        # n-sigma thresholding + binomial clustering: dips, focus sections and dip candidates differ.
         "dip-boxcar-scan-v1",
         MIN_LINEWIDTH,
         MAX_LINEWIDTH,

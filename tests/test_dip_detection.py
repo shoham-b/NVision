@@ -103,7 +103,7 @@ def test_find_dips_ignores_a_constant_baseline_offset():
     assert np.allclose([d.significance for d in a], [d.significance for d in b])
 
 
-def test_find_dips_peels_separated_dips_and_ranks_by_significance():
+def test_find_dips_separates_dips_split_by_baseline_and_ranks_by_significance():
     xs = np.arange(2.80e9, 2.95e9 + 1, 1e6)
     ys = _lorentzian_scan(xs, [2.83e9], depth=0.3) + _lorentzian_scan(xs, [2.91e9], depth=0.15) - 1.0
     dips = find_dips(xs, ys, 0.02, *_G)
@@ -111,7 +111,32 @@ def test_find_dips_peels_separated_dips_and_ranks_by_significance():
     assert abs(dips[0].centroid_hz - 2.83e9) <= 1e6
     assert abs(dips[1].centroid_hz - 2.91e9) <= 1e6
     assert dips[0].significance > dips[1].significance
-    assert dips[0].f_max < dips[1].f_min  # peeled windows never overlap
+    assert dips[0].f_max < dips[1].f_min
+
+
+@pytest.mark.parametrize("snr", [5, 20, 100])
+def test_find_dips_reports_one_tight_dip_however_strong(snr):
+    # A deep dip's wings are significant too, and every wider window containing the dip scores above the
+    # threshold; both must stay one dip whose extent hugs the line, not the widest window tested.
+    xs = np.arange(2.80e9, 2.95e9 + 1, 0.5e6)
+    ys = _lorentzian_scan(xs, [2.875e9], depth=0.3, fwhm=8e6)
+    ys += 0.3 / snr * np.random.default_rng(1).standard_normal(xs.size)
+    dips = find_dips(xs, ys, 0.3 / snr, 7.7e6, 4.2e6, 0.4e6, 15e6)
+    assert len(dips) == 1
+    assert abs(dips[0].centroid_hz - 2.875e9) <= 1e6
+    assert dips[0].width_hz <= 1.5 * 8e6
+
+
+def test_find_dips_keeps_a_hyperfine_triplet_as_one_dip():
+    # N-14 triplet: three 1 MHz-wide lines 2.16 MHz apart, each narrower than their spread.
+    xs = np.arange(2.80e9, 2.95e9 + 1, 0.5e6)
+    centers = [2.875e9 - 2.16e6, 2.875e9, 2.875e9 + 2.16e6]
+    ys = sum(_lorentzian_scan(xs, [c], depth=0.1, fwhm=1e6) for c in centers) - 2.0
+    ys += 0.01 * np.random.default_rng(2).standard_normal(xs.size)
+    dips = find_dips(xs, ys, 0.01, 1.2e6, 0.3e6, 1e6, 1.6e6)
+    assert len(dips) == 1
+    assert dips[0].f_min <= centers[0]
+    assert dips[0].f_max >= centers[-1]
 
 
 def test_find_dips_is_deterministic_and_ignores_input_order():
@@ -163,16 +188,21 @@ def test_find_dips_rejects_invalid_prior_and_p_fa(kwargs, match):
         find_dips(_DIP_XS, _DIP_YS, 0.02, **{**args, **kwargs})
 
 
-def test_find_dips_window_widths_are_clipped_to_the_prior_range():
-    # gamma_mean +/- 2 gamma_std = 2..18 MHz, but the prior allows only 8..12 MHz: every window tested
-    # (and so every reported one) lies in that range, for a narrow spike and a broad dip alike.
+def test_find_dips_never_tests_a_window_narrower_than_the_prior_minimum():
+    # A one-point spike is best fitted by the narrowest window. gamma_mean - 2 gamma_std = 2 MHz, but with
+    # the prior allowing nothing narrower than 8 MHz, no window (and so no reported dip) is narrower.
     spike = np.ones_like(_DIP_XS)
     spike[50] -= 1.0
-    broad = _lorentzian_scan(_DIP_XS, [2.85e9], depth=0.3, fwhm=30e6)
-    for ys in (spike, broad):
-        dips = find_dips(_DIP_XS, ys, 0.02, 10e6, 4e6, 8e6, 12e6)
-        assert dips
-        assert all(8e6 <= d.width_hz <= 12e6 for d in dips)
+    assert find_dips(_DIP_XS, spike, 0.02, 10e6, 4e6, 2e6, 12e6)[0].width_hz < 8e6
+    assert all(d.width_hz >= 8e6 for d in find_dips(_DIP_XS, spike, 0.02, 10e6, 4e6, 8e6, 12e6))
+
+
+def test_find_dips_reports_a_dip_wider_than_every_window_as_one_run():
+    # A 30 MHz dip against windows of at most 12 MHz: overlapping significant windows chain into one run.
+    ys = _lorentzian_scan(_DIP_XS, [2.85e9], depth=0.3, fwhm=30e6)
+    dips = find_dips(_DIP_XS, ys, 0.02, 10e6, 4e6, 8e6, 12e6)
+    assert len(dips) == 1
+    assert abs(dips[0].centroid_hz - 2.85e9) <= 2e6
 
 
 def test_find_dips_uncertainty_gating():
