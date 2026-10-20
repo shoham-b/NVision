@@ -249,9 +249,9 @@ where `c_total` is the population-normalized contrast (a free parameter for plai
 
 ### 2.4 Probe-Axis Focus (locator-owned, at each resample)
 
-The **focus** is a sub-interval of the drive-frequency axis, owned by the locator (`SequentialBayesianLocator._focus`, a `FocusWindow`). It limits only *which candidate x positions may be scanned*: `_acquisition_bounds()` returns it and `_eig_acquire` drops every epoch candidate outside it (an empty result raises). The belief never sees it, so its parameter bounds, particles and the model's x-range are untouched. The exploration branches in `_acquire` still draw from the full drive-frequency axis.
+The **focus** is a set of disjoint sections of the drive-frequency axis, owned by the locator (`SequentialBayesianLocator._focus`, a `FocusRegion`). It limits only *which candidate x positions may be scanned*: `_eig_acquire` drops every epoch candidate outside all sections (`FocusRegion.contains`; an empty result raises). The belief never sees it, so its parameter bounds, particles and the model's x-range are untouched. The exploration branches in `_acquire` still draw from the full drive-frequency axis.
 
-It is updated by the pure function `next_focus_window` (`focus_window.py`) right after a resample (weights uniform), and only when `center_freq` is a particle dimension (`with_fixed_center_freq=False`); with the default fixed `center_freq` the focus stays the full drive-frequency axis.
+It is updated by the pure function `next_focus_region` (`focus_window.py`) right after a resample (weights uniform), from the significant dips `find_dips` reports: one section per dip, its `[f_min, f_max]` extent padded by `NVISION_SMC_FOCUSING_COVER_FACTOR` × the posterior-mean effective HWHM per side, clamped to the axis, overlapping sections merged. A dip section outside the focus expands it (union) immediately; narrowing to the target waits `NVISION_MIN_STEPS_BEFORE_NARROWING` steps (and as many since the last expansion) and must shrink the total covered width by ≥5%. With no significant dip the focus is unchanged. Dips are measurement facts, so this is active with the default fixed `center_freq` too.
 
 The focus narrows to the union of particle-predicted active regions. Each particle i covers
 

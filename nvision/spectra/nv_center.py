@@ -240,12 +240,18 @@ def physics_config_fingerprint() -> str:
         # candidates inside a locator-owned focus): the dip-biased probe, last-pick re-injection and
         # belief-side window narrowing were removed and out-of-cube particles are reflected, not clipped.
         "sbed-single-path-v1",
+        # Bumped when the SBED focus window became the padded bounding interval of the significant
+        # find_dips extents (it was a particle-percentile window, inert with a fixed center_freq).
+        "sbed-dip-focus-v1",
         # Bumped when the dip-centre model parameter was renamed ``frequency`` -> ``center_freq``
         # (and the milestone/metric names fb/fc/splitting_converged -> primary/split/primary_converged):
         # every cached combination's stored params, bounds and metric columns carry the old names.
         "center-center_freq-rename-v1",
         # Bumped when the probe axis was renamed to drive_freq (persisted spec / config / payload names).
         "drive-freq-rename-v1",
+        # Bumped when the SBED focus became one padded section per significant dip (overlaps merged)
+        # instead of a single bounding interval: the empty axis between separated dips is no longer scanned.
+        "sbed-focus-sections-v1",
         MIN_LINEWIDTH,
         MAX_LINEWIDTH,
         MIN_SPLIT,

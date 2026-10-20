@@ -8,7 +8,7 @@ import os
 import numpy as np
 from numba import njit
 
-from nvision.belief.focus_window import NVISION_SMC_FOCUSING_COVER_FACTOR, next_focus_window
+from nvision.belief.focus_window import NVISION_SMC_FOCUSING_COVER_FACTOR, next_focus_region
 from nvision.belief.smc_marginal import NVISION_EXPLORATION_DECAY_STEPS
 from nvision.models.observation import Observation
 from nvision.sim.defaults import (
@@ -153,19 +153,16 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         return self._eig_acquire()
 
     def _eig_acquire(self) -> float:
-        """The EIG-maximising candidate among the belief's epoch candidate points inside the focus."""
+        """The EIG-maximising candidate among the belief's epoch candidate points inside a focus section."""
         candidate_drive_freq_phys = self._eig_candidate_drive_freq_phys()
         return float(self.belief.select_max_information_gain(candidate_drive_freq_phys, 1)[0])
 
     def _eig_candidate_drive_freq_phys(self) -> np.ndarray:
-        """The epoch's candidate drive frequencies (Hz) inside the focus, thinned to ``candidate_step_hz``."""
+        """The epoch's candidate drive frequencies (Hz) inside a focus section, thinned to ``candidate_step_hz``."""
         candidate_drive_freq_phys = self.belief.get_candidate_drive_freq_phys()
-        focus_lo, focus_hi = self._acquisition_bounds()
-        candidate_drive_freq_phys = candidate_drive_freq_phys[
-            (candidate_drive_freq_phys >= focus_lo) & (candidate_drive_freq_phys <= focus_hi)
-        ]
+        candidate_drive_freq_phys = candidate_drive_freq_phys[self._focus.contains(candidate_drive_freq_phys)]
         if candidate_drive_freq_phys.size == 0:
-            raise ValueError(f"No epoch candidate lies inside the focus [{focus_lo}, {focus_hi}] Hz.")
+            raise ValueError(f"No epoch candidate lies inside the focus sections {self._focus.sections} Hz.")
         return self._thin_candidate_drive_freq_by_step(candidate_drive_freq_phys)
 
     def _observe_acquisition(self, obs: Observation) -> None:
@@ -180,31 +177,25 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         self._check_and_resample()
 
     def _update_focus_window(self) -> None:
-        """Re-decide the drive-frequency focus from the posterior over ``center_freq`` (right after a resample).
+        """Re-decide the drive-frequency focus from the dips the observations show (right after a resample).
 
-        Only meaningful when ``center_freq`` is inferred (a particle dimension); with the default fixed
-        ``center_freq`` the focus stays the full drive-frequency axis. Changes only which candidates may be scanned.
+        ``_resample`` regenerates the epoch candidates, which refreshes ``belief.dip_candidates`` from
+        the current observations (``find_dips``), so those dips are fresh here. The focus has one
+        section per dip -- its extent padded by ``NVISION_SMC_FOCUSING_COVER_FACTOR`` x the posterior-mean
+        effective HWHM, overlapping sections merged (see :func:`next_focus_region`); with no significant
+        dip the focus is unchanged.
+        Dips are measurement facts, so this is active whether or not ``center_freq`` is inferred.
+        Changes only which candidates may be scanned.
         """
         belief = self.belief
-        if "center_freq" not in belief.model.parameter_names():
-            return
-        particles = belief.particles_phys()
-        est = belief.estimates()
-        # Widest width the drive can produce (drive-controlled), so the focus covers every candidate drive.
+        # Widest width the drive can produce (drive-controlled), so each section covers every candidate drive.
         width_amps = belief.width_drive_amp_units()
         width_amp = None if width_amps == [None] else max(width_amps)
-        half_span = (
-            particles.get("zeeman_split", 0.0)
-            + particles.get("split", 0.0)
-            + NVISION_SMC_FOCUSING_COVER_FACTOR * effective_hwhm(particles, drive_amp_unit=width_amp)
-        )
-        half_span = np.broadcast_to(half_span, particles["center_freq"].shape)
-        self._focus, expanded = next_focus_window(
+        self._focus, expanded = next_focus_region(
             self._focus,
-            center_freq_particles_phys=particles["center_freq"],
-            active_half_span_particles_phys=half_span,
-            omega_phys=float(effective_hwhm(est, drive_amp_unit=width_amp)),
-            zeeman_split_phys=float(est.get("zeeman_split", 0.0)),
+            dips=belief.dip_candidates,
+            pad_phys=NVISION_SMC_FOCUSING_COVER_FACTOR
+            * float(effective_hwhm(belief.estimates(), drive_amp_unit=width_amp)),
             step=belief._step_count,
             last_expansion_step=self._last_focus_expansion_step,
         )
@@ -244,29 +235,36 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
             self._check_crlb_early_stop(physical_uncertainties)
 
     def bayesian_focus_window(self) -> tuple[float, float] | None:
-        """Extent of the most significant dip the observations show, or None if there is none yet."""
-        dips = self.belief.dip_candidates
-        return (dips[0].f_min, dips[0].f_max) if dips else None
+        """Outer extent of the focus sections (end-of-run display), or None while the focus is the full axis.
+
+        The single-interval summary the end-of-run UI field expects (shared with the sweep locators).
+        When the focus has several sections, the gaps between them are inside this extent but are NOT
+        scanned; the exact sections are :meth:`focus_window_candidates`.
+        """
+        if self._focus.is_full_domain():
+            return None
+        return (self._focus.lo, self._focus.hi)
 
     def per_dip_windows(self) -> list[tuple[float, float]] | None:
-        """Extents of every detected dip, when more than one is still competing.
+        """Extents of every detected dip (evidence from the observations), when more than one is competing.
 
-        None once the detector shows a single dip -- at that point ``bayesian_focus_window()``
-        is the window to show, matching the sweep locators' convention of using
-        ``per_dip_windows`` only for genuinely multiple regions.
+        Display only: the unpadded extents behind the focus sections.
+        None for a single dip, matching the sweep locators' convention of using ``per_dip_windows``
+        only for genuinely multiple regions.
         """
         dips = self.belief.dip_candidates
         return [(d.f_min, d.f_max) for d in dips] if len(dips) >= 2 else None
 
     def focus_window_candidates(self) -> list[tuple[float, float]] | None:
-        """Extent of every detected dip (>=1), for per-step UI animation.
+        """The focus sections at this step (one entry per section), for per-step UI animation.
 
-        Unlike ``per_dip_windows()``, this is never gated to "more than one" -- it is read every
-        step (see ``Observer.watch``) to animate the candidates narrowing down to the single
-        settled focus window over the course of a run.
+        Read every step (see ``Observer.watch``) so the timeline shows the real sections the
+        acquisition is restricted to expanding and narrowing over the run. None while the focus is
+        the full axis.
         """
-        dips = self.belief.dip_candidates
-        return [(d.f_min, d.f_max) for d in dips] if dips else None
+        if self._focus.is_full_domain():
+            return None
+        return list(self._focus.sections)
 
     def _check_estimate_plateau(self, physical_uncertainties) -> None:
         """Stop once the estimate has stopped moving relative to its own error bar.

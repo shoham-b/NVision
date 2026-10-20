@@ -303,3 +303,15 @@ def test_registration_and_run_group():
     assert grid.resolve("NVCenter-pulsed-drive", "Gauss(0.01)", "Bayesian-SBED-Drive") is not None
     group = get_run_group("drive-control")
     assert set(group.generator_names) == {"NVCenter-cw-drive", "NVCenter-pulsed-drive"}
+
+
+def test_noise_recompute_after_resample_uses_each_observations_drive():
+    """Resampling replays the noise posterior over the whole history, at every observation's own drive."""
+    belief = _belief("cw_drive")
+    drives = [DriveSetting(0.2), DriveSetting(1.0), DriveSetting(0.5)]
+    for i, drive in enumerate(drives):
+        belief.update(Observation(0.1 + 0.2 * i, 0.97, drive=drive))
+    assert [o.drive for o in belief._observations] == drives
+    belief._recompute_noise_betas()
+    assert np.all(np.isfinite(belief._noise_betas))
+    assert belief.copy()._obs_drives == drives

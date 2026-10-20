@@ -454,6 +454,12 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
     # are not stored — see the _observations compatibility property.
     _obs_drive_freqs_unit: np.ndarray | None = field(init=False, repr=False, default=None)
     _obs_y_arr: np.ndarray | None = field(init=False, repr=False, default=None)
+    # Per-observation noise evidence needed to replay beta exactly after a resample moves the particles:
+    # shots per observation, and the theta-independent within-batch term 0.5*(k-1)*sample_var (0 if k < 2).
+    _obs_shots_arr: np.ndarray | None = field(init=False, repr=False, default=None)
+    _obs_within_arr: np.ndarray | None = field(init=False, repr=False, default=None)
+    # Microwave drive of each observation (None entries without drive control), aligned with the flat buffers above.
+    _obs_drives: list = field(init=False, repr=False, default_factory=list)
     _obs_count: int = field(init=False, repr=False, default=0)
     # Permutation of [0, _obs_count) such that _obs_drive_freqs_unit[_obs_sort_order[:_obs_count]]
     # is ascending, for indices < _obs_sort_valid_count. Maintained lazily by
@@ -534,9 +540,12 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         self._step_count = 0
         self._obs_drive_freqs_unit = np.empty(256, dtype=np.float64)
         self._obs_y_arr = np.empty(256, dtype=np.float64)
+        self._obs_shots_arr = np.empty(256, dtype=np.float64)
+        self._obs_within_arr = np.empty(256, dtype=np.float64)
         self._obs_sort_order = np.empty(256, dtype=np.int64)
         self._obs_sort_valid_count = 0
         self._obs_count = 0
+        self._obs_drives = []
         self._scratch_logw = np.empty(self.num_particles, dtype=FLOAT_DTYPE)
         self._dip_candidates = []
 
@@ -547,9 +556,8 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         # +0.5*(k-1)) never depend on the particle's residual, so it cannot differ between particles.
         # Only the scale beta is per particle. shape of _noise_betas: (n_particles,)
         self._noise_alpha = float(self.noise_prior_strength)
-        self._noise_betas = np.full(
-            self.num_particles, self.noise_prior_strength * (nominal_sigma**2), dtype=np.float32
-        )
+        self._noise_beta_prior = float(self.noise_prior_strength * nominal_sigma**2)
+        self._noise_betas = np.full(self.num_particles, self._noise_beta_prior, dtype=np.float32)
 
         # Every particle dimension is a signal parameter (noise lives in _noise_alphas/_noise_betas).
         self._d_signal = len(self._param_names)
@@ -572,7 +580,11 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         if not observations:
             return
         for obs in observations:
-            self._append_observation(obs.drive_freq_unit, obs.signal_value)
+            has_within = obs.n_shots >= 2 and obs.sample_var is not None
+            within = 0.5 * (obs.n_shots - 1) * float(obs.sample_var) if has_within else 0.0
+            self._append_observation(
+                obs.drive_freq_unit, obs.signal_value, n_shots=obs.n_shots, within_term=within, drive=obs.drive
+            )
         self.last_obs = observations[-1]
         self.resampled = False
 
@@ -607,12 +619,17 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
     def _predict_observations(
         self, xs_unit: np.ndarray, particle_arrays: list[np.ndarray], observations: list[Observation]
     ) -> np.ndarray:
-        """Model prediction for each observation over every particle. shape: (n_observations, n_particles)
+        """Model prediction for each observation over every particle. shape: (n_observations, n_particles)"""
+        return self._predict_at_drives(xs_unit, particle_arrays, [obs.drive for obs in observations])
 
-        A drive-controlled model is evaluated at each observation's own drive. Any other model (including
-        a fixed-drive view) must only ever see observations taken at its own fixed drive.
+    def _predict_at_drives(
+        self, xs_unit: np.ndarray, particle_arrays: list[np.ndarray], drives: list[DriveSetting | None]
+    ) -> np.ndarray:
+        """Model prediction at each drive-frequency position, taken at its drive. shape: (n_points, n_particles)
+
+        A drive-controlled model is evaluated at each measurement's own drive. Any other model (including a
+        fixed-drive view) must only ever see measurements taken at its own fixed drive.
         """
-        drives = [obs.drive for obs in observations]
         if self.model.controls_drive:
             return compute_vectorized_many_driven(self.model, xs_unit, particle_arrays, drives)
         fixed = self.model.fixed_drive
@@ -727,7 +744,9 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         """Number of observations recorded so far."""
         return self._obs_count
 
-    def _append_observation(self, x: float, y: float) -> None:
+    def _append_observation(
+        self, x: float, y: float, n_shots: int = 1, within_term: float = 0.0, drive: DriveSetting | None = None
+    ) -> None:
         """Record one observation into the flat history buffers (amortized growth).
 
         Does not touch ``_obs_sort_order`` — that's maintained lazily by
@@ -738,9 +757,14 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             cap = 2 * self._obs_drive_freqs_unit.shape[0]
             self._obs_drive_freqs_unit = np.resize(self._obs_drive_freqs_unit, cap)
             self._obs_y_arr = np.resize(self._obs_y_arr, cap)
+            self._obs_shots_arr = np.resize(self._obs_shots_arr, cap)
+            self._obs_within_arr = np.resize(self._obs_within_arr, cap)
             self._obs_sort_order = np.resize(self._obs_sort_order, cap)
         self._obs_drive_freqs_unit[n] = x
         self._obs_y_arr[n] = y
+        self._obs_shots_arr[n] = n_shots
+        self._obs_within_arr[n] = within_term
+        self._obs_drives.append(drive)
         self._obs_count = n + 1
 
     @property
@@ -752,7 +776,11 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         Hot paths must use :meth:`observation_arrays` / :attr:`num_observations`.
         """
         return [
-            Observation(drive_freq_unit=float(self._obs_drive_freqs_unit[i]), signal_value=float(self._obs_y_arr[i]))
+            Observation(
+                drive_freq_unit=float(self._obs_drive_freqs_unit[i]),
+                signal_value=float(self._obs_y_arr[i]),
+                drive=self._obs_drives[i],
+            )
             for i in range(self._obs_count)
         ]
 
@@ -762,11 +790,14 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         cap = max(256, n)
         self._obs_drive_freqs_unit = np.empty(cap, dtype=np.float64)
         self._obs_y_arr = np.empty(cap, dtype=np.float64)
+        self._obs_shots_arr = np.ones(cap, dtype=np.float64)
+        self._obs_within_arr = np.zeros(cap, dtype=np.float64)
         self._obs_sort_order = np.empty(cap, dtype=np.int64)
         for i, o in enumerate(observations):
             self._obs_drive_freqs_unit[i] = o.drive_freq_unit
             self._obs_y_arr[i] = o.signal_value
         self._obs_count = n
+        self._obs_drives = [o.drive for o in observations]
         # Bulk-set path (not the hot per-observation append) — a single sort is fine.
         self._obs_sort_order[:n] = np.argsort(self._obs_drive_freqs_unit[:n])
         self._obs_sort_valid_count = n
@@ -1017,8 +1048,6 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         self._particles = self._particles.T[:, new_indices].T
         self._weights = (np.ones(self.num_particles, dtype=FLOAT_DTYPE) / self.num_particles).astype(FLOAT_DTYPE)
 
-        self._noise_betas = self._noise_betas[new_indices]
-
         # 4. Enforce minimum exploration variance based on parameter ranges.
         # We apply this to the total covariance before nudging, so the steady
         # state variance can properly shrink down to this minimum without exploding.
@@ -1066,9 +1095,45 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         outside = (self._particles < 0.0) | (self._particles > 1.0)
         self._particles[outside] = 1.0 - np.abs(np.mod(self._particles[outside], 2.0) - 1.0)
 
-        # 9. Update cached candidate grid for the next epoch
+        # 9. The nudge moved every particle to a new theta, so the parent's accumulated beta no longer
+        # describes it: replay the observation history against the final particles.
+        self._recompute_noise_betas()
+
+        # 10. Update cached candidate grid for the next epoch
         self._generate_epoch_candidate_drive_freq()
         self._belief_version += 1
+
+    def _recompute_noise_betas(self, chunk: int = 64) -> None:
+        """Rebuild every particle's Inverse-Gamma scale from the full history at its *current* theta.
+
+        Replays the recursion of :meth:`_log_likelihood_and_update_noise` in closed form: after n
+        observations ``beta_i = d^n * beta_0 + sum_t d^(n-1-t) * (0.5 * k_t * r_ti^2 + within_t)`` with
+        ``r_ti = y_t - f(x_t; theta_i)`` the residual of particle i, ``d`` the discount factor and
+        ``within_t = 0.5 * (k_t - 1) * sample_var_t`` the theta-independent within-batch term. The
+        shape ``alpha`` is theta-independent, so it needs no replay.
+
+        Cost: one model evaluation per (observation, particle) pair, done in chunks of ``chunk``
+        observations so the prediction matrix stays (chunk, n_particles).
+        """
+        n = self._obs_count
+        if n == 0:
+            return
+        d = self.noise_discount_factor
+        xs_unit = self._obs_drive_freqs_unit[:n]  # shape: (n_obs,), drive-frequency positions in [0, 1]
+        ys = self._obs_y_arr[:n]
+        ks = self._obs_shots_arr[:n]
+        within = self._obs_within_arr[:n]
+        decay = d ** np.arange(n - 1, -1, -1, dtype=np.float64)  # shape: (n_obs,), weight of observation t
+
+        arrays_in_order = [self._particles[:, j] for j in range(self._d_signal)]
+        beta = np.full(self.num_particles, (d**n) * self._noise_beta_prior, dtype=np.float64)
+        beta += float(np.sum(decay * within))
+        for start in range(0, n, chunk):
+            sl = slice(start, min(start + chunk, n))
+            predicted = self._predict_at_drives(xs_unit[sl].astype(FLOAT_DTYPE), arrays_in_order, self._obs_drives[sl])
+            residuals_sq = (ys[sl, None] - predicted) ** 2  # shape: (chunk, n_particles)
+            beta += 0.5 * ((decay[sl] * ks[sl]) @ residuals_sq)
+        self._noise_betas = beta.astype(np.float32)
 
     def _estimates_unit(self) -> dict[str, float]:
         """Return parameter estimates in internal unit/belief space.
@@ -1310,9 +1375,13 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         dist.last_ess = self.last_ess
         dist._obs_drive_freqs_unit = self._obs_drive_freqs_unit.copy()
         dist._obs_y_arr = self._obs_y_arr.copy()
+        dist._obs_shots_arr = self._obs_shots_arr.copy()
+        dist._obs_within_arr = self._obs_within_arr.copy()
+        dist._noise_beta_prior = self._noise_beta_prior
         dist._obs_sort_order = self._obs_sort_order.copy()
         dist._obs_sort_valid_count = self._obs_sort_valid_count
         dist._obs_count = self._obs_count
+        dist._obs_drives = list(self._obs_drives)
         dist._noise_alpha = self._noise_alpha
         dist._noise_betas = self._noise_betas.copy()
         dist._dip_candidates = list(self._dip_candidates)

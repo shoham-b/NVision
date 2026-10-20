@@ -7,7 +7,7 @@ from collections.abc import Callable, Mapping
 import numpy as np
 
 from nvision.belief.abstract_marginal import AbstractMarginalDistribution
-from nvision.belief.focus_window import FocusWindow
+from nvision.belief.focus_window import FocusRegion
 from nvision.belief.smc_marginal import _inverse_sum_squares
 from nvision.metrics.milestones import resolve_primary_param
 from nvision.models.locator import Locator
@@ -158,14 +158,9 @@ class SequentialBayesianLocator(Locator):
         # Set domain bounds for acquisition.
         lo_phys, hi_phys = self.belief.drive_freq_bounds_phys
         self._drive_freq_min_phys, self._drive_freq_max_phys = float(lo_phys), float(hi_phys)
-        # Which part of the drive-frequency axis candidates may be drawn from. Owned here (never by the belief):
-        # narrowing it changes only where we scan, not the belief's parameter bounds or particles.
-        self._focus = FocusWindow(
-            lo=self._drive_freq_min_phys,
-            hi=self._drive_freq_max_phys,
-            full_lo=self._drive_freq_min_phys,
-            full_hi=self._drive_freq_max_phys,
-        )
+        # Which sections of the drive-frequency axis candidates may be drawn from. Owned here (never by the
+        # belief): narrowing it changes only where we scan, not the belief's parameter bounds or particles.
+        self._focus = FocusRegion.full(self._drive_freq_min_phys, self._drive_freq_max_phys)
 
     @classmethod
     def create(
@@ -459,10 +454,6 @@ class SequentialBayesianLocator(Locator):
         # Every segment spans >= 3 samples, so both widths are strictly positive.
         effective_width = true_span if merged else true_total
         return float(2.0 * domain_width / effective_width)
-
-    def _acquisition_bounds(self) -> tuple[float, float]:
-        """drive-frequency interval ``(lo_phys, hi_phys)`` (Hz) that candidate x positions may come from: the focus."""
-        return (self._focus.lo, self._focus.hi)
 
     def _resample_if_degenerate(self) -> bool:
         """Resample when the effective sample size has fallen below the belief's threshold; True if it did."""
