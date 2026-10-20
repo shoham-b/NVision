@@ -99,7 +99,7 @@ def test_smart_sweep_sweeps_at_fwhm_over_three_then_stays_in_the_focus():
     assert all(trace[i][0].is_full_domain() for i in range(focus_steps[0]))
 
 
-def test_smart_sbed_searches_a_fwhm_grid_by_information_gain_then_runs_sbed_in_the_focus():
+def test_smart_sbed_searches_a_fwhm_over_three_grid_by_information_gain_then_runs_sbed_in_the_focus():
     exp, bounds = _experiment()
     loc = _locator(SmartSBEDLocator, bounds)
     coarse_spacing = loc._fwhm_prior_phys / SBED_COARSE_POINTS_PER_FWHM

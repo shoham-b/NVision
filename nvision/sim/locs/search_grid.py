@@ -7,8 +7,11 @@ grid spacing is not a tuning knob but follows from how many points must land ins
   points per full width at half maximum (FWHM), the grid cannot step over a dip, and the three
   points are what the binomial test in :func:`nvision.belief.dip_detection.find_dips` needs to call
   a cluster of low points a dip rather than noise. This is the spacing of every sweep.
-* SBED chooses *which* grid point to measure (by expected information gain), so its coarse search
-  grid only needs one candidate per FWHM: ``SBED_COARSE_POINTS_PER_FWHM = 1``.
+* The adaptive locators (Smart-Sweep, Smart-SBED) start from the same FWHM/3 grid: Smart-Sweep measures it in
+  order, Smart-SBED lets expected information gain pick among its unmeasured points. A coarser SBED grid (one
+  point per FWHM) often puts only one or two points in the dip, too few for ``find_dips``, so the grid had to be
+  refined before the focus appeared. ``SBED_COARSE_POINTS_PER_FWHM`` is kept separate so it can be changed
+  (e.g. to 4) on its own.
 
 Widths come from the locator's *prior* (``2 * effective_hwhm(belief.estimates())`` at construction),
 never from the true signal.
@@ -28,7 +31,7 @@ from nvision.spectra.nv_center import effective_hwhm
 # Points per FWHM so a dip cannot be stepped over and ``find_dips`` has the cluster it needs.
 SWEEP_POINTS_PER_FWHM: int = 3
 # Candidate grid points per FWHM for SBED's pre-focus search (EIG picks among them).
-SBED_COARSE_POINTS_PER_FWHM: int = 1
+SBED_COARSE_POINTS_PER_FWHM: int = 3
 
 # Refusing to build grids denser than this: it means the refinement ran far past any useful resolution.
 _MAX_GRID_POINTS: int = 2_000_000
