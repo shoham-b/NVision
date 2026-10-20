@@ -3,17 +3,21 @@
 A generalized likelihood ratio test for "a stretch of the scan sits below the baseline", with no
 assumption about the dip's lineshape (Lorentzian, Voigt, saturated, hyperfine-merged...):
 
-1. Per-observation dip z-scores ``z_i = (b - y_i) / sigma``. ``sigma`` is the belief's conjugate
-   noise estimate; the baseline ``b`` is the 70th percentile of ``y`` minus its Gaussian offset
-   ``Phi^-1(0.7) sigma``, so ``z_i ~ N(0, 1)`` under "no dip" while points inside dips (all below
-   the baseline) cannot drag ``b`` down until they outnumber the points above it -- SBED piles its
-   measurements onto a dip once it has found one, which would sink a plain median.
+1. Per-observation dip z-scores ``z_i = (b - y_i) / s``. The noise sigma is not known exactly: the
+   belief's conjugate posterior on sigma^2 is Inverse-Gamma(alpha, beta), and averaging over it makes
+   every score below Student-t with ``nu = 2 alpha`` degrees of freedom and scale ``s = sqrt(beta /
+   alpha)``. The baseline ``b`` is the 70th percentile of ``y`` minus its offset ``t_nu^-1(0.7) s``,
+   so the scores are centred under "no dip" while points inside dips (all below the baseline) cannot
+   drag ``b`` down until they outnumber the points above it -- SBED piles its measurements onto a dip
+   once it has found one, which would sink a plain median.
 2. Every contiguous window (from one distinct measured ``drive_freq`` to another, repeats included)
    whose span lies in the linewidth prior's ``gamma_mean +/- 2 gamma_std`` (clipped to the prior's
-   FWHM range) gets the boxcar GLRT score ``sum(z_i) / sqrt(n)``, standard normal under "no dip",
-   from prefix sums in O(1) per window. The prior only sets which widths are tried.
+   FWHM range) gets the boxcar GLRT score ``sum(z_i) / sqrt(n)``, from prefix sums in O(1) per
+   window. The prior only sets which widths are tried. All points in a window share one sigma, so
+   under "no dip" the score is exactly Student-t with ``nu`` degrees of freedom.
 3. Family-wise error control: with ``N`` windows tested, a window is significant when
-   ``score > Phi^-1(1 - p_fa / N)`` (Bonferroni).
+   ``score > t_nu^-1(1 - p_fa / N)`` (Bonferroni). A poorly known sigma (small ``nu``) raises the
+   threshold smoothly; as ``nu`` grows it approaches the known-sigma normal quantile.
 4. Grouping: of the significant windows, only those whose edges fit the dip are kept -- the best end
    for their start and the best start for their end (padding a window with baseline lowers its score,
    so a strong narrow dip does not drag in every wider window containing it). Kept windows that
@@ -25,12 +29,11 @@ assumption about the dip's lineshape (Lorentzian, Voigt, saturated, hyperfine-me
 On a uniform sweep this is exactly the prefix-sum scan over index widths. The window-in-Hz form
 also handles SBED's adaptive, irregular and repeated positions.
 
-The result depends only on the observations, one scalar noise sigma -- the conjugate
-Inverse-Gamma posterior estimate supplied by the belief (see
-``SMCMarginalDistribution.estimated_noise_std``) -- and the linewidth *prior* (never the SMC
-particles), so it is an independent, reproducible statement about where the data show dips. The
-belief uses it to place acquisition candidates on the dips it finds, and the SBED locator builds
-its focus sections from the same dips.
+The result depends only on the observations, the noise posterior's Student-t scale and degrees of
+freedom (supplied by the belief, see ``SMCMarginalDistribution.noise_student_t``) and the linewidth
+*prior* (never the SMC particles' signal parameters), so it is an independent, reproducible
+statement about where the data show dips. The belief uses it to place acquisition candidates on the
+dips it finds, and the SBED locator builds its focus sections from the same dips.
 
 This is distinct from ``nvision.sim.locs.refocus``, which is geometric (double-monotonic
 regions, no statistics) and is used by the coarse sweep locators to narrow their scan window.
@@ -44,9 +47,9 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 
 import numpy as np
-from scipy.stats import norm
+from scipy.stats import t as student_t
 
-from nvision.sim.defaults import NVISION_DIP_NOISE_UNCERTAINTY_THRESHOLD, NVISION_DIP_P_FA
+from nvision.sim.defaults import NVISION_DIP_P_FA
 
 # Baseline percentile of the observed signal (see the module docstring, step 1).
 _BASELINE_PERCENTILE = 70.0
@@ -135,7 +138,7 @@ def _window_scores(
         xu: Distinct measured drive frequencies, ascending (Hz). shape: (n_positions,)
         first: Index of each distinct position's first observation. shape: (n_positions,)
         end: One past the index of each distinct position's last observation. shape: (n_positions,)
-        z: Per-observation dip z-scores ``(baseline - y) / sigma``, sorted by drive frequency.
+        z: Per-observation dip z-scores ``(baseline - y) / noise_scale``, sorted by drive frequency.
             shape: (n_observations,)
         width_lo_hz: Narrowest window span tested (Hz).
         width_hi_hz: Widest window span tested (Hz).
@@ -181,13 +184,13 @@ def _is_group_max(score: np.ndarray, group: np.ndarray) -> np.ndarray:
 def find_dips(
     obs_drive_freqs_phys: np.ndarray,
     obs_ys: np.ndarray,
-    noise_std: float,
+    noise_scale: float,
+    noise_dof: float,
     gamma_mean_hz: float,
     gamma_std_hz: float,
     gamma_min_hz: float,
     gamma_max_hz: float,
     *,
-    noise_std_unc: float | None = None,
     p_fa: float | None = None,
     assume_sorted: bool = False,
 ) -> list[DipCandidate]:
@@ -196,22 +199,24 @@ def find_dips(
     Args:
         obs_drive_freqs_phys: Measured drive frequencies (Hz). shape: (n_observations,)
         obs_ys: Measured signal values. shape: (n_observations,)
-        noise_std: Scalar noise standard deviation of a single observation.
+        noise_scale: Student-t scale of one observation's noise, ``sqrt(beta / alpha)`` of the
+            Inverse-Gamma(alpha, beta) posterior on sigma^2.
+        noise_dof: Student-t degrees of freedom ``2 alpha`` (> 0); ``inf`` treats ``noise_scale`` as
+            the exactly known sigma (normal scores).
         gamma_mean_hz: Prior mean of the dip FWHM (Hz), e.g. from :func:`linewidth_fwhm_prior_hz`.
         gamma_std_hz: Prior standard deviation of the dip FWHM (Hz, >= 0).
         gamma_min_hz: Narrowest FWHM the prior allows (Hz, in (0, gamma_mean_hz]); no window is
             narrower.
         gamma_max_hz: Widest FWHM the prior allows (Hz, >= gamma_mean_hz); no window is wider.
-        noise_std_unc: Uncertainty of ``noise_std``. When its ratio to ``noise_std`` is at
-            least ``NVISION_DIP_NOISE_UNCERTAINTY_THRESHOLD`` the noise level is too poorly
-            known to form z-scores, and no dips are reported.
         p_fa: Family-wise false-alarm probability over all windows tested
             (default ``NVISION_DIP_P_FA``).
         assume_sorted: ``obs_drive_freqs_phys`` is already ascending (caller contract, checked): skips
             the sort. Passing True with unsorted input raises ``ValueError``.
     """
-    if noise_std <= 0 or not math.isfinite(noise_std):
-        raise ValueError(f"find_dips: noise_std must be positive and finite, got {noise_std!r}")
+    if not (noise_scale > 0) or not math.isfinite(noise_scale):
+        raise ValueError(f"find_dips: noise_scale must be positive and finite, got {noise_scale!r}")
+    if not (noise_dof > 0):
+        raise ValueError(f"find_dips: noise_dof must be positive, got {noise_dof!r}")
     if not (gamma_mean_hz > 0) or not math.isfinite(gamma_mean_hz):
         raise ValueError(f"find_dips: gamma_mean_hz must be positive and finite, got {gamma_mean_hz!r}")
     if not (gamma_std_hz >= 0) or not math.isfinite(gamma_std_hz):
@@ -232,9 +237,6 @@ def find_dips(
     if len(obs_drive_freqs_phys) == 0:
         return []
 
-    if noise_std_unc is not None and noise_std_unc / noise_std >= NVISION_DIP_NOISE_UNCERTAINTY_THRESHOLD:
-        return []
-
     xs = np.asarray(obs_drive_freqs_phys, dtype=float)
     ys = np.asarray(obs_ys, dtype=float)
     if assume_sorted:
@@ -244,12 +246,11 @@ def find_dips(
         order = np.argsort(xs, kind="stable")
         xs, ys = xs[order], ys[order]
 
-    # Baseline: the upper percentile minus its Gaussian offset, an unbiased baseline estimate under
-    # "no dip" that dip points (all below it) cannot drag down until they outnumber the points above it.
-    baseline = (
-        float(np.percentile(ys, _BASELINE_PERCENTILE)) - float(norm.ppf(_BASELINE_PERCENTILE / 100.0)) * noise_std
-    )
-    z = (baseline - ys) / noise_std
+    # Baseline: the upper percentile minus its noise offset, centred under "no dip", which dip points
+    # (all below it) cannot drag down until they outnumber the points above it.
+    percentile_offset = float(student_t.ppf(_BASELINE_PERCENTILE / 100.0, noise_dof)) * noise_scale
+    baseline = float(np.percentile(ys, _BASELINE_PERCENTILE)) - percentile_offset
+    z = (baseline - ys) / noise_scale
 
     # gamma_mean +/- 2 gamma_std overshoots both ends of a uniform prior (the low end even below 0); a
     # window outside the allowed widths only spends hypotheses (raising the threshold).
@@ -262,7 +263,7 @@ def find_dips(
     if n_tests == 0:
         return []
 
-    z_thresh = float(norm.isf(p_fa / n_tests))
+    z_thresh = float(student_t.isf(p_fa / n_tests, noise_dof))
     significant = score > z_thresh
     if not np.any(significant):
         logging.debug(
@@ -299,7 +300,7 @@ def find_dips(
                 n_points=int(end[run_hi[k]] - first[run_lo[k]]),
                 f_min=f_min,
                 f_max=f_max,
-                confidence=float(1.0 - min(1.0, n_tests * norm.sf(best))),
+                confidence=float(1.0 - min(1.0, n_tests * student_t.sf(best, noise_dof))),
                 width_hz=f_max - f_min,
             )
         )

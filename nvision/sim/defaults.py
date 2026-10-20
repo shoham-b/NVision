@@ -58,7 +58,6 @@ NVISION_SWEEP_FIT_EARLY_STOP_SIGMAS: float = float(os.getenv("NVISION_SWEEP_FIT_
 
 # --- Robust Dip Detection Defaults -----------------------------------------
 
-NVISION_DIP_NOISE_UNCERTAINTY_THRESHOLD: float = float(os.getenv("NVISION_DIP_NOISE_UNCERTAINTY_THRESHOLD", "0.15"))
 # Family-wise false-alarm probability of the boxcar dip scan (Bonferroni over every window
 # tested), see nvision.belief.dip_detection.find_dips.
 NVISION_DIP_P_FA: float = float(os.getenv("NVISION_DIP_P_FA", "0.01"))
