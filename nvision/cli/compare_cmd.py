@@ -85,6 +85,9 @@ def compare(
             "stage2_unc_ratio",
             "stage3_steps",
             "stage3_unc_ratio",
+            "stage1_sens_eff",
+            "stage2_sens_eff",
+            "stage3_sens_eff",
         ],
     }
     for title, columns in sections.items():

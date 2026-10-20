@@ -65,13 +65,40 @@ for all of them.
 `nvision/metrics/stages.py` splits every run, whatever the locator, into three stages with one detector over the
 per-step belief snapshots:
 
-1. **search** -- until `belief.current_dips()` (the deterministic `find_dips`) first reports a dip = *focus found*;
-2. **focus** -- until the primary parameter's uncertainty is below its convergence threshold = *max information*;
-3. **refine** -- the rest, measuring at maximum sensitivity.
+1. **search** -- up to the measurement after which `belief.current_dips()` (the deterministic `find_dips`) first
+   reports a dip = *focus found*;
+2. **focus** -- until the measurements gain (nearly) the Cramer-Rao-optimal information every step = *max information*;
+3. **refine** -- the rest.
+
+**Fisher-information efficiency.** A measurement at drive frequency $x$ (drive $d$, $k$ shots) carries
+$I = k\,g(x,d)^2/\sigma^2$ about the primary parameter $\theta$, with $g = \partial\,\text{signal}/\partial\theta$ on
+the **true** signal. An oracle that knows $\theta$ spends the same shots at the best point, $I^* = k \max g^2/\sigma^2$.
+The per-step efficiency is $\eta = g(x,d)^2/\max g^2 \in [0, 1]$: 1 at the steepest point of the dip, ~0 at the dip
+centre or on the flat baseline.
+
+**Rule.** Refine starts at the first measurement $n$ after the focus from which
+
+$$\sum_{t\ge n} k_t\,\eta_t \;\ge\; (1-\delta) \sum_{t\ge n} k_t, \qquad \delta = \texttt{REFINE\_INFO\_LOSS} = 0.1 .$$
+
+Measurements are independent given $\theta$, so Fisher information adds and the CRLB on $\theta$ from the refine
+stage is $1/\sum_{t\ge n} I_t$. The rule therefore **guarantees** the refine stage's CRLB is within $1/(1-\delta)$
+(about 1.11x) of the best any design could reach with the same measurements. A steady information rate alone is not
+enough: a locator stuck at a weak point is steady too, at low $\eta$. The tail mean tolerates an occasional
+exploratory probe instead of resetting on it.
+
+**"Near" the optimum is enough.** The locator aims at the optimum of its *estimate*, off by its error $\epsilon$.
+The optimum is a maximum of $\eta$, so the loss is second order. For a Lorentzian of HWHM $\gamma$ the optimum is
+$|x-x_0| = \gamma/\sqrt3$ and $\eta \approx 1 - 4.5(\epsilon/\gamma)^2$, so $\delta = 0.1$ accepts measuring within
+about $\pm 0.15\,\gamma$ of it -- the locally linear regime.
+
+Assumptions: additive noise with $\sigma$ independent of $x$ and the drive; nuisance parameters known (the
+resonance-search scenario -- with free nuisances the diagonal term is an upper bound on the efficient information).
+For drive-controlled models the oracle also picks the drive amplitude (and the true pi-pulse when pulsed). $\eta$
+uses the true signal, not the belief (whose own precision is overconfident), so it is simulation-only ground truth.
 
 Per run (results-row columns): `focus_found_step`, `max_info_step`, `stage{1,2,3}_steps`,
-`stage{1,2,3}_unc_start|unc_end|unc_ratio`. A stage a run never reached is `None` -- a plain sweep that
-ends above the threshold has no refine stage, which is a result, not missing data. The Speed tab's "Stages"
+`stage{1,2,3}_unc_start|unc_end|unc_ratio|sens_eff` (shot-weighted mean $\eta$ per stage). A stage a run never reached is `None` -- a plain sweep, which
+keeps moving across the dip, has no refine stage, which is a result, not missing data. The Speed tab's "Stages"
 section and the `model_comparison` box plots show them.
 
 ## Invalidation
