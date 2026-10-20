@@ -12,30 +12,51 @@ from nvision.sim.combinations import CombinationGrid
 from nvision.spectra.nv_center import NV_SATURATION_C_MAX, _saturation_voigt_reparam_scalar
 
 
-def test_both_sbed_group_uses_voigt_inhom_grid():
+def test_voigt_grid_group_uses_voigt_inhom_grid_and_all_locators():
     sim_run_groups.clear_run_group_cache()
-    group = sim_run_groups.get_run_group("both-sbed")
+    group = sim_run_groups.get_run_group("voigt-grid")
     assert group.generator_names
     assert len(set(group.generator_names)) == len(group.generator_names)
     assert group.extra_generators is not None
     assert set(group.extra_generators.keys()) == set(group.generator_names)
-    assert group.strategy_names == ["Bayesian-SBED", "SimpleSweep-3perFWHM"]
+    assert set(group.strategy_names) == {
+        "SimpleSweep-1perFWHM",
+        "SimpleSweep-2perFWHM",
+        "SimpleSweep-3perFWHM",
+        "SimpleSweep-4perFWHM",
+        "SimpleSweep-5perFWHM",
+        "Smart-Sweep",
+        "Bayesian-SBED",
+        "Smart-SBED",
+    }
+    assert group.task_count == len(group.generator_names) * len(group.noise_names) * len(group.strategy_names)
 
 
-def test_both_variant_groups_share_the_same_param_grid():
+def test_former_group_names_are_strategy_subsets_of_their_scenario_group():
     sim_run_groups.clear_run_group_cache()
-    groups = {g.name: g for g in sim_run_groups.run_groups()}
-    assert set(groups["both-sbed"].generator_names) == set(groups["both-sbed-only"].generator_names)
-    assert set(groups["both-sbed"].generator_names) == set(groups["both-sweep-only"].generator_names)
-    assert groups["both-sbed-only"].strategy_names == ["Bayesian-SBED"]
-    assert groups["both-sweep-only"].strategy_names == ["SimpleSweep-3perFWHM"]
+    listed = {g.name for g in sim_run_groups.run_groups()}
+    assert listed == {"voigt-grid", "lorentzian-drift", "drive-control"}
+    expected = {
+        "both-sbed": ("voigt-grid", ["Bayesian-SBED", "SimpleSweep-3perFWHM"]),
+        "both-sbed-only": ("voigt-grid", ["Bayesian-SBED"]),
+        "both-sweep-only": ("voigt-grid", ["SimpleSweep-3perFWHM"]),
+        "lorentzian-plain-drift": ("lorentzian-drift", ["Bayesian-SBED", "SimpleSweep-3perFWHM"]),
+        "lorentzian-plain-drift-sbed-only": ("lorentzian-drift", ["Bayesian-SBED"]),
+    }
+    assert set(sim_run_groups.alias_names()) == set(expected)
+    for alias, (canonical, strategies) in expected.items():
+        group, base = sim_run_groups.get_run_group(alias), sim_run_groups.get_run_group(canonical)
+        assert group.name == alias
+        assert group.generator_names == base.generator_names
+        assert group.noise_names == base.noise_names
+        assert group.strategy_names == strategies
 
 
-def test_default_run_group_is_both_sbed():
-    assert sim_run_groups.default_run_group().name == "both-sbed"
+def test_default_run_group_is_voigt_grid():
+    assert sim_run_groups.default_run_group().name == "voigt-grid"
 
 
-def test_both_sbed_group_noise_grid_uses_dedicated_sbed_config(monkeypatch):
+def test_voigt_grid_group_noise_grid_uses_dedicated_sbed_config(monkeypatch):
     """Noise is swept via its own dedicated NVISION_SBED_NOISE_* config -- independent of
     the generic noise globals used by plain `nvision run`."""
     monkeypatch.setattr(sim_defaults, "NVISION_NOISE_MAX_GAUSS", 999.0)
@@ -45,7 +66,7 @@ def test_both_sbed_group_noise_grid_uses_dedicated_sbed_config(monkeypatch):
     monkeypatch.setattr(sim_defaults, "NVISION_SBED_NOISE_STEPS", 3)
 
     sim_run_groups.clear_run_group_cache()
-    group = sim_run_groups.get_run_group("both-sbed")
+    group = sim_run_groups.get_run_group("voigt-grid")
 
     assert group.noise_names == ["Gauss(0.0)", "Gauss(0.05)", "Gauss(0.1)"]
     sim_run_groups.clear_run_group_cache()

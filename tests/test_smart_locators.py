@@ -1,8 +1,8 @@
 """Smart-Sweep and Smart-SBED: a coarse width-sized search first, then work inside the focus.
 
-Both are SBED locators in everything but acquisition. Checked on a real resonance-search signal (tight
-nuisance priors, unknown ``zeeman_split``): the search grid is sized from the prior FWHM, the switch to the
-focus happens as soon as the data show a dip, and from then on every measurement lies inside the focus.
+Both are SBED locators in everything but acquisition. Checked on a standard generator's signal: the search grid
+is sized from the prior FWHM, the switch to the focus happens as soon as the
+data show a dip, and from then on every measurement lies inside the focus.
 """
 
 from __future__ import annotations
@@ -10,13 +10,11 @@ from __future__ import annotations
 import random
 
 import numpy as np
-import pytest
 
 from nvision import CoreExperiment, NVCenterCoreGenerator
 from nvision.belief.focus_window import FocusRegion
 from nvision.models.noise import CompositeNoise, CompositeOverFrequencyNoise
 from nvision.noises import OverFrequencyGaussianNoise
-from nvision.sim.gen.nv_center_generator import RESONANCE_SEARCH_NUISANCE_STD_SCALE
 from nvision.sim.locs.bayesian.belief_builders import nv_center_smc_belief
 from nvision.sim.locs.bayesian.sbed_locator import (
     SequentialBayesianExperimentDesignLocator,
@@ -30,7 +28,7 @@ NOISE_SIGMA = 0.01
 
 
 def _experiment(seed: int = 3, linewidth: float = 2.75e6, contrast: float = 0.4):
-    gen = NVCenterCoreGenerator(variant="lorentzian", linewidth=linewidth, c_total=contrast, resonance_search=True)
+    gen = NVCenterCoreGenerator(variant="lorentzian", linewidth=linewidth, c_total=contrast)
     true_signal = gen.generate(random.Random(seed))
     noise = CompositeNoise(over_frequency_noise=CompositeOverFrequencyNoise([OverFrequencyGaussianNoise(NOISE_SIGMA)]))
     exp = CoreExperiment(
@@ -64,20 +62,6 @@ def _drive(locator, exp, rng, n_steps: int):
         trace.append((locator._focus, lo + x_unit * (hi - lo)))  # the focus the pick was made under
         locator.observe(exp.measure(x_unit, rng))
     return trace
-
-
-def test_resonance_search_priors_are_tight_on_nuisance_and_absent_on_the_resonance():
-    gen = NVCenterCoreGenerator(variant="lorentzian", linewidth=2.0e6, c_total=0.3)
-    default = gen.generate(random.Random(1)).bounds["_priors"]
-    searched = (
-        NVCenterCoreGenerator(variant="lorentzian", linewidth=2.0e6, c_total=0.3, resonance_search=True)
-        .generate(random.Random(1))
-        .bounds["_priors"]
-    )
-    assert "zeeman_split" in default
-    assert "zeeman_split" not in searched
-    assert searched["linewidth"][1] == pytest.approx(default["linewidth"][1] * RESONANCE_SEARCH_NUISANCE_STD_SCALE)
-    assert searched["c_total"][1] == pytest.approx(default["c_total"][1] * RESONANCE_SEARCH_NUISANCE_STD_SCALE)
 
 
 def test_smart_sweep_sweeps_at_fwhm_over_three_then_stays_in_the_focus():

@@ -3,11 +3,25 @@
 Each :class:`RunGroup` holds concrete lists of generator, noise, and strategy
 names.  The runner resolves them through :class:`CombinationGrid` rather than
 relying on string filtering.
+
+A group is a *scenario* (what is simulated: generator grid x noise axis) with the locators compared on it.
+To run a subset of a group's locators or signals use ``--filter-strategy`` / ``--filter-signal``; the former
+``*-only`` groups are kept as aliases of exactly that.
+
+====================  ====================================  ==================  ===========================
+group                 generators                            noise               strategies
+====================  ====================================  ==================  ===========================
+``voigt-grid``        Voigt width x contrast x sigma_inhom  SBED noise grid     locator study (below)
+``lorentzian-drift``  Lorentzian width x contrast           no-drift + drifts   locator study
+``drive-control``     CW / pulsed drive-controlled NV       SBED noise grid     Bayesian-SBED, -SBED-Drive
+====================  ====================================  ==================  ===========================
+
+The locator study is SimpleSweep-<k>perFWHM (k = 1..5), Smart-Sweep, Bayesian-SBED and Smart-SBED.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import lru_cache
 
 from nvision.sim import presets as sim_presets
@@ -30,24 +44,24 @@ class RunGroup:
     # (e.g. the width x contrast study grid below), keyed by generator name.
     extra_generators: dict[str, object] | None = None
 
+    @property
+    def task_count(self) -> int:
+        """Number of (generator, noise, strategy) combinations."""
+        return len(self.generator_names) * len(self.noise_names) * len(self.strategy_names)
+
 
 _DEFAULT_SWEEP = sweep_strategy_name(SWEEP_POINTS_PER_FWHM)
-_ALL_STRATEGIES = ["Bayesian-SBED", _DEFAULT_SWEEP]
 
-# Resonance search after a field change: the sweeps at several spacings (points per FWHM) against the
-# plain SBED and the two locators that search coarsely first and then work inside the focus.
-_RESONANCE_STRATEGIES = [
+# The locators compared on the standard scenarios: the sweeps at several spacings (points per FWHM), the plain
+# SBED, and the two locators that search coarsely first and then work inside the focus (docs/resonance_search.md).
+_LOCATOR_STUDY_STRATEGIES = [
     *(sweep_strategy_name(k) for k in SWEEP_SPACING_DIVISORS),
     "Smart-Sweep",
     "Bayesian-SBED",
     "Smart-SBED",
 ]
 
-_BOTH_GRID = "Width x contrast x sigma_inhom x noise grid (plain Voigt; sigma_inhom=0 is the pure-Lorentzian limit) for"
-_DRIFT_GRID = (
-    "Width x contrast grid (plain Lorentzian) x drift scenarios (center and Zeeman splitting "
-    "moving during the run, plus a no-drift control) for"
-)
+_STUDY_LOCATORS = "all locators (sweeps, Smart-Sweep, Bayesian-SBED, Smart-SBED)"
 
 
 def _sbed_noise_names() -> list[str]:
@@ -98,53 +112,23 @@ def _group(
 # ---------------------------------------------------------------------------
 
 
-def _group_both_sbed() -> RunGroup:
+def _group_voigt_grid() -> RunGroup:
     return _group(
-        "both-sbed",
-        f"{_BOTH_GRID} Bayesian-SBED/SimpleSweep-3perFWHM.",
+        "voigt-grid",
+        f"Voigt width x contrast x sigma_inhom x noise grid; {_STUDY_LOCATORS}.",
         _voigt_inhom_param_grid(),
         _sbed_noise_names(),
-        _ALL_STRATEGIES,
+        list(_LOCATOR_STUDY_STRATEGIES),
     )
 
 
-def _group_both_sbed_only() -> RunGroup:
+def _group_lorentzian_drift() -> RunGroup:
     return _group(
-        "both-sbed-only",
-        f"{_BOTH_GRID} Bayesian-SBED only (no sweep baselines).",
-        _voigt_inhom_param_grid(),
-        _sbed_noise_names(),
-        ["Bayesian-SBED"],
-    )
-
-
-def _group_both_sweep_only() -> RunGroup:
-    return _group(
-        "both-sweep-only",
-        f"{_BOTH_GRID} SimpleSweep-3perFWHM only (no SBED baseline).",
-        _voigt_inhom_param_grid(),
-        _sbed_noise_names(),
-        [_DEFAULT_SWEEP],
-    )
-
-
-def _group_lorentzian_plain_drift() -> RunGroup:
-    return _group(
-        "lorentzian-plain-drift",
-        f"{_DRIFT_GRID} Bayesian-SBED/SimpleSweep-3perFWHM.",
+        "lorentzian-drift",
+        f"Lorentzian width x contrast grid x drifting center/Zeeman split (+ no-drift control); {_STUDY_LOCATORS}.",
         _lorentzian_plain_param_grid(),
         _drift_noise_names(),
-        _ALL_STRATEGIES,
-    )
-
-
-def _group_lorentzian_plain_drift_sbed_only() -> RunGroup:
-    return _group(
-        "lorentzian-plain-drift-sbed-only",
-        f"{_DRIFT_GRID} Bayesian-SBED only (no sweep baselines).",
-        _lorentzian_plain_param_grid(),
-        _drift_noise_names(),
-        ["Bayesian-SBED"],
+        list(_LOCATOR_STUDY_STRATEGIES),
     )
 
 
@@ -152,51 +136,63 @@ def _group_drive_control() -> RunGroup:
     """Drive-choosing SBED vs fixed-drive SBED on the CW and pulsed drive-controlled generators."""
     return _group(
         "drive-control",
-        "CW and pulsed drive-controlled NV generators: Bayesian-SBED-Drive (chooses the microwave amplitude) "
-        "vs Bayesian-SBED at the fixed baseline drive.",
+        "CW/pulsed drive-controlled NV generators; Bayesian-SBED-Drive (picks the MW amplitude) vs Bayesian-SBED.",
         dict(sim_presets.drive_controlled_generators()),
         _sbed_noise_names(),
         ["Bayesian-SBED", "Bayesian-SBED-Drive"],
     )
 
 
-def _group_resonance_search() -> RunGroup:
-    return _group(
-        "resonance-search",
-        "Width x contrast grid (Lorentzian), resonance moved by a field change (nuisance parameters known, "
-        "zeeman_split unknown): SimpleSweep-{1..5}perFWHM, Smart-Sweep, Bayesian-SBED, Smart-SBED.",
-        dict(sim_presets.resonance_search_generators()),
-        _sbed_noise_names(),
-        _RESONANCE_STRATEGIES,
-    )
+# Former group names: a canonical group restricted to a subset of its strategies (what ``--filter-strategy``
+# does on the canonical group). They resolve through get_run_group but are not listed by run_groups().
+_ALIASES: dict[str, tuple[str, tuple[str, ...]]] = {
+    "both-sbed": ("voigt-grid", ("Bayesian-SBED", _DEFAULT_SWEEP)),
+    "both-sbed-only": ("voigt-grid", ("Bayesian-SBED",)),
+    "both-sweep-only": ("voigt-grid", (_DEFAULT_SWEEP,)),
+    "lorentzian-plain-drift": ("lorentzian-drift", ("Bayesian-SBED", _DEFAULT_SWEEP)),
+    "lorentzian-plain-drift-sbed-only": ("lorentzian-drift", ("Bayesian-SBED",)),
+}
+
+
+def alias_names() -> list[str]:
+    """Former group names that still resolve (see :func:`get_run_group`)."""
+    return list(_ALIASES)
 
 
 @lru_cache(maxsize=1)
 def _run_groups_tuple() -> tuple[RunGroup, ...]:
     return (
-        _group_both_sbed(),
-        _group_both_sbed_only(),
-        _group_both_sweep_only(),
-        _group_lorentzian_plain_drift(),
-        _group_lorentzian_plain_drift_sbed_only(),
+        _group_voigt_grid(),
+        _group_lorentzian_drift(),
         _group_drive_control(),
-        _group_resonance_search(),
     )
 
 
 def run_groups() -> list[RunGroup]:
+    """The listed groups, one per scenario; former names are in :func:`alias_names`."""
     return list(_run_groups_tuple())
+
+
+def _normalize(name: str) -> str:
+    return name.strip().lower().replace("-", "_")
 
 
 @lru_cache(maxsize=1)
 def _run_group_by_normalized_name() -> dict[str, RunGroup]:
-    return {g.name.lower().replace("-", "_"): g for g in _run_groups_tuple()}
+    by_name = {_normalize(g.name): g for g in _run_groups_tuple()}
+    for alias, (canonical, strategies) in _ALIASES.items():
+        by_name[_normalize(alias)] = replace(
+            by_name[_normalize(canonical)],
+            name=alias,
+            description=f"Alias for {canonical} restricted to {', '.join(strategies)}.",
+            strategy_names=list(strategies),
+        )
+    return by_name
 
 
 def get_run_group(name: str) -> RunGroup:
-    key = name.strip().lower().replace("-", "_")
     try:
-        return _run_group_by_normalized_name()[key]
+        return _run_group_by_normalized_name()[_normalize(name)]
     except KeyError:
         raise KeyError(f"Unknown run group: {name!r}") from None
 
@@ -208,4 +204,4 @@ def clear_run_group_cache() -> None:
 
 
 def default_run_group() -> RunGroup:
-    return _group_both_sbed()
+    return _run_groups_tuple()[0]

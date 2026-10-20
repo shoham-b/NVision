@@ -99,15 +99,19 @@ def _run_named_group(
 
 @groups_app.command("list")
 def list_groups(
-    verbose: bool = typer.Option(False, "--verbose", "-v", help="Include one-line descriptions"),
+    names_only: bool = typer.Option(False, "--names-only", help="Print only the group names (one per line)"),
+    aliases: bool = typer.Option(False, "--aliases", help="Also list the former group names that still resolve"),
 ) -> None:
-    """List preset group names (from :func:`~nvision.sim.run_groups.run_groups`)."""
-    for group in sim_run_groups.run_groups():
-        group_cmd_name = group.name.replace("_", "-")
-        if verbose and group.description:
-            typer.echo(f"{group_cmd_name}\t{group.description}")
+    """List preset groups with their task count (generators x noises x strategies) and a description."""
+    groups = sim_run_groups.run_groups()
+    if aliases:
+        groups = [*groups, *(sim_run_groups.get_run_group(n) for n in sim_run_groups.alias_names())]
+    width = max(len(g.name) for g in groups)
+    for group in groups:
+        if names_only:
+            typer.echo(group.name)
         else:
-            typer.echo(group_cmd_name)
+            typer.echo(f"{group.name:<{width}}  {group.task_count:>6} tasks  {group.description}")
 
 
 @groups_app.command("count")
@@ -140,7 +144,7 @@ def count_group(
         typer.echo(f"Error: {exc}", err=True)
         raise typer.Exit(1) from exc
 
-    count = len(group.generator_names) * len(group.noise_names) * len(group.strategy_names)
+    count = group.task_count
     capped = min(count, max_shards) if max_shards > 0 else count
 
     if json_output:
@@ -157,7 +161,7 @@ def run_preset(
         str,
         typer.Argument(
             ...,
-            help="Preset group (same values as `nvision groups list`, e.g. both-sbed).",
+            help="Preset group (same values as `nvision groups list`, e.g. voigt-grid).",
         ),
     ],
     repeats: cli_options.RepeatsOption = cli_defaults.DEFAULT_REPEATS,
@@ -207,7 +211,7 @@ def run_all(
     retry_failed: cli_options.RetryFailedOption = False,
     resume: cli_options.ResumeOption = False,
 ) -> int:
-    """Run all experiments (alias for ``nvision groups run both-sbed``)."""
+    """Run all experiments (alias for ``nvision groups run voigt-grid``)."""
     return run(
         out=ARTIFACTS_ROOT,
         repeats=repeats,
@@ -260,5 +264,5 @@ def _register_group_alias(group_name: str) -> None:
     groups_app.command(group_name)(alias)
 
 
-for _group_name in ("both-sbed", "both-sbed-only", "both-sweep-only"):
+for _group_name in (*(g.name for g in sim_run_groups.run_groups()), *sim_run_groups.alias_names()):
     _register_group_alias(_group_name)

@@ -208,44 +208,6 @@ def param_grid_generators(variant: str = "lorentzian") -> list[tuple[str, object
     return generators
 
 
-def resonance_search_generators() -> list[tuple[str, object]]:
-    """Width x contrast grid of Lorentzian signals whose resonance must be found again after a field change.
-
-    The scenario: a spectrum was classified (linewidth, contrast known), then the magnetic field changed,
-    so the resonance moved (``zeeman_split`` is the unknown). Each generator carries a tight prior on the
-    nuisance parameters and none on ``zeeman_split`` (see ``NVCenterCoreGenerator.resonance_search``); the
-    belief's prior width is what sets the sweep spacing and SBED's coarse grid. Names end in ``-rs``.
-    """
-    import numpy as np
-
-    from nvision.sim.defaults import (
-        NVISION_SBED_CONTRAST_MAX,
-        NVISION_SBED_CONTRAST_MIN,
-        NVISION_SBED_CONTRAST_STEPS,
-        NVISION_SBED_WIDTH_MAX,
-        NVISION_SBED_WIDTH_MIN,
-        NVISION_SBED_WIDTH_STEPS,
-    )
-
-    widths = np.linspace(NVISION_SBED_WIDTH_MIN, NVISION_SBED_WIDTH_MAX, NVISION_SBED_WIDTH_STEPS)
-    contrasts = np.linspace(NVISION_SBED_CONTRAST_MIN, NVISION_SBED_CONTRAST_MAX, NVISION_SBED_CONTRAST_STEPS)
-    return [
-        (
-            f"NVCenter-lorentzian-{_fmt_width(float(width))}-{_fmt_contrast(float(contrast))}-rs",
-            NVCenterCoreGenerator(
-                drive_freq_min_phys=DEFAULT_NV_DRIVE_FREQ_MIN_PHYS,
-                drive_freq_max_phys=DEFAULT_NV_DRIVE_FREQ_MAX_PHYS,
-                variant="lorentzian",
-                linewidth=float(width),
-                c_total=float(contrast),
-                resonance_search=True,
-            ),
-        )
-        for width in widths
-        for contrast in contrasts
-    ]
-
-
 def _fmt_sigma_inhom(hz: float) -> str:
     return f"si{hz / 1e6:.2f}MHz"
 

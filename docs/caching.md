@@ -74,7 +74,7 @@ uv run nv cache gen prune --keep 2
 
 ## 5. Resuming Interrupted Runs (`--resume`)
 
-When a large parameter grid or group run (e.g. `nv groups both-sbed --repeats 50 --no-cache`) is interrupted midway, the cache is left with fresh results for the combinations reached so far, but stale entries for combinations that haven't started yet.
+When a large parameter grid or group run (e.g. `nv groups voigt-grid --repeats 50 --no-cache`) is interrupted midway, the cache is left with fresh results for the combinations reached so far, but stale entries for combinations that haven't started yet.
 
 The `--resume` flag non-destructively bridges this gap:
 1. **Scans the latest session log** (`logs/nvision-run-*.log`) to detect which combinations executed in that session.
@@ -84,7 +84,7 @@ The `--resume` flag non-destructively bridges this gap:
 
 ```bash
 # Resume any interrupted group run safely
-uv run nv groups both-sbed --repeats 50 --resume
+uv run nv groups voigt-grid --repeats 50 --resume
 ```
 
 
