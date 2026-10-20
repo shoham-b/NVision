@@ -176,28 +176,20 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         self._check_and_resample()
 
     def _update_focus_window(self) -> None:
-        """Re-decide the drive-frequency focus from the posterior over ``center_freq`` (right after a resample).
+        """Re-decide the drive-frequency focus from the dips the observations show (right after a resample).
 
-        Only meaningful when ``center_freq`` is inferred (a particle dimension); with the default fixed
-        ``center_freq`` the focus stays the full drive-frequency axis. Changes only which candidates may be scanned.
+        ``_resample`` regenerates the epoch candidates, which refreshes ``belief.dip_candidates`` from
+        the current observations (``find_dips``), so those dips are fresh here. The window is their
+        bounding interval padded by ``NVISION_SMC_FOCUSING_COVER_FACTOR`` x the posterior-mean
+        effective HWHM (see :func:`next_focus_window`); with no significant dip the focus is unchanged.
+        Dips are measurement facts, so this is active whether or not ``center_freq`` is inferred.
+        Changes only which candidates may be scanned.
         """
         belief = self.belief
-        if "center_freq" not in belief.model.parameter_names():
-            return
-        particles = belief.particles_phys()
-        est = belief.estimates()
-        half_span = (
-            particles.get("zeeman_split", 0.0)
-            + particles.get("split", 0.0)
-            + NVISION_SMC_FOCUSING_COVER_FACTOR * effective_hwhm(particles)
-        )
-        half_span = np.broadcast_to(half_span, particles["center_freq"].shape)
         self._focus, expanded = next_focus_window(
             self._focus,
-            center_freq_particles_phys=particles["center_freq"],
-            active_half_span_particles_phys=half_span,
-            omega_phys=float(effective_hwhm(est)),
-            zeeman_split_phys=float(est.get("zeeman_split", 0.0)),
+            dips=belief.dip_candidates,
+            pad_phys=NVISION_SMC_FOCUSING_COVER_FACTOR * float(effective_hwhm(belief.estimates())),
             step=belief._step_count,
             last_expansion_step=self._last_focus_expansion_step,
         )
@@ -249,7 +241,7 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
     def per_dip_windows(self) -> list[tuple[float, float]] | None:
         """Extents of every detected dip (evidence from the observations), when more than one is competing.
 
-        Display only: the dips bias where EIG candidates are placed but do not set the focus window.
+        Display only: the individual extents behind the focus window (which is their padded bounding interval).
         None for a single dip, matching the sweep locators' convention of using ``per_dip_windows``
         only for genuinely multiple regions.
         """

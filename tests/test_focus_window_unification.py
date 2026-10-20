@@ -302,9 +302,8 @@ class TestIsFullDomainAgainstOracle:
 
 class TestClampToDomainRouting:
     def test_next_focus_window_routes_through_clamp(self, monkeypatch):
-        import numpy as np
-
         import nvision.belief.focus_window as fw_mod
+        from nvision.belief.dip_detection import DipCandidate
 
         calls: list[tuple] = []
         real_clamp = fw_mod.clamp_to_domain
@@ -318,14 +317,12 @@ class TestClampToDomainRouting:
         focus = FocusWindow(lo=0.0, hi=100.0, full_lo=0.0, full_hi=100.0)
         fw_mod.next_focus_window(
             focus,
-            center_freq_particles_phys=np.full(50, 50.0),
-            active_half_span_particles_phys=np.full(50, 5.0),
-            omega_phys=1.0,
-            zeeman_split_phys=0.0,
+            dips=[DipCandidate(50.0, 6.0, 6, 48.0, 52.0, 0.999, 1.0)],
+            pad_phys=5.0,
             step=100,
             last_expansion_step=-1,
         )
-        assert calls == [(45.0, 55.0, 0.0, 100.0)]
+        assert calls[0] == (43.0, 57.0, 0.0, 100.0)
 
     def test_refocus_window_infer_focus_window_routes_through_clamp(self, monkeypatch):
         import nvision.sim.locs.refocus.window as refocus_window_mod

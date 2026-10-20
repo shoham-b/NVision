@@ -1,7 +1,7 @@
 """SBED reports the window it actually restricts acquisition to as the UI focus window.
 
 ``bayesian_focus_window()`` / ``focus_window_candidates()`` expose the locator's ``_focus`` (the
-interval ``_acquire`` filters EIG candidates by) and feed the UI timeline
+interval ``_acquire`` filters EIG candidates by; derived from the significant dips) and feed the UI timeline
 (``StepSnapshot.focus_window_candidates``). ``per_dip_windows()`` is separate, display-only evidence
 from the belief's deterministic dip detection (``SMCMarginalDistribution.dip_candidates``), covered
 by ``test_dip_detection.py``.
@@ -74,11 +74,21 @@ class TestFocusWindowMethods:
         # The acquisition filter and the reported window are the same interval.
         assert locator._acquisition_bounds() == locator.bayesian_focus_window()
 
-    def test_detected_dips_do_not_change_the_focus_window(self):
+    def test_significant_dips_drive_the_focus_window(self, monkeypatch):
+        # This test axis is only 20 MHz wide: shrink the pad so the window can be narrower than the axis.
+        monkeypatch.setattr("nvision.sim.locs.bayesian.sbed_locator.NVISION_SMC_FOCUSING_COVER_FACTOR", 0.1)
         locator = _make_locator()
         locator.belief._dip_candidates = [_dip(2.869e9, 2.871e9)]
+        # Dips alone change nothing until the locator re-decides the focus (after a resample)...
         assert locator.bayesian_focus_window() is None
-        assert locator.focus_window_candidates() is None
+        locator.belief._step_count = 20
+        locator._update_focus_window()
+        # ...then the reported window is the (padded) dip extent and equals the acquisition filter.
+        lo, hi = locator.bayesian_focus_window()
+        assert lo < 2.869e9
+        assert hi > 2.871e9
+        assert locator.focus_window_candidates() == [(lo, hi)]
+        assert locator._acquisition_bounds() == (lo, hi)
 
     def test_per_dip_windows_still_expose_competing_dips(self):
         locator = _make_locator()
