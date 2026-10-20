@@ -52,7 +52,7 @@ def _run_one_repeat(tmp_path, strategy: str):
     return entries, main_row
 
 
-@pytest.mark.parametrize("strategy", ["SimpleSweep"])
+@pytest.mark.parametrize("strategy", ["SimpleSweep-3perFWHM"])
 def test_sweep_plots_skipped_by_default_but_data_kept(tmp_path, monkeypatch, strategy):
     monkeypatch.setattr(plots_module, "NVISION_PLOT_SWEEP_STRATEGIES", False)
     entries, main_row = _run_one_repeat(tmp_path, strategy)
@@ -72,7 +72,7 @@ def test_sweep_plots_skipped_by_default_but_data_kept(tmp_path, monkeypatch, str
 
 def test_sweep_plots_built_when_flag_on(tmp_path, monkeypatch):
     monkeypatch.setattr(plots_module, "NVISION_PLOT_SWEEP_STRATEGIES", True)
-    entries, _ = _run_one_repeat(tmp_path, "SimpleSweep")
+    entries, _ = _run_one_repeat(tmp_path, "SimpleSweep-3perFWHM")
 
     scan = next(e for e in entries if e["type"] == "scan")
     # (run_task strips the heavy `_bytes` payload from returned entries; the path is what marks

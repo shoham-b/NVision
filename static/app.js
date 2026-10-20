@@ -5955,6 +5955,83 @@ function main() {
         }
     }
 
+    // Plain sweeps run at several spacings (SimpleSweep-<k>perFWHM = k grid points per FWHM). The pickers list
+    // "Sweep" once and offer the spacing in a second dropdown that appears after Sweep is chosen.
+    function sweepParts(id) {
+        const m = /^simplesweep_(\d+)perfwhm(.*)$/.exec(id || '');
+        return m ? { k: Number(m[1]), rest: m[2] } : null;
+    }
+    function pickerFamilyKey(e) {
+        const sp = sweepParts(e.id);
+        return sp ? 'simplesweep' + sp.rest : e.id;
+    }
+    function pickerFamilyLabel(e) {
+        return sweepParts(e.id) ? e.label.replace(/-\d+perFWHM/, '') : e.label;
+    }
+
+    // One entity picker: a family dropdown (+ a spacing dropdown for the sweep family). Calls onChange when the
+    // selection changes by the user; setEntities() swaps the offered entities without notifying.
+    function makeEntityPicker(onChange) {
+        const box = document.createElement('span');
+        box.style.cssText = 'display:inline-flex;gap:0.3em;align-items:center;';
+        const fam = document.createElement('select');
+        fam.className = 'control-select';
+        const spc = document.createElement('select');
+        spc.className = 'control-select';
+        spc.title = 'Sweep spacing: grid points per FWHM of the dip';
+        spc.hidden = true;
+        box.appendChild(fam);
+        box.appendChild(spc);
+        let entities = [];
+
+        const fillSpacing = (preferK) => {
+            const key = fam.value;
+            const ks = entities.filter(e => pickerFamilyKey(e) === key && sweepParts(e.id))
+                .map(e => sweepParts(e.id).k).sort((x, y) => x - y);
+            spc.innerHTML = '';
+            for (const k of ks) {
+                const opt = document.createElement('option');
+                opt.value = String(k);
+                opt.textContent = `${k} per FWHM`;
+                spc.appendChild(opt);
+            }
+            spc.hidden = ks.length < 2;
+            if (ks.length) spc.value = ks.includes(preferK) ? String(preferK) : String(ks[0]);
+        };
+        const current = () => {
+            const key = fam.value;
+            if (!spc.hidden || sweepParts((entities.find(e => pickerFamilyKey(e) === key) || {}).id)) {
+                const k = Number(spc.value);
+                return entities.find(e => pickerFamilyKey(e) === key && (sweepParts(e.id) || {}).k === k) || null;
+            }
+            return entities.find(e => pickerFamilyKey(e) === key) || null;
+        };
+        const setEntities = (list, preferId) => {
+            entities = list;
+            const prevKey = fam.value;
+            const prefer = list.find(e => e.id === preferId);
+            const wantKey = prefer ? pickerFamilyKey(prefer) : prevKey;
+            const wantK = prefer && sweepParts(prefer.id) ? sweepParts(prefer.id).k : Number(spc.value);
+            fam.innerHTML = '';
+            const seen = new Set();
+            for (const e of list) {
+                const key = pickerFamilyKey(e);
+                if (seen.has(key)) continue;
+                seen.add(key);
+                const opt = document.createElement('option');
+                opt.value = key;
+                opt.textContent = pickerFamilyLabel(e);
+                fam.appendChild(opt);
+            }
+            if (seen.has(wantKey)) fam.value = wantKey;
+            fillSpacing(wantK);
+            fam.disabled = list.length === 0;
+        };
+        fam.addEventListener('change', () => { fillSpacing(Number(spc.value)); onChange(); });
+        spc.addEventListener('change', onChange);
+        return { el: box, setEntities, current };
+    }
+
     function buildTwoDropdownSelector(entities, onPairChange, defaultAId, defaultBId) {
         const wrapper = document.createElement('div');
         wrapper.className = 'control-row';
@@ -5962,55 +6039,38 @@ function main() {
         const lbl = document.createElement('span');
         lbl.className = 'control-label';
         lbl.textContent = 'Compare:';
-        const selA = document.createElement('select');
-        selA.className = 'control-select';
         const vs = document.createElement('span');
         vs.style.cssText = 'padding:0 0.3em;color:#64748b;font-size:0.9em;';
         vs.textContent = 'with';
-        const selB = document.createElement('select');
-        selB.className = 'control-select';
         const hint = document.createElement('span');
         hint.style.cssText = 'color:#94a3b8;font-size:0.78em;';
         hint.textContent = 'Only pairs with the same stopping criterion are comparable.';
-        for (const e of entities) {
-            const opt = document.createElement('option');
-            opt.value = e.id;
-            opt.textContent = e.label;
-            selA.appendChild(opt);
-        }
+
         // B only ever offers entities with the same stopping criterion as A:
         // cross-criterion pairs vary both quality and cost at once and answer
         // neither question, so they are not offered at all.
-        const refreshBOptions = () => {
-            const crit = entityCriterion(selA.value || '');
-            const prev = selB.value;
-            selB.innerHTML = '';
-            const candidates = entities.filter(e => e.id !== selA.value && entityCriterion(e.id) === crit);
-            for (const e of candidates) {
-                const opt = document.createElement('option');
-                opt.value = e.id;
-                opt.textContent = e.label;
-                selB.appendChild(opt);
-            }
-            if (candidates.some(e => e.id === prev)) selB.value = prev;
-            selB.disabled = candidates.length === 0;
+        const refreshBOptions = (preferId) => {
+            const eA = pickerA.current();
+            const crit = entityCriterion(eA ? eA.id : '');
+            pickerB.setEntities(
+                entities.filter(e => (!eA || pickerFamilyKey(e) !== pickerFamilyKey(eA)) && entityCriterion(e.id) === crit
+                    || (eA && pickerFamilyKey(e) === pickerFamilyKey(eA) && sweepParts(e.id) && e.id !== eA.id && entityCriterion(e.id) === crit)),
+                preferId,
+            );
         };
-        if (defaultAId) { const i = entities.findIndex(e => e.id === defaultAId); if (i >= 0) selA.selectedIndex = i; }
-        refreshBOptions();
-        if (defaultBId && entityCriterion(defaultBId) === entityCriterion(selA.value || '') && defaultBId !== selA.value) {
-            selB.value = defaultBId;
-        }
         const notify = () => {
-            const eA = entities.find(e => e.id === selA.value);
-            const eB = entities.find(e => e.id === selB.value);
-            if (eA && eB) onPairChange(eA, eB);
+            const eA = pickerA.current();
+            const eB = pickerB.current();
+            if (eA && eB && eA.id !== eB.id) onPairChange(eA, eB);
         };
-        selA.addEventListener('change', () => { refreshBOptions(); notify(); });
-        selB.addEventListener('change', notify);
+        const pickerA = makeEntityPicker(() => { refreshBOptions(); notify(); });
+        const pickerB = makeEntityPicker(notify);
+        pickerA.setEntities(entities, defaultAId);
+        refreshBOptions(defaultBId && defaultBId !== defaultAId ? defaultBId : undefined);
         wrapper.appendChild(lbl);
-        wrapper.appendChild(selA);
+        wrapper.appendChild(pickerA.el);
         wrapper.appendChild(vs);
-        wrapper.appendChild(selB);
+        wrapper.appendChild(pickerB.el);
         wrapper.appendChild(hint);
         return { wrapper, notify };
     }

@@ -77,7 +77,7 @@ def test_combination_grid_expands_swept_generators_across_noise_and_strategy():
         sim_defaults.NVISION_NOISE_MAX_GAUSS = 0.2
 
         grid = CombinationGrid()
-        combos = list(grid.iter(filter_signal="lorentzian", filter_strategy="^SimpleSweep$,Bayesian-SBED"))
+        combos = list(grid.iter(filter_signal="lorentzian", filter_strategy="^SimpleSweep-3perFWHM$,Bayesian-SBED"))
         assert len(combos) == 10
         assert all(c.generator_name == "NVCenter-lorentzian-w1.00MHz-c0.10" for c in combos)
         assert {c.noise_name for c in combos} == set(dict(presets.noises_single_each()).keys())

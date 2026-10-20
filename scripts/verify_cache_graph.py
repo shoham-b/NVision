@@ -24,7 +24,7 @@ def main():
 
     # Pick one deterministic combination from the grid.
     grid = CombinationGrid()
-    combo = next(grid.iter(filter_category="NVCenter", filter_strategy="SimpleSweep"))
+    combo = next(grid.iter(filter_category="NVCenter", filter_strategy="SimpleSweep-3perFWHM"))
 
     task = LocatorTask(
         task_id="test_task",

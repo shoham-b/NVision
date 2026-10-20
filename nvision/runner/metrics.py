@@ -10,6 +10,7 @@ from typing import Any
 
 import polars as pl
 
+from nvision.metrics.milestones import calculate_zeeman_metrics, resolve_primary_param
 from nvision.metrics.stages import STAGE_METRIC_KEYS, compute_stage_metrics
 from nvision.models.experiment import CoreExperiment
 from nvision.models.observer import RunResult
@@ -50,7 +51,6 @@ def generate_attempt_metrics(
     tuple
         ``(entry_base, main_result_row, current_history_df)``
     """
-    from nvision.metrics.milestones import calculate_zeeman_metrics, resolve_primary_param
 
     if not final_history_df.is_empty():
         current_history_df = final_history_df.filter(pl.col("repeat_id") == attempt_idx_in_combo).drop("repeat_id")
@@ -83,7 +83,11 @@ def generate_attempt_metrics(
         estimate = {k: float(v) for k, v in estimate_dict.items() if isinstance(v, int | float)}
         measurements = current_history_df.height
 
-    attempt_metrics = _scan_attempt_metrics(_truth_positions(current_scan), estimate)
+    attempt_metrics = _scan_attempt_metrics(
+        _truth_positions(current_scan),
+        estimate,
+        resolve_primary_param(current_scan.true_signal.parameter_values().keys()),
+    )
     metrics_serialized = {key: _maybe_finite(value) for key, value in attempt_metrics.items()}
     metrics_serialized["measurements"] = _maybe_finite(measurements)
 
@@ -292,7 +296,9 @@ def generate_attempt_metrics(
     return entry_base, main_result_row, current_history_df
 
 
-def _scan_attempt_metrics(truth_positions: Sequence[float], estimate: dict[str, object]) -> dict[str, float]:
+def _scan_attempt_metrics(
+    truth_positions: Sequence[float], estimate: dict[str, object], primary: str | None = None
+) -> dict[str, float]:
     metrics: dict[str, float] = {}
     truth = [float(pos) for pos in truth_positions]
 
@@ -317,7 +323,7 @@ def _scan_attempt_metrics(truth_positions: Sequence[float], estimate: dict[str, 
         if value is not None:
             metrics[key] = value
 
-    _promote_uncert(estimate, metrics)
+    _promote_uncert(estimate, metrics, primary)
 
     if "final_entropy" not in metrics:
         entropy_value = _maybe_finite(estimate.get("entropy"))

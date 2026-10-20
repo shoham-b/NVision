@@ -199,6 +199,10 @@ class GenericSweepLocator(SweepingLocator):
         # _fit_model).  Used to draw the actual fit in the visualization
         # instead of the SMC belief marginal mode.
         self._fit_params_phys: dict[str, float] | None = None
+        # Standard deviation of each *fitted* parameter (sqrt of the covariance diagonal; NaN when the fit
+        # gives no usable covariance). Absent for a fixed center_freq: it was not estimated.
+        self._fit_std_phys: dict[str, float] | None = None
+        self._center_fitted: bool = False
 
         # Parameter bounds stored by create() when provided as an argument.
         # Used by _fit_model() when signal_model has no param_bounds_phys.
@@ -461,6 +465,12 @@ class GenericSweepLocator(SweepingLocator):
         # actual fit instead of the (collapsed) SMC belief marginal mode. center_param
         # isn't part of best_popt when fixed, so add it back explicitly.
         self._fit_params_phys = {n: float(v) for n, v in zip(param_names, best_popt, strict=False)}
+        diag = np.diag(best_pcov) if best_pcov is not None and np.all(np.isfinite(best_pcov)) else None
+        self._fit_std_phys = {
+            n: (float(np.sqrt(diag[i])) if diag is not None and diag[i] > 0 else float("nan"))
+            for i, n in enumerate(param_names)
+        }
+        self._center_fitted = center_idx is not None
         if center_idx is None:
             self._fit_params_phys[center_param] = center_freq_phys
 
@@ -1083,9 +1093,11 @@ class GenericSweepLocator(SweepingLocator):
     def result(self) -> dict[str, float]:
         """Return dip-center estimate, uncertainty, and fit-derived sweep metrics."""
         res = super().result()
-        if self._center_freq_estimate_phys is not None:
+        # center_freq is only an estimate when the fit estimated it; a fixed (known) center is not a result,
+        # and reporting it would score the sweep on a parameter nobody measured (error and uncertainty 0).
+        if self._center_fitted and self._center_freq_estimate_phys is not None:
             res["center_freq"] = self._center_freq_estimate_phys
-        if self._center_freq_uncert_phys is not None:
+        if self._center_fitted and self._center_freq_uncert_phys is not None:
             res["uncert"] = self._center_freq_uncert_phys
         res.update(self._compute_sweep_metrics())
         return res
@@ -1129,6 +1141,16 @@ class GenericSweepLocator(SweepingLocator):
         mode, which is not resampled during the sweep and can collapse.
         """
         return dict(self._fit_params_phys) if self._fit_params_phys is not None else None
+
+    def fitted_estimates(self) -> dict[str, float] | None:
+        """The parameters the fit estimated (a fixed ``center_freq`` is left out), or None before ``finalize()``."""
+        if self._fit_params_phys is None:
+            return None
+        return {n: v for n, v in self._fit_params_phys.items() if n != self._center_param or self._center_fitted}
+
+    def fit_mode_uncertainties(self) -> dict[str, float] | None:
+        """Fit standard deviation of each fitted parameter (physical units; NaN = no covariance), or None."""
+        return dict(self._fit_std_phys) if self._fit_std_phys is not None else None
 
     def bayesian_focus_window(self) -> tuple[float, float] | None:
         return None

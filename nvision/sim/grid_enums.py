@@ -26,6 +26,11 @@ class NoiseName(StrEnum):
     GAUSS = "Gauss"
 
 
+def sweep_strategy_name(points_per_fwhm: int) -> str:
+    """Strategy name of the plain sweep with ``points_per_fwhm`` grid points per FWHM, e.g. ``SimpleSweep-3perFWHM``."""
+    return f"{StrategyFilter.SIMPLE_SWEEP}-{points_per_fwhm}perFWHM"
+
+
 def is_plain_sweep(strategy_name: str) -> bool:
-    """True for the plain (non-adaptive) sweep strategies: ``SimpleSweep`` and its ``SimpleSweep-d<k>`` spacings."""
-    return strategy_name == StrategyFilter.SIMPLE_SWEEP or strategy_name.startswith(f"{StrategyFilter.SIMPLE_SWEEP}-d")
+    """True for the plain (non-adaptive) sweep strategies: ``SimpleSweep-<k>perFWHM``."""
+    return strategy_name == StrategyFilter.SIMPLE_SWEEP or strategy_name.startswith(f"{StrategyFilter.SIMPLE_SWEEP}-")

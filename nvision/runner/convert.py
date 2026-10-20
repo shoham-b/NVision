@@ -138,6 +138,11 @@ def run_result_to_finalize_record(
         # empirical std otherwise — no extra domain scaling.
         for param_name, uncert in last_belief.reported_uncertainty().items():
             record[f"uncert_{param_name}"] = uncert
+        # A locator whose reported estimate is a fit (sweeps) reports the fit's own uncertainty for the
+        # parameters it fitted, so estimate and uncertainty describe the same quantity.
+        for param_name, uncert in (result.fit_mode_uncertainties or {}).items():
+            if param_name in result.fit_mode_estimates and uncert == uncert:  # NaN: keep the belief's
+                record[f"uncert_{param_name}"] = uncert
 
         record["entropy"] = last_belief.entropy()
         record["converged"] = last_belief.converged(threshold=0.01)

@@ -37,9 +37,16 @@ def _first_finite(estimate: dict[str, object], keys: Sequence[str]) -> float | N
     return None
 
 
-def _promote_uncert(estimate: dict[str, object], metrics: dict[str, float]) -> None:
+def _promote_uncert(estimate: dict[str, object], metrics: dict[str, float], primary: str | None = None) -> None:
+    """Set ``metrics['uncert']``: the primary parameter's uncertainty when known, else the first available."""
     if "uncert" in metrics:
         return
+
+    if primary is not None:
+        primary_uncert = _maybe_finite(estimate.get(f"uncert_{primary}"))
+        if primary_uncert is not None:
+            metrics["uncert"] = primary_uncert
+            return
 
     preferred_uncert = _first_finite(
         estimate,

@@ -20,6 +20,7 @@ from nvision.models.noise import CompositeNoise, CompositeOverFrequencyNoise
 from nvision.noises import OverFrequencyGaussianNoise
 from nvision.sim import defaults as sim_defaults
 from nvision.sim import presets as sim_presets
+from nvision.sim.grid_enums import sweep_strategy_name
 from nvision.sim.locs.bayesian.belief_builders import nv_center_smc_belief
 from nvision.sim.locs.bayesian.sbed_drive_locator import DriveChoosingSBEDLocator
 from nvision.sim.locs.bayesian.sbed_locator import (
@@ -28,7 +29,6 @@ from nvision.sim.locs.bayesian.sbed_locator import (
     SmartSweepLocator,
 )
 from nvision.sim.locs.coarse.generic_sweep_locator import GenericSweepLocator
-from nvision.sim.locs.search_grid import SWEEP_POINTS_PER_FWHM
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,8 +43,8 @@ class Combination:
     strategy: type | dict[str, Any]
 
 
-# Sweep spacings studied, as points per prior FWHM (the default SWEEP_POINTS_PER_FWHM is plain "SimpleSweep").
-SWEEP_SPACING_DIVISORS: tuple[int, ...] = (1, 2, SWEEP_POINTS_PER_FWHM, 5)
+# Sweep spacings studied, as grid points per prior FWHM (SWEEP_POINTS_PER_FWHM is the derived default).
+SWEEP_SPACING_DIVISORS: tuple[int, ...] = (1, 2, 3, 4, 5)
 
 _NV_SMC: dict[str, object] = {
     "builder": nv_center_smc_belief,
@@ -222,10 +222,9 @@ class CombinationGrid:
             ("Bayesian-SBED", {"class": SequentialBayesianExperimentDesignLocator, "config": sbed_config}),
             ("Smart-SBED", {"class": SmartSBEDLocator, "config": sbed_config}),
             ("Smart-Sweep", {"class": SmartSweepLocator, "config": sbed_config}),
-            # The sweep spacings under study: the analytically derived FWHM/3 (plain "SimpleSweep") and
-            # coarser/finer alternatives, named by their divisor.
-            ("SimpleSweep", sweep(SWEEP_POINTS_PER_FWHM)),
-            *((f"SimpleSweep-d{d}", sweep(d)) for d in SWEEP_SPACING_DIVISORS if d != SWEEP_POINTS_PER_FWHM),
+            # The sweep spacings under study, named by their points per FWHM; the analytically derived
+            # default is SWEEP_POINTS_PER_FWHM.
+            *((sweep_strategy_name(k), sweep(k)) for k in SWEEP_SPACING_DIVISORS),
         ]
         if drive_lineshape is not None:
             # Only drive-controlled generators have a drive to choose.

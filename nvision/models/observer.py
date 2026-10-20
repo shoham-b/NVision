@@ -77,6 +77,8 @@ class RunResult:
     secondary_sweep_steps: int = 0
     tertiary_sweep_steps: int = 0
     fit_mode_estimates: dict[str, float] | None = None
+    # Standard deviation of each fitted parameter, for locators whose reported estimate is a fit (sweeps).
+    fit_mode_uncertainties: dict[str, float] | None = None
 
     def convergence_step(self, param: str, threshold: float) -> int | None:
         """Find first step where parameter converged below threshold.

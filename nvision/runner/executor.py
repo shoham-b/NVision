@@ -1462,6 +1462,7 @@ class _TaskRunner:
             # belief is batch-updated without resampling during a sweep and
             # can collapse, drawing a garbage curve even on clean data.
             result.fit_mode_estimates = locator_instance.fit_mode_estimates()
+            result.fit_mode_uncertainties = locator_instance.fit_mode_uncertainties()
         locator_final_result = locator_instance.result()
         # Fold the sweep's full least-squares fit (linewidth/homogeneous_linewidth/
         # sigma_inhom/split/k_np/c_total/zeeman_split/...) into the estimate dict so the generic
@@ -1472,9 +1473,9 @@ class _TaskRunner:
         from nvision.sim.locs.coarse.generic_sweep_locator import GenericSweepLocator
 
         if isinstance(locator_instance, GenericSweepLocator):
-            fit_mode_estimates = locator_instance.fit_mode_estimates()
-            if fit_mode_estimates:
-                locator_final_result = {**fit_mode_estimates, **locator_final_result}
+            fitted_estimates = locator_instance.fitted_estimates()
+            if fitted_estimates:
+                locator_final_result = {**fitted_estimates, **locator_final_result}
 
         history_df = run_result_to_history_df(
             result, rid, experiment.drive_freq_min_phys, experiment.drive_freq_max_phys
