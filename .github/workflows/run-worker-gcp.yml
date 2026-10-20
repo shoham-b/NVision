@@ -9,6 +9,9 @@ on:
         default: "both-sbed-only"
         type: choice
         options:
+          - voigt-grid
+          - lorentzian-drift
+          - drive-control
           - both-sbed
           - both-sbed-only
           - both-sweep-only

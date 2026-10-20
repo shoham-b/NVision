@@ -1,32 +1,41 @@
-# Resonance search after a field change
+# Locator comparison: sweeps, Smart-Sweep, Smart-SBED
 
-## Scenario
+Every locator searches for the resonance (`zeeman_split`, the primary parameter); the standard run groups
+compare them on the same signals and noise levels. The generators are the ordinary ones, whose priors on the
+nuisance parameters are loose (std 10 % of the parameter range). The prior-based FWHM sizing below (sweep
+spacing, Smart-* search grid) is therefore less accurate than it would be after a prior classification of the
+spectrum with tight nuisance priors; it still uses the prior's width, never the true signal's.
 
-The common ODMR situation: the spectrum was already classified (hwhm, contrast, hyperfine), then the
-magnetic field changed, so the resonance moved. The nuisance parameters are expected to change little; the
-unknown is where the dip is now (`zeeman_shift`, the primary parameter).
+## Run groups
 
-`NVCenterCoreGenerator(resonance_search=True)` builds that case: every prior except `zeeman_shift` is tight
-(std scaled by `RESONANCE_SEARCH_NUISANCE_STD_SCALE`, 0.25, in `nvision/sim/gen/nv_center_generator.py`) and
-`zeeman_shift` has no prior (flat over its bounds). `presets.resonance_search_generators()` is the width x
-contrast grid (names end in `-rs`); the run group is `resonance-search`.
+| Group | Signals | Noise | Strategies |
+|---|---|---|---|
+| `voigt-grid` | Voigt width x contrast x sigma_inhom | SBED noise grid | the eight below |
+| `lorentzian-drift` | Lorentzian width x contrast | no-drift control + drift scenarios | the eight below |
+| `drive-control` | CW / pulsed drive-controlled NV | SBED noise grid | `Bayesian-SBED`, `Bayesian-SBED-Drive` |
+| `all` | the three above | the three above | each scenario's own set (`nv groups all`, 19224 tasks) |
 
-`--filter-signal` (generator substring) and `--filter-strategy` (comma-separated regex/substring) narrow a run group.
+`nv groups list` shows every group with its task count. The former groups `both-sbed`, `both-sbed-only`,
+`both-sweep-only`, `lorentzian-plain-drift` and `lorentzian-plain-drift-sbed-only` still work as aliases of
+`voigt-grid` / `lorentzian-drift` restricted to `Bayesian-SBED` (+ `SimpleSweep-3perFWHM`). To run any other
+subset, narrow a group: `--filter-signal` (generator substring) and `--filter-strategy` (comma-separated
+regex/substring).
 
-## Running the study
+## Running the comparison
 
-Full grid: 25 signals (5 widths x 5 contrasts) x 6 noise levels x 8 strategies = 1200 tasks.
+`voigt-grid` has 18000 tasks (75 signals x 6 noise levels x 8 strategies), `lorentzian-drift` 1200 (25 signals x
+6 noise settings x 8 strategies); narrow them for a first look.
 
 ```bash
-uv run nv run --run-group resonance-search --repeats 30 --runners 8
+uv run nv run --run-group lorentzian-drift --filter-strategy "Sweep,SBED" --repeats 30 --runners 8
 uv run nv compare            # stage-by-stage table from artifacts/ (or --out DIR)
 uv run nv serve              # Speed tab -> "Stages"; Compare A/B pickers (Sweep -> spacing)
 ```
 
 `nv compare` prints three tables (accuracy; stage boundaries and reach rates; per-stage duration and
 uncertainty ratio) for every locator on the same footing; `--filter-signal`, `--filter-noise`,
-`--by generator,noise` and `--csv` refine and export it. `nv groups count resonance-search` shows the task count.
-A quick look: `NVISION_SBED_NOISE_STEPS=1 uv run nv run --run-group resonance-search --filter-signal "c0.25-rs" --repeats 5`.
+`--by generator,noise` and `--csv` refine and export it. `nv groups count lorentzian-drift` shows the task count.
+A quick look: `NVISION_SBED_NOISE_STEPS=1 uv run nv run --run-group lorentzian-drift --filter-signal "c0.25" --repeats 5`.
 
 In the UI the plain sweeps appear as one "Sweep" entry; choosing it reveals a second dropdown for the spacing
 (k points per FWHM, 1-5).
@@ -56,9 +65,6 @@ parameters, clipped to their bounds) -- never the true signal's width (`nvision/
 and focus rule (`next_focus_region`), but the focus is re-decided after every measurement (from
 `belief.current_dips()`) instead of only at resamples. All sweeps update the same SMC belief every step, so an
 uncertainty trajectory exists for every locator. A plain sweep's *reported* estimate is still its final fit.
-
-The pre-run CRLB feasibility gate uses the SBED step budget for every strategy so the same repeats are skipped
-for all of them.
 
 ## Stages
 
@@ -92,7 +98,7 @@ $|x-x_0| = \gamma/\sqrt3$ and $\eta \approx 1 - 4.5(\epsilon/\gamma)^2$, so $\de
 about $\pm 0.15\,\gamma$ of it -- the locally linear regime.
 
 Assumptions: additive noise with $\sigma$ independent of $x$ and the drive; nuisance parameters known (the
-resonance-search scenario -- with free nuisances the diagonal term is an upper bound on the efficient information).
+known-nuisance scenario -- with free nuisances the diagonal term is an upper bound on the efficient information).
 For drive-controlled models the oracle also picks the drive amplitude (and the true pi-pulse when pulsed). $\eta$
 uses the true signal, not the belief (whose own precision is overconfident), so it is simulation-only ground truth.
 
@@ -116,7 +122,7 @@ one row per strategy (each `SimpleSweep-<k>perFWHM` spacing is its own row). The
 Manual check that UI and CLI agree on a tiny run:
 
 ```bash
-NVISION_SBED_NOISE_STEPS=1 uv run nv run --run-group resonance-search --filter-signal c0.25 --repeats 3 --runners 2 --out scratch/x
+NVISION_SBED_NOISE_STEPS=1 uv run nv run --run-group lorentzian-drift --filter-signal c0.25 --repeats 3 --runners 2 --out scratch/x
 uv run nv compare --out scratch/x --filter-signal w2.75MHz --filter-noise "Gauss(0.01)"
 uv run nv serve --dir scratch/x   # Speed tab, generator w2.75MHz-c0.25, noise Gauss(0.01), compare the tables
 ```

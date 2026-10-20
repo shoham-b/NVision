@@ -1,8 +1,8 @@
 """Smart-Sweep and Smart-SBED: a coarse width-sized search first, then work inside the focus.
 
-Both are SBED locators in everything but acquisition. Checked on a real resonance-search signal (tight
-nuisance priors, unknown ``zeeman_shift``): the search grid is sized from the prior FWHM, the switch to the
-focus happens as soon as the data show a dip, and from then on every measurement lies inside the focus.
+Both are SBED locators in everything but acquisition. Checked on a standard generator's signal: the search grid
+is sized from the prior FWHM, the switch to the focus happens as soon as the
+data show a dip, and from then on every measurement lies inside the focus.
 """
 
 from __future__ import annotations
@@ -11,13 +11,11 @@ import itertools
 import random
 
 import numpy as np
-import pytest
 
 from nvision import CoreExperiment, NVCenterCoreGenerator
 from nvision.belief.focus_window import FocusRegion
 from nvision.models.noise import CompositeNoise, CompositeOverFrequencyNoise
 from nvision.noises import OverFrequencyGaussianNoise
-from nvision.sim.gen.nv_center_generator import RESONANCE_SEARCH_NUISANCE_STD_SCALE
 from nvision.sim.locs.bayesian.belief_builders import nv_center_smc_belief
 from nvision.sim.locs.bayesian.sbed_locator import (
     SequentialBayesianExperimentDesignLocator,
@@ -31,7 +29,7 @@ NOISE_SIGMA = 0.01
 
 
 def _experiment(seed: int = 3, hwhm: float = 2.75e6, contrast: float = 0.4):
-    gen = NVCenterCoreGenerator(variant="lorentzian", hwhm=hwhm, contrast_total=contrast, resonance_search=True)
+    gen = NVCenterCoreGenerator(variant="lorentzian", hwhm=hwhm, contrast_total=contrast)
     true_signal = gen.generate(random.Random(seed))
     noise = CompositeNoise(over_frequency_noise=CompositeOverFrequencyNoise([OverFrequencyGaussianNoise(NOISE_SIGMA)]))
     exp = CoreExperiment(
@@ -65,22 +63,6 @@ def _drive(locator, exp, rng, n_steps: int):
         trace.append((locator._focus, lo + x_unit * (hi - lo)))  # the focus the pick was made under
         locator.observe(exp.measure(x_unit, rng))
     return trace
-
-
-def test_resonance_search_priors_are_tight_on_nuisance_and_absent_on_the_resonance():
-    gen = NVCenterCoreGenerator(variant="lorentzian", hwhm=2.0e6, contrast_total=0.3)
-    default = gen.generate(random.Random(1)).bounds["_priors"]
-    searched = (
-        NVCenterCoreGenerator(variant="lorentzian", hwhm=2.0e6, contrast_total=0.3, resonance_search=True)
-        .generate(random.Random(1))
-        .bounds["_priors"]
-    )
-    assert "zeeman_shift" in default
-    assert "zeeman_shift" not in searched
-    assert searched["hwhm"][1] == pytest.approx(default["hwhm"][1] * RESONANCE_SEARCH_NUISANCE_STD_SCALE)
-    assert searched["contrast_total"][1] == pytest.approx(
-        default["contrast_total"][1] * RESONANCE_SEARCH_NUISANCE_STD_SCALE
-    )
 
 
 def test_smart_sweep_sweeps_at_fwhm_over_three_then_stays_in_the_focus():
@@ -156,11 +138,12 @@ def test_smart_sweep_refines_at_both_steepest_slopes_once_the_dip_is_known():
     refine_x = np.array([trace[i][1] for i in loc.refine_steps])
 
     # Lorentzian: the d signal / d zeeman_shift maxima are x0 +- HWHM / sqrt(3). The locator finds them
-    # numerically from its own estimate; within 0.15 HWHM of the true ones they carry >= 90% of the information.
+    # numerically from its own estimate. The standard priors leave hwhm itself uncertain, so the picks only
+    # land within half an HWHM of the true optima (a tight-nuisance prior would give 0.15 HWHM).
     x0 = _true_dip_center_phys(exp.true_signal, exp.drive_freq_min_phys, exp.drive_freq_max_phys)
     optima = np.array([x0 - hwhm / np.sqrt(3.0), x0 + hwhm / np.sqrt(3.0)])
     offset = np.min(np.abs(refine_x[:, None] - optima[None, :]), axis=1)
-    assert np.all(offset < 0.15 * hwhm)
+    assert np.all(offset < 0.5 * hwhm)
     sides = refine_x > x0
     assert sides.any(), "the upper slope is measured"
     assert (~sides).any(), "the lower slope is measured"
@@ -170,9 +153,7 @@ def test_smart_sweep_refines_at_both_steepest_slopes_once_the_dip_is_known():
 
 
 def test_smart_sweep_refine_points_come_from_the_model_not_a_lorentzian_formula():
-    gen = NVCenterCoreGenerator(
-        variant="voigt", hwhm=1.5e6, contrast_total=0.4, sigma_inhom=1.0e6, resonance_search=True
-    )
+    gen = NVCenterCoreGenerator(variant="voigt", hwhm=1.5e6, contrast_total=0.4, sigma_inhom=1.0e6)
     true_signal = gen.generate(random.Random(5))
     noise = CompositeNoise(over_frequency_noise=CompositeOverFrequencyNoise([OverFrequencyGaussianNoise(NOISE_SIGMA)]))
     exp = CoreExperiment(
