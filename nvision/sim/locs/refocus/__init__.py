@@ -14,8 +14,8 @@ are not interchangeable:
 
 - ``refocus.detect_dips``: geometric, returns raw ``(lo, hi)`` edge pairs.
   Used to answer "where should I keep scanning?"
-- ``dip_detection.find_dips``: statistical -- a zero-sum Lorentzian matched
-  filter with a family-wise false-alarm test, from the observations alone.
+- ``dip_detection.find_dips``: statistical -- a shape-agnostic boxcar scan
+  with a family-wise false-alarm test, from the observations alone.
   Returns ``DipCandidate`` objects with confidence scores.
   Used to answer "where do the measurements show dips?"
 

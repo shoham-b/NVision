@@ -50,7 +50,7 @@ def _dip(left: float, right: float) -> DipCandidate:
         f_min=left,
         f_max=right,
         confidence=0.99,
-        fwhm_hz=(right - left) / 3.0,
+        width_hz=(right - left),
     )
 
 
