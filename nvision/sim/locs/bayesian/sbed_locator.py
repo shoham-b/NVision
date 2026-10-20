@@ -237,29 +237,33 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
             self._check_crlb_early_stop(physical_uncertainties)
 
     def bayesian_focus_window(self) -> tuple[float, float] | None:
-        """Extent of the most significant dip the observations show, or None if there is none yet."""
-        dips = self.belief.dip_candidates
-        return (dips[0].f_min, dips[0].f_max) if dips else None
+        """The window EIG candidates are actually restricted to, or None while it is the full probe axis.
+
+        This is ``self._focus`` -- the same interval ``_acquire`` filters candidates by -- not the
+        detected dips (those are ``per_dip_windows()``).
+        """
+        if self._focus.is_full_domain():
+            return None
+        return (self._focus.lo, self._focus.hi)
 
     def per_dip_windows(self) -> list[tuple[float, float]] | None:
-        """Extents of every detected dip, when more than one is still competing.
+        """Extents of every detected dip (evidence from the observations), when more than one is competing.
 
-        None once the detector shows a single dip -- at that point ``bayesian_focus_window()``
-        is the window to show, matching the sweep locators' convention of using
-        ``per_dip_windows`` only for genuinely multiple regions.
+        Display only: the dips bias where EIG candidates are placed but do not set the focus window.
+        None for a single dip, matching the sweep locators' convention of using ``per_dip_windows``
+        only for genuinely multiple regions.
         """
         dips = self.belief.dip_candidates
         return [(d.f_min, d.f_max) for d in dips] if len(dips) >= 2 else None
 
     def focus_window_candidates(self) -> list[tuple[float, float]] | None:
-        """Extent of every detected dip (>=1), for per-step UI animation.
+        """The actual focus window at this step (one entry), for per-step UI animation.
 
-        Unlike ``per_dip_windows()``, this is never gated to "more than one" -- it is read every
-        step (see ``Observer.watch``) to animate the candidates narrowing down to the single
-        settled focus window over the course of a run.
+        Read every step (see ``Observer.watch``) so the timeline shows the real window the
+        acquisition is restricted to expanding and narrowing over the run.
         """
-        dips = self.belief.dip_candidates
-        return [(d.f_min, d.f_max) for d in dips] if dips else None
+        window = self.bayesian_focus_window()
+        return None if window is None else [window]
 
     def _check_estimate_plateau(self, physical_uncertainties) -> None:
         """Stop once the estimate has stopped moving relative to its own error bar.
