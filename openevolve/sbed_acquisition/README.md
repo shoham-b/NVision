@@ -132,20 +132,6 @@ counts (at the cost of wall-clock time per iteration) is the first knob to
 try, not chasing determinism that doesn't exist yet elsewhere in this
 codebase.
 
-## The pre-run CRLB feasibility gate
-
-`nvision/runner/executor.py`'s pre-run oracle feasibility check
-(`NVISION_CRLB_FEASIBILITY_MARGIN`, default `1.0`) skips a repeat entirely
-(0 measurements) when the true parameters make the convergence threshold
-provably unreachable within the step budget — computed from ground truth
-before the locator runs, so it's identical no matter which acquisition
-strategy is under evolution. At the default margin this skips a large
-fraction of repeats for this generator, which is pure noise for a search
-that only affects what happens *after* the gate. `evaluator.py` raises the
-margin (`NVISION_CRLB_FEASIBILITY_MARGIN=50`) for evaluation purposes only,
-via an env var set before `nvision.sim.defaults` is imported — this doesn't
-touch the production default used by real experiment runs.
-
 ## After evolution finishes
 
 `openevolve_output/best/best_program.py` (or the path OpenEvolve prints at
