@@ -17,7 +17,7 @@ from typing import Any
 
 import polars as pl
 
-from nvision.belief.dip_detection import min_linewidth_hz
+from nvision.belief.dip_detection import min_hwhm_hz
 from nvision.cache import CacheBridge
 from nvision.models.experiment import CoreExperiment, Observation
 from nvision.models.locator import Locator
@@ -1085,7 +1085,7 @@ class _TaskRunner:
         max_steps = max_sweep_points(
             float(experiment.drive_freq_min_phys),
             float(experiment.drive_freq_max_phys),
-            min_linewidth_hz(parameter_bounds),
+            min_hwhm_hz(parameter_bounds),
             SWEEP_POINTS_PER_FWHM,
         )
 
@@ -1140,7 +1140,7 @@ class _TaskRunner:
             drive_freq_min_phys, drive_freq_max_phys = self._domain_from_generator(self.task.generator)
         if drive_freq_min_phys is None or drive_freq_max_phys is None:
             raise ValueError(
-                "TrueSignal must expose drive_freq_min_phys/drive_freq_max_phys parameters or center_freq bounds"
+                "TrueSignal must expose drive_freq_min_phys/drive_freq_max_phys parameters or zero_field_freq bounds"
             )
         return CoreExperiment(
             true_signal=true_signal,
@@ -1198,19 +1198,19 @@ class _TaskRunner:
                 lo, hi = true_signal.get_param_bounds(name)
             except KeyError:
                 continue
-            if hi > lo and "center_freq" in name:
+            if hi > lo and "zero_field_freq" in name:
                 drive_freq_like_bounds.append((lo, hi))
-                if name == "center_freq" and drive_freq_min_phys is None:
+                if name == "zero_field_freq" and drive_freq_min_phys is None:
                     drive_freq_min_phys, drive_freq_max_phys = lo, hi
 
-        # "center_freq" may be fixed (not a free/inferred parameter, e.g.
-        # NVCenterVoigtModel(with_fixed_center_freq=True)) and therefore absent
+        # "zero_field_freq" may be fixed (not a free/inferred parameter, e.g.
+        # NVCenterVoigtModel(with_fixed_zero_field_freq=True)) and therefore absent
         # from parameter_values() above. Its bounds are always present on true_signal.bounds
         # and, by construction of the NV bound builders, span exactly the drive-frequency axis, so check
         # them directly rather than only via the free-parameter scan.
         if drive_freq_min_phys is None or drive_freq_max_phys is None:
             try:
-                lo, hi = true_signal.get_param_bounds("center_freq")
+                lo, hi = true_signal.get_param_bounds("zero_field_freq")
             except KeyError:
                 lo = hi = None
             if lo is not None and hi > lo:
@@ -1234,7 +1234,7 @@ class _TaskRunner:
         return (drive_freq_min_phys, drive_freq_max_phys) if drive_freq_max_phys > drive_freq_min_phys else (None, None)
 
     def _sbed_step_budget(self, experiment: CoreExperiment) -> int:
-        """``ceil(domain / min_linewidth)`` times ``NVISION_SBED_STEPS_FRACTION``: the SBED family's step budget.
+        """``ceil(domain / min_hwhm)`` times ``NVISION_SBED_STEPS_FRACTION``: the SBED family's step budget.
 
         Also the budget the pre-run CRLB feasibility gate assumes for *every* strategy, so a repeat is gated (or
         not) identically whichever locator would run it -- a gate keyed to each locator's own budget would drop
@@ -1245,8 +1245,8 @@ class _TaskRunner:
         from nvision.sim.defaults import NVISION_SBED_STEPS_FRACTION
 
         width = float(experiment.drive_freq_max_phys - experiment.drive_freq_min_phys)
-        min_linewidth = min_linewidth_hz(self._injected_parameter_bounds(experiment))
-        return max(1, int(np.ceil(width / min_linewidth * NVISION_SBED_STEPS_FRACTION)))
+        min_hwhm = min_hwhm_hz(self._injected_parameter_bounds(experiment))
+        return max(1, int(np.ceil(width / min_hwhm * NVISION_SBED_STEPS_FRACTION)))
 
     def _resolve_sweep_max_steps(self, experiment: CoreExperiment) -> int:
         """Return the step budget for this experiment, derived from the signal model's prior bounds.
@@ -1254,7 +1254,7 @@ class _TaskRunner:
         * Plain sweeps (:class:`GenericSweepLocator`): the number of grid points needed at the narrowest
           dip the prior allows. The sweep derives its actual (smaller or equal) step count from its own
           prior FWHM; this is the cap, and a stable cache key across repeats.
-        * Bayesian-SBED family: ``ceil(domain / min_linewidth)`` times ``NVISION_SBED_STEPS_FRACTION``.
+        * Bayesian-SBED family: ``ceil(domain / min_hwhm)`` times ``NVISION_SBED_STEPS_FRACTION``.
         * Any other locator: ``compute_sweep_max_steps`` (coverage factor and env-var caps).
         """
         from nvision.sim.locs.bayesian.sbed_locator import SequentialBayesianExperimentDesignLocator
@@ -1263,12 +1263,12 @@ class _TaskRunner:
 
         bounds = self._injected_parameter_bounds(experiment)
         lo, hi = float(experiment.drive_freq_min_phys), float(experiment.drive_freq_max_phys)
-        min_linewidth = min_linewidth_hz(bounds)
+        min_hwhm = min_hwhm_hz(bounds)
 
         locator_class = self.task.strategy_spec.locator_class
         if issubclass(locator_class, GenericSweepLocator):
             divisor = int(self.task.strategy_spec.locator_config.get("spacing_divisor", SWEEP_POINTS_PER_FWHM))
-            return max_sweep_points(lo, hi, min_linewidth, divisor)
+            return max_sweep_points(lo, hi, min_hwhm, divisor)
 
         if issubclass(locator_class, SequentialBayesianExperimentDesignLocator):
             return self._sbed_step_budget(experiment)
@@ -1464,11 +1464,11 @@ class _TaskRunner:
             result.fit_mode_estimates = locator_instance.fit_mode_estimates()
             result.fit_mode_uncertainties = locator_instance.fit_mode_uncertainties()
         locator_final_result = locator_instance.result()
-        # Fold the sweep's full least-squares fit (linewidth/homogeneous_linewidth/
-        # sigma_inhom/split/k_np/c_total/zeeman_split/...) into the estimate dict so the generic
+        # Fold the sweep's full least-squares fit (hwhm/hwhm_lorentz/
+        # sigma_inhom/hyperfine_shift/k_np/contrast_total/zeeman_shift/...) into the estimate dict so the generic
         # final_est_<param> metrics (and the True Signal Parameters UI panel) show a
         # true-vs-converged value for SimpleSweep the same way they already do for
-        # Bayesian locators -- result() on its own only reports center_freq/uncert.
+        # Bayesian locators -- result() on its own only reports zero_field_freq/uncert.
         # The locator's own result() values win on key conflicts.
         from nvision.sim.locs.coarse.generic_sweep_locator import GenericSweepLocator
 
@@ -1490,7 +1490,7 @@ class _TaskRunner:
             drift_truth = experiment.drift.truth_summary(
                 experiment.true_signal.typed_parameters, len(result.snapshots) * n_shots
             )
-            for param in ("center_freq", "zeeman_split"):
+            for param in ("zero_field_freq", "zeeman_shift"):
                 estimate = finalize_record.get(param)
                 for which in ("end", "mean"):
                     truth = drift_truth.get(f"drift_true_{param}_{which}")

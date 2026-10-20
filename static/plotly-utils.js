@@ -206,7 +206,7 @@ function _halfDepthCrossing(xs, ys, iMin, halfY, dir, iLoBound, iHiBound) {
 // Locates the deepest dip within index range [iLo, iHi] of a dense curve and measures it
 // geometrically — full width at half depth, and fractional depth below baseline — so the
 // plot can label what "width" and "contrast" mean using only the rendered curve itself.
-// This deliberately reads no model parameters (c_total, linewidth, ...): those differ by
+// This deliberately reads no model parameters (contrast_total, hwhm, ...): those differ by
 // lineshape (Lorentzian vs. Voigt vs. Saturation-Voigt, hyperfine or not), while "how
 // wide/deep is the dip you're looking at" is the same measurement for all of them. Bounding
 // to [iLo, iHi] keeps the half-depth walk from crossing into a neighboring dip.
@@ -243,7 +243,7 @@ function _localMinimaIndices(ys) {
 }
 
 // Up to `maxDips` most prominent dips in a dense curve, each measured geometrically (see
-// _findDip) — so a resolved split spectrum (e.g. two Zeeman groups) gets a width/contrast
+// _findDip) — so a resolved hyperfine_shift spectrum (e.g. two Zeeman groups) gets a width/contrast
 // readout per dip instead of only the single deepest one. Candidate dip centers come from
 // every local minimum, ranked by depth; a candidate within `minSeparationFrac` of the
 // curve's x-span from an already-picked one is skipped as almost certainly the same dip
@@ -292,8 +292,8 @@ function _findDips(xs, ys, baseline, maxDips) {
 }
 
 // Names whichever model parameter a geometric width/contrast reading is standing in for
-// (e.g. 'linewidth' for a plain Lorentzian, 'fwhm_total' for a plain Voigt,
-// 'homogeneous_linewidth' for a Voigt+Zeeman split, which samples that instead of
+// (e.g. 'hwhm' for a plain Lorentzian, 'fwhm_total' for a plain Voigt,
+// 'hwhm_lorentz' for a Voigt+Zeeman hyperfine_shift, which samples that instead of
 // fwhm_total directly), so the annotation's bracketed letter matches the same symbol used
 // in the signal-equation panel (see PARAM_LETTERS / paramLetter in format-utils.js) —
 // picked by which key is actually present on this combo's true params rather than by
@@ -624,10 +624,10 @@ function _buildScanFigure(def, data) {
         }
     }
 
-    // Mark the true (fixed, physical) center_freq with a vertical reference line.
-    if (data.true_params && data.true_params.params && Number.isFinite(data.true_params.params.center_freq)) {
-        const cfs = def.center_freq_style;
-        const cf = data.true_params.params.center_freq;
+    // Mark the true (fixed, physical) zero_field_freq with a vertical reference line.
+    if (data.true_params && data.true_params.params && Number.isFinite(data.true_params.params.zero_field_freq)) {
+        const cfs = def.zero_field_freq_style;
+        const cf = data.true_params.params.zero_field_freq;
         shapes.push({
             type: 'line', xref: 'x', yref,
             x0: cf, x1: cf, y0: 0, y1: 1,
@@ -647,7 +647,7 @@ function _buildScanFigure(def, data) {
     // except the bracketed letter suffix, which names whichever model parameter that
     // geometric reading stands in for (see _paramLetterFor), so it reads with the same
     // symbol as the signal-equation panel. Up to 2 resolved dips are found by local minima
-    // (see _findDips), so a split spectrum (e.g. Voigt+Zeeman) gets one readout per dip
+    // (see _findDips), so a hyperfine_shift spectrum (e.g. Voigt+Zeeman) gets one readout per dip
     // instead of just the deepest. Measured primarily on the true/real signal
     // (data.y_dense) — real data (data.y_dense all-NaN) has nothing to measure here — and,
     // when the locator's belief/mode curve (data.y_dense_mode) is present, the same
@@ -657,8 +657,8 @@ function _buildScanFigure(def, data) {
     // unrelated measurement.
     if (_hasFiniteValues(data.y_dense) && data.x_dense && data.x_dense.length === data.y_dense.length) {
         const tp = data.true_params && data.true_params.params;
-        const widthLetter = _paramLetterFor(tp, ['fwhm_total', 'linewidth', 'homogeneous_linewidth']);
-        const contrastLetter = _paramLetterFor(tp, ['c_total', 'dip_depth']);
+        const widthLetter = _paramLetterFor(tp, ['fwhm_total', 'hwhm', 'hwhm_lorentz']);
+        const contrastLetter = _paramLetterFor(tp, ['contrast_total', 'contrast']);
         const dips = _findDips(data.x_dense, data.y_dense, baseline, 2);
         const realColor = (T.true_signal && T.true_signal.line && T.true_signal.line.color) || 'blue';
         const fitColor = (T.mode_signal && T.mode_signal.line && T.mode_signal.line.color) || '#d62728';
@@ -679,7 +679,7 @@ function _buildScanFigure(def, data) {
                     layer: 'above',
                 });
                 extraAnnotations.push({
-                    text: `↔ width${widthLetter} (fit) ≈ ${formatHzValue('linewidth', fitDip.fwhm)}`,
+                    text: `↔ width${widthLetter} (fit) ≈ ${formatHzValue('hwhm', fitDip.fwhm)}`,
                     x: (fitDip.xLeft + fitDip.xRight) / 2, xref: 'x',
                     y: fitDip.yMin, yref: 'y',
                     yanchor: 'top', xanchor: 'center', yshift: -4,
@@ -710,9 +710,9 @@ function _buildScanFigure(def, data) {
                 layer: 'above',
             });
             const widthText = fitDip
-                ? `↔ width${widthLetter}: <span style="color:${realColor}">real ≈ ${formatHzValue('linewidth', dip.fwhm)}</span> vs ` +
-                  `<span style="color:${fitColor}">fit ≈ ${formatHzValue('linewidth', fitDip.fwhm)}</span>`
-                : `↔ width${widthLetter} ≈ ${formatHzValue('linewidth', dip.fwhm)}`;
+                ? `↔ width${widthLetter}: <span style="color:${realColor}">real ≈ ${formatHzValue('hwhm', dip.fwhm)}</span> vs ` +
+                  `<span style="color:${fitColor}">fit ≈ ${formatHzValue('hwhm', fitDip.fwhm)}</span>`
+                : `↔ width${widthLetter} ≈ ${formatHzValue('hwhm', dip.fwhm)}`;
             extraAnnotations.push({
                 text: widthText,
                 x: (dip.xLeft + dip.xRight) / 2, xref: 'x',

@@ -63,7 +63,7 @@ def _fill_particles(belief: SMCMarginalDistribution, num_particles: int) -> None
 
     Mirrors SMCMarginalDistribution.copy()'s own pattern for the same flag:
     skip_state_init bypasses __post_init__'s NV-center-specific epoch-candidate-
-    grid construction (which needs a "center_freq" bound/fixed value this test's
+    grid construction (which needs a "zero_field_freq" bound/fixed value this test's
     generic model has no use for), on the understanding that the caller fills
     in real particle state right after construction.
     """
@@ -117,7 +117,7 @@ class TestRobustUncertaintyIgnoresMinorityOutliers:
         assert robust < raw / 3
 
     def test_robust_uncertainty_reflects_genuine_balanced_bimodality(self) -> None:
-        """IQR shouldn't mask a real ~50/50 split -- only a small-minority outlier."""
+        """IQR shouldn't mask a real ~50/50 hyperfine_shift -- only a small-minority outlier."""
         belief = _make_belief(num_particles=200)
         n = belief.num_particles
         center_idx = belief._param_names.index("center")
@@ -253,19 +253,19 @@ class TestSbedStreakSurvivesRawUncertaintySpike:
 
         model = NVCenterLorentzianModel()
         phys_bounds = {
-            "center_freq": (2.6e9, 3.1e9),
-            "linewidth": (1e6, 5e6),
-            "split": (3e6, 8.5e6),
+            "zero_field_freq": (2.6e9, 3.1e9),
+            "hwhm": (1e6, 5e6),
+            "hyperfine_shift": (3e6, 8.5e6),
             "k_np": (1.0, 5.0),
-            "c_total": (0.05, 0.3),
+            "contrast_total": (0.05, 0.3),
         }
-        wrapped = UnitCubeSignalModel(model, phys_bounds, phys_bounds["center_freq"])
+        wrapped = UnitCubeSignalModel(model, phys_bounds, phys_bounds["zero_field_freq"])
         belief = SMCMarginalDistribution(
             model=wrapped,
             parameter_bounds={name: (0.0, 1.0) for name in phys_bounds},
             num_particles=200,
             physical_param_bounds=phys_bounds,
-            drive_freq_bounds_phys=phys_bounds["center_freq"],
+            drive_freq_bounds_phys=phys_bounds["zero_field_freq"],
             noise_model=gaussian_noise(),
         )
         loc = SequentialBayesianExperimentDesignLocator(
@@ -279,10 +279,10 @@ class TestSbedStreakSurvivesRawUncertaintySpike:
     def test_streak_not_reset_by_a_transient_raw_spike(self) -> None:
         loc = self._make_locator()
         belief = loc.belief
-        # Plain NVCenterLorentzianModel() (no Zeeman/hyperfine, fixed-center_freq
-        # by default) only infers linewidth and c_total.
-        assert list(belief._param_names) == ["linewidth", "c_total"]
-        target_idx = belief._param_names.index("linewidth")
+        # Plain NVCenterLorentzianModel() (no Zeeman/hyperfine, fixed-zero_field_freq
+        # by default) only infers hwhm and contrast_total.
+        assert list(belief._param_names) == ["hwhm", "contrast_total"]
+        target_idx = belief._param_names.index("hwhm")
         n = belief.num_particles
 
         # Tight, well-converged cloud on every free parameter.
@@ -300,15 +300,15 @@ class TestSbedStreakSurvivesRawUncertaintySpike:
 
         # Now simulate exactly what a resample's rejuvenation particles look
         # like: a small minority (3/200) of the cloud redrawn far from the
-        # bulk, for linewidth specifically -- everything else still tight.
+        # bulk, for hwhm specifically -- everything else still tight.
         spiked = belief._particles[:, target_idx].copy()
         spiked[:3] = 0.95
         belief._particles[:, target_idx] = spiked
 
         # Confirm this really would have been a raw-uncertainty spike (the
         # bug this fix targets), before checking the streak survives it.
-        raw_unc = belief.uncertainty()["linewidth"]
-        robust_unc = belief.robust_uncertainty()["linewidth"]
+        raw_unc = belief.uncertainty()["hwhm"]
+        robust_unc = belief.robust_uncertainty()["hwhm"]
         assert raw_unc > robust_unc * 3
 
         loc._check_and_resample()

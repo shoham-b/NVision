@@ -12,7 +12,7 @@ Single-peak case:
 
 $$\text{abs\_err\_x} = |\hat{f} - f_{\rm true}|$$
 
-where f̂ is the posterior-mean `center_freq` estimate and f_true is the ground-truth peak position (`center_freq`).
+where f̂ is the posterior-mean `zero_field_freq` estimate and f_true is the ground-truth peak position (`zero_field_freq`).
 
 Two-peak case (peaks sorted before pairing, so estimate k is compared to truth k):
 
@@ -34,11 +34,11 @@ The "narrowest feature" is the smallest dip the model can produce, derived from 
 
 | Model | `signal_min_span` | Reasoning |
 |---|---|---|
-| Lorentzian | 4 · linewidth_lo, linewidth_lo = 1e−4·W | A Lorentzian's HWHM **is** the `linewidth`, so its FWHM = 2·linewidth and it only returns near baseline by ≈ ±2·HWHM ⇒ a resolvable feature spans ≈ 4·linewidth. |
+| Lorentzian | 4 · hwhm_lo, hwhm_lo = 1e−4·W | A Lorentzian's HWHM **is** the `hwhm`, so its FWHM = 2·hwhm and it only returns near baseline by ≈ ±2·HWHM ⇒ a resolvable feature spans ≈ 4·hwhm. |
 | Voigt | 2 · fwhm_total_lo, fwhm_total_lo = 70 kHz | `fwhm_total` is already the full width at half maximum, so the feature spans ≈ 2·FWHM to its wings. |
-| One-peak Lorentzian | 4 · linewidth_lo | Same as the Lorentzian doublet, single dip. |
+| One-peak Lorentzian | 4 · hwhm_lo | Same as the Lorentzian doublet, single dip. |
 
-`signal_max_span` is the opposite extreme — the full envelope of the widest triplet, e.g. Lorentzian 2·split_hi + 4·linewidth_hi (two outer dips plus their wings).  It is used as a fallback when the minimum span is degenerate.
+`signal_max_span` is the opposite extreme — the full envelope of the widest triplet, e.g. Lorentzian 2·split_hi + 4·hwhm_hi (two outer dips plus their wings).  It is used as a fallback when the minimum span is degenerate.
 
 ### 2.2 Sweep step *budget* (`compute_sweep_max_steps`)
 
@@ -83,9 +83,9 @@ The 750-step figure for the standard NV scan is not a constant — it is `expect
 
 $$\delta \le \frac{w}{2}$$
 
-**Step 2 — Feature width from the lineshape (w = 4Ω).**  Ω denotes the `linewidth`, which for the Lorentzian lineshape used here is the **HWHM** (so the full width at half maximum is FWHM = 2Ω).  A dip's edges are detected at the 20 %-of-depth threshold (`threshold_frac = 0.2`).  A Lorentzian dip is
+**Step 2 — Feature width from the lineshape (w = 4Ω).**  Ω denotes the `hwhm`, which for the Lorentzian lineshape used here is the **HWHM** (so the full width at half maximum is FWHM = 2Ω).  A dip's edges are detected at the 20 %-of-depth threshold (`threshold_frac = 0.2`).  A Lorentzian dip is
 
-$$\text{drop}(\Delta) = \text{depth}\cdot\frac{\Omega^2}{\Omega^2 + \Delta^2}, \qquad \Delta = f - f_{\rm dip},\; \Omega = \text{linewidth (HWHM)}$$
+$$\text{drop}(\Delta) = \text{depth}\cdot\frac{\Omega^2}{\Omega^2 + \Delta^2}, \qquad \Delta = f - f_{\rm dip},\; \Omega = \text{hwhm (HWHM)}$$
 
 Setting the drop equal to 20 % of depth gives the half-width:
 
@@ -93,7 +93,7 @@ $$\frac{\Omega^2}{\Omega^2 + \Delta^2} = 0.2 \;\Longrightarrow\; \Omega^2 + \Del
 
 so the full detected dip width is
 
-$$w = 2\Delta = 4\Omega = 4 \cdot \text{linewidth}$$
+$$w = 2\Delta = 4\Omega = 4 \cdot \text{hwhm}$$
 
 **Step 3 — Combine (n = 2W/w).**  Substitute w into the spacing bound and count how many points of that spacing span the band W:
 
@@ -106,7 +106,7 @@ The form n = 2W/w is exactly the code's `expected_uniform_points = 2·domain_wid
 | Quantity | Value | Source |
 |---|---|---|
 | Band W | half window [D, D + Δ], Δ = 150 MHz | `NVISION_NV_DRIVE_FREQ_DELTA_HZ` |
-| Linewidth Ω | ≈ 100 kHz (effective narrow dip, HWHM) | true-signal linewidth |
+| Linewidth Ω | ≈ 100 kHz (effective narrow dip, HWHM) | true-signal hwhm |
 | Dip width w = 4Ω | ≈ 400 kHz | Step 2 |
 
 **Step 5 — Plug in.**
@@ -141,9 +141,9 @@ A run's `failure_reason` (`None` = success) is assigned by the first matching ru
 Computed elsewhere and passed through `metrics.py` for reporting:
 
 - **`measurements`** — total observations recorded for the repeat.
-- **`final_est_<param>`** — final posterior-mean estimate for each parameter (`center_freq`, `linewidth`/`homogeneous_linewidth`, `split`, `sigma_inhom`, `c_total`, `k_np`), populated dynamically off whatever `parameter_names()` the model returns rather than a hardcoded list.
-- **`uncert`** — reported center_freq uncertainty (see `reported_uncertainty` in [sbed_and_smc.md](sbed_and_smc.md) §2; floored at 1× CRLB_f, no safety factor).
+- **`final_est_<param>`** — final posterior-mean estimate for each parameter (`zero_field_freq`, `hwhm`/`hwhm_lorentz`, `hyperfine_shift`, `sigma_inhom`, `contrast_total`, `k_np`), populated dynamically off whatever `parameter_names()` the model returns rather than a hardcoded list.
+- **`uncert`** — reported zero_field_freq uncertainty (see `reported_uncertainty` in [sbed_and_smc.md](sbed_and_smc.md) §2; floored at 1× CRLB_f, no safety factor).
 - **Oracle CRLB** (plot overlay only, not a stored metric) — `_compute_oracle_crlb_history` in `runner/plots.py`: the best-achievable CRLB after `step + 1` ideal, uniformly placed measurements at the *true* parameters.  It is the hard floor no acquisition strategy could beat with the same number of measurements, and complements the data-driven CRLB curve, which shows how close the actual acquisition got to the information limit.  Because CRLB scales as 1/√N, the mean single-measurement Fisher information over a uniform x-grid is computed once and scaled by `step + 1`.
-- **`primary_converged_step` / `all_converged_step`** — first step at which the primary parameter (`zeeman_split`/`split` when present, else `center_freq`) / all target parameters converged.
+- **`primary_converged_step` / `all_converged_step`** — first step at which the primary parameter (`zeeman_shift`/`hyperfine_shift` when present, else `zero_field_freq`) / all target parameters converged.
 - **`duration_ms`** — wall-clock runtime of the repeat.
-- **Milestone metrics** (`steps_to_primary`, `err_primary_at_milestone`, `uncert_primary_at_milestone`) — from `calculate_zeeman_metrics`, now called with the same primary-parameter resolution (`resolve_primary_param`) so the primary parameter is the splitting once `center_freq` is fixed, rather than always being vacuous.
+- **Milestone metrics** (`steps_to_primary`, `err_primary_at_milestone`, `uncert_primary_at_milestone`) — from `calculate_zeeman_metrics`, now called with the same primary-parameter resolution (`resolve_primary_param`) so the primary parameter is the splitting once `zero_field_freq` is fixed, rather than always being vacuous.

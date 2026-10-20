@@ -63,7 +63,7 @@ def _f16_tolerance(finite: np.ndarray, lo: float, hi: float, overflowed: bool) -
     ``overflowed`` means raw float16 can't even hold the array's magnitude (e.g. a
     drive-frequency axis in raw Hz, ~1e9) -- that's the signature of an unscaled physical
     coordinate, not a plotted value (this codebase always pre-scales physical
-    parameters like linewidth/zeeman_split down to O(1-100) before serializing them,
+    parameters like hwhm/zeeman_shift down to O(1-100) before serializing them,
     so anything that still overflows float16 is coordinate-scale by construction).
     Those get a strict tolerance: the finest gap between distinct values actually
     present, so no two originally-distinguishable points -- e.g. two adjacent

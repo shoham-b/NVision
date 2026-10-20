@@ -44,7 +44,7 @@ _BG_ZEROS: np.ndarray = np.zeros(0, dtype=FLOAT_DTYPE)
 
 def get_background_zeros(n: int) -> np.ndarray:
     """Same zero-allocation pattern as :func:`get_background_ones`, for a fixed 0.0
-    array (e.g. zeeman_split when Zeeman splitting is disabled)."""
+    array (e.g. zeeman_shift when Zeeman splitting is disabled)."""
     global _BG_ZEROS
     if len(_BG_ZEROS) < n:
         _BG_ZEROS = np.zeros(n, dtype=FLOAT_DTYPE)
@@ -56,7 +56,7 @@ _CONST_ARRAY_CACHE: dict[float, np.ndarray] = {}
 
 def get_cached_constant_array(value: float, n: int) -> np.ndarray:
     """Same zero-allocation pattern as :func:`get_background_ones`, generalized to an
-    arbitrary fixed constant (e.g. the N-14 hyperfine split when hyperfine splitting is
+    arbitrary fixed constant (e.g. the N-14 hyperfine shift when hyperfine splitting is
     disabled), cached per distinct value."""
     arr = _CONST_ARRAY_CACHE.get(value)
     if arr is None or len(arr) < n:
@@ -66,71 +66,71 @@ def get_cached_constant_array(value: float, n: int) -> np.ndarray:
 
 
 @njit(cache=True, inline="always")
-def nv_population_weights(k_np: float, c_total: float, w_center: float):
-    """Hyperfine line weights ``(p_l, p_0, p_r)``, summing to ``c_total``.
+def nv_population_weights(k_np: float, contrast_total: float, w_center: float):
+    """Hyperfine line weights ``(p_l, p_0, p_r)``, summing to ``contrast_total``.
 
-    The three slots sit at ``center - split``, ``center`` and ``center + split``.
+    The three slots sit at ``center - hyperfine_shift``, ``center`` and ``center + hyperfine_shift``.
     ``w_center`` is the *structural* weight of the central line and encodes which
     nitrogen isotope (if any) is being modelled -- it is a model configuration,
     not an inferred parameter:
 
     * ``w_center = 1.0`` -- three equally-spaced lines (the N-14, I=1 triplet).
-      With ``split = 0`` all three land on top of each other and the sum
-      collapses *exactly* to a single line of depth ``c_total``, which is how the
+      With ``hyperfine_shift = 0`` all three land on top of each other and the sum
+      collapses *exactly* to a single line of depth ``contrast_total``, which is how the
       "no hyperfine structure at all" case is expressed.
     * ``w_center = 0.0`` -- the central line vanishes and only the outer pair
-      remains (the N-15, I=1/2 doublet at ``center +/- split``).
+      remains (the N-15, I=1/2 doublet at ``center +/- hyperfine_shift``).
 
     ``k_np`` distributes weight between the outer lines as ``1/k : w_center : k``;
     the normalization ``1/k + w_center + k`` keeps the total depth equal to
-    ``c_total`` for every isotope, so contrast never depends on line count.
+    ``contrast_total`` for every isotope, so contrast never depends on line count.
     """
     k = k_np if k_np > 1e-10 else 1e-10
     inv_k = 1.0 / k
     inv_p_sum = 1.0 / (inv_k + w_center + k)
     return (
-        c_total * inv_k * inv_p_sum,
-        c_total * w_center * inv_p_sum,
-        c_total * k * inv_p_sum,
+        contrast_total * inv_k * inv_p_sum,
+        contrast_total * w_center * inv_p_sum,
+        contrast_total * k * inv_p_sum,
     )
 
 
 @njit(cache=True)
-def lorentzian_dip_term(x: float, center: float, linewidth: float, dip_depth: float) -> float:
-    """``dip_depth * linewidth² / ((x - center)² + linewidth²)`` — one Lorentzian dip contribution."""
-    d = (x - center) * (x - center) + linewidth * linewidth
-    return (dip_depth * linewidth * linewidth) / d
+def lorentzian_dip_term(x: float, center: float, hwhm: float, contrast: float) -> float:
+    """``contrast * hwhm² / ((x - center)² + hwhm²)`` — one Lorentzian dip contribution."""
+    d = (x - center) * (x - center) + hwhm * hwhm
+    return (contrast * hwhm * hwhm) / d
 
 
 @njit(cache=True)
 def lorentzian_peak_value(
     x: float,
-    center_freq: float,
-    linewidth: float,
-    dip_depth: float,
+    zero_field_freq: float,
+    hwhm: float,
+    contrast: float,
     background: float,
 ) -> float:
-    """Single dip: ``background - dip_depth * linewidth² / ((x - center_freq)² + linewidth²)``."""
-    return background - lorentzian_dip_term(x, center_freq, linewidth, dip_depth)
+    """Single dip: ``background - contrast * hwhm² / ((x - zero_field_freq)² + hwhm²)``."""
+    return background - lorentzian_dip_term(x, zero_field_freq, hwhm, contrast)
 
 
 @njit(cache=True)
 def nv_center_lorentzian_eval(
     x: float,
-    center_freq: float,
-    linewidth: float,
-    split: float,
+    zero_field_freq: float,
+    hwhm: float,
+    hyperfine_shift: float,
     k_np: float,
     w_center: float,
-    c_total: float,
+    contrast_total: float,
     background: float,
 ) -> float:
     """NV triple-Lorentzian ODMR contrast using Population-Normalized Geometric Reparameterization."""
-    omega = linewidth if linewidth > 1e-10 else 1e-10
-    x_dim = (x - center_freq) / omega
-    alpha = split / omega
+    omega = hwhm if hwhm > 1e-10 else 1e-10
+    x_dim = (x - zero_field_freq) / omega
+    alpha = hyperfine_shift / omega
 
-    p_l, p_0, p_r = nv_population_weights(k_np, c_total, w_center)
+    p_l, p_0, p_r = nv_population_weights(k_np, contrast_total, w_center)
 
     return background - (
         p_l / ((x_dim + alpha) ** 2 + 1.0) + p_0 / (x_dim**2 + 1.0) + p_r / ((x_dim - alpha) ** 2 + 1.0)
@@ -139,37 +139,37 @@ def nv_center_lorentzian_eval(
 
 def gaussian_peak_value(
     x: float,
-    center_freq: float,
+    zero_field_freq: float,
     sigma: float,
     amplitude: float,
     background: float,
 ) -> float:
-    """``background + amplitude * exp(-0.5 * ((x - center_freq) / sigma)²)`` — scalar ``math.exp``."""
-    z = (x - center_freq) / sigma
+    """``background + amplitude * exp(-0.5 * ((x - zero_field_freq) / sigma)²)`` — scalar ``math.exp``."""
+    z = (x - zero_field_freq) / sigma
     return background + amplitude * math.exp(-0.5 * z * z)
 
 
 @njit(cache=True, parallel=True)
 def nv_center_lorentzian_vectorized_many(
     xs: np.ndarray,
-    center_freq: np.ndarray,
-    linewidth: np.ndarray,
-    split: np.ndarray,
+    zero_field_freq: np.ndarray,
+    hwhm: np.ndarray,
+    hyperfine_shift: np.ndarray,
     k_np: np.ndarray,
     w_center: float,
-    c_total: np.ndarray,
+    contrast_total: np.ndarray,
     background: np.ndarray,
     out: np.ndarray,
 ) -> None:
     """Triple-Lorentzian ODMR for many drive frequencies and many particles.
 
-    Writes into ``out`` which must have shape ``(len(xs), len(center_freq))``.
+    Writes into ``out`` which must have shape ``(len(xs), len(zero_field_freq))``.
 
     Parallelises over drive frequencies (rows) — ``out[i, :]`` is contiguous
     in row-major (C) order, so each thread writes a full cache line at a time.
     """
     m = xs.shape[0]
-    n = center_freq.shape[0]
+    n = zero_field_freq.shape[0]
 
     # Per-particle precompute: hoists all particle-only math (three divisions
     # per particle) out of the m x n inner loop.
@@ -180,18 +180,18 @@ def nv_center_lorentzian_vectorized_many(
     p_l_arr = np.empty(n, dtype=np.float64)
     p_r_arr = np.empty(n, dtype=np.float64)
     for j in range(n):
-        lw = linewidth[j]
+        lw = hwhm[j]
         omega = lw if lw > 1e-10 else 1e-10
         io = 1.0 / omega
         inv_omega[j] = io
-        alpha_arr[j] = split[j] * io
+        alpha_arr[j] = hyperfine_shift[j] * io
 
-        p_l_arr[j], p_0_arr[j], p_r_arr[j] = nv_population_weights(k_np[j], c_total[j], w_center)
+        p_l_arr[j], p_0_arr[j], p_r_arr[j] = nv_population_weights(k_np[j], contrast_total[j], w_center)
 
     for i in prange(m):
         x = xs[i]
         for j in range(n):
-            x_dim = (x - center_freq[j]) * inv_omega[j]
+            x_dim = (x - zero_field_freq[j]) * inv_omega[j]
             alpha = alpha_arr[j]
             d_l = x_dim + alpha
             d_r = x_dim - alpha
@@ -204,30 +204,30 @@ def nv_center_lorentzian_vectorized_many(
 @njit(cache=True, parallel=True)
 def nv_center_lorentzian_vectorized_one(
     x: float,
-    center_freq: np.ndarray,
-    linewidth: np.ndarray,
-    split: np.ndarray,
+    zero_field_freq: np.ndarray,
+    hwhm: np.ndarray,
+    hyperfine_shift: np.ndarray,
     k_np: np.ndarray,
     w_center: float,
-    c_total: np.ndarray,
+    contrast_total: np.ndarray,
     background: np.ndarray,
     out: np.ndarray,
 ) -> None:
     """Triple-Lorentzian ODMR for a SINGLE drive frequencies across many particles.
 
-    Writes into ``out`` which must have shape ``(len(center_freq),)``.
+    Writes into ``out`` which must have shape ``(len(zero_field_freq),)``.
 
     Parallelises over particles.  **Do not use for practical particle counts** —
     thread-coordination overhead (~7 ms) dwarfs the arithmetic at N ≤ ~1 M.
     Use :func:`nv_center_lorentzian_vectorized_one_serial` instead.
     """
-    n = center_freq.shape[0]
+    n = zero_field_freq.shape[0]
     for j in prange(n):
-        lw = linewidth[j]
-        f = center_freq[j]
-        s = split[j]
+        lw = hwhm[j]
+        f = zero_field_freq[j]
+        s = hyperfine_shift[j]
         k = k_np[j]
-        c = c_total[j]
+        c = contrast_total[j]
         bg = background[j]
 
         omega = lw if lw > 1e-10 else 1e-10
@@ -242,12 +242,12 @@ def nv_center_lorentzian_vectorized_one(
 @njit(cache=True)
 def nv_center_lorentzian_vectorized_one_serial(
     x: float,
-    center_freq: np.ndarray,
-    linewidth: np.ndarray,
-    split: np.ndarray,
+    zero_field_freq: np.ndarray,
+    hwhm: np.ndarray,
+    hyperfine_shift: np.ndarray,
     k_np: np.ndarray,
     w_center: float,
-    c_total: np.ndarray,
+    contrast_total: np.ndarray,
     background: np.ndarray,
     out: np.ndarray,
 ) -> None:
@@ -261,13 +261,13 @@ def nv_center_lorentzian_vectorized_one_serial(
     Uses ``inv_omega`` to replace two divisions with one division + two
     multiplications in the inner loop.
     """
-    n = center_freq.shape[0]
+    n = zero_field_freq.shape[0]
     for j in range(n):
-        lw = linewidth[j]
-        f = center_freq[j]
-        s = split[j]
+        lw = hwhm[j]
+        f = zero_field_freq[j]
+        s = hyperfine_shift[j]
         k = k_np[j]
-        c = c_total[j]
+        c = contrast_total[j]
         bg = background[j]
 
         omega = lw if lw > 1e-10 else 1e-10
@@ -283,46 +283,46 @@ def nv_center_lorentzian_vectorized_one_serial(
 # ---------------------------------------------------------------------------
 # Zeeman-split Lorentzian kernels — symmetric two-group NV model.
 #
-# Signal = background − Σ_{±} half_triplet(x, center_freq ± zeeman_split)
+# Signal = background − Σ_{±} half_triplet(x, zero_field_freq ± zeeman_shift)
 #
 # Each group is a standard NV hyperfine triplet with half the total contrast.
-# When zeeman_split → 0 the two groups coincide and the formula collapses to
-# the standard single-group triple-Lorentzian with full contrast c_total.
+# When zeeman_shift → 0 the two groups coincide and the formula collapses to
+# the standard single-group triple-Lorentzian with full contrast contrast_total.
 # ---------------------------------------------------------------------------
 
 
 @njit(cache=True)
 def nv_center_zeeman_lorentzian_eval(
     x: float,
-    center_freq: float,
-    linewidth: float,
-    zeeman_split: float,
-    hf_split: float,
+    zero_field_freq: float,
+    hwhm: float,
+    zeeman_shift: float,
+    hyperfine_shift: float,
     k_np: float,
     w_center: float,
-    c_total: float,
+    contrast_total: float,
     background: float,
 ) -> float:
     """Zeeman + hyperfine NV ODMR scalar kernel.
 
-    Two triple-Lorentzian groups centered at center_freq ± zeeman_split, mirrored
+    Two triple-Lorentzian groups centered at zero_field_freq ± zeeman_shift, mirrored
     about the true center: the ms=+1/ms=-1 groups are physical mirror images
     of each other, so the sub-line closest to center in one group must carry
     the same population weight as the sub-line closest to center in the
     other, not the weight at the same offset from its own group's center.
     """
-    omega = linewidth if linewidth > 1e-10 else 1e-10
+    omega = hwhm if hwhm > 1e-10 else 1e-10
     inv_omega = 1.0 / omega
-    x_dim = (x - center_freq) * inv_omega
-    alpha = hf_split * inv_omega
-    beta = zeeman_split * inv_omega
+    x_dim = (x - zero_field_freq) * inv_omega
+    alpha = hyperfine_shift * inv_omega
+    beta = zeeman_shift * inv_omega
 
-    p_l, p_0, p_r = nv_population_weights(k_np, 0.5 * c_total, w_center)
+    p_l, p_0, p_r = nv_population_weights(k_np, 0.5 * contrast_total, w_center)
 
-    x_m = x_dim + beta  # (x − (center_freq − zeeman_split)) / omega
+    x_m = x_dim + beta  # (x − (zero_field_freq − zeeman_shift)) / omega
     left = p_l / ((x_m + alpha) ** 2 + 1.0) + p_0 / (x_m**2 + 1.0) + p_r / ((x_m - alpha) ** 2 + 1.0)
 
-    x_p = x_dim - beta  # (x − (center_freq + zeeman_split)) / omega
+    x_p = x_dim - beta  # (x − (zero_field_freq + zeeman_shift)) / omega
     # p_l/p_r swapped vs. the left group: x_p - alpha (closest to true center)
     # mirrors x_m + alpha (closest to true center in the left group, p_r).
     right = p_r / ((x_p + alpha) ** 2 + 1.0) + p_0 / (x_p**2 + 1.0) + p_l / ((x_p - alpha) ** 2 + 1.0)
@@ -333,25 +333,25 @@ def nv_center_zeeman_lorentzian_eval(
 @njit(cache=True)
 def nv_center_zeeman_lorentzian_vectorized_one_serial(
     x: float,
-    center_freq: np.ndarray,
-    linewidth: np.ndarray,
-    zeeman_split: np.ndarray,
-    hf_split: np.ndarray,
+    zero_field_freq: np.ndarray,
+    hwhm: np.ndarray,
+    zeeman_shift: np.ndarray,
+    hyperfine_shift: np.ndarray,
     k_np: np.ndarray,
     w_center: float,
-    c_total: np.ndarray,
+    contrast_total: np.ndarray,
     background: np.ndarray,
     out: np.ndarray,
 ) -> None:
     """Zeeman serial kernel: single probe x across many particles."""
-    n = center_freq.shape[0]
+    n = zero_field_freq.shape[0]
     for j in range(n):
-        lw = linewidth[j]
-        f = center_freq[j]
-        z = zeeman_split[j]
-        hf = hf_split[j]
+        lw = hwhm[j]
+        f = zero_field_freq[j]
+        z = zeeman_shift[j]
+        hf = hyperfine_shift[j]
         k = k_np[j]
-        c = c_total[j]
+        c = contrast_total[j]
         bg = background[j]
 
         omega = lw if lw > 1e-10 else 1e-10
@@ -376,19 +376,19 @@ def nv_center_zeeman_lorentzian_vectorized_one_serial(
 @njit(cache=True, parallel=True)
 def nv_center_zeeman_lorentzian_vectorized_many(
     xs: np.ndarray,
-    center_freq: np.ndarray,
-    linewidth: np.ndarray,
-    zeeman_split: np.ndarray,
-    hf_split: np.ndarray,
+    zero_field_freq: np.ndarray,
+    hwhm: np.ndarray,
+    zeeman_shift: np.ndarray,
+    hyperfine_shift: np.ndarray,
     k_np: np.ndarray,
     w_center: float,
-    c_total: np.ndarray,
+    contrast_total: np.ndarray,
     background: np.ndarray,
     out: np.ndarray,
 ) -> None:
     """Zeeman parallel kernel: many probes × many particles. Writes into out[m, n]."""
     m = xs.shape[0]
-    n = center_freq.shape[0]
+    n = zero_field_freq.shape[0]
 
     # Per-particle precompute: hoists all particle-only math out of the m x n
     # inner loop.
@@ -399,19 +399,19 @@ def nv_center_zeeman_lorentzian_vectorized_many(
     p_l_arr = np.empty(n, dtype=np.float64)
     p_r_arr = np.empty(n, dtype=np.float64)
     for j in range(n):
-        lw = linewidth[j]
+        lw = hwhm[j]
         omega = lw if lw > 1e-10 else 1e-10
         io = 1.0 / omega
         inv_omega[j] = io
-        alpha_arr[j] = hf_split[j] * io
-        beta_arr[j] = zeeman_split[j] * io
+        alpha_arr[j] = hyperfine_shift[j] * io
+        beta_arr[j] = zeeman_shift[j] * io
 
-        p_l_arr[j], p_0_arr[j], p_r_arr[j] = nv_population_weights(k_np[j], 0.5 * c_total[j], w_center)
+        p_l_arr[j], p_0_arr[j], p_r_arr[j] = nv_population_weights(k_np[j], 0.5 * contrast_total[j], w_center)
 
     for i in prange(m):
         x = xs[i]
         for j in range(n):
-            x_dim = (x - center_freq[j]) * inv_omega[j]
+            x_dim = (x - zero_field_freq[j]) * inv_omega[j]
             alpha = alpha_arr[j]
             beta = beta_arr[j]
             p_0 = p_0_arr[j]
@@ -432,19 +432,19 @@ def nv_center_zeeman_lorentzian_vectorized_many(
 @njit(cache=True, parallel=True, fastmath=True)
 def nv_center_zeeman_lorentzian_vectorized_many_fast(
     xs: np.ndarray,
-    center_freq: np.ndarray,
-    linewidth: np.ndarray,
-    zeeman_split: np.ndarray,
-    hf_split: np.ndarray,
+    zero_field_freq: np.ndarray,
+    hwhm: np.ndarray,
+    zeeman_shift: np.ndarray,
+    hyperfine_shift: np.ndarray,
     k_np: np.ndarray,
     w_center: float,
-    c_total: np.ndarray,
+    contrast_total: np.ndarray,
     background: np.ndarray,
     out: np.ndarray,
 ) -> None:
     """Fast (fastmath) Zeeman kernel — acquisition / EIG path only."""
     m = xs.shape[0]
-    n = center_freq.shape[0]
+    n = zero_field_freq.shape[0]
 
     # Per-particle precompute: hoists all particle-only math out of the m x n
     # inner loop.
@@ -455,19 +455,19 @@ def nv_center_zeeman_lorentzian_vectorized_many_fast(
     p_l_arr = np.empty(n, dtype=np.float64)
     p_r_arr = np.empty(n, dtype=np.float64)
     for j in range(n):
-        lw = linewidth[j]
+        lw = hwhm[j]
         omega = lw if lw > 1e-10 else 1e-10
         io = 1.0 / omega
         inv_omega[j] = io
-        alpha_arr[j] = hf_split[j] * io
-        beta_arr[j] = zeeman_split[j] * io
+        alpha_arr[j] = hyperfine_shift[j] * io
+        beta_arr[j] = zeeman_shift[j] * io
 
-        p_l_arr[j], p_0_arr[j], p_r_arr[j] = nv_population_weights(k_np[j], 0.5 * c_total[j], w_center)
+        p_l_arr[j], p_0_arr[j], p_r_arr[j] = nv_population_weights(k_np[j], 0.5 * contrast_total[j], w_center)
 
     for i in prange(m):
         x = xs[i]
         for j in range(n):
-            x_dim = (x - center_freq[j]) * inv_omega[j]
+            x_dim = (x - zero_field_freq[j]) * inv_omega[j]
             alpha = alpha_arr[j]
             beta = beta_arr[j]
             p_0 = p_0_arr[j]
@@ -488,29 +488,29 @@ def nv_center_zeeman_lorentzian_vectorized_many_fast(
 @njit(cache=True, parallel=True)
 def nv_center_pseudo_voigt_vectorized_one(
     x: float,
-    center_freq: np.ndarray,
+    zero_field_freq: np.ndarray,
     fwhm_total: np.ndarray,
     lorentz_frac: np.ndarray,
-    split: np.ndarray,
+    hyperfine_shift: np.ndarray,
     k_np: np.ndarray,
-    dip_depth: np.ndarray,
+    contrast: np.ndarray,
     background: np.ndarray,
     out: np.ndarray,
 ) -> None:
     """Triple pseudo-Voigt ODMR for a SINGLE drive frequencies across many particles.
 
-    Writes into ``out`` which must have shape ``(len(center_freq),)``.
+    Writes into ``out`` which must have shape ``(len(zero_field_freq),)``.
 
     Parallelises over particles.  **Do not use for practical particle counts** —
     see :func:`nv_center_pseudo_voigt_vectorized_one_serial`.
     """
-    n = center_freq.shape[0]
+    n = zero_field_freq.shape[0]
     for j in prange(n):
         fwhm = fwhm_total[j]
-        f = center_freq[j]
-        s = split[j]
+        f = zero_field_freq[j]
+        s = hyperfine_shift[j]
         k = k_np[j]
-        d = dip_depth[j]
+        d = contrast[j]
         bg = background[j]
 
         gamma = fwhm / 2.0
@@ -574,12 +574,12 @@ _SQRT2LOG2 = math.sqrt(2.0 * math.log(2.0))
 @njit(cache=True)
 def nv_center_pseudo_voigt_vectorized_one_serial(
     x: float,
-    center_freq: np.ndarray,
+    zero_field_freq: np.ndarray,
     fwhm_total: np.ndarray,
     lorentz_frac: np.ndarray,
-    split: np.ndarray,
+    hyperfine_shift: np.ndarray,
     k_np: np.ndarray,
-    dip_depth: np.ndarray,
+    contrast: np.ndarray,
     background: np.ndarray,
     out: np.ndarray,
 ) -> None:
@@ -589,13 +589,13 @@ def nv_center_pseudo_voigt_vectorized_one_serial(
     without ``parallel=True``.  Thread overhead dominates at practical particle
     counts; serial is 26x+ faster.
     """
-    n = center_freq.shape[0]
+    n = zero_field_freq.shape[0]
     for j in range(n):
         fwhm = fwhm_total[j]
-        f = center_freq[j]
-        s = split[j]
+        f = zero_field_freq[j]
+        s = hyperfine_shift[j]
         k = k_np[j]
-        d = dip_depth[j]
+        d = contrast[j]
         bg = background[j]
 
         gamma = fwhm / 2.0
@@ -655,12 +655,12 @@ def nv_center_pseudo_voigt_vectorized_one_serial(
 @njit(cache=True)
 def nv_center_pseudo_voigt_eval(
     x: float,
-    center_freq: float,
+    zero_field_freq: float,
     fwhm_total: float,
     lorentz_frac: float,
-    split: float,
+    hyperfine_shift: float,
     k_np: float,
-    dip_depth: float,
+    contrast: float,
     background: float,
 ) -> float:
     """NV triple pseudo-Voigt ODMR implementation."""
@@ -691,14 +691,14 @@ def nv_center_pseudo_voigt_eval(
         profile = eta * lorentz + (1.0 - eta) * gauss
         return profile / peak if abs(peak) > 1e-12 else 0.0
 
-    pc = _profile(x, center_freq)
-    actual_depth = dip_depth / k_np
+    pc = _profile(x, zero_field_freq)
+    actual_depth = contrast / k_np
 
-    if split < 1e-10:
+    if hyperfine_shift < 1e-10:
         return background - actual_depth * pc
 
-    pl = _profile(x, center_freq - split)
-    pr = _profile(x, center_freq + split)
+    pl = _profile(x, zero_field_freq - hyperfine_shift)
+    pr = _profile(x, zero_field_freq + hyperfine_shift)
     return background - (actual_depth / k_np * pl + actual_depth * pc + actual_depth * k_np * pr)
 
 
@@ -712,12 +712,12 @@ def nv_center_pseudo_voigt_eval(
 @njit(cache=True, parallel=True, fastmath=True)
 def nv_center_lorentzian_vectorized_many_fast(
     xs: np.ndarray,
-    center_freq: np.ndarray,
-    linewidth: np.ndarray,
-    split: np.ndarray,
+    zero_field_freq: np.ndarray,
+    hwhm: np.ndarray,
+    hyperfine_shift: np.ndarray,
     k_np: np.ndarray,
     w_center: float,
-    c_total: np.ndarray,
+    contrast_total: np.ndarray,
     background: np.ndarray,
     out: np.ndarray,
 ) -> None:
@@ -730,7 +730,7 @@ def nv_center_lorentzian_vectorized_many_fast(
     Uses ``inv_omega`` to replace 2 divisions with 1 division + 2 multiplications.
     """
     m = xs.shape[0]
-    n = center_freq.shape[0]
+    n = zero_field_freq.shape[0]
 
     # Per-particle precompute: hoists all particle-only math out of the m x n
     # inner loop.
@@ -740,18 +740,18 @@ def nv_center_lorentzian_vectorized_many_fast(
     p_l_arr = np.empty(n, dtype=np.float64)
     p_r_arr = np.empty(n, dtype=np.float64)
     for j in range(n):
-        lw = linewidth[j]
+        lw = hwhm[j]
         omega = lw if lw > 1e-10 else 1e-10
         io = 1.0 / omega
         inv_omega[j] = io
-        alpha_arr[j] = split[j] * io
+        alpha_arr[j] = hyperfine_shift[j] * io
 
-        p_l_arr[j], p_0_arr[j], p_r_arr[j] = nv_population_weights(k_np[j], c_total[j], w_center)
+        p_l_arr[j], p_0_arr[j], p_r_arr[j] = nv_population_weights(k_np[j], contrast_total[j], w_center)
 
     for i in prange(m):
         x = xs[i]
         for j in range(n):
-            x_dim = (x - center_freq[j]) * inv_omega[j]
+            x_dim = (x - zero_field_freq[j]) * inv_omega[j]
             alpha = alpha_arr[j]
             d_l = x_dim + alpha
             d_r = x_dim - alpha
@@ -774,12 +774,12 @@ def nv_center_lorentzian_vectorized_many_fast(
 
 
 # ---------------------------------------------------------------------------
-# Zeeman-split pseudo-Voigt kernels — population-normalized (c_total) framing.
+# Zeeman-split pseudo-Voigt kernels — population-normalized (contrast_total) framing.
 #
 # Signal = background − Σ_{±zeeman} Σ_{p∈{L,0,R}} p_weight · V_norm(x − center_p)
 #
 # This is the Voigt analogue of the Zeeman Lorentzian kernels: it keeps the
-# identical *population* reparameterization (total contrast ``c_total`` split
+# identical *population* reparameterization (total contrast ``contrast_total`` split
 # geometrically by ``k_np`` across the hyperfine triplet, and evenly across the
 # two Zeeman groups) but replaces each unit-height Lorentzian ``1/(u²+1)`` with a
 # unit-height pseudo-Voigt profile ``V_norm``.  ``V_norm`` combines the
@@ -787,8 +787,8 @@ def nv_center_lorentzian_vectorized_many_fast(
 # inhomogeneous (Gaussian) broadening channels, normalized so the peak value is
 # 1.0 at its center, leaving the population weights as the sole amplitudes.
 #
-# When zeeman_split → 0 the two groups coincide and the model collapses to a
-# single population-normalized pseudo-Voigt triplet with full contrast c_total.
+# When zeeman_shift → 0 the two groups coincide and the model collapses to a
+# single population-normalized pseudo-Voigt triplet with full contrast contrast_total.
 # ---------------------------------------------------------------------------
 
 
@@ -839,20 +839,20 @@ def _pv_norm(dx: float, elf: float, egf: float, nhs: float, gamma2: float, has_g
 
 
 @njit(cache=True, inline="always")
-def _zeeman_pv_populations(k_np: float, c_total: float, w_center: float):
-    """Per-group population weights ``(p_l, p_0, p_r)`` summing to ``0.5·c_total``.
+def _zeeman_pv_populations(k_np: float, contrast_total: float, w_center: float):
+    """Per-group population weights ``(p_l, p_0, p_r)`` summing to ``0.5·contrast_total``.
 
     See :func:`nv_population_weights` for what ``w_center`` means.
     """
-    return nv_population_weights(k_np, 0.5 * c_total, w_center)
+    return nv_population_weights(k_np, 0.5 * contrast_total, w_center)
 
 
 @njit(cache=True, inline="always")
 def _zeeman_pv_pred(
     x: float,
-    center_freq: float,
-    zeeman_split: float,
-    hf_split: float,
+    zero_field_freq: float,
+    zeeman_shift: float,
+    hyperfine_shift: float,
     p_l: float,
     p_0: float,
     p_r: float,
@@ -874,20 +874,20 @@ def _zeeman_pv_pred(
     lines on the same side in both groups instead of facing each other, which
     doesn't match real NV ODMR spectra and their expected mirror symmetry.
     """
-    cm = center_freq - zeeman_split
+    cm = zero_field_freq - zeeman_shift
     left = (
-        p_l * _pv_norm(x - (cm - hf_split), elf, egf, nhs, gamma2, has_gamma, has_sigma)
+        p_l * _pv_norm(x - (cm - hyperfine_shift), elf, egf, nhs, gamma2, has_gamma, has_sigma)
         + p_0 * _pv_norm(x - cm, elf, egf, nhs, gamma2, has_gamma, has_sigma)
-        + p_r * _pv_norm(x - (cm + hf_split), elf, egf, nhs, gamma2, has_gamma, has_sigma)
+        + p_r * _pv_norm(x - (cm + hyperfine_shift), elf, egf, nhs, gamma2, has_gamma, has_sigma)
     )
-    cp = center_freq + zeeman_split
+    cp = zero_field_freq + zeeman_shift
     # p_l/p_r swapped relative to the left group: the sub-line closest to the
-    # true center (here, at cp - hf_split) mirrors the left group's
-    # closest-to-center sub-line (at cm + hf_split, weighted p_r).
+    # true center (here, at cp - hyperfine_shift) mirrors the left group's
+    # closest-to-center sub-line (at cm + hyperfine_shift, weighted p_r).
     right = (
-        p_r * _pv_norm(x - (cp - hf_split), elf, egf, nhs, gamma2, has_gamma, has_sigma)
+        p_r * _pv_norm(x - (cp - hyperfine_shift), elf, egf, nhs, gamma2, has_gamma, has_sigma)
         + p_0 * _pv_norm(x - cp, elf, egf, nhs, gamma2, has_gamma, has_sigma)
-        + p_l * _pv_norm(x - (cp + hf_split), elf, egf, nhs, gamma2, has_gamma, has_sigma)
+        + p_l * _pv_norm(x - (cp + hyperfine_shift), elf, egf, nhs, gamma2, has_gamma, has_sigma)
     )
     return left + right
 
@@ -895,35 +895,35 @@ def _zeeman_pv_pred(
 @njit(cache=True)
 def nv_center_zeeman_pseudo_voigt_eval(
     x: float,
-    center_freq: float,
+    zero_field_freq: float,
     fwhm_total: float,
     lorentz_frac: float,
-    zeeman_split: float,
-    hf_split: float,
+    zeeman_shift: float,
+    hyperfine_shift: float,
     k_np: float,
     w_center: float,
-    c_total: float,
+    contrast_total: float,
     background: float,
 ) -> float:
     """Zeeman + hyperfine NV pseudo-Voigt scalar kernel (population-normalized)."""
     elf, egf, nhs, gamma2, has_gamma, has_sigma = _pv_factors(fwhm_total, lorentz_frac)
-    p_l, p_0, p_r = _zeeman_pv_populations(k_np, c_total, w_center)
+    p_l, p_0, p_r = _zeeman_pv_populations(k_np, contrast_total, w_center)
     return background - _zeeman_pv_pred(
-        x, center_freq, zeeman_split, hf_split, p_l, p_0, p_r, elf, egf, nhs, gamma2, has_gamma, has_sigma
+        x, zero_field_freq, zeeman_shift, hyperfine_shift, p_l, p_0, p_r, elf, egf, nhs, gamma2, has_gamma, has_sigma
     )
 
 
 @njit(cache=True)
 def nv_center_zeeman_pseudo_voigt_eval_xs(
     xs: np.ndarray,
-    center_freq: float,
+    zero_field_freq: float,
     fwhm_total: float,
     lorentz_frac: float,
-    zeeman_split: float,
-    hf_split: float,
+    zeeman_shift: float,
+    hyperfine_shift: float,
     k_np: float,
     w_center: float,
-    c_total: float,
+    contrast_total: float,
     background: float,
     out: np.ndarray,
 ) -> None:
@@ -935,54 +935,78 @@ def nv_center_zeeman_pseudo_voigt_eval_xs(
     ``out`` has shape ``(n_x,)`` and receives the prediction at each ``xs[i]``.
     """
     elf, egf, nhs, gamma2, has_gamma, has_sigma = _pv_factors(fwhm_total, lorentz_frac)
-    p_l, p_0, p_r = _zeeman_pv_populations(k_np, c_total, w_center)
+    p_l, p_0, p_r = _zeeman_pv_populations(k_np, contrast_total, w_center)
     for i in range(xs.shape[0]):
         out[i] = background - _zeeman_pv_pred(
-            xs[i], center_freq, zeeman_split, hf_split, p_l, p_0, p_r, elf, egf, nhs, gamma2, has_gamma, has_sigma
+            xs[i],
+            zero_field_freq,
+            zeeman_shift,
+            hyperfine_shift,
+            p_l,
+            p_0,
+            p_r,
+            elf,
+            egf,
+            nhs,
+            gamma2,
+            has_gamma,
+            has_sigma,
         )
 
 
 @njit(cache=True)
 def nv_center_zeeman_pseudo_voigt_vectorized_one_serial(
     x: float,
-    center_freq: np.ndarray,
+    zero_field_freq: np.ndarray,
     fwhm_total: np.ndarray,
     lorentz_frac: np.ndarray,
-    zeeman_split: np.ndarray,
-    hf_split: np.ndarray,
+    zeeman_shift: np.ndarray,
+    hyperfine_shift: np.ndarray,
     k_np: np.ndarray,
     w_center: float,
-    c_total: np.ndarray,
+    contrast_total: np.ndarray,
     background: np.ndarray,
     out: np.ndarray,
 ) -> None:
     """Zeeman pseudo-Voigt serial kernel: single probe ``x`` across many particles."""
-    n = center_freq.shape[0]
+    n = zero_field_freq.shape[0]
     for j in range(n):
         elf, egf, nhs, gamma2, has_gamma, has_sigma = _pv_factors(fwhm_total[j], lorentz_frac[j])
-        p_l, p_0, p_r = _zeeman_pv_populations(k_np[j], c_total[j], w_center)
+        p_l, p_0, p_r = _zeeman_pv_populations(k_np[j], contrast_total[j], w_center)
         out[j] = background[j] - _zeeman_pv_pred(
-            x, center_freq[j], zeeman_split[j], hf_split[j], p_l, p_0, p_r, elf, egf, nhs, gamma2, has_gamma, has_sigma
+            x,
+            zero_field_freq[j],
+            zeeman_shift[j],
+            hyperfine_shift[j],
+            p_l,
+            p_0,
+            p_r,
+            elf,
+            egf,
+            nhs,
+            gamma2,
+            has_gamma,
+            has_sigma,
         )
 
 
 @njit(cache=True, parallel=True)
 def nv_center_zeeman_pseudo_voigt_vectorized_many(
     xs: np.ndarray,
-    center_freq: np.ndarray,
+    zero_field_freq: np.ndarray,
     fwhm_total: np.ndarray,
     lorentz_frac: np.ndarray,
-    zeeman_split: np.ndarray,
-    hf_split: np.ndarray,
+    zeeman_shift: np.ndarray,
+    hyperfine_shift: np.ndarray,
     k_np: np.ndarray,
     w_center: float,
-    c_total: np.ndarray,
+    contrast_total: np.ndarray,
     background: np.ndarray,
     out: np.ndarray,
 ) -> None:
     """Zeeman pseudo-Voigt parallel kernel: many probes × many particles → out[m, n]."""
     m = xs.shape[0]
-    n = center_freq.shape[0]
+    n = zero_field_freq.shape[0]
 
     # Per-particle precompute: hoists the pseudo-Voigt + population setup out of
     # the m x n inner loop.
@@ -1003,7 +1027,7 @@ def nv_center_zeeman_pseudo_voigt_vectorized_many(
         gamma2_arr[j] = gamma2
         has_gamma_arr[j] = has_gamma
         has_sigma_arr[j] = has_sigma
-        p_l, p_0, p_r = _zeeman_pv_populations(k_np[j], c_total[j], w_center)
+        p_l, p_0, p_r = _zeeman_pv_populations(k_np[j], contrast_total[j], w_center)
         p_l_arr[j] = p_l
         p_0_arr[j] = p_0
         p_r_arr[j] = p_r
@@ -1013,9 +1037,9 @@ def nv_center_zeeman_pseudo_voigt_vectorized_many(
         for j in range(n):
             out[i, j] = background[j] - _zeeman_pv_pred(
                 x,
-                center_freq[j],
-                zeeman_split[j],
-                hf_split[j],
+                zero_field_freq[j],
+                zeeman_shift[j],
+                hyperfine_shift[j],
                 p_l_arr[j],
                 p_0_arr[j],
                 p_r_arr[j],
@@ -1031,20 +1055,20 @@ def nv_center_zeeman_pseudo_voigt_vectorized_many(
 @njit(cache=True, parallel=True, fastmath=True)
 def nv_center_zeeman_pseudo_voigt_vectorized_many_fast(
     xs: np.ndarray,
-    center_freq: np.ndarray,
+    zero_field_freq: np.ndarray,
     fwhm_total: np.ndarray,
     lorentz_frac: np.ndarray,
-    zeeman_split: np.ndarray,
-    hf_split: np.ndarray,
+    zeeman_shift: np.ndarray,
+    hyperfine_shift: np.ndarray,
     k_np: np.ndarray,
     w_center: float,
-    c_total: np.ndarray,
+    contrast_total: np.ndarray,
     background: np.ndarray,
     out: np.ndarray,
 ) -> None:
     """Fast (fastmath) Zeeman pseudo-Voigt kernel — acquisition / EIG path only."""
     m = xs.shape[0]
-    n = center_freq.shape[0]
+    n = zero_field_freq.shape[0]
 
     # Per-particle precompute (see nv_center_zeeman_pseudo_voigt_vectorized_many).
     elf_arr = np.empty(n, dtype=np.float64)
@@ -1064,7 +1088,7 @@ def nv_center_zeeman_pseudo_voigt_vectorized_many_fast(
         gamma2_arr[j] = gamma2
         has_gamma_arr[j] = has_gamma
         has_sigma_arr[j] = has_sigma
-        p_l, p_0, p_r = _zeeman_pv_populations(k_np[j], c_total[j], w_center)
+        p_l, p_0, p_r = _zeeman_pv_populations(k_np[j], contrast_total[j], w_center)
         p_l_arr[j] = p_l
         p_0_arr[j] = p_0
         p_r_arr[j] = p_r
@@ -1074,9 +1098,9 @@ def nv_center_zeeman_pseudo_voigt_vectorized_many_fast(
         for j in range(n):
             out[i, j] = background[j] - _zeeman_pv_pred(
                 x,
-                center_freq[j],
-                zeeman_split[j],
-                hf_split[j],
+                zero_field_freq[j],
+                zeeman_shift[j],
+                hyperfine_shift[j],
                 p_l_arr[j],
                 p_0_arr[j],
                 p_r_arr[j],

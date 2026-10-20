@@ -24,19 +24,19 @@ from nvision.spectra.nv_center import NVCenterLorentzianModel
 def _make_experiment(rng: random.Random) -> CoreExperiment:
     gen = NVCenterCoreGenerator(drive_freq_min_phys=2.6e9, drive_freq_max_phys=3.1e9, variant="lorentzian")
     true_signal = gen.generate(rng)
-    # NVCenterCoreGenerator always fixes center_freq (a known instrument constant,
-    # not inferred -- see its docstring), so the generated model's center_freq isn't
+    # NVCenterCoreGenerator always fixes zero_field_freq (a known instrument constant,
+    # not inferred -- see its docstring), so the generated model's zero_field_freq isn't
     # a free/fit parameter. This test specifically checks that GenericSweepLocator's
-    # dip fit recovers *center_freq* (not, say, zeeman_split), so swap in an
-    # otherwise-identical model with center_freq free -- typed_parameters/bounds
+    # dip fit recovers *zero_field_freq* (not, say, zeeman_shift), so swap in an
+    # otherwise-identical model with zero_field_freq free -- typed_parameters/bounds
     # (and hence the randomized draw) are unaffected.
     true_signal.model = NVCenterLorentzianModel(
         hyperfine=gen.hyperfine,
         infer_hyperfine=gen.infer_hyperfine,
         with_zeeman_splitting=gen.with_zeeman_splitting,
-        with_fixed_center_freq=False,
+        with_fixed_zero_field_freq=False,
     )
-    drive_freq_min_phys, drive_freq_max_phys = true_signal.get_param_bounds("center_freq")
+    drive_freq_min_phys, drive_freq_max_phys = true_signal.get_param_bounds("zero_field_freq")
     assert drive_freq_min_phys is not None
     # noise=None -> zero measurement noise
     return CoreExperiment(
@@ -63,10 +63,10 @@ def test_simplesweep_zero_noise_fit_beats_prior():
     """
     rng = random.Random(7)
     exp = _make_experiment(rng)
-    truth = float(exp.true_signal.get_param_value("center_freq"))
+    truth = float(exp.true_signal.get_param_value("zero_field_freq"))
     prior_std = (exp.drive_freq_max_phys - exp.drive_freq_min_phys) / math.sqrt(12)
 
-    # Full physical bounds for every model parameter (not just center_freq) —
+    # Full physical bounds for every model parameter (not just zero_field_freq) —
     # GenericSweepLocator's finalize() now requires a complete parameter set
     # to fit the model; it no longer falls back to a boundless peak-detection
     # heuristic when bounds are incomplete.
@@ -90,8 +90,8 @@ def test_simplesweep_zero_noise_fit_beats_prior():
     locator.finalize()
     locator_result = locator.result()
 
-    assert "center_freq" in locator_result, "finalize() must produce a center_freq fit"
-    assert abs(locator_result["center_freq"] - truth) < 0.05 * prior_std
+    assert "zero_field_freq" in locator_result, "finalize() must produce a zero_field_freq fit"
+    assert abs(locator_result["zero_field_freq"] - truth) < 0.05 * prior_std
     assert locator_result["uncert"] < 0.1 * prior_std
 
     # End-to-end through the finalize record + metrics extraction the

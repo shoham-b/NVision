@@ -12,27 +12,27 @@ def test_generic_sweep_classic_fit():
     np.random.seed(42)
 
     # Physical k_np must be >= 1 (minimum physical value for NV center).
-    # Using k_np=1.5: freq+split dip is 1.5x deeper than the other two,
+    # Using k_np=1.5: freq+hyperfine_shift dip is 1.5x deeper than the other two,
     # which matches the actual physical constraint (k_np in [1, 5]).
     true_freq = 2871.23
-    phys_model = NVCenterLorentzianModel(with_fixed_center_freq=False)
+    phys_model = NVCenterLorentzianModel(with_fixed_zero_field_freq=False)
 
     true_params = {
-        "center_freq": true_freq,
-        "linewidth": 2.0,
-        "split": 1.0,
+        "zero_field_freq": true_freq,
+        "hwhm": 2.0,
+        "hyperfine_shift": 1.0,
         "k_np": 1.5,
-        "c_total": 0.05,
+        "contrast_total": 0.05,
     }
 
     unit_model = UnitCubeSignalModel(
         phys_model,
         param_bounds_phys={
-            "center_freq": (2860.0, 2880.0),
-            "linewidth": (1.0, 5.0),
-            "split": (0.0, 5.0),
+            "zero_field_freq": (2860.0, 2880.0),
+            "hwhm": (1.0, 5.0),
+            "hyperfine_shift": (0.0, 5.0),
             "k_np": (1.0, 5.0),
-            "c_total": (0.01, 0.1),
+            "contrast_total": (0.01, 0.1),
         },
         x_bounds_phys=(2860.0, 2880.0),
     )
@@ -74,7 +74,7 @@ def test_generic_sweep_classic_fit():
     locator.finalize()
     res = locator.result()
 
-    est_freq = res["center_freq"]
+    est_freq = res["zero_field_freq"]
     err = abs(est_freq - true_freq)
     print(f"True freq: {true_freq}, Est: {est_freq}, Err: {err}")
     # Tolerance: 1 MHz (= one sweep step for a 20-step / 20 MHz grid).

@@ -20,14 +20,14 @@ if (!window.NVISION_ASSET_PREFIX) {
 // that used to be a real drift hazard, not a hypothetical one).
 window.NVISION_GRID_AXIS_ORDER = ['width', 'contrast', 'saturation', 'sigma_inhom', 'hyperfine'];
 window.NVISION_GRID_AXIS_INFO = {
-    width: { label: 'Width (MHz)', short: 'width', metricsKey: 'grid_linewidth', scaleToMHz: true },
-    contrast: { label: 'Contrast', short: 'contrast', metricsKey: 'grid_c_total', scaleToMHz: false },
+    width: { label: 'HWHM (MHz)', short: 'hwhm', metricsKey: 'grid_hwhm', scaleToMHz: true },
+    contrast: { label: 'Contrast', short: 'contrast', metricsKey: 'grid_contrast_total', scaleToMHz: false },
     saturation: { label: 'Saturation', short: 'saturation', metricsKey: 'grid_saturation', scaleToMHz: false },
     sigma_inhom: { label: 'sigma_inhom (MHz)', short: 'sigma_inhom', metricsKey: 'grid_sigma_inhom', scaleToMHz: true },
     hyperfine: { label: 'Isotope', short: 'isotope', metricsKey: 'grid_hyperfine', scaleToMHz: false },
 };
 
-// gridInfo: one generator's {grid_variant, grid_linewidth, ...} dict from
+// gridInfo: one generator's {grid_variant, grid_hwhm, ...} dict from
 // /api/generator-grid-info (or undefined/null for a generator with no recorded
 // grid_* metrics, e.g. a bare non-grid or MATLAB generator). Returns null for
 // those; otherwise {family, familyLabel, axes}.

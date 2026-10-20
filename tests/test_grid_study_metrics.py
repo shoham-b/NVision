@@ -1,7 +1,7 @@
 """Metrics updates for the parameter-grid execution approach.
 
 Covers: derived-quantity helpers (Jacobian propagation), derived convergence gating,
-parse_gauss_sigma, milestone split_param selection, and grid-study summary plots
+parse_gauss_sigma, milestone shift_param selection, and grid-study summary plots
 (censored aggregation + convergence rates).
 """
 
@@ -70,13 +70,13 @@ def test_realized_contrast_law_and_unc():
 # Derived convergence gating
 # ---------------------------------------------------------------------------
 
-_EST = {"center_freq": 2.8e9, "saturation": 5.0, "sigma_inhom": 3e5, "c_max": 0.1, "zeeman_split": 1e7}
+_EST = {"zero_field_freq": 2.8e9, "saturation": 5.0, "sigma_inhom": 3e5, "c_max": 0.1, "zeeman_shift": 1e7}
 _BOUNDS = {
-    "center_freq": (2.6e9, 3.1e9),
+    "zero_field_freq": (2.6e9, 3.1e9),
     "saturation": (0.02, 30.0),
     "sigma_inhom": (0.0, 1.2e6),
     "c_max": (0.1, 0.4),
-    "zeeman_split": (0.0, 1e8),
+    "zeeman_shift": (0.0, 1e8),
 }
 
 
@@ -84,29 +84,29 @@ def test_derived_sigmas_present_for_saturation_voigt():
     sigmas = {"saturation": 0.4, "sigma_inhom": 2e4, "c_max": 0.01}
     derived = saturation_voigt_derived_sigmas(_EST, sigmas)
     assert derived is not None
-    assert set(derived) == {"linewidth", "c_total"}
-    assert derived["linewidth"] > 0
-    assert derived["c_total"] > 0
+    assert set(derived) == {"hwhm", "contrast_total"}
+    assert derived["hwhm"] > 0
+    assert derived["contrast_total"] > 0
 
 
 def test_derived_sigmas_none_for_lorentzian_params():
-    assert saturation_voigt_derived_sigmas({"center_freq": 1.0, "linewidth": 1e6}, {"linewidth": 1e4}) is None
-    assert saturation_voigt_derived_sigmas(_EST, {"linewidth": 1e4}) is None  # sigmas lack raw params
+    assert saturation_voigt_derived_sigmas({"zero_field_freq": 1.0, "hwhm": 1e6}, {"hwhm": 1e4}) is None
+    assert saturation_voigt_derived_sigmas(_EST, {"hwhm": 1e4}) is None  # sigmas lack raw params
 
 
 def test_derived_sigmas_propagate_inf_crlbs():
     sigmas = {"saturation": math.inf, "sigma_inhom": 2e4, "c_max": 0.01}
     derived = saturation_voigt_derived_sigmas(_EST, sigmas)
     assert derived is not None
-    assert math.isinf(derived["linewidth"])
+    assert math.isinf(derived["hwhm"])
 
 
 def test_derived_bounds_monotone_ranges():
     from nvision.spectra.nv_center import NV_SATURATION_C_MAX
 
     db = saturation_voigt_derived_bounds(_BOUNDS)
-    lw_lo, lw_hi = db["linewidth"]
-    c_lo, c_hi = db["c_total"]
+    lw_lo, lw_hi = db["hwhm"]
+    c_lo, c_hi = db["contrast_total"]
     assert 0 < lw_lo < lw_hi
     # c_max is fixed (not read from _BOUNDS), so realized contrast only ever
     # approaches NV_SATURATION_C_MAX asymptotically as saturation -> infinity.
@@ -147,14 +147,14 @@ def _make_locator(uncertainties):
 
 
 def test_target_params_converged_uses_derived_gating():
-    # Tight center_freq + tight derived quantities -> converged, even though the RAW
+    # Tight zero_field_freq + tight derived quantities -> converged, even though the RAW
     # saturation uncertainty (0.25) is large in absolute s-units.
     unc = {
-        "center_freq": 1e4,  # << 100 kHz threshold
+        "zero_field_freq": 1e4,  # << 100 kHz threshold
         "saturation": 0.25,  # raw 1%-of-bound gate would need < 0.2998 — borderline
         "sigma_inhom": 1e3,
         "c_max": 1e-4,
-        "zeeman_split": 5e4,  # << 100 kHz absolute threshold (NVISION_ZEEMAN_SPLIT_CONVERGENCE_THRESHOLD)
+        "zeeman_shift": 5e4,  # << 100 kHz absolute threshold (NVISION_ZEEMAN_SHIFT_CONVERGENCE_THRESHOLD)
     }
     assert _make_locator(unc)._target_params_converged(unc) is True
 
@@ -162,11 +162,11 @@ def test_target_params_converged_uses_derived_gating():
 def test_target_params_converged_fails_on_wide_derived_width():
     # Huge sigma_inhom uncertainty -> derived effective-HWHM unc dominates -> not converged.
     unc = {
-        "center_freq": 1e4,
+        "zero_field_freq": 1e4,
         "saturation": 0.25,
         "sigma_inhom": 5e5,  # sqrt(2ln2)*5e5 ~ 590 kHz >> 1% of the ~2.1 MHz effective range
         "c_max": 1e-4,
-        "zeeman_split": 1e5,
+        "zeeman_shift": 1e5,
     }
     assert _make_locator(unc)._target_params_converged(unc) is False
 
@@ -174,16 +174,16 @@ def test_target_params_converged_fails_on_wide_derived_width():
 def test_target_params_converged_lorentzian_path_unchanged():
     class _LorModel:
         def parameter_names(self):
-            return ["center_freq", "linewidth", "c_total"]
+            return ["zero_field_freq", "hwhm", "contrast_total"]
 
     from typing import ClassVar
 
     class _LorBelief:
         model = _LorModel()
         physical_param_bounds: ClassVar[dict[str, tuple[float, float]]] = {
-            "center_freq": (2.6e9, 3.1e9),
-            "linewidth": (2e5, 5e6),
-            "c_total": (0.1, 0.4),
+            "zero_field_freq": (2.6e9, 3.1e9),
+            "hwhm": (2e5, 5e6),
+            "contrast_total": (0.1, 0.4),
         }
 
         def __init__(self, unc):
@@ -198,7 +198,7 @@ def test_target_params_converged_lorentzian_path_unchanged():
     from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBayesianLocator
 
     loc = SequentialBayesianLocator.__new__(SequentialBayesianLocator)
-    unc = {"center_freq": 1e4, "linewidth": 1e4, "c_total": 1e-4}
+    unc = {"zero_field_freq": 1e4, "hwhm": 1e4, "contrast_total": 1e-4}
     loc.belief = _LorBelief(unc)
     loc.convergence_threshold = 0.01
     assert loc._target_params_converged(unc) is True
@@ -224,12 +224,12 @@ def test_parse_gauss_sigma_non_gauss():
 
 
 # ---------------------------------------------------------------------------
-# Milestone split_param selection
+# Milestone shift_param selection
 # ---------------------------------------------------------------------------
 
 
-def test_default_split_param_prefers_zeeman_split():
-    from nvision.metrics.milestones import default_split_param
+def test_default_shift_param_prefers_zeeman_shift():
+    from nvision.metrics.milestones import default_shift_param
 
     class _Sig:
         def __init__(self, params):
@@ -242,9 +242,9 @@ def test_default_split_param_prefers_zeeman_split():
         def __init__(self, params):
             self.true_signal = _Sig(params)
 
-    assert default_split_param(_RR({"center_freq": 1.0, "zeeman_split": 2.0})) == "zeeman_split"
-    assert default_split_param(_RR({"center_freq": 1.0, "split": 2.0})) == "split"
-    assert default_split_param(_RR({"center_freq": 1.0})) == "split"
+    assert default_shift_param(_RR({"zero_field_freq": 1.0, "zeeman_shift": 2.0})) == "zeeman_shift"
+    assert default_shift_param(_RR({"zero_field_freq": 1.0, "hyperfine_shift": 2.0})) == "hyperfine_shift"
+    assert default_shift_param(_RR({"zero_field_freq": 1.0})) == "hyperfine_shift"
 
 
 # ---------------------------------------------------------------------------

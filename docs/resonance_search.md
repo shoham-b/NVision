@@ -2,13 +2,13 @@
 
 ## Scenario
 
-The common ODMR situation: the spectrum was already classified (linewidth, contrast, hyperfine), then the
+The common ODMR situation: the spectrum was already classified (hwhm, contrast, hyperfine), then the
 magnetic field changed, so the resonance moved. The nuisance parameters are expected to change little; the
-unknown is where the dip is now (`zeeman_split`, the primary parameter).
+unknown is where the dip is now (`zeeman_shift`, the primary parameter).
 
-`NVCenterCoreGenerator(resonance_search=True)` builds that case: every prior except `zeeman_split` is tight
+`NVCenterCoreGenerator(resonance_search=True)` builds that case: every prior except `zeeman_shift` is tight
 (std scaled by `RESONANCE_SEARCH_NUISANCE_STD_SCALE`, 0.25, in `nvision/sim/gen/nv_center_generator.py`) and
-`zeeman_split` has no prior (flat over its bounds). `presets.resonance_search_generators()` is the width x
+`zeeman_shift` has no prior (flat over its bounds). `presets.resonance_search_generators()` is the width x
 contrast grid (names end in `-rs`); the run group is `resonance-search`.
 
 `--filter-signal` (generator substring) and `--filter-strategy` (comma-separated regex/substring) narrow a run group.

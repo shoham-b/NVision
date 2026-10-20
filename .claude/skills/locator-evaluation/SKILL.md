@@ -11,11 +11,11 @@ performance differences. Read this before building or interpreting any compariso
 
 ## The one metric that matters: splitting convergence
 
-The deliverable of every experiment is a precise **Zeeman splitting** estimate — `center_freq`
-itself is fixed by default (`with_fixed_center_freq=True`, see `nvision/spectra/nv_center.py`),
+The deliverable of every experiment is a precise **Zeeman splitting** estimate — `zero_field_freq`
+itself is fixed by default (`with_fixed_zero_field_freq=True`, see `nvision/spectra/nv_center.py`),
 so it's a known instrument constant, not something being measured. `primary_converged_step`
 is the primary axis everywhere (renamed 2026-07-31 from `freq_converged_step`, which checked
-the now-fixed `center_freq` parameter and was therefore permanently null for every real generator
+the now-fixed `zero_field_freq` parameter and was therefore permanently null for every real generator
 in this project — see the historical-traps entry below). "Full convergence" (`all_converged_step`,
 all parameters) and "full run" are **not co-equal goals** — they exist only to verify the
 splitting milestone can be trusted (that stopping early didn't sacrifice the answer, and the
@@ -91,7 +91,7 @@ matters, use the τ-sensitivity toggle (×0.5/×1/×2) in the UI rather than cha
 
 `nvision/viz/grid_study.py` activates automatically when result rows carry grid-coordinate
 columns (`grid_saturation`/`grid_sigma_inhom` for the saturation-Voigt study, or
-`grid_linewidth`/`grid_c_total` for the Lorentzian study) — one fixed signal-parameter point per
+`grid_hwhm`/`grid_contrast_total` for the Lorentzian study) — one fixed signal-parameter point per
 grid cell, aggregated over repeats. Cell aggregation is **censored**: step metrics report the
 median (+ IQR) over *converged* repeats only, always paired with `convergence_rate`; cells that
 never converge report the failure breakdown (`infeasible_crlb` vs other) instead of a step
@@ -128,9 +128,9 @@ these symptoms, don't trust it without regenerating from a run made after the fi
   a source of a comparison discrepancy, set `NVISION_SMC_EIG_CACHE=0` to A/B against the fused
   path.
 - **`freq_converged_step` was permanently null for every real generator (fixed 2026-07-31)**: it
-  checked `"center_freq"`'s belief uncertainty, but center_freq is fixed by default
-  (`with_fixed_center_freq=True`) and therefore never appears in `belief.uncertainty()` — so the
-  milestone could never fire. `zeeman_split` (the actual free/scientific-interest parameter) was
+  checked `"zero_field_freq"`'s belief uncertainty, but zero_field_freq is fixed by default
+  (`with_fixed_zero_field_freq=True`) and therefore never appears in `belief.uncertainty()` — so the
+  milestone could never fire. `zeeman_shift` (the actual free/scientific-interest parameter) was
   never checked. Renamed to `primary_converged_step` and repointed to the model's real primary
   parameter via `resolve_primary_param()` (`nvision/metrics/milestones.py`), applied to both the
   locator's own milestone tracking (`sequential_bayesian_locator.py`, `sbed_locator.py`'s CRLB

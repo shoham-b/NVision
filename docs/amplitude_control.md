@@ -34,7 +34,7 @@ $\Gamma_0\sqrt{1+s}$ (power broadening) and the contrast is $c_\max\, s/(1+s)$. 
 by the saturation-Voigt kernels. The inferred parameter is `drive_amp_sat` ($a_\mathrm{sat}$), with
 bounds `[0.05, 0.5]`. These bounds put $s(a=1)$ in the range 4–400, always past the CW slope optimum
 $s \approx 2$, so "always drive at maximum" is never optimal and the amplitude is a real trade-off.
-`sigma_inhom` (inhomogeneous width) and `zeeman_split` are inferred as usual.
+`sigma_inhom` (inhomogeneous width) and `zeeman_shift` are inferred as usual.
 
 ### Pulsed ODMR: `NVCenter-pulsed-drive` (`NVCenterPulsedDriveModel`)
 
@@ -45,7 +45,7 @@ $$ P(\Delta) = \frac{\Omega^2}{\Omega^2+\Delta^2}\,\sin^2\!\left(\pi t \sqrt{\Om
 
 $P$ is averaged over a Gaussian inhomogeneous detuning spread (`sigma_inhom`, 7-node
 Gauss–Hermite), and the signal is $1 - c_\mathrm{total}\sum_\text{lines} w\,\bar P$. The inferred
-parameters are `rabi_per_amp`, `c_total`, `sigma_inhom` and `zeeman_split`. The line HWHM is
+parameters are `rabi_per_amp`, `contrast_total`, `sigma_inhom` and `zeeman_shift`. The line HWHM is
 $\approx 0.8\,\Omega$, so the width scales with the amplitude.
 
 **The pulse is calibrated from the belief, not from an oracle.** The locator sets
@@ -71,7 +71,7 @@ posterior may therefore be multimodal, and it is handled as follows:
   with $\Omega$. EIG therefore picks detunings that separate the branches.
 
 The drive-response parameters (`drive_amp_sat`, `rabi_per_amp`) are nuisance parameters. They are
-excluded from the convergence targets (`DRIVE_RESPONSE_PARAMS`); `zeeman_split` stays primary.
+excluded from the convergence targets (`DRIVE_RESPONSE_PARAMS`); `zeeman_shift` stays primary.
 
 ## The `Bayesian-SBED-Drive` locator
 
@@ -112,7 +112,7 @@ visible. The dense true-signal and belief curves are drawn at the baseline drive
 * **Resampling is unimodal.** Liu–West shrinkage toward the global mean, and nudges from the global
   covariance, smear an aliased (multimodal) `rabi_per_amp` posterior. This is a plausible
   contributor to confidently wrong pulsed runs at strong Rabi coupling. In those runs the very wide
-  full-amplitude Rabi line, with its side lobes, is fitted with the wrong `zeeman_split` and a
+  full-amplitude Rabi line, with its side lobes, is fitted with the wrong `zeeman_shift` and a
   shifted coupling.
 * The plots' oracle CRLB uses the baseline drive. For the drive-choosing locator that is the bound a
   *fixed-drive* experiment could reach, not its own.

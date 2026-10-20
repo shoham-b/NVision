@@ -21,14 +21,14 @@ from tests.noise import gaussian_noise
 def _make_locator() -> SequentialBayesianExperimentDesignLocator:
     model = NVCenterLorentzianModel()
     phys_bounds = {
-        "center_freq": (2.86e9, 2.88e9),
-        "linewidth": (5e6, 15e6),
-        "split": (1e6, 5e6),
+        "zero_field_freq": (2.86e9, 2.88e9),
+        "hwhm": (5e6, 15e6),
+        "hyperfine_shift": (1e6, 5e6),
         "k_np": (0.5, 1.5),
-        "c_total": (0.05, 0.2),
+        "contrast_total": (0.05, 0.2),
         "background": (0.0, 0.1),
     }
-    x_bounds = phys_bounds["center_freq"]
+    x_bounds = phys_bounds["zero_field_freq"]
     wrapped_model = UnitCubeSignalModel(model, phys_bounds, x_bounds)
     param_bounds = {name: (0.0, 1.0) for name in phys_bounds}
     belief = SMCMarginalDistribution(

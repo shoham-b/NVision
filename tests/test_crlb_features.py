@@ -131,8 +131,8 @@ def testfisher_history_normalizes_across_wildly_different_scales() -> None:
     """Without per-parameter range normalization, single_shot_marginal_stds_from_fim's
     ridge dominates any Hz-scale direction and its CRLB saturates at a constant
     sqrt(1/ridge) regardless of the data (see that function's docstring). Uses
-    NVCenterLorentzianModel, whose params span ~1e9 Hz (center_freq) to ~0.1-1
-    (c_total) -- if normalization regresses, the center_freq CRLB collapses to the
+    NVCenterLorentzianModel, whose params span ~1e9 Hz (zero_field_freq) to ~0.1-1
+    (contrast_total) -- if normalization regresses, the zero_field_freq CRLB collapses to the
     same fixed constant independent of how much data/noise is fed in.
     """
     from types import SimpleNamespace
@@ -144,13 +144,15 @@ def testfisher_history_normalizes_across_wildly_different_scales() -> None:
     param_names = model.parameter_names()
     from nvision.spectra.nv_center import NVCenterLorentzianSpectrum
 
-    true_params = NVCenterLorentzianSpectrum(center_freq=2.87e9, linewidth=2e6, split=4e6, k_np=1.0, c_total=0.2)
+    true_params = NVCenterLorentzianSpectrum(
+        zero_field_freq=2.87e9, hwhm=2e6, hyperfine_shift=4e6, k_np=1.0, contrast_total=0.2
+    )
     physical_bounds = {
-        "center_freq": (2.6e9, 3.1e9),
-        "linewidth": (0.5e6, 5e6),
-        "split": (0.0, 2e7),
+        "zero_field_freq": (2.6e9, 3.1e9),
+        "hwhm": (0.5e6, 5e6),
+        "hyperfine_shift": (0.0, 2e7),
         "k_np": (0.1, 10.0),
-        "c_total": (0.0, 1.0),
+        "contrast_total": (0.0, 1.0),
     }
     drive_freq_bounds_phys = (2.8e9, 2.94e9)
     drive_freqs_phys = np.linspace(*drive_freq_bounds_phys, 40)
@@ -182,12 +184,12 @@ def testfisher_history_normalizes_across_wildly_different_scales() -> None:
     high_noise = _fisher_bounds_for_noise(0.1)
 
     # A saturated (unnormalized) CRLB would be identical regardless of noise level.
-    assert low_noise["linewidth"] != high_noise["linewidth"]
-    assert low_noise["linewidth"] < high_noise["linewidth"]
-    assert math.isfinite(low_noise["linewidth"])
-    # Physically meaningful: well below the center_freq search span, not ~1000 Hz-in-
+    assert low_noise["hwhm"] != high_noise["hwhm"]
+    assert low_noise["hwhm"] < high_noise["hwhm"]
+    assert math.isfinite(low_noise["hwhm"])
+    # Physically meaningful: well below the zero_field_freq search span, not ~1000 Hz-in-
     # wrong-units or ~1e9 (a fully degenerate/uninformative bound).
-    assert 0 < low_noise["linewidth"] < 5e7
+    assert 0 < low_noise["hwhm"] < 5e7
 
 
 # ---------------------------------------------------------------------------
@@ -299,13 +301,13 @@ def _make_sbed_locator(max_steps: int = 500):
 
     model = NVCenterLorentzianModel()
     phys_bounds = {
-        "center_freq": (2.6e9, 3.1e9),
-        "linewidth": (1e6, 5e6),
-        "split": (3e6, 8.5e6),
+        "zero_field_freq": (2.6e9, 3.1e9),
+        "hwhm": (1e6, 5e6),
+        "hyperfine_shift": (3e6, 8.5e6),
         "k_np": (1.0, 5.0),
-        "c_total": (0.05, 0.3),
+        "contrast_total": (0.05, 0.3),
     }
-    x_bounds = phys_bounds["center_freq"]
+    x_bounds = phys_bounds["zero_field_freq"]
     wrapped_model = UnitCubeSignalModel(model, phys_bounds, x_bounds)
     param_bounds = {name: (0.0, 1.0) for name in phys_bounds}
     belief = SMCMarginalDistribution(
@@ -326,21 +328,21 @@ def _locator_with_primary_crlb(crlb: float | None):
     belief = nv_center_smc_belief(noise_model=gaussian_noise(), num_particles=50, seed=0)
     locator = SequentialBayesianExperimentDesignLocator(belief=belief, max_steps=500)
     primary = locator._primary_param
-    assert primary == "zeeman_split"
+    assert primary == "zeeman_shift"
     locator.belief.crlb_per_param = lambda: {} if crlb is None else {primary: crlb}
     return locator, primary
 
 
 def test_primary_crlb_done_requires_tight_crlb_and_matching_uncertainty() -> None:
     """Stop only when unc < K x CRLB AND the CRLB itself is below the parameter's threshold."""
-    from nvision.sim.defaults import NVISION_CENTER_FREQ_CRLB_SAFETY_FACTOR
+    from nvision.sim.defaults import NVISION_ZERO_FIELD_FREQ_CRLB_SAFETY_FACTOR
 
     locator, primary = _locator_with_primary_crlb(5e4)
     threshold = locator._effective_primary_threshold()
     assert threshold > 5e4
     assert locator._primary_crlb_done({primary: 5e4}, 1.0)
     # Uncertainty still wider than the information limit allows.
-    assert not locator._primary_crlb_done({primary: NVISION_CENTER_FREQ_CRLB_SAFETY_FACTOR * 5e4 * 1.01}, 1.0)
+    assert not locator._primary_crlb_done({primary: NVISION_ZERO_FIELD_FREQ_CRLB_SAFETY_FACTOR * 5e4 * 1.01}, 1.0)
 
     # Near-singular FIM: the CRLB is inflated past the threshold, so unc < K x CRLB must NOT pass.
     inflated, primary = _locator_with_primary_crlb(threshold * 10)

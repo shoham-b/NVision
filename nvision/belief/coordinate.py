@@ -15,7 +15,7 @@ Two orthogonal transforms operate on measurement data:
     relative to the original full domain.
 
 These two are **orthogonal**.  Conflating them -- e.g. using
-``physical_param_bounds["center_freq"]`` for both rescaling and acquisition
+``physical_param_bounds["zero_field_freq"]`` for both rescaling and acquisition
 bounds -- is the root coordinate-system defect this module fixes.
 """
 

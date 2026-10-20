@@ -1,17 +1,35 @@
-# Glossary: `drive_freq`, candidate, `center_freq`, `zeeman_split`
+# Glossary: NV signal vocabulary (`drive_freq`, `zero_field_freq`, `resonance_freq`, `detuning`, `hwhm`, ...)
 
-The word "frequency" used to name four different things in the SBED/SMC code. They are now
-four distinct terms. Use them exactly; never write plain "frequency" for any of them in new
-code, comments or docs.
+The word "frequency" used to name several different things in the SBED/SMC code, and a few parameters
+carried names that were not physical. Use the terms below exactly; never write plain "frequency" for any
+of them in new code, comments or docs.
+
+## Frequencies and shifts
 
 | Term | Symbol / names | What it is | Space |
 |---|---|---|---|
-| **`drive_freq`** | `drive_freq_phys`, `drive_freq_unit`, `drive_freq_bounds_phys` (belief), `drive_freq_min_phys`/`drive_freq_max_phys` (experiment, locators), `FocusWindow`, `FocusRegion` | The microwave drive frequency swept by the experiment, i.e. the axis that is *measured along*. A coordinate, not a parameter of the signal: signal = f(`drive_freq`; `center_freq`, `zeeman_split`, ...). Its full range is fixed per run; a sweep locator's `FocusWindow` is a narrowing sub-interval of it, and the Bayesian locator's `FocusRegion` a set of narrowing sections of it. | `_phys`: Hz. `_unit`: `[0, 1]` over the full drive-frequency range. |
-| **candidate_drive_freq** | `candidate_drive_freq_phys`, `candidate_drive_freq_unit`, `get_candidate_drive_freq_phys()` | A *drive frequency* that may be measured next. The acquisition step scores candidates by expected information gain and picks one. | Same two spaces as `drive_freq`. |
-| **`center_freq`** | model parameter `center_freq` (was `frequency`), `with_fixed_center_freq`, `infer_center_freq`, `crlb_center_freq()`, `NVISION_CENTER_FREQ_*` | The zero-field dip-centre *model parameter* ``f_B`` (≈ 2.87 GHz, the NV zero-field splitting D). A property of the signal. Fixed to D by default (a known instrument constant, not a particle dimension); a free particle dimension only with `with_fixed_center_freq=False`. | `_phys`: Hz. `_unit`: `[0, 1]` over its prior bounds. |
-| **`zeeman_split`** | `zeeman_split` | The Zeeman half-separation of the two dip groups about `center_freq`. It is **not** a frequency of the signal centre and never called one. It is the default *primary parameter* of an NV run. | `_phys`: Hz (a frequency *difference*). |
+| **`drive_freq`** | `drive_freq_phys`, `drive_freq_unit`, `drive_freq_bounds_phys` (belief), `drive_freq_min_phys`/`drive_freq_max_phys` (experiment, locators), `FocusWindow`, `FocusRegion` | The microwave drive frequency swept by the experiment, i.e. the axis that is *measured along*. A coordinate, not a parameter of the signal. Its full range is fixed per run; a sweep locator's `FocusWindow` is a narrowing sub-interval of it, and the Bayesian locator's `FocusRegion` a set of narrowing sections of it. | `_phys`: Hz. `_unit`: `[0, 1]` over the full drive-frequency range. |
+| **`candidate_drive_freq`** | `candidate_drive_freq_phys`, `candidate_drive_freq_unit`, `get_candidate_drive_freq_phys()` | A *drive frequency* that may be measured next. The acquisition step scores candidates by expected information gain and picks one. | Same two spaces as `drive_freq`. |
+| **`zero_field_freq`** | model parameter `zero_field_freq` (was `center_freq`), `with_fixed_zero_field_freq`, `infer_zero_field_freq`, `zero_field_freq_crlb()`, `NVISION_ZERO_FIELD_FREQ_*` | The resonance at zero Zeeman shift: the zero-field splitting D (about 2.87 GHz), to first order the midpoint of the two Zeeman lines. A property of the sample (temperature and strain shift it); no line sits exactly at it once `zeeman_shift` is non-zero. Fixed to D by default (a known instrument constant), a free particle dimension only with `with_fixed_zero_field_freq=False`. | `_phys`: Hz. `_unit`: `[0, 1]` over its prior bounds. |
+| **`resonance_freq`** | per-line value, not a stored parameter | The transition frequency of one line: `zero_field_freq ± zeeman_shift`, plus the line's hyperfine offset (`± hyperfine_shift`). | Hz |
+| **`detuning`** | `detuning = drive_freq - resonance_freq` | Distance of the drive from one line's resonance. Every line profile is a function of its own `detuning` and `hwhm`. | Hz (a frequency *difference*) |
+| **`zeeman_shift`** | `zeeman_shift` (was `zeeman_split`) | The Zeeman shift of each of the two line groups: they sit at `zero_field_freq ± zeeman_shift`, so their full separation is `2 * zeeman_shift` (about gamma_e * B along the NV axis). Not a frequency of the signal and never called one. The default *primary parameter* of an NV run. | `_phys`: Hz (a frequency *difference*). |
+| **`hyperfine_shift`** | `hyperfine_shift` (was `split`) | Offset of the outer hyperfine lines from their group's centre (N-14: lines at `-hyperfine_shift`, 0, `+hyperfine_shift`; N-15: two lines at `+/- hyperfine_shift`, spacing `2 * hyperfine_shift`). Unrelated to `zeeman_shift`. | `_phys`: Hz. |
 
-`split` (the hyperfine splitting) is a fifth, separate parameter and is unrelated to `zeeman_split`.
+## Line shape
+
+| Term | Symbol / names | What it is |
+|---|---|---|
+| **`pl_normalized`** | the measured/modelled signal | The photoluminescence rate divided by its off-resonance level, so it is 1 away from every line. NV models have no free background (it is the constant 1); only the legacy Lorentzian/Gaussian/Voigt-Zeeman spectra keep a free `background`. |
+| **`contrast`** | per-line `contrast` (was `dip_depth`) | Fractional drop of `pl_normalized` at a line's resonance (ODMR contrast). |
+| **`contrast_total`** | `contrast_total` (was `c_total`) | Total contrast summed over all lines of the model (the line weights sum to it, so it does not depend on the line count). |
+| **`hwhm`** | `hwhm` (was `linewidth`) | Half width at half maximum of the Lorentzian line. It is an *effective* width: the intrinsic floor `1/(pi*T2)` (`NV_T2_HWHM_HZ`; `T2*` where nothing separates static dephasing), broadened by microwave power. The model only contains the T2 floor and the saturation term `hwhm = NV_T2_HWHM_HZ * sqrt(1 + s)`; optical-pumping broadening is not modelled separately and is absorbed into the fitted value. A single spectrum cannot separate the contributions. |
+| **`hwhm_lorentz`** | `hwhm_lorentz` (was `homogeneous_linewidth`) | The Lorentzian HWHM inside the Voigt models. |
+| **`sigma_inhom`** | `sigma_inhom` | Standard deviation of the Gaussian inhomogeneous width. Conversions: `FWHM = 2 * HWHM` (Lorentzian), `FWHM = 2.355 * sigma` (Gaussian). |
+
+`k_np` (nuclear-spin polarisation asymmetry of the outer hyperfine lines) is unchanged. A *dip* is the
+signature of one resonance in `pl_normalized`; `find_dips` and the focus sections talk about dips, the
+physics about resonances.
 
 ### Microwave drive (drive-controlled experiments)
 
@@ -24,17 +42,17 @@ code, comments or docs.
 
 ## Why the distinction matters
 
-* `center_freq` and `drive_freq` are different objects even though, by construction of the
-  NV bound builders, the `center_freq` prior range spans exactly the drive-frequency range. Code that needs
+* `zero_field_freq` and `drive_freq` are different objects even though, by construction of the
+  NV bound builders, the `zero_field_freq` prior range spans exactly the drive-frequency range. Code that needs
   that range uses `drive_freq_bounds_phys` (belief) or `experiment.drive_freq_min_phys` / `drive_freq_max_phys`
-  (runner), never `physical_param_bounds["center_freq"]`. See [core architecture](core_architecture.md) and
+  (runner), never `physical_param_bounds["zero_field_freq"]`. See [core architecture](core_architecture.md) and
   `nvision/belief/coordinate.py` for the rescale-vs-focus split.
 * Every variable, getter and setter touching these carries `_phys` or `_unit`
   (see `AGENTS.md`): `candidate_drive_freq_phys` vs `candidate_drive_freq_unit`, `drive_freq_min_phys`, ...
-* The convergence "milestone" metrics refer to the *primary parameter* (`zeeman_split`, else
-  `split`, else `center_freq`; `resolve_primary_param`), not to a frequency. They are named
+* The convergence "milestone" metrics refer to the *primary parameter* (`zeeman_shift`, else
+  `split`, else `zero_field_freq`; `resolve_primary_param`), not to a frequency. They are named
   `primary_*` (`primary_converged_step`, `steps_to_primary`, `err_primary_at_milestone`, ...) and
-  the splitting-specific ones `*_split` (`err_split_at_milestone`, `final_err_split`, ...).
+  the shift-specific ones `*_shift` (`err_shift_at_milestone`, `final_err_shift`, ...).
 
 ## What deliberately still says "frequency"
 
@@ -90,3 +108,25 @@ locator's belief now receives unit (not physical) observations, as every other l
 `CoreExperiment.measure` takes), never Hz. SBED works in Hz inside `_acquire` and maps it in `next()`. Callers use
 `Locator.next_drive_freq_unit()`, which raises `ValueError` for anything outside `[0, 1]` (so a physical-Hz value cannot slip
 through).
+
+## Physical-names rename (third rename)
+
+Persisted names changed, so **all cached results must be fully re-run** (not just `nv render`):
+
+| Old | New |
+|---|---|
+| `center_freq` | `zero_field_freq` |
+| `linewidth` / `homogeneous_linewidth` | `hwhm` / `hwhm_lorentz` |
+| `zeeman_split` | `zeeman_shift` |
+| `split` (hyperfine) / `hf_split` | `hyperfine_shift` |
+| `dip_depth` / `c_total` | `contrast` / `contrast_total` |
+| `NV_NATURAL_HWHM_HZ` | `NV_T2_HWHM_HZ` |
+| `MIN/MAX_LINEWIDTH`, `MIN/MAX_SPLIT` | `MIN/MAX_HWHM`, `MIN/MAX_HYPERFINE_SHIFT` |
+| metrics `err_split*`, `final_err_split`, `split_at_milestone`, `milestone_error_*_split` | `err_shift*`, `final_err_shift`, `shift_at_milestone`, `milestone_error_*_shift` (`shift` = `zeeman_shift`, else `hyperfine_shift`) |
+| `docs/dip_depth_reparametrization.md` | `docs/contrast_reparametrization.md` |
+
+`PHYSICS_CONFIG_FINGERPRINT` carries the new tag `physical-names-v1`, and `CACHE_SCHEMA_VERSION` is 14 (`nv serve`
+hides older combinations with a warning). Every renamed `NVISION_*` environment variable is listed in
+`nvision/tools/renamed_env.py` (old names are refused at start-up), e.g. `NVISION_CENTER_FREQ_CONVERGENCE_THRESHOLD` ->
+`NVISION_ZERO_FIELD_FREQ_CONVERGENCE_THRESHOLD`, `NVISION_MIN_LINEWIDTH` -> `NVISION_MIN_HWHM`,
+`NVISION_ZEEMAN_SPLIT_CONVERGENCE_THRESHOLD` -> `NVISION_ZEEMAN_SHIFT_CONVERGENCE_THRESHOLD`.

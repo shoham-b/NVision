@@ -5,7 +5,7 @@ Sweep-family locators (GenericSweepLocator, e.g. SimpleSweep) defer their belief
 update to a batch flush that can collapse to a garbage marginal even when the
 actual model fit is accurate (see nvision/runner/executor.py). Before this fix,
 ``final_err_primary``/``final_overall_uncert`` were computed straight from
-``snapshot.belief``, disagreeing with ``final_est_center_freq`` (which already
+``snapshot.belief``, disagreeing with ``final_est_zero_field_freq`` (which already
 preferred the fit) by tens of MHz on real runs.
 """
 
@@ -56,8 +56,8 @@ def _make_run_result(
     belief_estimates: dict[str, float],
     fit_mode_estimates: dict[str, float] | None,
 ) -> RunResult:
-    true_signal = _FakeTrueSignal({"center_freq": TRUE_FREQUENCY, "split": TRUE_SPLIT})
-    belief = _FakeBelief(belief_estimates, {"center_freq": 5e5, "split": 1e-3})
+    true_signal = _FakeTrueSignal({"zero_field_freq": TRUE_FREQUENCY, "hyperfine_shift": TRUE_SPLIT})
+    belief = _FakeBelief(belief_estimates, {"zero_field_freq": 5e5, "hyperfine_shift": 1e-3})
     snapshot = StepSnapshot(obs=_FakeObs(), belief=belief, true_signal=true_signal)
     return RunResult(snapshots=[snapshot], true_signal=true_signal, fit_mode_estimates=fit_mode_estimates)
 
@@ -66,8 +66,11 @@ def test_final_state_prefers_fit_mode_estimates_over_collapsed_belief():
     """A collapsed belief marginal must not corrupt final_err_primary when a fit exists."""
     accurate_fit_freq = TRUE_FREQUENCY + 7e3  # ~7 kHz off, like the real sweep fit
     run_result = _make_run_result(
-        belief_estimates={"center_freq": TRUE_FREQUENCY - 4.25e7, "split": 0.05},  # collapsed, ~42 MHz off
-        fit_mode_estimates={"center_freq": accurate_fit_freq},
+        belief_estimates={
+            "zero_field_freq": TRUE_FREQUENCY - 4.25e7,
+            "hyperfine_shift": 0.05,
+        },  # collapsed, ~42 MHz off
+        fit_mode_estimates={"zero_field_freq": accurate_fit_freq},
     )
 
     metrics = calculate_zeeman_metrics(run_result)
@@ -80,7 +83,7 @@ def test_final_state_falls_back_to_belief_when_no_fit_available():
     """Non-sweep locators (fit_mode_estimates=None, e.g. SBED/Sobol) are unaffected."""
     belief_freq = TRUE_FREQUENCY + 1e4
     run_result = _make_run_result(
-        belief_estimates={"center_freq": belief_freq, "split": TRUE_SPLIT},
+        belief_estimates={"zero_field_freq": belief_freq, "hyperfine_shift": TRUE_SPLIT},
         fit_mode_estimates=None,
     )
 
@@ -92,29 +95,29 @@ def test_final_state_falls_back_to_belief_when_no_fit_available():
 def test_extract_milestone_metrics_override_only_touches_named_keys():
     """override_estimates should merge in, not clobber, unrelated belief output."""
     run_result = _make_run_result(
-        belief_estimates={"center_freq": TRUE_FREQUENCY - 1e8, "split": TRUE_SPLIT},
-        fit_mode_estimates={"center_freq": TRUE_FREQUENCY},
+        belief_estimates={"zero_field_freq": TRUE_FREQUENCY - 1e8, "hyperfine_shift": TRUE_SPLIT},
+        fit_mode_estimates={"zero_field_freq": TRUE_FREQUENCY},
     )
 
     fs = extract_milestone_metrics(
-        run_result, 0, "center_freq", "split", override_estimates=run_result.fit_mode_estimates
+        run_result, 0, "zero_field_freq", "hyperfine_shift", override_estimates=run_result.fit_mode_estimates
     )
 
     assert fs["est_primary"] == pytest.approx(TRUE_FREQUENCY)
     assert fs["err_primary"] == pytest.approx(0.0, abs=1e-6)
-    # split has no override entry, so it still comes from the belief.
-    assert fs["est_split"] == pytest.approx(TRUE_SPLIT)
+    # hyperfine_shift has no override entry, so it still comes from the belief.
+    assert fs["est_shift"] == pytest.approx(TRUE_SPLIT)
     assert not math.isnan(fs["overall_uncert"])
 
 
 def test_calculate_all_converged_metrics_extracts_step_at_index():
     """all_converged_step is 1-indexed (locator.step_count); index 1 => snapshots[0]."""
     run_result = _make_run_result(
-        belief_estimates={"center_freq": TRUE_FREQUENCY, "split": TRUE_SPLIT + 2e-4},
+        belief_estimates={"zero_field_freq": TRUE_FREQUENCY, "hyperfine_shift": TRUE_SPLIT + 2e-4},
         fit_mode_estimates=None,
     )
 
-    metrics = calculate_all_converged_metrics(run_result, all_converged_step=1, primary_param="split")
+    metrics = calculate_all_converged_metrics(run_result, all_converged_step=1, primary_param="hyperfine_shift")
 
     assert metrics["err_primary_at_all_converged"] == pytest.approx(2e-4)
     assert metrics["uncert_primary_at_all_converged"] == pytest.approx(1e-3)
@@ -122,11 +125,11 @@ def test_calculate_all_converged_metrics_extracts_step_at_index():
 
 def test_calculate_all_converged_metrics_none_when_step_missing():
     run_result = _make_run_result(
-        belief_estimates={"center_freq": TRUE_FREQUENCY, "split": TRUE_SPLIT},
+        belief_estimates={"zero_field_freq": TRUE_FREQUENCY, "hyperfine_shift": TRUE_SPLIT},
         fit_mode_estimates=None,
     )
 
-    metrics = calculate_all_converged_metrics(run_result, all_converged_step=None, primary_param="split")
+    metrics = calculate_all_converged_metrics(run_result, all_converged_step=None, primary_param="hyperfine_shift")
 
     assert metrics["err_primary_at_all_converged"] is None
     assert metrics["uncert_primary_at_all_converged"] is None
@@ -134,11 +137,11 @@ def test_calculate_all_converged_metrics_none_when_step_missing():
 
 def test_calculate_all_converged_metrics_out_of_range_step():
     run_result = _make_run_result(
-        belief_estimates={"center_freq": TRUE_FREQUENCY, "split": TRUE_SPLIT},
+        belief_estimates={"zero_field_freq": TRUE_FREQUENCY, "hyperfine_shift": TRUE_SPLIT},
         fit_mode_estimates=None,
     )
 
-    metrics = calculate_all_converged_metrics(run_result, all_converged_step=5, primary_param="split")
+    metrics = calculate_all_converged_metrics(run_result, all_converged_step=5, primary_param="hyperfine_shift")
 
     assert metrics["err_primary_at_all_converged"] is None
     assert metrics["uncert_primary_at_all_converged"] is None

@@ -22,12 +22,12 @@ from nvision import (
 
 def _minimal_scan() -> CoreExperiment:
     bounds = {
-        "center_freq": (0.0, 1.0),
+        "zero_field_freq": (0.0, 1.0),
         "sigma": (0.01, 0.3),
-        "dip_depth": (0.0, 1.5),
+        "contrast": (0.0, 1.5),
         "background": (0.0, 0.5),
     }
-    typed = GaussianSpectrum(center_freq=0.5, sigma=0.1, dip_depth=1.0, background=0.0)
+    typed = GaussianSpectrum(zero_field_freq=0.5, sigma=0.1, contrast=1.0, background=0.0)
     true_signal = TrueSignal.from_typed(model=GaussianModel(), params=typed, bounds=bounds)
     return CoreExperiment(true_signal=true_signal, noise=None, drive_freq_min_phys=0.0, drive_freq_max_phys=1.0)
 
@@ -57,15 +57,15 @@ def test_compute_scan_plot_data_mode_curve_uses_belief_unit_cube() -> None:
     """MAP overlay uses the inference model when ground-truth parameter names differ."""
     drive_freq_min_phys, drive_freq_max_phys = 2.6e9, 3.1e9
     lorentz_bounds = {
-        "center_freq": (drive_freq_min_phys, drive_freq_max_phys),
-        "linewidth": (5e6, 100e6),
-        "dip_depth": (1e-6, 1.0),
+        "zero_field_freq": (drive_freq_min_phys, drive_freq_max_phys),
+        "hwhm": (5e6, 100e6),
+        "contrast": (1e-6, 1.0),
         "background": (0.5, 1.2),
     }
     typed = LorentzianSpectrum(
-        center_freq=2.85e9,
-        linewidth=30e6,
-        dip_depth=0.01,
+        zero_field_freq=2.85e9,
+        hwhm=30e6,
+        contrast=0.01,
         background=1.0,
     )
     true_signal = TrueSignal.from_typed(
@@ -81,16 +81,16 @@ def test_compute_scan_plot_data_mode_curve_uses_belief_unit_cube() -> None:
     )
 
     phys = {
-        "center_freq": (drive_freq_min_phys, drive_freq_max_phys),
+        "zero_field_freq": (drive_freq_min_phys, drive_freq_max_phys),
         "sigma": (5e6, 100e6),
-        "dip_depth": (0.1, 1.4),
+        "contrast": (0.1, 1.4),
         "background": (0.0, 0.5),
     }
     belief_uc = UnitCubeSignalModel(GaussianModel(), phys, (drive_freq_min_phys, drive_freq_max_phys))
     mode_estimates = {
-        "center_freq": 2.85e9,
+        "zero_field_freq": 2.85e9,
         "sigma": 30e6,
-        "dip_depth": 1.0,
+        "contrast": 1.0,
         "background": 0.0,
     }
     hist = pl.DataFrame({"x": [2.8e9], "signal_values": [0.5]})

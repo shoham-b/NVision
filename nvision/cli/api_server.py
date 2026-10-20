@@ -103,7 +103,7 @@ def _drop_unviewable_combos(combos: list[dict]) -> list[dict]:
     n_dropped = len(combos) - len(viewable)
     if n_dropped:
         log.warning(
-            "Hiding %d cached combination(s) written under cache schema < %d (pre center_freq rename): "
+            "Hiding %d cached combination(s) written under cache schema < %d (pre physical-names rename): "
             "their names are incompatible with the current UI. Re-run them (a full `nv run`, not `nv render`).",
             n_dropped,
             MIN_VIEWABLE_CACHE_SCHEMA_VERSION,

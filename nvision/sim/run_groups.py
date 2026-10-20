@@ -164,7 +164,7 @@ def _group_resonance_search() -> RunGroup:
     return _group(
         "resonance-search",
         "Width x contrast grid (Lorentzian), resonance moved by a field change (nuisance parameters known, "
-        "zeeman_split unknown): SimpleSweep-{1..5}perFWHM, Smart-Sweep, Bayesian-SBED, Smart-SBED.",
+        "zeeman_shift unknown): SimpleSweep-{1..5}perFWHM, Smart-Sweep, Bayesian-SBED, Smart-SBED.",
         dict(sim_presets.resonance_search_generators()),
         _sbed_noise_names(),
         _RESONANCE_STRATEGIES,

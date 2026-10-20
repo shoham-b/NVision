@@ -150,8 +150,8 @@
       "plot_bgcolor": "white",
       "hovermode": "closest",
       "margin": { "t": 110 },
-      "xaxis": { "title": { "text": "frequency" }, "tickformat": "~s", "gridcolor": "#eee" },
-      "yaxis": { "title": { "text": "intensity (photon count)" }, "gridcolor": "#eee" },
+      "xaxis": { "title": { "text": "drive_freq (Hz)" }, "tickformat": "~s", "gridcolor": "#eee" },
+      "yaxis": { "title": { "text": "pl_normalized" }, "gridcolor": "#eee" },
       "legend": { "orientation": "h", "yanchor": "bottom", "y": 1.02, "xanchor": "left", "x": 0.0 }
     },
     "with_metrics": {
@@ -160,8 +160,8 @@
       "plot_bgcolor": "white",
       "hovermode": "closest",
       "height": 800,
-      "xaxis": { "domain": [0, 1], "anchor": "y", "title": { "text": "frequency" }, "tickformat": "~s", "gridcolor": "#eee" },
-      "yaxis": { "domain": [0.38, 1], "anchor": "x", "title": { "text": "intensity" }, "gridcolor": "#eee" },
+      "xaxis": { "domain": [0, 1], "anchor": "y", "title": { "text": "drive_freq (Hz)" }, "tickformat": "~s", "gridcolor": "#eee" },
+      "yaxis": { "domain": [0.38, 1], "anchor": "x", "title": { "text": "pl_normalized" }, "gridcolor": "#eee" },
       "xaxis2": { "domain": [0, 1], "anchor": "y2", "title": { "text": "step" }, "gridcolor": "#eee" },
       "yaxis2": { "domain": [0, 0.22], "anchor": "x2", "title": { "text": "metric value" }, "gridcolor": "#eee" },
       "yaxis3": { "domain": [0, 0.22], "anchor": "x2", "overlaying": "y2", "side": "right", "title": { "text": "uncertainty" } },
@@ -182,7 +182,7 @@
     { "fill": "rgba(153, 102, 255, 0.20)", "line": "rgba(153, 102, 255, 0.8)" },
     { "fill": "rgba(54, 162, 235, 0.20)", "line": "rgba(54, 162, 235, 0.8)" }
   ],
-  "center_freq_style": {
+  "zero_field_freq_style": {
     "line_color": "#e74c3c",
     "annotation": "true frequency"
   }

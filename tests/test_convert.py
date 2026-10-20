@@ -7,7 +7,7 @@ def test_extract_peak_estimates_passes_locator_values_through_unchanged():
     locator_result = {
         "x": 0.5,
         "peak_x": 0.2,
-        "center_freq": 2.87e9,
+        "zero_field_freq": 2.87e9,
         "acquisition_lo": 2.8e9,
         "amplitude": 0.5,
         "x1_hat": 0.8,
@@ -18,7 +18,7 @@ def test_extract_peak_estimates_passes_locator_values_through_unchanged():
     assert result == {
         "x": 0.5,
         "peak_x": 0.2,
-        "center_freq": 2.87e9,
+        "zero_field_freq": 2.87e9,
         "acquisition_lo": 2.8e9,
         "amplitude": 0.5,
         "x1_hat": 0.8,
@@ -33,28 +33,28 @@ def test_extract_peak_estimates_ignore_non_numeric():
 
 
 def test_extract_peak_estimates_belief_fallback():
-    """The belief's center_freq seeds peak_x / x1_hat when the locator gave none."""
-    result = extract_peak_estimates({"center_freq": 150.0, "split": 10.0}, {})
+    """The belief's zero_field_freq seeds peak_x / x1_hat when the locator gave none."""
+    result = extract_peak_estimates({"zero_field_freq": 150.0, "hyperfine_shift": 10.0}, {})
 
-    assert result == {"peak_x": 150.0, "x1_hat": 150.0, "split": 10.0}
+    assert result == {"peak_x": 150.0, "x1_hat": 150.0, "hyperfine_shift": 10.0}
 
 
 def test_extract_peak_estimates_priority():
     """Locator values win over belief fallbacks; only the missing key gets the fallback."""
-    result = extract_peak_estimates({"center_freq": 150.0}, {"peak_x": 180.0})
+    result = extract_peak_estimates({"zero_field_freq": 150.0}, {"peak_x": 180.0})
 
     assert result == {"peak_x": 180.0, "x1_hat": 150.0}
 
 
-def test_extract_peak_estimates_locator_center_freq_seeds_peak():
-    """The locator's own center_freq fit takes priority over the belief's for the seeded keys."""
-    result = extract_peak_estimates({"center_freq": 150.0}, {"center_freq": 2.0})
+def test_extract_peak_estimates_locator_zero_field_freq_seeds_peak():
+    """The locator's own zero_field_freq fit takes priority over the belief's for the seeded keys."""
+    result = extract_peak_estimates({"zero_field_freq": 150.0}, {"zero_field_freq": 2.0})
 
-    assert result == {"center_freq": 2.0, "peak_x": 2.0, "x1_hat": 2.0}
+    assert result == {"zero_field_freq": 2.0, "peak_x": 2.0, "x1_hat": 2.0}
 
 
 def test_extract_peak_estimates_split_mapping():
-    """belief_estimates['split'] is unconditionally mapped, overwriting the locator's."""
-    result = extract_peak_estimates({"split": 15.0}, {"split": 20.0})
+    """belief_estimates['hyperfine_shift'] is unconditionally mapped, overwriting the locator's."""
+    result = extract_peak_estimates({"hyperfine_shift": 15.0}, {"hyperfine_shift": 20.0})
 
-    assert result == {"split": 15.0}
+    assert result == {"hyperfine_shift": 15.0}

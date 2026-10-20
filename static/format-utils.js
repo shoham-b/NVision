@@ -35,13 +35,13 @@ function formatHz(value) {
     return 'N/A';
 }
 
-// Standard NV-center electron gyromagnetic ratio (Hz/Tesla). zeeman_split is the
+// Standard NV-center electron gyromagnetic ratio (Hz/Tesla). zeeman_shift is the
 // half-separation between the two Zeeman groups, i.e. gamma * B.
 const NV_GYROMAGNETIC_HZ_PER_TESLA = 28.025e9;
 
-function zeemanSplitToMagneticFieldTesla(zeemanSplitHz) {
-    if (typeof zeemanSplitHz !== 'number' || !Number.isFinite(zeemanSplitHz)) return null;
-    return zeemanSplitHz / NV_GYROMAGNETIC_HZ_PER_TESLA;
+function zeemanShiftToMagneticFieldTesla(zeemanShiftHz) {
+    if (typeof zeemanShiftHz !== 'number' || !Number.isFinite(zeemanShiftHz)) return null;
+    return zeemanShiftHz / NV_GYROMAGNETIC_HZ_PER_TESLA;
 }
 
 function formatMagneticField(teslaValue) {
@@ -74,7 +74,7 @@ function formatBoundValue(v) {
 function isHzVariable(name) {
     if (typeof name !== 'string') return false;
     const n = name.toLowerCase();
-    return n.includes('center_freq') || n.includes('linewidth') || n.includes('split') || n.includes('span');
+    return n.includes('zero_field_freq') || n.includes('hwhm') || n.includes('hyperfine_shift') || n.includes('span');
 }
 
 // Canonical single-symbol labels for signal-model parameters (see nvision/spectra/
@@ -82,20 +82,20 @@ function isHzVariable(name) {
 // Used in the signal equation panel and wherever else a parameter name is shown in
 // the UI, so the same parameter always reads with the same symbol everywhere.
 const PARAM_LETTERS = {
-    center_freq: 'f_B',
-    linewidth: 'w',
-    dip_depth: 'A',
+    zero_field_freq: 'f_B',
+    hwhm: 'w',
+    contrast: 'A',
     background: 'B',
-    split: 'δ',
+    hyperfine_shift: 'δ',
     k_np: 'k',
-    c_total: 'C',
+    contrast_total: 'C',
     fwhm_total: 'Γ',
     lorentz_frac: 'r',
-    zeeman_split: 'Δ',
+    zeeman_shift: 'Δ',
     saturation: 's',
     sigma_inhom: 'σ',
     c_max: 'C₀',
-    homogeneous_linewidth: 'γ',
+    hwhm_lorentz: 'γ',
 };
 
 function paramLetter(param) {

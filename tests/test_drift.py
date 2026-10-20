@@ -30,9 +30,9 @@ def _experiment(noise, seed: int = 3) -> CoreExperiment:
 
 def test_every_component_starts_at_zero():
     spec = presets.drift_scenario("stress")
-    traj = spec.realize(seed=11, base_zeeman_split=30e6)
+    traj = spec.realize(seed=11, base_zeeman_shift=30e6)
     assert traj.center_offset_hz(0) == 0.0
-    assert traj.split_offset_hz(0) == 0.0
+    assert traj.zeeman_shift_offset_hz(0) == 0.0
 
 
 def test_warmup_maps_temperature_and_field_to_physical_shifts():
@@ -43,27 +43,27 @@ def test_warmup_maps_temperature_and_field_to_physical_shifts():
         field_mg=DriftProcess(warmup_amplitude=10.0, warmup_tau_s=10.0),
         magnet_tempco_per_k=-0.001,
     )
-    traj = spec.realize(seed=0, base_zeeman_split=20e6)
+    traj = spec.realize(seed=0, base_zeeman_shift=20e6)
     frac = 1.0 - math.exp(-5.0 / 10.0)
     assert traj.center_offset_hz(5) == pytest.approx(NV_D_TEMPERATURE_COEFF_HZ_PER_K * 2.0 * frac)
-    expected_split = NV_GYROMAGNETIC_HZ_PER_MG * 10.0 * frac + (-0.001) * 2.0 * frac * 20e6
-    assert traj.split_offset_hz(5) == pytest.approx(expected_split)
+    expected_zeeman_shift_offset = NV_GYROMAGNETIC_HZ_PER_MG * 10.0 * frac + (-0.001) * 2.0 * frac * 20e6
+    assert traj.zeeman_shift_offset_hz(5) == pytest.approx(expected_zeeman_shift_offset)
 
 
 def test_realization_is_a_pure_function_of_shot_index():
     spec = presets.drift_scenario("lab")
-    sequential = spec.realize(seed=42, base_zeeman_split=30e6)
-    seq_values = [sequential.split_offset_hz(i) for i in range(9000)]
-    jumped = spec.realize(seed=42, base_zeeman_split=30e6)
-    assert jumped.split_offset_hz(8999) == seq_values[8999]
-    assert jumped.split_offset_hz(17) == seq_values[17]
-    other = spec.realize(seed=43, base_zeeman_split=30e6)
-    assert other.split_offset_hz(8999) != seq_values[8999]
+    sequential = spec.realize(seed=42, base_zeeman_shift=30e6)
+    seq_values = [sequential.zeeman_shift_offset_hz(i) for i in range(9000)]
+    jumped = spec.realize(seed=42, base_zeeman_shift=30e6)
+    assert jumped.zeeman_shift_offset_hz(8999) == seq_values[8999]
+    assert jumped.zeeman_shift_offset_hz(17) == seq_values[17]
+    other = spec.realize(seed=43, base_zeeman_shift=30e6)
+    assert other.zeeman_shift_offset_hz(8999) != seq_values[8999]
 
 
 def test_ou_wander_reaches_its_stationary_std():
     spec = DriftSpec(label="ou", shot_duration_s=1.0, temperature_k=DriftProcess(ou_sigma=0.5, ou_tau_s=20.0))
-    traj = spec.realize(seed=5, base_zeeman_split=None)
+    traj = spec.realize(seed=5, base_zeeman_shift=None)
     temps = np.array([traj.center_offset_hz(i) for i in range(200, 60000)]) / NV_D_TEMPERATURE_COEFF_HZ_PER_K
     assert temps.std() == pytest.approx(0.5, rel=0.1)
     assert abs(temps.mean()) < 0.1
@@ -108,19 +108,21 @@ def test_drifting_measure_evaluates_the_truth_at_that_shot():
     base = exp.true_signal.typed_parameters
     for shot in (0, 50):
         truth = exp.drift.apply(base, shot)
-        drive_freq_unit = (truth.center_freq - truth.zeeman_split - 2.6e9) / 0.5e9  # on the moving left dip
+        drive_freq_unit = (truth.zero_field_freq - truth.zeeman_shift - 2.6e9) / 0.5e9  # on the moving left dip
         obs = exp.measure(drive_freq_unit, random.Random(0), shot_index=shot)
         assert obs.signal_value == pytest.approx(exp.true_signal.model.compute(2.6e9 + drive_freq_unit * 0.5e9, truth))
     moved = exp.drift.apply(base, 50)
-    assert moved.center_freq == pytest.approx(base.center_freq + 20.0 * NV_D_TEMPERATURE_COEFF_HZ_PER_K, rel=1e-6)
-    assert moved.zeeman_split == pytest.approx(base.zeeman_split + 300.0 * NV_GYROMAGNETIC_HZ_PER_MG, rel=1e-6)
+    assert moved.zero_field_freq == pytest.approx(
+        base.zero_field_freq + 20.0 * NV_D_TEMPERATURE_COEFF_HZ_PER_K, rel=1e-6
+    )
+    assert moved.zeeman_shift == pytest.approx(base.zeeman_shift + 300.0 * NV_GYROMAGNETIC_HZ_PER_MG, rel=1e-6)
 
 
 def test_shots_in_a_batch_are_taken_at_successive_times():
     spec = DriftSpec(label="w", shot_duration_s=1.0, field_mg=DriftProcess(warmup_amplitude=500.0, warmup_tau_s=2.0))
     exp = attach_drift_for_repeat(_experiment(presets.gauss_with_drift(0.0, spec)), 1, "g", 0)
     base = exp.true_signal.typed_parameters
-    drive_freq_phys = base.center_freq - base.zeeman_split
+    drive_freq_phys = base.zero_field_freq - base.zeeman_shift
     drive_freq_unit = (drive_freq_phys - 2.6e9) / 0.5e9
     batch = exp.measure(drive_freq_unit, random.Random(0), n_shots=3, shot_index=4)
     singles = [exp.measure(drive_freq_unit, random.Random(0), shot_index=4 + i).signal_value for i in range(3)]
@@ -137,8 +139,8 @@ def test_attach_is_shared_across_strategies_and_noop_without_drift():
     b = attach_drift_for_repeat(_experiment(noise), 7, "gen", 2)
     c = attach_drift_for_repeat(_experiment(noise), 7, "gen", 3)
     assert attach_drift_for_repeat(a, 7, "gen", 2) is a
-    assert a.drift.split_offset_hz(500) == b.drift.split_offset_hz(500)
-    assert a.drift.split_offset_hz(500) != c.drift.split_offset_hz(500)
+    assert a.drift.zeeman_shift_offset_hz(500) == b.drift.zeeman_shift_offset_hz(500)
+    assert a.drift.zeeman_shift_offset_hz(500) != c.drift.zeeman_shift_offset_hz(500)
 
 
 def test_truth_summary_reports_end_and_mean():
@@ -146,11 +148,11 @@ def test_truth_summary_reports_end_and_mean():
     exp = attach_drift_for_repeat(_experiment(presets.gauss_with_drift(0.0, spec)), 1, "g", 0)
     base = exp.true_signal.typed_parameters
     summary = exp.drift.truth_summary(base, 10)
-    path = [base.center_freq + exp.drift.center_offset_hz(i) for i in range(10)]
-    assert summary["drift_true_center_freq_start"] == base.center_freq
-    assert summary["drift_true_center_freq_end"] == pytest.approx(path[-1])
-    assert summary["drift_true_center_freq_mean"] == pytest.approx(np.mean(path))
-    assert "drift_true_zeeman_split_end" not in summary
+    path = [base.zero_field_freq + exp.drift.center_offset_hz(i) for i in range(10)]
+    assert summary["drift_true_zero_field_freq_start"] == base.zero_field_freq
+    assert summary["drift_true_zero_field_freq_end"] == pytest.approx(path[-1])
+    assert summary["drift_true_zero_field_freq_mean"] == pytest.approx(np.mean(path))
+    assert "drift_true_zeeman_shift_end" not in summary
 
 
 def test_splitting_drift_on_a_single_dip_signal_fails_loudly():
@@ -165,8 +167,8 @@ def test_splitting_drift_on_a_single_dip_signal_fails_loudly():
         drive_freq_max_phys=3.1e9,
     )
     exp = attach_drift_for_repeat(exp, 1, "g", 0)
-    assert not hasattr(exp.true_signal.typed_parameters, "zeeman_split")
-    with pytest.raises(ValueError, match="zeeman_split"):
+    assert not hasattr(exp.true_signal.typed_parameters, "zeeman_shift")
+    with pytest.raises(ValueError, match="zeeman_shift"):
         exp.measure(0.5, random.Random(0), shot_index=1)
 
 
@@ -203,6 +205,6 @@ def test_scenario_labels_are_unique_and_sized_as_documented():
     full = dataclasses.replace(
         warmup, temperature_k=DriftProcess(warmup_amplitude=4.0, warmup_tau_s=300.0), field_mg=DriftProcess()
     )
-    traj = full.realize(0, base_zeeman_split=30e6)
+    traj = full.realize(0, base_zeeman_shift=30e6)
     assert traj.center_offset_hz(100000) == pytest.approx(-296.8e3, rel=1e-3)
-    assert traj.split_offset_hz(100000) == pytest.approx(-144e3, rel=1e-3)
+    assert traj.zeeman_shift_offset_hz(100000) == pytest.approx(-144e3, rel=1e-3)

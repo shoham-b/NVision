@@ -11,7 +11,7 @@ assumption about the dip's lineshape (Lorentzian, Voigt, saturated, hyperfine-me
    drag ``b`` down until they outnumber the points above it -- SBED piles its measurements onto a dip
    once it has found one, which would sink a plain median.
 2. Every contiguous window (from one distinct measured ``drive_freq`` to another, repeats included)
-   whose span lies in the linewidth prior's ``gamma_mean +/- 2 gamma_std`` (clipped to the prior's
+   whose span lies in the hwhm prior's ``gamma_mean +/- 2 gamma_std`` (clipped to the prior's
    FWHM range) gets the boxcar GLRT score ``sum(z_i) / sqrt(n)``, from prefix sums in O(1) per
    window. The prior only sets which widths are tried. All points in a window share one sigma, so
    under "no dip" the score is exactly Student-t with ``nu`` degrees of freedom.
@@ -30,7 +30,7 @@ On a uniform sweep this is exactly the prefix-sum scan over index widths. The wi
 also handles SBED's adaptive, irregular and repeated positions.
 
 The result depends only on the observations, the noise posterior's Student-t scale and degrees of
-freedom (supplied by the belief, see ``SMCMarginalDistribution.noise_student_t``) and the linewidth
+freedom (supplied by the belief, see ``SMCMarginalDistribution.noise_student_t``) and the hwhm
 *prior* (never the SMC particles' signal parameters), so it is an independent, reproducible
 statement about where the data show dips. The belief uses it to place acquisition candidates on the
 dips it finds, and the SBED locator builds its focus sections from the same dips.
@@ -68,7 +68,7 @@ class DipCandidate:
     width_hz: float  # run span f_max - f_min (Hz); at least the narrowest window tested
 
 
-def linewidth_fwhm_prior_hz(phys_bounds: Mapping[str, tuple[float, float]]) -> tuple[float, float, float, float]:
+def hwhm_fwhm_prior_hz(phys_bounds: Mapping[str, tuple[float, float]]) -> tuple[float, float, float, float]:
     """Mean, standard deviation, minimum and maximum (Hz) of the dip FWHM implied by the *prior bounds*.
 
     Lineshape-agnostic: the effective HWHM (``effective_hwhm``) at the lower and at the upper
@@ -95,16 +95,16 @@ def linewidth_fwhm_prior_hz(phys_bounds: Mapping[str, tuple[float, float]]) -> t
         hwhm_lo = float(effective_hwhm(narrowest))
         hwhm_hi = float(effective_hwhm(widest))
     if not (0.0 < hwhm_lo <= hwhm_hi) or not math.isfinite(hwhm_hi):
-        raise ValueError(f"linewidth_fwhm_prior_hz: invalid HWHM prior range [{hwhm_lo}, {hwhm_hi}] Hz")
+        raise ValueError(f"hwhm_fwhm_prior_hz: invalid HWHM prior range [{hwhm_lo}, {hwhm_hi}] Hz")
     return hwhm_lo + hwhm_hi, 2.0 * (hwhm_hi - hwhm_lo) / math.sqrt(12.0), 2.0 * hwhm_lo, 2.0 * hwhm_hi
 
 
-def min_linewidth_hz(phys_bounds: Mapping[str, tuple[float, float]]) -> float:
-    """Lower bound (Hz) of the linewidth prior: the narrowest dip the prior allows.
+def min_hwhm_hz(phys_bounds: Mapping[str, tuple[float, float]]) -> float:
+    """Lower bound (Hz) of the hwhm prior: the narrowest dip the prior allows.
 
     Sets how finely a uniform sweep must sample to be sure of hitting a dip.
     """
-    for name in ("linewidth", "homogeneous_linewidth"):
+    for name in ("hwhm", "hwhm_lorentz"):
         if name in phys_bounds:
             return float(phys_bounds[name][0])
     from nvision.spectra.nv_center_drive import BASELINE_DRIVE_AMP_UNIT, drive_effective_hwhm, is_drive_param_dict
@@ -120,9 +120,7 @@ def min_linewidth_hz(phys_bounds: Mapping[str, tuple[float, float]]) -> float:
         else:
             narrowest["rabi_per_amp"] = phys_bounds["rabi_per_amp"][0]
         return float(drive_effective_hwhm(narrowest, BASELINE_DRIVE_AMP_UNIT))
-    raise ValueError(
-        f"min_linewidth_hz: bounds define no 'linewidth' or 'homogeneous_linewidth'; got {sorted(phys_bounds)}"
-    )
+    raise ValueError(f"min_hwhm_hz: bounds define no 'hwhm' or 'hwhm_lorentz'; got {sorted(phys_bounds)}")
 
 
 def _window_scores(
@@ -203,7 +201,7 @@ def find_dips(
             Inverse-Gamma(alpha, beta) posterior on sigma^2.
         noise_dof: Student-t degrees of freedom ``2 alpha`` (> 0); ``inf`` treats ``noise_scale`` as
             the exactly known sigma (normal scores).
-        gamma_mean_hz: Prior mean of the dip FWHM (Hz), e.g. from :func:`linewidth_fwhm_prior_hz`.
+        gamma_mean_hz: Prior mean of the dip FWHM (Hz), e.g. from :func:`hwhm_fwhm_prior_hz`.
         gamma_std_hz: Prior standard deviation of the dip FWHM (Hz, >= 0).
         gamma_min_hz: Narrowest FWHM the prior allows (Hz, in (0, gamma_mean_hz]); no window is
             narrower.

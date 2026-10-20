@@ -459,7 +459,7 @@ scaling.
 ## HF
 ## GS
 /his  the  hyperfine  splitting,ais  an  overall  con-
-trast  factor,is  a  linewidth,  andk
+trast  factor,is  a  hwhm,  andk
 ## NP
 characterizes  the
 nuclear  polarization.  The  coupling  between  N-V

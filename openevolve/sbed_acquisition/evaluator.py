@@ -49,7 +49,7 @@ from openevolve.evaluation_result import EvaluationResult  # noqa: E402
 logging.getLogger("nvision").setLevel(logging.ERROR)
 
 # "Catastrophic" matches the bar already used in sbed_locator.py's own
-# CRLB-early-stop comments: a final zeeman_split error over 1 MHz is a wrong
+# CRLB-early-stop comments: a final zeeman_shift error over 1 MHz is a wrong
 # answer, not an imprecise one.
 CATASTROPHIC_THRESHOLD_HZ = 1.0e6
 CATASTROPHIC_CEILING = 0.25
@@ -148,7 +148,7 @@ def _score(rows: list[dict]) -> dict[str, float]:
     catastrophic = 0
     for row in rows:
         step = row.get("primary_converged_step")
-        err = row.get("final_err_split")
+        err = row.get("final_err_shift")
         if step is not None:
             converged_steps.append(step)
         if err is not None and err > CATASTROPHIC_THRESHOLD_HZ:

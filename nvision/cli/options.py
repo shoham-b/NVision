@@ -80,7 +80,7 @@ ShardCountOption = Annotated[
     int | None,
     typer.Option(
         "--shard-count",
-        help="Total number of shards this run is split across. "
+        help="Total number of shards this run is hyperfine_shift across. "
         "Falls back to the CLOUD_RUN_TASK_COUNT env var when unset.",
     ),
 ]

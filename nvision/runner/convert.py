@@ -68,7 +68,7 @@ def extract_peak_estimates(
 ) -> dict[str, float]:
     """Merge locator results and belief estimates into the finalize record's peak estimates.
 
-    Every value is taken as it is: locator results are already in physical units (``center_freq`` in Hz,
+    Every value is taken as it is: locator results are already in physical units (``zero_field_freq`` in Hz,
     ``acquisition_lo``/``acquisition_hi`` in Hz, ...), so nothing is rescaled. Locator result values take
     priority; non-numeric entries are dropped.
     """
@@ -76,16 +76,16 @@ def extract_peak_estimates(
         key: value for key, value in locator_result.items() if isinstance(value, int | float)
     }
 
-    # Seed peak_x/x1_hat from the locator's own center_freq fit when present;
+    # Seed peak_x/x1_hat from the locator's own zero_field_freq fit when present;
     # the belief value is only a fallback (it may still be the prior for
     # locators that don't drive their belief, e.g. sweep locators).
-    freq_phys = estimates.get("center_freq", belief_estimates.get("center_freq"))
+    freq_phys = estimates.get("zero_field_freq", belief_estimates.get("zero_field_freq"))
     if freq_phys is not None:
         estimates.setdefault("peak_x", freq_phys)
         estimates.setdefault("x1_hat", freq_phys)
 
-    if "split" in belief_estimates:
-        estimates["split"] = belief_estimates["split"]
+    if "hyperfine_shift" in belief_estimates:
+        estimates["hyperfine_shift"] = belief_estimates["hyperfine_shift"]
 
     return estimates
 
@@ -122,7 +122,7 @@ def run_result_to_finalize_record(
         # fit_mode_estimates over the belief mode (see
         # nvision/runner/executor.py). Every final_est_<param> column below
         # was silently reading the collapsed belief instead of the actual
-        # least-squares fit for every parameter except center_freq (which
+        # least-squares fit for every parameter except zero_field_freq (which
         # extract_peak_estimates seeds from locator_result); apply the same
         # preference here.
         belief_estimates = {**belief_estimates, **result.fit_mode_estimates}

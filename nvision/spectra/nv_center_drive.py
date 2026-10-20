@@ -13,8 +13,8 @@ Two experiment modes, each a :class:`~nvision.spectra.signal.SignalModel` with `
   (``t = 1/(2·Ω_est)``) carried in the :class:`~nvision.spectra.drive.DriveSetting`. Each line's
   spin-flip probability is the Rabi formula
   ``P(Δ) = Ω²/(Ω²+Δ²) · sin²(π·t·sqrt(Ω²+Δ²))`` (Ω, Δ in Hz), averaged over a Gaussian
-  inhomogeneous detuning spread ``sigma_inhom``; signal ``1 - c_total · Σ_lines w_line·P``.
-  ``rabi_per_amp`` (Rabi frequency at full amplitude) and ``c_total`` are inferred. Note the
+  inhomogeneous detuning spread ``sigma_inhom``; signal ``1 - contrast_total · Σ_lines w_line·P``.
+  ``rabi_per_amp`` (Rabi frequency at full amplitude) and ``contrast_total`` are inferred. Note the
   on-resonance depth ``sin²(π/2 · Ω/Ω_est)`` is periodic in the calibration ratio, so the
   ``rabi_per_amp`` posterior can be multimodal (aliased); the off-resonance lineshape separates the
   branches (see docs/amplitude_control.md).
@@ -22,7 +22,7 @@ Two experiment modes, each a :class:`~nvision.spectra.signal.SignalModel` with `
 Neither model is evaluated directly: :meth:`at_drive` returns a fixed-drive view, an ordinary
 frequency-only model over the *same* parameters, which is what fixed-drive locators, plots and the
 per-drive-group likelihood use. Hyperfine structure is the fixed isotope geometry
-(``hyperfine``); inferring ``split``/``k_np`` is not supported for these models.
+(``hyperfine``); inferring ``hyperfine_shift``/``k_np`` is not supported for these models.
 """
 
 from __future__ import annotations
@@ -39,8 +39,8 @@ from nvision.spectra.drive import DRIVE_AMP_MIN_UNIT, DriveSetting
 from nvision.spectra.dtypes import FLOAT_DTYPE
 from nvision.spectra.nv_center import (
     _SATURATION_VOIGT_SQRT2LOG2,
-    MAX_ZEEMAN_SPLIT,
-    MIN_ZEEMAN_SPLIT,
+    MAX_ZEEMAN_SHIFT,
+    MIN_ZEEMAN_SHIFT,
     NV_NATURAL_HWHM_HZ,
     NV_ZERO_FIELD_SPLITTING_HZ,
     NVCenterSaturationVoigtModel,
@@ -60,7 +60,7 @@ DRIVE_AMP_SAT_BOUNDS: tuple[float, float] = (0.05, 0.5)
 # Pulsed: Rabi frequency at full amplitude (Hz). The π-pulse line HWHM is ~0.8 * Omega, so the
 # drive spans ~40 kHz (minimum amplitude, weakest coupling) to ~8 MHz (full amplitude, strongest).
 RABI_PER_AMP_BOUNDS: tuple[float, float] = (1.0e6, 10.0e6)
-PULSED_C_TOTAL_BOUNDS: tuple[float, float] = (0.05, 0.4)
+PULSED_CONTRAST_TOTAL_BOUNDS: tuple[float, float] = (0.05, 0.4)
 CW_SIGMA_INHOM_HI: float = 1.2e6
 PULSED_SIGMA_INHOM_HI: float = 0.6e6
 
@@ -115,66 +115,66 @@ def is_drive_param_dict(params) -> bool:
 
 @dataclass(frozen=True)
 class NVCenterCWDriveSpectrum:
-    center_freq: float
+    zero_field_freq: float
     drive_amp_sat: float
     sigma_inhom: float
 
 
 @dataclass(frozen=True)
 class NVCenterCWDriveSpectrumSamples:
-    center_freq: np.ndarray
+    zero_field_freq: np.ndarray
     drive_amp_sat: np.ndarray
     sigma_inhom: np.ndarray
 
 
 @dataclass(frozen=True)
 class NVCenterCWDriveZeemanSpectrum:
-    center_freq: float
+    zero_field_freq: float
     drive_amp_sat: float
     sigma_inhom: float
-    zeeman_split: float
+    zeeman_shift: float
 
 
 @dataclass(frozen=True)
 class NVCenterCWDriveZeemanSpectrumSamples:
-    center_freq: np.ndarray
+    zero_field_freq: np.ndarray
     drive_amp_sat: np.ndarray
     sigma_inhom: np.ndarray
-    zeeman_split: np.ndarray
+    zeeman_shift: np.ndarray
 
 
 @dataclass(frozen=True)
 class NVCenterPulsedSpectrum:
-    center_freq: float
+    zero_field_freq: float
     rabi_per_amp: float
-    c_total: float
+    contrast_total: float
     sigma_inhom: float
 
 
 @dataclass(frozen=True)
 class NVCenterPulsedSpectrumSamples:
-    center_freq: np.ndarray
+    zero_field_freq: np.ndarray
     rabi_per_amp: np.ndarray
-    c_total: np.ndarray
+    contrast_total: np.ndarray
     sigma_inhom: np.ndarray
 
 
 @dataclass(frozen=True)
 class NVCenterPulsedZeemanSpectrum:
-    center_freq: float
+    zero_field_freq: float
     rabi_per_amp: float
-    c_total: float
+    contrast_total: float
     sigma_inhom: float
-    zeeman_split: float
+    zeeman_shift: float
 
 
 @dataclass(frozen=True)
 class NVCenterPulsedZeemanSpectrumSamples:
-    center_freq: np.ndarray
+    zero_field_freq: np.ndarray
     rabi_per_amp: np.ndarray
-    c_total: np.ndarray
+    contrast_total: np.ndarray
     sigma_inhom: np.ndarray
-    zeeman_split: np.ndarray
+    zeeman_shift: np.ndarray
 
 
 def _spec(params_cls, samples_cls, fixed_center: bool):
@@ -184,7 +184,7 @@ def _spec(params_cls, samples_cls, fixed_center: bool):
         (GenericParamSpec,),
         {"params_cls": params_cls, "samples_cls": samples_cls, "uncertainty_cls": params_cls},
     )
-    return spec_cls(fixed_values={"center_freq": NV_ZERO_FIELD_SPLITTING_HZ} if fixed_center else None)
+    return spec_cls(fixed_values={"zero_field_freq": NV_ZERO_FIELD_SPLITTING_HZ} if fixed_center else None)
 
 
 _CW_SPECS = {
@@ -222,12 +222,12 @@ class _NVCenterDriveModelBase(SignalModel):
         self,
         hyperfine: str = "unresolved",
         with_zeeman_splitting: bool = True,
-        with_fixed_center_freq: bool = True,
+        with_fixed_zero_field_freq: bool = True,
     ) -> None:
         self._hf_offset, self._w_center, self._hf_lines = _check_hyperfine(hyperfine, False)
         self._hyperfine = hyperfine
         self._with_zeeman_splitting = with_zeeman_splitting
-        self._with_fixed_center_freq = with_fixed_center_freq
+        self._with_fixed_zero_field_freq = with_fixed_zero_field_freq
         self._views: dict[DriveSetting, SignalModel] = {}
 
     @property
@@ -240,7 +240,7 @@ class _NVCenterDriveModelBase(SignalModel):
 
     @property
     def spec(self):
-        return self._SPECS[(self._with_zeeman_splitting, self._with_fixed_center_freq)]
+        return self._SPECS[(self._with_zeeman_splitting, self._with_fixed_zero_field_freq)]
 
     @property
     def controls_drive(self) -> bool:
@@ -282,10 +282,10 @@ class _NVCenterDriveModelBase(SignalModel):
 
     def parameter_weights(self) -> dict[str, float]:
         weights = {name: 1.0 for name in self.parameter_names()}
-        if "zeeman_split" in weights:
-            weights["zeeman_split"] = 1.5
-        if "center_freq" in weights:
-            weights["center_freq"] = 2.0
+        if "zeeman_shift" in weights:
+            weights["zeeman_shift"] = 1.5
+        if "zero_field_freq" in weights:
+            weights["zero_field_freq"] = 2.0
         return weights
 
     def expected_dip_count(self) -> int:
@@ -296,7 +296,7 @@ class _NVCenterDriveModelBase(SignalModel):
 
     def signal_max_span(self, domain_width: float) -> float | None:
         fwhm_total_hi = 2.0 * self._max_hwhm()
-        zeeman = 2.0 * MAX_ZEEMAN_SPLIT if self._with_zeeman_splitting else 0.0
+        zeeman = 2.0 * MAX_ZEEMAN_SHIFT if self._with_zeeman_splitting else 0.0
         return zeeman + 2.0 * self._hf_offset + 4.0 * fwhm_total_hi
 
     def _max_hwhm(self) -> float:
@@ -359,9 +359,9 @@ class _FixedDriveViewBase(SignalModel):
 class NVCenterCWDriveModel(_NVCenterDriveModelBase):
     """CW ODMR with a controllable drive amplitude (see module docstring).
 
-    Parameters (``with_zeeman_splitting=True``): ``center_freq`` (fixed to D by default),
+    Parameters (``with_zeeman_splitting=True``): ``zero_field_freq`` (fixed to D by default),
     ``drive_amp_sat`` (amplitude at s = 1, fraction of max field), ``sigma_inhom`` (Hz),
-    ``zeeman_split`` (Hz).
+    ``zeeman_shift`` (Hz).
     """
 
     _SPECS = _CW_SPECS
@@ -371,14 +371,14 @@ class NVCenterCWDriveModel(_NVCenterDriveModelBase):
         self,
         hyperfine: str = "unresolved",
         with_zeeman_splitting: bool = True,
-        with_fixed_center_freq: bool = True,
+        with_fixed_zero_field_freq: bool = True,
     ) -> None:
-        super().__init__(hyperfine, with_zeeman_splitting, with_fixed_center_freq)
+        super().__init__(hyperfine, with_zeeman_splitting, with_fixed_zero_field_freq)
         self._saturation_model = NVCenterSaturationVoigtModel(
             hyperfine=hyperfine,
             infer_hyperfine=False,
             with_zeeman_splitting=with_zeeman_splitting,
-            with_fixed_center_freq=with_fixed_center_freq,
+            with_fixed_zero_field_freq=with_fixed_zero_field_freq,
         )
 
     def _make_view(self, drive: DriveSetting) -> SignalModel:
@@ -393,25 +393,25 @@ class _CWFixedDriveView(_FixedDriveViewBase):
     """CW model at one amplitude: maps ``drive_amp_sat`` to ``saturation`` and reuses the saturation-Voigt kernels."""
 
     def _as_saturation(self, params):
-        zeeman = getattr(params, "zeeman_split", 0.0)
+        zeeman = getattr(params, "zeeman_shift", 0.0)
         return SimpleNamespace(
-            center_freq=params.center_freq,
+            zero_field_freq=params.zero_field_freq,
             saturation=float(cw_saturation(self._drive.drive_amp_unit, params.drive_amp_sat)),
             sigma_inhom=params.sigma_inhom,
-            zeeman_split=zeeman,
+            zeeman_shift=zeeman,
         )
 
     def _as_saturation_samples(self, samples):
         typed = self._typed_samples(samples)
         out = SimpleNamespace(
-            center_freq=np.asarray(typed.center_freq, dtype=FLOAT_DTYPE),
+            zero_field_freq=np.asarray(typed.zero_field_freq, dtype=FLOAT_DTYPE),
             saturation=cw_saturation(
                 self._drive.drive_amp_unit, np.asarray(typed.drive_amp_sat, dtype=FLOAT_DTYPE)
             ).astype(FLOAT_DTYPE, copy=False),
             sigma_inhom=np.asarray(typed.sigma_inhom, dtype=FLOAT_DTYPE),
         )
-        if hasattr(typed, "zeeman_split"):
-            out.zeeman_split = np.asarray(typed.zeeman_split, dtype=FLOAT_DTYPE)
+        if hasattr(typed, "zeeman_shift"):
+            out.zeeman_shift = np.asarray(typed.zeeman_shift, dtype=FLOAT_DTYPE)
         return out
 
     @property
@@ -442,9 +442,9 @@ class _CWFixedDriveView(_FixedDriveViewBase):
 class NVCenterPulsedDriveModel(_NVCenterDriveModelBase):
     """Pulsed ODMR with a controllable drive amplitude and a calibrated π-pulse (see module docstring).
 
-    Parameters (``with_zeeman_splitting=True``): ``center_freq`` (fixed to D by default),
-    ``rabi_per_amp`` (Rabi frequency at full amplitude, Hz), ``c_total`` (readout contrast of a full
-    spin flip), ``sigma_inhom`` (Hz), ``zeeman_split`` (Hz).
+    Parameters (``with_zeeman_splitting=True``): ``zero_field_freq`` (fixed to D by default),
+    ``rabi_per_amp`` (Rabi frequency at full amplitude, Hz), ``contrast_total`` (readout contrast of a full
+    spin flip), ``sigma_inhom`` (Hz), ``zeeman_shift`` (Hz).
     """
 
     _SPECS = _PULSED_SPECS
@@ -485,7 +485,7 @@ def rabi_transition_probability(detuning_hz, rabi_hz, pulse_duration_s: float):
 class _PulsedFixedDriveView(_FixedDriveViewBase):
     """Pulsed model at one (amplitude, pulse duration): Rabi lines averaged over the inhomogeneous spread."""
 
-    def _predict(self, xs: np.ndarray, center, rabi_per_amp, c_total, sigma_inhom, zeeman) -> np.ndarray:
+    def _predict(self, xs: np.ndarray, center, rabi_per_amp, contrast_total, sigma_inhom, zeeman) -> np.ndarray:
         """Signal at drive frequencies ``xs`` (shape (n_x,)) for parameter arrays (shape (n,)); returns (n_x, n)."""
         drive = self._drive
         rabi = (np.asarray(rabi_per_amp, dtype=np.float64) * drive.drive_amp_unit)[None, :]
@@ -507,32 +507,32 @@ class _PulsedFixedDriveView(_FixedDriveViewBase):
                     depth += (group_weight * w_line * p) * rabi_transition_probability(
                         detuning + shift * sigma, rabi, t
                     )
-        return 1.0 - np.asarray(c_total, dtype=np.float64)[None, :] * depth
+        return 1.0 - np.asarray(contrast_total, dtype=np.float64)[None, :] * depth
 
     def _arrays(self, typed):
-        zeeman = getattr(typed, "zeeman_split", np.zeros_like(np.asarray(typed.center_freq)))
-        return typed.center_freq, typed.rabi_per_amp, typed.c_total, typed.sigma_inhom, zeeman
+        zeeman = getattr(typed, "zeeman_shift", np.zeros_like(np.asarray(typed.zero_field_freq)))
+        return typed.zero_field_freq, typed.rabi_per_amp, typed.contrast_total, typed.sigma_inhom, zeeman
 
     def compute(self, x: float, params) -> float:
-        zeeman = getattr(params, "zeeman_split", 0.0)
+        zeeman = getattr(params, "zeeman_shift", 0.0)
         return float(
             self._predict(
                 np.array([x]),
-                np.array([params.center_freq]),
+                np.array([params.zero_field_freq]),
                 np.array([params.rabi_per_amp]),
-                np.array([params.c_total]),
+                np.array([params.contrast_total]),
                 np.array([params.sigma_inhom]),
                 np.array([zeeman]),
             )[0, 0]
         )
 
     def compute_many_float64(self, xs: np.ndarray, params) -> np.ndarray:
-        zeeman = getattr(params, "zeeman_split", 0.0)
+        zeeman = getattr(params, "zeeman_shift", 0.0)
         return self._predict(
             np.asarray(xs, dtype=np.float64),
-            np.array([params.center_freq]),
+            np.array([params.zero_field_freq]),
             np.array([params.rabi_per_amp]),
-            np.array([params.c_total]),
+            np.array([params.contrast_total]),
             np.array([params.sigma_inhom]),
             np.array([zeeman]),
         )[:, 0]
@@ -570,22 +570,22 @@ def nv_center_drive_bounds_for_domain(
     if mode == "cw":
         model: _NVCenterDriveModelBase = NVCenterCWDriveModel(hyperfine, with_zeeman_splitting)
         bounds: dict[str, tuple[float, float]] = {
-            "center_freq": (float(drive_freq_min_phys), float(drive_freq_max_phys)),
+            "zero_field_freq": (float(drive_freq_min_phys), float(drive_freq_max_phys)),
             "drive_amp_sat": DRIVE_AMP_SAT_BOUNDS,
             "sigma_inhom": (0.0, CW_SIGMA_INHOM_HI),
         }
     elif mode == "pulsed":
         model = NVCenterPulsedDriveModel(hyperfine, with_zeeman_splitting)
         bounds = {
-            "center_freq": (float(drive_freq_min_phys), float(drive_freq_max_phys)),
+            "zero_field_freq": (float(drive_freq_min_phys), float(drive_freq_max_phys)),
             "rabi_per_amp": RABI_PER_AMP_BOUNDS,
-            "c_total": PULSED_C_TOTAL_BOUNDS,
+            "contrast_total": PULSED_CONTRAST_TOTAL_BOUNDS,
             "sigma_inhom": (0.0, PULSED_SIGMA_INHOM_HI),
         }
     else:
         raise ValueError(f"unknown drive mode {mode!r}; expected 'cw' or 'pulsed'")
     if with_zeeman_splitting:
-        bounds["zeeman_split"] = (MIN_ZEEMAN_SPLIT, MAX_ZEEMAN_SPLIT)
+        bounds["zeeman_shift"] = (MIN_ZEEMAN_SHIFT, MAX_ZEEMAN_SHIFT)
     bounds["_signal_max_span"] = (0.0, float(model.signal_max_span(drive_freq_max_phys - drive_freq_min_phys)))
     return bounds
 

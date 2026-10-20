@@ -30,11 +30,11 @@ Constraints and why they exist
 
 ``dual_halfwidth <= dual_trigger``
     The dual-window branch places two windows of half-width ``h * lw`` centred
-    at ``center +/- split``. They overlap -- destroying the flank *balance* the
-    branch exists to enforce -- as soon as ``h * lw >= split``. The branch only
-    runs when ``split >= trigger * lw``, so ``h <= trigger`` guarantees
-    ``h * lw <= split``. The rendered code additionally clamps the half-width to
-    ``0.9 * split`` as a hard runtime backstop, but with this constraint in
+    at ``center +/- hyperfine_shift``. They overlap -- destroying the flank *balance* the
+    branch exists to enforce -- as soon as ``h * lw >= hyperfine_shift``. The branch only
+    runs when ``hyperfine_shift >= trigger * lw``, so ``h <= trigger`` guarantees
+    ``h * lw <= hyperfine_shift``. The rendered code additionally clamps the half-width to
+    ``0.9 * hyperfine_shift`` as a hard runtime backstop, but with this constraint in
     place that clamp is never the binding term at feasible points -- which is
     what keeps the rendered default byte-equivalent in behaviour to production.
 """

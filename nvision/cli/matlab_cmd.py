@@ -44,9 +44,9 @@ def _echo_convergence_breakdown(summaries: list[_MatlabRunSummary]) -> None:
 
     "Split converged" (``primary_converged_step``) is the primary milestone -- the
     locator has resolved the Zeeman doublet -- while "All converged" (``all_converged_step``)
-    additionally requires every other parameter (center_freq, linewidth, c_total) to have
+    additionally requires every other parameter (zero_field_freq, hwhm, contrast_total) to have
     narrowed too, so it's strictly harder to hit and frequently stays None even on files
-    that split-converged fine. Reporting both separately (rather than only "did it finish")
+    that shift-converged fine. Reporting both separately (rather than only "did it finish")
     mirrors the results UI's stopping-criteria toggle so a batch run's summary means the
     same thing as what you'd see there.
     """
@@ -102,13 +102,13 @@ class _MatlabSignalProxy:
         return float(np.interp(x, self._interp_drive_freq_phys, self._interp_signal))
 
     def parameter_values(self) -> dict[str, float]:
-        return {"center_freq": float("nan")}
+        return {"zero_field_freq": float("nan")}
 
     def get_param_value(self, name: str) -> float:
         return float("nan")
 
     def all_bounds(self) -> dict[str, tuple[float, float]]:
-        return {"center_freq": (self._drive_freq_min_phys, self._drive_freq_max_phys)}
+        return {"zero_field_freq": (self._drive_freq_min_phys, self._drive_freq_max_phys)}
 
 
 class _MatlabExperiment:
@@ -165,8 +165,8 @@ def _matlab_loop(
             phys_mhz = (drive_freq_min_phys + drive_freq_unit * (drive_freq_max_phys - drive_freq_min_phys)) / 1e6
             est = locator.belief.estimates()
             unc = locator.belief.uncertainty()
-            freq_est_mhz = est.get("center_freq", float("nan")) / 1e6
-            freq_unc_mhz = unc.get("center_freq", float("nan")) / 1e6
+            freq_est_mhz = est.get("zero_field_freq", float("nan")) / 1e6
+            freq_unc_mhz = unc.get("zero_field_freq", float("nan")) / 1e6
             typer.echo(
                 f"Step {locator.step_count:3d}: {phys_mhz:7.2f} MHz -> "
                 f"signal={obs.signal_value:.4f}  "
@@ -231,7 +231,7 @@ def matlab_run(
         int,
         typer.Option("--particles", help="SMC particle count (default 10x the simulation default)."),
     ] = 10000,
-    infer_center_freq: Annotated[
+    infer_zero_field_freq: Annotated[
         bool,
         typer.Option(
             "--infer-center-freq/--no-infer-center-freq",
@@ -281,7 +281,7 @@ def matlab_run(
                         no_progress=no_progress,
                         no_ui=no_ui,
                         particles=particles,
-                        infer_center_freq=infer_center_freq,
+                        infer_zero_field_freq=infer_zero_field_freq,
                     )
                 )
             except Exception as exc:
@@ -315,26 +315,26 @@ def matlab_run(
         no_progress=no_progress,
         no_ui=no_ui,
         particles=particles,
-        infer_center_freq=infer_center_freq,
+        infer_zero_field_freq=infer_zero_field_freq,
     )
 
 
-# c_total prior for real data. The positive-only sign is the simulated grid's (the ratio
+# contrast_total prior for real data. The positive-only sign is the simulated grid's (the ratio
 # inversion in MatlabDataFile.load makes every resonance dip), but not its (0.1, 0.4)
 # magnitude cap: the raw ratio isn't a calibrated population fraction, and both files in
 # data/matlab/ sat pinned against 0.4. The capped fit made up the missing depth with a
-# wider line — ESR_20251112_134403 fit linewidth 3.1 MHz and R^2 0.946, against 2.2 MHz
-# and 0.976 (the unconstrained scipy ceiling) with the cap lifted, where c_total settles
+# wider line — ESR_20251112_134403 fit hwhm 3.1 MHz and R^2 0.946, against 2.2 MHz
+# and 0.976 (the unconstrained scipy ceiling) with the cap lifted, where contrast_total settles
 # at ~0.54.
 # 1.0 is the physical ceiling: a dip can't go below zero signal.
-_REAL_DATA_C_TOTAL_BOUNDS: tuple[float, float] = (0.1, 1.0)
+_REAL_DATA_CONTRAST_TOTAL_BOUNDS: tuple[float, float] = (0.1, 1.0)
 
 
 @contextlib.contextmanager
-def _real_data_c_total_threshold() -> Generator[None]:
-    """Scale c_total's absolute convergence threshold to ``_REAL_DATA_C_TOTAL_BOUNDS``.
+def _real_data_contrast_total_threshold() -> Generator[None]:
+    """Scale contrast_total's absolute convergence threshold to ``_REAL_DATA_CONTRAST_TOTAL_BOUNDS``.
 
-    NVISION_C_TOTAL_CONVERGENCE_THRESHOLD (0.01) is absolute and was calibrated against
+    NVISION_CONTRAST_TOTAL_CONVERGENCE_THRESHOLD (0.01) is absolute and was calibrated against
     the simulated grid's (0.1, 0.4) range. Left as-is under the wider real-data range it
     demands a precision the recorded shots can't give (the 205-shot file never reported
     all-parameter convergence), so keep it the same *fraction of the prior range* for the
@@ -352,17 +352,17 @@ def _real_data_c_total_threshold() -> Generator[None]:
         DEFAULT_NV_DRIVE_FREQ_MAX_PHYS,
         hyperfine="unresolved",
         with_zeeman_splitting=True,
-    )["c_total"]
-    real_lo, real_hi = _REAL_DATA_C_TOTAL_BOUNDS
-    original = PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS["c_total"]
-    PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS["c_total"] = original * (real_hi - real_lo) / (sim_hi - sim_lo)
+    )["contrast_total"]
+    real_lo, real_hi = _REAL_DATA_CONTRAST_TOTAL_BOUNDS
+    original = PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS["contrast_total"]
+    PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS["contrast_total"] = original * (real_hi - real_lo) / (sim_hi - sim_lo)
     try:
         yield
     finally:
-        PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS["c_total"] = original
+        PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS["contrast_total"] = original
 
 
-@_real_data_c_total_threshold()
+@_real_data_contrast_total_threshold()
 def _matlab_run_one(
     *,
     matlab_file: Path,
@@ -373,7 +373,7 @@ def _matlab_run_one(
     no_progress: bool,
     no_ui: bool,
     particles: int,
-    infer_center_freq: bool,
+    infer_zero_field_freq: bool,
 ) -> _MatlabRunSummary:
     """Run the SBED locator on a single ESR .mat file (the body of ``matlab-run``)."""
     from nvision.noises.over_frequency.gaussian_noise import OverFrequencyGaussianNoise
@@ -396,31 +396,31 @@ def _matlab_run_one(
     )
 
     # --- Build locator ---
-    # c_total: real .mat signal ratios used to come out peaking above 1.0 instead of
+    # contrast_total: real .mat signal ratios used to come out peaking above 1.0 instead of
     # dipping below it (whichever shot channel the instrument calls "baseline" can land on
     # either side of the driven channel). That inversion is corrected once, uniformly, in
     # MatlabDataFile.load (baseline / with_freq instead of with_freq / baseline), so the
     # positive-only sign applies directly — but the magnitude cap doesn't; see
-    # _REAL_DATA_C_TOTAL_BOUNDS.
+    # _REAL_DATA_CONTRAST_TOTAL_BOUNDS.
     #
-    # center_freq is inferred (--infer-center-freq), not pinned to the simulated grid's 2870 MHz:
+    # zero_field_freq is inferred (--infer-center-freq), not pinned to the simulated grid's 2870 MHz:
     # both files' sweeps are centered on 2870 MHz, but their doublets sit at 2871.62 and
     # 2871.13 MHz, and pinning drops R^2 from 0.976 to 0.824 on the narrower file.
     #
-    # zeeman_split's default ceiling is MAX_ZEEMAN_SPLIT (60 MHz), sized for the simulated
+    # zeeman_shift's default ceiling is MAX_ZEEMAN_SHIFT (60 MHz), sized for the simulated
     # domain and wider than some real sweeps (one file here spans only 80 MHz in total).
     # Left alone it lets the fit park one of the two peaks outside the measured window and
     # "explain" only the half it can see — which is what the narrower file did: center
-    # 2840 MHz, split 51.7 MHz, lower peak at 2789 MHz against data starting at 2830 MHz.
+    # 2840 MHz, Zeeman shift 51.7 MHz, lower peak at 2789 MHz against data starting at 2830 MHz.
     # A quarter of the span keeps the doublet inside a sweep that was deliberately
-    # recorded around it. Note this cannot be done by narrowing the "center_freq" bound
+    # recorded around it. Note this cannot be done by narrowing the "zero_field_freq" bound
     # instead: nv_center_smc_belief reuses that same entry as the drive-frequency domain, so
     # tightening it would stop the locator from ever measuring the wings.
     span = drive_freq_max_phys - drive_freq_min_phys
     locator_bounds = {
-        "center_freq": (drive_freq_min_phys, drive_freq_max_phys),
-        "zeeman_split": (0.0, span / 4.0),
-        "c_total": _REAL_DATA_C_TOTAL_BOUNDS,
+        "zero_field_freq": (drive_freq_min_phys, drive_freq_max_phys),
+        "zeeman_shift": (0.0, span / 4.0),
+        "contrast_total": _REAL_DATA_CONTRAST_TOTAL_BOUNDS,
     }
 
     # The SMC default (1000 particles, 1% exploration) is tuned for a live instrument,
@@ -437,7 +437,7 @@ def _matlab_run_one(
         # centred on the noise measured from (or overridden for) this recording.
         noise_model=OverFrequencyGaussianNoise(std=data.noise_std).to_noise_signal_model(),
         max_steps=max_steps,
-        with_fixed_center_freq=not infer_center_freq,
+        with_fixed_zero_field_freq=not infer_zero_field_freq,
         num_particles=particles,
         min_exploration_frac=0.05,
     )
@@ -476,7 +476,7 @@ def _matlab_run_one(
     typer.echo("Final parameter estimates:")
     for param, val in final_est.items():
         unc_val = final_unc.get(param, float("nan"))
-        unit = "MHz" if "center_freq" in param or "split" in param or "linewidth" in param else ""
+        unit = "MHz" if "zero_field_freq" in param or "hyperfine_shift" in param or "hwhm" in param else ""
         scale = 1e-6 if unit == "MHz" else 1.0
         typer.echo(f"  {param:20s}: {val * scale:.4f} +/- {unc_val * scale:.4f} {unit}".rstrip())
 

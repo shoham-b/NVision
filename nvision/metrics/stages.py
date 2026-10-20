@@ -190,7 +190,8 @@ def compute_stage_metrics(run_result: RunResult) -> dict[str, Any]:
 
     primary = resolve_primary_param(run_result.true_signal.parameter_values().keys())
     if primary is None:
-        # No split and no free center_freq (e.g. a fixed-center, no-Zeeman model): the stages are undefined,
+        # No zeeman_shift/hyperfine_shift and no free zero_field_freq (e.g. a fixed-center, no-Zeeman model):
+        # the stages are undefined,
         # same convention as the primary milestone (see resolve_primary_param).
         return out
     out["stage_primary_param"] = primary

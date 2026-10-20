@@ -52,7 +52,7 @@ def test_combo_key_differs_between_schema_versions():
 
 
 def test_drop_unviewable_combos_hides_pre_rename_schemas(caplog):
-    """Entries written before the center_freq rename are hidden loudly, never half-rendered."""
+    """Entries written before the zero_field_freq rename are hidden loudly, never half-rendered."""
     from nvision.cache.locator_keys import MIN_VIEWABLE_CACHE_SCHEMA_VERSION
     from nvision.cli.api_server import _drop_unviewable_combos
 

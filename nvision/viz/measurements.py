@@ -19,21 +19,21 @@ from nvision.sim.batch import DataBatch
 from nvision.spectra.unit_cube import UnitCubeSignalModel
 from nvision.tools.paths import ensure_out_dir
 
-# Match ``nvision.spectra.numba_kernels.nv_center_lorentzian_eval`` / Voigt no-split branch.
-_NV_SPLIT_ZERO_TOL = 1e-10
+# Match ``nvision.spectra.numba_kernels.nv_center_lorentzian_eval`` / Voigt no-hyperfine-shift branch.
+_NV_HYPERFINE_SHIFT_ZERO_TOL = 1e-10
 
 
 def _align_mode_split_with_ground_truth(
     scan: Any,
     mode_estimates: Mapping[str, float],
 ) -> Mapping[str, float]:
-    """If the true spectrum is zero-field NV (split≈0), evaluate the overlay at split=0.
+    """If the true spectrum is zero-field NV (hyperfine_shift≈0), evaluate the overlay at hyperfine_shift=0.
 
     ``belief_mode_estimates`` uses a **marginal** argmax per grid parameter. The marginal
-    mode for ``split`` can sit above zero even when the generated signal is a single
+    mode for ``hyperfine_shift`` can sit above zero even when the generated signal is a single
     combined dip, which would draw three dips in the dashed \"locator most likely\" curve.
     """
-    if "split" not in mode_estimates:
+    if "hyperfine_shift" not in mode_estimates:
         return mode_estimates
     ts = getattr(scan, "true_signal", None)
     if ts is None:
@@ -42,13 +42,13 @@ def _align_mode_split_with_ground_truth(
     if not callable(getv):
         return mode_estimates
     try:
-        truth_split = float(getv("split"))
+        truth_hyperfine_shift = float(getv("hyperfine_shift"))
     except (KeyError, TypeError, ValueError):
         return mode_estimates
-    if abs(truth_split) >= _NV_SPLIT_ZERO_TOL:
+    if abs(truth_hyperfine_shift) >= _NV_HYPERFINE_SHIFT_ZERO_TOL:
         return mode_estimates
     out = dict(mode_estimates)
-    out["split"] = 0.0
+    out["hyperfine_shift"] = 0.0
     return out
 
 
@@ -141,8 +141,8 @@ def _mode_dense_y_unit_cube(
         lo, hi = model.param_bounds_phys[name]
         hw = float(hi - lo)
         v = float(mode_estimates[name])
-        # Treat small split values as zero to show correct number of dips
-        if name == "split" and v < _NV_SPLIT_ZERO_TOL:
+        # Treat small hyperfine_shift values as zero to show correct number of dips
+        if name == "hyperfine_shift" and v < _NV_HYPERFINE_SHIFT_ZERO_TOL:
             v = 0.0
         u = (v - lo) / hw if hw > 0 else 0.5
         u_values.append(min(max(u, 0.0), 1.0))
@@ -186,10 +186,10 @@ def _mode_belief_dense_y(
         return _mode_dense_y_unit_cube(model, xs, mode_estimates)
 
     values = [float(mode_estimates[name]) for name in names]
-    # Treat small split values as zero to show correct number of dips
-    if "split" in mode_estimates and float(mode_estimates["split"]) < _NV_SPLIT_ZERO_TOL:
-        split_idx = names.index("split")
-        values[split_idx] = 0.0
+    # Treat small hyperfine_shift values as zero to show correct number of dips
+    if "hyperfine_shift" in mode_estimates and float(mode_estimates["hyperfine_shift"]) < _NV_HYPERFINE_SHIFT_ZERO_TOL:
+        hyperfine_shift_idx = names.index("hyperfine_shift")
+        values[hyperfine_shift_idx] = 0.0
     curve = _dense_model_curve(model, xs, values)
     if curve is not None:
         return curve
@@ -793,7 +793,7 @@ def _compute_scan_data_dict(
             out["y_dense_mode"] = y_mode
 
     # The locator's reported estimates (the same values as the final_est_* metrics), so the
-    # UI's flip view can fold about the *found* center and Zeeman split. Real measurements
+    # UI's flip view can fold about the *found* center and Zeeman shift. Real measurements
     # have no ground truth to fold about, and their center sits off the simulated grid's
     # fixed 2870 MHz anyway.
     if found_params:

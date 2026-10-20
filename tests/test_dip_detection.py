@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from nvision import nv_center_smc_belief
-from nvision.belief.dip_detection import find_dips, linewidth_fwhm_prior_hz
+from nvision.belief.dip_detection import find_dips, hwhm_fwhm_prior_hz
 from tests.noise import gaussian_noise
 
 # FWHM prior used throughout: 10 MHz +/- 2 MHz, allowed range 4-16 MHz -> windows span 6-14 MHz.
@@ -251,17 +251,17 @@ def test_belief_noise_student_t_matches_its_inverse_gamma_posterior():
     assert np.isclose(scale, b.estimated_noise_std() * np.sqrt((alpha + 0.5) / alpha))
 
 
-def test_linewidth_fwhm_prior_hz_uses_prior_bounds():
+def test_hwhm_fwhm_prior_hz_uses_prior_bounds():
     # Uniform HWHM on [1, 5] MHz -> FWHM mean 6 MHz, std 2 * 4 / sqrt(12) MHz, range 2-10 MHz.
-    mean, std, minimum, maximum = linewidth_fwhm_prior_hz({"linewidth": (1e6, 5e6)})
+    mean, std, minimum, maximum = hwhm_fwhm_prior_hz({"hwhm": (1e6, 5e6)})
     assert np.isclose(mean, 6e6)
     assert np.isclose(std, 8e6 / np.sqrt(12.0))
     assert np.isclose(minimum, 2e6)
     assert np.isclose(maximum, 10e6)
-    mean, _, _, _ = linewidth_fwhm_prior_hz({"homogeneous_linewidth": (1e6, 4e6)})
+    mean, _, _, _ = hwhm_fwhm_prior_hz({"hwhm_lorentz": (1e6, 4e6)})
     assert np.isclose(mean, 5e6)
-    with pytest.raises(ValueError, match="no linewidth parameter"):
-        linewidth_fwhm_prior_hz({"center_freq": (2.8e9, 2.9e9)})
+    with pytest.raises(ValueError, match="no hwhm parameter"):
+        hwhm_fwhm_prior_hz({"zero_field_freq": (2.8e9, 2.9e9)})
 
 
 def test_sorted_observation_arrays_matches_full_sort():
@@ -311,7 +311,7 @@ def test_belief_sorted_observations_stay_consistent_across_updates_and_resamples
     from nvision.spectra.noise_model import GaussianNoiseSignalModel
 
     noise_model = GaussianNoiseSignalModel(prior_bounds={"noise_sigma": (0.01, 0.05)})
-    b = nv_center_smc_belief(num_particles=100, noise_model=noise_model, with_fixed_center_freq=False)
+    b = nv_center_smc_belief(num_particles=100, noise_model=noise_model, with_fixed_zero_field_freq=False)
     axis_before = (b.drive_freq_bounds_phys, dict(b.physical_param_bounds))
 
     rng = np.random.default_rng(123)
@@ -390,15 +390,15 @@ def test_estimated_noise_std_is_90th_percentile():
     assert np.isclose(est, 0.09)
 
 
-def test_linewidth_fwhm_prior_hz_spans_the_drive_amplitude_range():
+def test_hwhm_fwhm_prior_hz_spans_the_drive_amplitude_range():
     # Pulsed drive: the pi-pulse line HWHM is 0.7988 * rabi_per_amp * amplitude. Narrowest at the
     # minimum amplitude with the weakest coupling, widest at full amplitude with the strongest.
     from nvision.spectra.drive import DRIVE_AMP_MIN_UNIT
     from nvision.spectra.nv_center_drive import PI_PULSE_HWHM_PER_RABI
 
-    _, _, minimum, maximum = linewidth_fwhm_prior_hz({"rabi_per_amp": (1e6, 10e6), "sigma_inhom": (0.0, 0.0)})
+    _, _, minimum, maximum = hwhm_fwhm_prior_hz({"rabi_per_amp": (1e6, 10e6), "sigma_inhom": (0.0, 0.0)})
     assert np.isclose(minimum, 2 * PI_PULSE_HWHM_PER_RABI * 1e6 * DRIVE_AMP_MIN_UNIT)
     assert np.isclose(maximum, 2 * PI_PULSE_HWHM_PER_RABI * 10e6)
     # CW: width grows with saturation s = (a / drive_amp_sat)**2, so the largest drive_amp_sat is narrowest.
-    _, _, cw_min, cw_max = linewidth_fwhm_prior_hz({"drive_amp_sat": (0.05, 0.5), "sigma_inhom": (0.0, 0.0)})
+    _, _, cw_min, cw_max = hwhm_fwhm_prior_hz({"drive_amp_sat": (0.05, 0.5), "sigma_inhom": (0.0, 0.0)})
     assert 0.0 < cw_min < cw_max

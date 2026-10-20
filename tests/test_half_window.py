@@ -28,7 +28,7 @@ def test_generated_signal_is_centered_on_and_mirror_symmetric_about_zero_field_s
     signal = NVCenterCoreGenerator(variant=variant, hyperfine=hyperfine, with_zeeman_splitting=True).generate(
         random.Random(1)
     )
-    assert signal.get_param_value("center_freq") == NV_ZERO_FIELD_SPLITTING_HZ
+    assert signal.get_param_value("zero_field_freq") == NV_ZERO_FIELD_SPLITTING_HZ
     offsets = np.linspace(0.5e6, 100e6, 25)
     above = np.array([signal(NV_ZERO_FIELD_SPLITTING_HZ + d) for d in offsets])
     below = np.array([signal(NV_ZERO_FIELD_SPLITTING_HZ - d) for d in offsets])

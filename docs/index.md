@@ -9,7 +9,7 @@ Welcome to the NVision documentation.
 
 ## Developer Guides
 
--   [Glossary: drive_freq / candidate_drive_freq / center_freq / zeeman_split](glossary.md)
+-   [Glossary: drive_freq / candidate_drive_freq / zero_field_freq / zeeman_shift](glossary.md)
 -   [Core Architecture](core_architecture.md)
 -   [Runner Orchestration](runner_architecture.md)
 -   [CLI Reference & Usage](cli_reference.md)
@@ -17,7 +17,7 @@ Welcome to the NVision documentation.
 -   [Deferred Graph Generation (graph workers, `nv graphs`)](graph_queue.md)
 -   [Resonance Search: sweeps, Smart-Sweep/Smart-SBED, search/focus/refine stages](resonance_search.md)
 -   [Classmethod Pattern](classmethod_pattern.md)
--   [Amplitude Reparametrization (dip_depth → c_total)](dip_depth_reparametrization.md)
+-   [Amplitude Reparametrization (contrast → contrast_total)](contrast_reparametrization.md)
 -   [Microwave Drive Control (CW / pulsed, Bayesian-SBED-Drive)](amplitude_control.md)
 -   [Equations Reference (SBED/SMC inference stack + metrics)](equations/README.md)
 -   [UI Architecture (`static/` frontend)](ui_architecture.md)

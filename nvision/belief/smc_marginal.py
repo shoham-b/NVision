@@ -13,8 +13,8 @@ from scipy.special import gammaln
 
 from nvision.belief.abstract_marginal import AbstractMarginalDistribution, ParameterValues
 from nvision.belief.coordinate import RescaleMap
-from nvision.belief.dip_detection import DipCandidate, find_dips, linewidth_fwhm_prior_hz
-from nvision.models.fisher_information import CumulativeFisher, center_freq_crlb, typed_parameters
+from nvision.belief.dip_detection import DipCandidate, find_dips, hwhm_fwhm_prior_hz
+from nvision.models.fisher_information import CumulativeFisher, typed_parameters, zero_field_freq_crlb
 from nvision.models.observation import Observation
 from nvision.spectra.drive import DRIVE_AMP_MIN_UNIT, DriveSetting, compute_vectorized_many_driven
 from nvision.spectra.dtypes import FLOAT_DTYPE
@@ -95,9 +95,9 @@ def _sample_truncated_normal(
     """Draw ``size`` samples from ``N(mean, std)`` **truncated** to ``[lo, hi]``.
 
     Prior means are drawn per-repeat and routinely land outside a parameter's
-    physical range (e.g. ``zeeman_split``'s prior mean is
-    ``gauss(true_split, 6 MHz)`` while the parameter itself is bounded at 0, so a
-    true split well under 6 MHz makes a negative prior mean the common case).
+    physical range (e.g. ``zeeman_shift``'s prior mean is
+    ``gauss(true_hyperfine_shift, 6 MHz)`` while the parameter itself is bounded at 0, so a
+    true hyperfine_shift well under 6 MHz makes a negative prior mean the common case).
     The obvious ``clip(normal(...))`` implementation turns *all* of that
     out-of-range mass into a Dirac atom exactly on the boundary: with a prior
     mean 1.6 sigma below the bound, ~95% of particles start at literally the same
@@ -497,7 +497,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         # unit coordinate of it. Narrowing which part of it is scanned is the locator's job (its focus).
 
         # Every particle parameter (and the noise parameter) lives on [0, 1]. The drive-frequency axis is not a
-        # parameter: it is ``drive_freq_bounds_phys`` above, whether or not ``center_freq`` is a particle dimension.
+        # parameter: it is ``drive_freq_bounds_phys`` above, whether or not ``zero_field_freq`` is a particle dimension.
         self.parameter_bounds = {name: (0.0, 1.0) for name in (*self._param_names, *self.noise_model.spec.names)}
 
         # Initialize particles uniformly within bounds.
@@ -716,7 +716,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             return []
         obs_xs, obs_ys = self.sorted_observation_arrays()
         noise_scale, noise_dof = self.noise_student_t()
-        gamma_mean_hz, gamma_std_hz, gamma_min_hz, gamma_max_hz = linewidth_fwhm_prior_hz(self.physical_param_bounds)
+        gamma_mean_hz, gamma_std_hz, gamma_min_hz, gamma_max_hz = hwhm_fwhm_prior_hz(self.physical_param_bounds)
         return find_dips(
             self._drive_freq_map.to_phys(obs_xs),
             obs_ys,
@@ -899,7 +899,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         """Generate the epoch candidate density mixture and cache its quantile
         placement for the current epoch.
 
-        Targets the steepest slopes (center ± linewidth) of the hyperfine dips
+        Targets the steepest slopes (center ± hwhm) of the hyperfine dips
         and (once enough observations exist) empirically-detected dip centroids.
         Kernel bandwidths and window sizes scale with posterior uncertainty. See
         the "4. Build the unified candidate-density mixture" comment below for
@@ -913,16 +913,16 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         est = self.estimates()
         unc = self.uncertainty()
 
-        # Slope targeting needs a ``center_freq`` and its uncertainty. "center_freq" is either a
+        # Slope targeting needs a ``zero_field_freq`` and its uncertainty. "zero_field_freq" is either a
         # particle dimension or a known instrument constant (exact centre, no spread).
-        if "center_freq" in est:
-            f_b_phys = est["center_freq"]
-            sigma_f_phys = unc["center_freq"]
+        if "zero_field_freq" in est:
+            f_b_phys = est["zero_field_freq"]
+            sigma_f_phys = unc["zero_field_freq"]
         else:
-            f_b_phys = self.model.inner.spec.fixed_values["center_freq"]
+            f_b_phys = self.model.inner.spec.fixed_values["zero_field_freq"]
             sigma_f_phys = 0.0
-        df_hf_phys = est.get("split", 0.0)
-        df_zeeman_phys = est.get("zeeman_split", 0.0)
+        df_hf_phys = est.get("hyperfine_shift", 0.0)
+        df_zeeman_phys = est.get("zeeman_shift", 0.0)
 
         # 1. Linewidth Omega (HWHM, physical) and its spread over the posterior. A drive-controlled
         # model's width depends on the drive, so slopes are targeted at every reference amplitude
@@ -1649,7 +1649,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         """Unit <-> physical map of the full drive-frequency axis (``drive_freq_bounds_phys``); fixed for the whole run.
 
         Converts the stored ``[0, 1]`` observation coordinate ``obs.drive_freq_unit`` to physical Hz. It is the probe
-        axis whether or not the dip centre ``center_freq`` is also a particle dimension.
+        axis whether or not the dip centre ``zero_field_freq`` is also a particle dimension.
         """
         lo, hi = self.drive_freq_bounds_phys
         return RescaleMap(lo=float(lo), hi=float(hi))
@@ -1673,12 +1673,12 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
     def robust_uncertainty(self) -> ParameterValues[float]:
         return self._empirical_robust_uncertainty()
 
-    def crlb_center_freq(self) -> float:
-        """Closed-form center_freq CRLB (physical Hz) at the current estimates; ``inf`` before any data."""
+    def crlb_zero_field_freq(self) -> float:
+        """Closed-form zero_field_freq CRLB (physical Hz) at the current estimates; ``inf`` before any data."""
         if self._obs_count == 0:
             return math.inf
         lo, hi = self.drive_freq_bounds_phys
-        return center_freq_crlb(
+        return zero_field_freq_crlb(
             self.model.inner, self.estimates(), self.estimated_noise_std(), self._obs_count, hi - lo
         )
 
@@ -1687,12 +1687,12 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
 
         Two floors, both applied at 1× (no safety factor on either — see below):
 
-        * ``center_freq`` — the closed-form ``crlb_center_freq()``.
+        * ``zero_field_freq`` — the closed-form ``crlb_zero_field_freq()``.
         * every other parameter — its own **marginal** CRLB from the cumulative
           FIM (``crlb_per_param()``, i.e. ``sqrt(diag(pinv(FIM)))``, so nuisance
           parameters are profiled out rather than held fixed).
 
-        ``NVISION_CENTER_FREQ_CRLB_SAFETY_FACTOR`` (used by the locator's
+        ``NVISION_ZERO_FIELD_FREQ_CRLB_SAFETY_FACTOR`` (used by the locator's
         ``_check_crlb_early_stop`` to gate *when to stop*) does not apply here —
         that factor governs a stopping decision, not what uncertainty value is
         reported once stopped. Applying it to this floor would inflate the
@@ -1700,13 +1700,13 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
 
         The per-parameter floor exists because the particle spread alone
         understates the uncertainty exactly where it matters most. When two
-        parameters trade off along a near-flat ridge — ``zeeman_split`` against
+        parameters trade off along a near-flat ridge — ``zeeman_shift`` against
         the width pair below the dip-resolution threshold is the standard case —
         the SMC posterior can be narrow and *wrong*, while the marginal CRLB
         correctly blows up because the FIM is near-singular in that direction.
         Measured over 120 mixed repeats (56 deliberately degenerate), flooring
-        moves the median ``error / reported σ`` for ``zeeman_split`` from 1.21 to
-        0.90 and cuts the fraction beyond 3σ from 8.3% to 2.5%; ``c_total`` goes
+        moves the median ``error / reported σ`` for ``zeeman_shift`` from 1.21 to
+        0.90 and cuts the fraction beyond 3σ from 8.3% to 2.5%; ``contrast_total`` goes
         1.61 -> 0.96 and 18.3% -> 3.3%. The width pair becomes ~2-3× conservative
         (medians 1.03/1.38 -> 0.36/0.49) because both sit *in* the degenerate
         direction even though their sum stays well determined -- an accepted
@@ -1714,17 +1714,17 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
 
         No safety factor is applied to either floor deliberately: the CRLB is
         already a hard lower bound on any unbiased estimator's variance, so 1×
-        is the principled choice, and 4× (``NVISION_CENTER_FREQ_CRLB_SAFETY_FACTOR``)
+        is the principled choice, and 4× (``NVISION_ZERO_FIELD_FREQ_CRLB_SAFETY_FACTOR``)
         over-corrects badly (medians drop to 0.09-0.25). Control-flow paths must
         use :meth:`uncertainty` instead.
         """
         data = dict(self.uncertainty().items())
-        crlb = self.crlb_center_freq()
-        if math.isfinite(crlb) and "center_freq" in data:
-            data["center_freq"] = max(data["center_freq"], crlb)
+        crlb = self.crlb_zero_field_freq()
+        if math.isfinite(crlb) and "zero_field_freq" in data:
+            data["zero_field_freq"] = max(data["zero_field_freq"], crlb)
 
         for name, floor in self.crlb_per_param().items():
-            if name != "center_freq" and name in data and math.isfinite(floor) and floor > 0:
+            if name != "zero_field_freq" and name in data and math.isfinite(floor) and floor > 0:
                 data[name] = max(data[name], floor)
         return ParameterValues.from_mapping(list(data.keys()), data)
 

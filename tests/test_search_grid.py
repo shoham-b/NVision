@@ -84,17 +84,17 @@ class _Belief:
 
 
 def test_prior_fwhm_uses_prior_mean_not_midpoint():
-    belief = _Belief({"linewidth": (0.2e6, 5.0e6)}, {"linewidth": (0.1, 0.05)})
+    belief = _Belief({"hwhm": (0.2e6, 5.0e6)}, {"hwhm": (0.1, 0.05)})
     expected_hwhm = 0.2e6 + 0.1 * (5.0e6 - 0.2e6)
     assert prior_fwhm_phys(belief) == pytest.approx(2.0 * expected_hwhm)
 
 
 def test_prior_fwhm_clips_a_prior_mean_outside_the_bounds():
     # The generator draws prior means that can fall below the lower bound; the belief truncates there.
-    belief = _Belief({"linewidth": (0.2e6, 5.0e6)}, {"linewidth": (-0.5, 0.05)})
+    belief = _Belief({"hwhm": (0.2e6, 5.0e6)}, {"hwhm": (-0.5, 0.05)})
     assert prior_fwhm_phys(belief) == pytest.approx(2.0 * 0.2e6)
 
 
 def test_prior_fwhm_without_prior_is_the_bounds_midpoint():
-    belief = _Belief({"linewidth": (1.0e6, 3.0e6)}, None)
+    belief = _Belief({"hwhm": (1.0e6, 3.0e6)}, None)
     assert prior_fwhm_phys(belief) == pytest.approx(2.0 * 2.0e6)

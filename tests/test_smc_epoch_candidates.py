@@ -14,16 +14,16 @@ def _collapse_particles(belief, physical_values: dict[str, float]) -> None:
     belief._belief_version += 1
 
 
-def test_slope_candidates_sit_at_the_estimated_physical_linewidth():
+def test_slope_candidates_sit_at_the_estimated_physical_hwhm():
     """Linewidth bounds start at 200 kHz, so a unit-space delta would misplace the slope by that much."""
     belief = nv_center_smc_belief(num_particles=200, noise_model=gaussian_noise(), with_zeeman_splitting=False)
-    centre = 2.87e9  # fixed-center_freq: the zero-field splitting, the lower edge of the half window
-    linewidth = 5.0e6
-    _collapse_particles(belief, {"linewidth": linewidth})
+    centre = 2.87e9  # fixed-zero_field_freq: the zero-field splitting, the lower edge of the half window
+    hwhm = 5.0e6
+    _collapse_particles(belief, {"hwhm": hwhm})
     belief._generate_epoch_candidate_drive_freq()
 
     # c - omega lies below the half window, so it is measured at its mirror image c + omega.
-    slope = centre + linewidth
+    slope = centre + hwhm
     assert np.min(np.abs(belief.get_candidate_drive_freq_phys() - slope)) < 20e3
 
 
@@ -33,7 +33,7 @@ def test_plain_voigt_slope_includes_the_gaussian_width():
     )
     centre = 2.87e9
     homogeneous, sigma_inhom = 3.0e6, 1.0e6
-    _collapse_particles(belief, {"homogeneous_linewidth": homogeneous, "sigma_inhom": sigma_inhom})
+    _collapse_particles(belief, {"hwhm_lorentz": homogeneous, "sigma_inhom": sigma_inhom})
     belief._generate_epoch_candidate_drive_freq()
 
     slope = centre + homogeneous + np.sqrt(2.0 * np.log(2.0)) * sigma_inhom

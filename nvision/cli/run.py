@@ -975,14 +975,14 @@ def run(  # noqa: C901
         float | None,
         typer.Option(
             "--width",
-            help="Fix the NV signal linewidth (HWHM, Hz) instead of randomizing it per repeat.",
+            help="Fix the NV signal hwhm (HWHM, Hz) instead of randomizing it per repeat.",
         ),
     ] = None,
     contrast: Annotated[
         float | None,
         typer.Option(
             "--contrast",
-            help="Fix the NV signal contrast (c_total) instead of randomizing it per repeat.",
+            help="Fix the NV signal contrast (contrast_total) instead of randomizing it per repeat.",
         ),
     ] = None,
     sweep_param: Annotated[
@@ -1278,8 +1278,8 @@ def run(  # noqa: C901
         # Apply remaining signal-parameter CLI overrides (noise-grid overrides were
         # already applied above, before --run-group resolution).
         if width is not None:
-            sim_defaults.NVISION_SIGNAL_LINEWIDTH = width
-            log.info("Fixing NV signal linewidth to %s Hz", width)
+            sim_defaults.NVISION_SIGNAL_HWHM = width
+            log.info("Fixing NV signal hwhm to %s Hz", width)
         if contrast is not None:
             sim_defaults.NVISION_SIGNAL_CONTRAST = contrast
             log.info("Fixing NV signal contrast to %s", contrast)

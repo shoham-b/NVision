@@ -190,7 +190,7 @@ https://journals.aps.org/prapplied/abstract/10.1103/PhysRevApplied.14.054036
 measurements enhance sensitivity, they often reduce spatial resolution. There's
 limited work on optimizing this balance.
 - Narrow parameter focus: Most research concentrates on specific parameters like
-frequency estimation, overlooking crucial factors such as linewidth and long-term
+frequency estimation, overlooking crucial factors such as hwhm and long-term
 stability.
 
 3.3 Addressing the Gaps
@@ -199,7 +199,7 @@ Our project addresses these gaps through:
 method's robustness to noise, evaluating SNR and RMSE across increasing noise
 levels.
 - Sensitivity-resolution optimization: We examine sensitivity to small variations in
-central frequency and peak width, analyzing linewidth dependency and its impact
+central frequency and peak width, analyzing hwhm dependency and its impact
 on parameter sensitivity.
 - Rigorous Bayesian method evaluation: Thorough testing under various conditions,
 including high-noise environments typical in single NV center measurements,
@@ -343,7 +343,7 @@ energy levels split.
 the interaction between the NV center's electron spin and the nitrogen nucleus's spin.
 푎 : The contrast factor, which determines the depth of the resonance dips and how
 much the signal deviates from the baseline.
-훾 : The linewidth of the resonance, describing how broad each resonance peak is.
+훾 : The hwhm of the resonance, describing how broad each resonance peak is.
 ## 푘
 ## 푁푃
 : The nuclear polarization factor, which represents the contribution of nuclear
@@ -369,7 +369,7 @@ https://journals.aps.org/prapplied/abstract/10.1103/PhysRevApplied.14.054036
 4.5   Electron Spin Resonance (ESR) Model
 The Electron Spin Resonance (ESR) model is used to simulate and analyze ESR signals.
 By fitting this Lorentzian model to experimental data, one can extract the resonance
-frequency  and  linewidth,  both  are  essential  for  determining  magnetic  field
+frequency  and  hwhm,  both  are  essential  for  determining  magnetic  field
 characteristics and spin interactions in the system. This is a simplified model, as it
 focuses on a single resonance peak and ignores more complex interactions. However,
 it is sufficient for many applications where the main goal is to estimate the magnetic
@@ -411,7 +411,7 @@ The parameters are the following:
 ## 0
 : The center resonance frequency, indicating the central point around which the
 energy levels split.
-훾 : The linewidth of the resonance, which determines how broad the resonance peak
+훾 : The hwhm of the resonance, which determines how broad the resonance peak
 is.
 
 Figure5: ESR Signal vs. Frequency for NV Center Magnetometry
@@ -492,7 +492,7 @@ model and the added noise.
 Fit the points to Lorentzian function and then get estimations to the central
 frequency f
 est
-and the linewidth γ
+and the hwhm γ
 est
 
 
@@ -820,7 +820,7 @@ distribution.
 - Parameter estimation: Fit the points to Lorentzian function and then get
 estimations to the central frequency f
 est
-and the linewidth γ
+and the hwhm γ
 est
 
 

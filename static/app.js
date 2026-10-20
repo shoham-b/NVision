@@ -31,7 +31,7 @@ function main() {
     // Set from the URL hash's bayesTab param; consumed once by updateBayesTabs()
     // the first time the Bayesian tab bar is built (see there for why).
     let pendingHashBayesTab = null;
-    // Splitting (zeeman_split) convergence is the primary milestone; 'full'/'all_converged'
+    // Splitting (zeeman_shift) convergence is the primary milestone; 'full'/'all_converged'
     // are verification only. Default to primary_converged (falls back to 'full' when a
     // loaded run has no primary milestone — see updateStoppingCriteriaVisibility).
     let currentStoppingCriteria = 'primary_converged'; // 'full' | 'primary_converged' | 'all_converged'
@@ -1204,7 +1204,7 @@ function main() {
     }
 
 
-    // Fold a scan figure at the true center_freq: every trace is clipped to its
+    // Fold a scan figure at the true zero_field_freq: every trace is clipped to its
     // right half (x >= center), and the true-signal curve's left half is reflected
     // (x -> 2*center - x) and re-plotted as a dotted overlay on that same right-half
     // range, so Zeeman/hyperfine symmetry can be checked visually with the halves
@@ -1313,15 +1313,15 @@ function main() {
     }
 
     // Split a scan figure into two stacked subplots, one per Zeeman group (centered
-    // at frequency +/- zeeman_split). The lower-frequency group has every trace
+    // at frequency +/- zeeman_shift). The lower-frequency group has every trace
     // mirrored about its own center so both panels read in the same orientation and
     // can be visually compared for symmetry -- each panel keeps its own measurement
     // markers, so (unlike a single combined-overlay fold) you can see which specific
     // measurements landed in each group.
-    function _splitScanFigureByZeemanGroup(figData, figLayout, center, zeemanSplit) {
-        const hw = Math.abs(zeemanSplit) * 0.9;
-        const c2 = center + zeemanSplit; // higher-frequency group, as-is
-        const c1 = center - zeemanSplit; // lower-frequency group, mirrored about c1
+    function _splitScanFigureByZeemanGroup(figData, figLayout, center, zeemanShift) {
+        const hw = Math.abs(zeemanShift) * 0.9;
+        const c2 = center + zeemanShift; // higher-frequency group, as-is
+        const c1 = center - zeemanShift; // lower-frequency group, mirrored about c1
 
         const topData = [];
         const bottomData = [];
@@ -1349,12 +1349,12 @@ function main() {
             grid: { rows: 2, columns: 1, pattern: 'independent' },
             xaxis: Object.assign({}, figLayout && figLayout.xaxis, {
                 domain: [0, 1], anchor: 'y', range: [c2 - hw, c2 + hw],
-                title: { text: 'frequency — Zeeman group @ f0+' + formatHz(Math.abs(zeemanSplit)) },
+                title: { text: 'drive_freq — Zeeman group @ zero_field_freq+' + formatHz(Math.abs(zeemanShift)) },
             }),
             yaxis: Object.assign({}, figLayout && figLayout.yaxis, { domain: [0.55, 1], anchor: 'x' }),
             xaxis2: {
                 domain: [0, 1], anchor: 'y2', range: [c1 - hw, c1 + hw],
-                title: { text: 'frequency — Zeeman group @ f0-' + formatHz(Math.abs(zeemanSplit)) + ' (mirrored)' },
+                title: { text: 'drive_freq — Zeeman group @ zero_field_freq−' + formatHz(Math.abs(zeemanShift)) + ' (mirrored)' },
                 tickformat: figLayout && figLayout.xaxis && figLayout.xaxis.tickformat,
             },
             yaxis2: Object.assign({}, figLayout && figLayout.yaxis, { domain: [0, 0.45], anchor: 'x2' }),
@@ -1367,9 +1367,9 @@ function main() {
     // Dispatcher for the "Flip view" toggle: splits by Zeeman group when the signal has
     // Zeeman splitting, otherwise falls back to the single center-fold.
     //
-    // Folds about the *found* center and split (the locator's reported final estimates),
+    // Folds about the *found* center and zeeman_shift (the locator's reported final estimates),
     // falling back per parameter to the true value only when the locator didn't estimate
-    // it -- e.g. the center under the simulated grid's fixed-center_freq default, where the
+    // it -- e.g. the center under the simulated grid's fixed-zero_field_freq default, where the
     // true value is exactly what the model assumed. Real measurements have no true value
     // at all, and their center sits ~1-2 MHz off the window midpoint the fold used to
     // default to.
@@ -1379,10 +1379,10 @@ function main() {
         const fp = meta.found_params || {};
         const tp = (meta.true_params && meta.true_params.params) || {};
         const pick = (name) => Number.isFinite(fp[name]) ? fp[name] : (Number.isFinite(tp[name]) ? tp[name] : null);
-        const center = pick('center_freq');
-        const zeemanSplit = pick('zeeman_split');
-        if (center !== null && zeemanSplit !== null && Math.abs(zeemanSplit) > 1e-9) {
-            return _splitScanFigureByZeemanGroup(figData, figLayout, center, zeemanSplit);
+        const center = pick('zero_field_freq');
+        const zeemanShift = pick('zeeman_shift');
+        if (center !== null && zeemanShift !== null && Math.abs(zeemanShift) > 1e-9) {
+            return _splitScanFigureByZeemanGroup(figData, figLayout, center, zeemanShift);
         }
         return _foldScanFigureAtCenter(figData, figLayout, center);
     }
@@ -2887,32 +2887,32 @@ function main() {
             title = 'Saturation-Voigt dip';
             const g = 'γ', s = L('sigma_inhom');
             formula =
-                `γ = γ₀·√(1+${L('saturation')}), &nbsp; ${L('c_total')} = ${L('c_max')}·${frac(L('saturation'), `1+${L('saturation')}`)} ` +
+                `γ = γ₀·√(1+${L('saturation')}), &nbsp; ${L('contrast_total')} = ${L('c_max')}·${frac(L('saturation'), `1+${L('saturation')}`)} ` +
                 `&nbsp; (γ₀, ${L('c_max')} fixed constants, not fitted)<br>` +
                 `S(f) = 1 − hyperfine multiplet of V(f; ${g},${s},c) terms centered at ` +
-                `${L('center_freq')}±${L('split')}, ${L('center_freq')}`;
-            params = ['saturation', 'sigma_inhom', 'center_freq'];
+                `${L('zero_field_freq')}±${L('hyperfine_shift')}, ${L('zero_field_freq')}`;
+            params = ['saturation', 'sigma_inhom', 'zero_field_freq'];
         } else if (n.includes('voigt')) {
             title = 'Voigt NV dip';
-            const g = L('homogeneous_linewidth'), s = L('sigma_inhom');
+            const g = L('hwhm_lorentz'), s = L('sigma_inhom');
             formula =
                 `Σ = ${frac('1', L('k_np'))} + w + ${L('k_np')}<br>` +
-                `S(f) = 1 − ${frac(L('c_total'), 'Σ')} · ` +
+                `S(f) = 1 − ${frac(L('contrast_total'), 'Σ')} · ` +
                 bracket(
-                    `${frac('1', L('k_np'))}·V(f; ${g},${s},${L('center_freq')}−${L('split')}) + w·V(f; ${g},${s},${L('center_freq')}) ` +
-                    `+ ${L('k_np')}·V(f; ${g},${s},${L('center_freq')}+${L('split')})`
+                    `${frac('1', L('k_np'))}·V(f; ${g},${s},${L('zero_field_freq')}−${L('hyperfine_shift')}) + w·V(f; ${g},${s},${L('zero_field_freq')}) ` +
+                    `+ ${L('k_np')}·V(f; ${g},${s},${L('zero_field_freq')}+${L('hyperfine_shift')})`
                 );
-            params = ['center_freq', 'homogeneous_linewidth', 'sigma_inhom', 'split', 'k_np', 'c_total'];
+            params = ['zero_field_freq', 'hwhm_lorentz', 'sigma_inhom', 'hyperfine_shift', 'k_np', 'contrast_total'];
         } else if (n.includes('lorentzian')) {
             title = 'Lorentzian NV dip';
             formula =
-                `f' = ${frac(`f−${L('center_freq')}`, L('linewidth'))}, &nbsp; α = ${frac(L('split'), L('linewidth'))}, ` +
+                `f' = ${frac(`f−${L('zero_field_freq')}`, L('hwhm'))}, &nbsp; α = ${frac(L('hyperfine_shift'), L('hwhm'))}, ` +
                 `&nbsp; Σ = ${frac('1', L('k_np'))} + w + ${L('k_np')}<br>` +
-                `S(f) = 1 − ${frac(L('c_total'), 'Σ')} · ` +
+                `S(f) = 1 − ${frac(L('contrast_total'), 'Σ')} · ` +
                 bracket(
                     `${frac('1', `${L('k_np')}·((f'+α)²+1)`)} + ${frac('w', "f'²+1")} + ${frac(L('k_np'), "(f'−α)²+1")}`
                 );
-            params = ['center_freq', 'linewidth', 'split', 'k_np', 'c_total'];
+            params = ['zero_field_freq', 'hwhm', 'hyperfine_shift', 'k_np', 'contrast_total'];
         } else {
             return null;
         }
@@ -2926,10 +2926,10 @@ function main() {
             hyperfineNote = `<div class="signal-equation-note signal-eq-note-block">` +
                 `<div class="signal-eq-note-label">w — centre-line weight, set by the nitrogen isotope (not fitted)</div>` +
                 `<ul class="signal-eq-note-list">` +
-                `<li><b>w = 1</b>: ¹⁴N triplet — 3 lines, ${L('split')} apart</li>` +
+                `<li><b>w = 1</b>: ¹⁴N triplet — 3 lines, ${L('hyperfine_shift')} apart</li>` +
                 `<li><b>w = 0</b>: ¹⁵N doublet — 2 lines, no centre line</li>` +
-                `<li><b>${L('split')} = 0</b>: all lines merge into one dip of the same total contrast ` +
-                `— the default, for linewidths that don't resolve the hyperfine lines</li>` +
+                `<li><b>${L('hyperfine_shift')} = 0</b>: all lines merge into one dip of the same total contrast ` +
+                `— the default, for hwhm values too large to resolve the hyperfine lines</li>` +
                 `</ul></div>`;
         }
 
@@ -2943,7 +2943,7 @@ function main() {
             voigtNote = `<div class="signal-equation-note signal-eq-note-block">` +
                 `<div class="signal-eq-note-label">V(f; γ,σ,c) = (L<sub>γ</sub> ∗ G<sub>σ</sub>)(f−c)</div>` +
                 `<ul class="signal-eq-note-list">` +
-                `<li>γ: homogeneous half-width (Lorentzian) &nbsp;·&nbsp; ${L('sigma_inhom')}: inhomogeneous std (Gaussian)</li>` +
+                `<li>γ: Lorentzian HWHM (hwhm_lorentz: T2 floor + power broadening) &nbsp;·&nbsp; ${L('sigma_inhom')}: inhomogeneous std (Gaussian)</li>` +
                 `<li>γ ≫ σ: pure Lorentzian &nbsp;→&nbsp; σ ≫ γ: pure Gaussian</li>` +
                 `</ul></div>`;
         }
@@ -2951,9 +2951,9 @@ function main() {
         let zeemanNote = '';
         if (n.includes('zeeman')) {
             zeemanNote = `<div class="signal-equation-note">With Zeeman splitting: this pattern appears twice, ` +
-                `centered at ${L('center_freq')} − ${L('zeeman_split')} and ${L('center_freq')} + ${L('zeeman_split')} ` +
+                `centered at ${L('zero_field_freq')} − ${L('zeeman_shift')} and ${L('zero_field_freq')} + ${L('zeeman_shift')} ` +
                 `(one hyperfine group each).</div>`;
-            params = params.concat(['zeeman_split']);
+            params = params.concat(['zeeman_shift']);
         }
 
         const paramsHtml = params.map((p) =>
@@ -3158,7 +3158,7 @@ function main() {
                             label: 'Converged',
                             tip: 'Measurements at which primary converged / all tracked parameters converged / the full run ended.',
                             table: [
-                                { label: 'split', val: primaryConvResolved != null ? formatCount(primaryConvResolved) : '–' },
+                                { label: 'hyperfine_shift', val: primaryConvResolved != null ? formatCount(primaryConvResolved) : '–' },
                                 { label: 'all', val: allConvergedStep != null ? formatCount(allConvergedStep) : '–' },
                                 { label: 'full', val: fullMeasurements != null ? formatCount(fullMeasurements) : '–' },
                             ]
@@ -3179,7 +3179,7 @@ function main() {
                         items.push({ label: 'Last run', val: formatTimestamp(phaseData.last_run), tip: 'Timestamp when this repeat was executed.' });
                     }
 
-                    const phaseAbsErr = _mv(phaseData, 'abs_err_x', 'final_err_split', 'pair_rmse');
+                    const phaseAbsErr = _mv(phaseData, 'abs_err_x', 'final_err_shift', 'pair_rmse');
                     const errPrimaryAtMilestone = phaseData.err_primary_at_milestone;
                     const uncertPrimaryAtMilestone = phaseData.uncert_primary_at_milestone;
                     const errPrimaryAtAll = _mv(phaseData, 'err_primary_at_all_converged');
@@ -3199,7 +3199,7 @@ function main() {
                         ] };
                     };
                     if (errPrimaryAtMilestone != null || uncertPrimaryAtMilestone != null) {
-                        errRows.push(errRow('split', errPrimaryAtMilestone, uncertPrimaryAtMilestone));
+                        errRows.push(errRow('hyperfine_shift', errPrimaryAtMilestone, uncertPrimaryAtMilestone));
                     }
                     if (errPrimaryAtAll != null || uncertPrimaryAtAll != null) {
                         errRows.push(errRow('all', errPrimaryAtAll, uncertPrimaryAtAll));
@@ -3229,7 +3229,7 @@ function main() {
                     const uncert = phaseData.uncert != null ? phaseData.uncert : metrics.uncert;
                     const uncertPrimary = phaseData.uncert_primary_at_milestone != null ? phaseData.uncert_primary_at_milestone : metrics.uncert_primary_at_milestone;
                     
-                    const absErr = _mv(phaseData, 'abs_err_x', 'final_err_split', 'pair_rmse');
+                    const absErr = _mv(phaseData, 'abs_err_x', 'final_err_shift', 'pair_rmse');
                     const errPrimary = phaseData.err_primary_at_milestone != null ? phaseData.err_primary_at_milestone : metrics.err_primary_at_milestone;
 
                     const earlyStopStepsExpected = (measurements != null && stepsToPrimary != null && stepsToPrimary < measurements);
@@ -3366,7 +3366,7 @@ function main() {
         const params = trueData.params || {};
         const bounds = trueData.bounds || {};
         // Preferred order for common parameters
-        const preferred = ['center_freq', 'linewidth', 'homogeneous_linewidth', 'sigma_inhom', 'fwhm_total', 'split', 'c_total', 'dip_depth', 'k_np', 'lorentz_frac'];
+        const preferred = ['zero_field_freq', 'hwhm', 'hwhm_lorentz', 'sigma_inhom', 'fwhm_total', 'hyperfine_shift', 'contrast_total', 'contrast', 'k_np', 'lorentz_frac'];
         const keys = Object.keys(params).sort((a, b) => {
             const ia = preferred.indexOf(a);
             const ib = preferred.indexOf(b);
@@ -3389,7 +3389,7 @@ function main() {
             let fmtHi = b ? b[1] : null;
 
             const lowName = name.toLowerCase();
-            const isHzParam = lowName.includes('freq') || lowName.includes('linewidth') || lowName.includes('split') || lowName === 'fwhm_total' || lowName === 'sigma_inhom';
+            const isHzParam = lowName.includes('freq') || lowName.includes('hwhm') || lowName.includes('hyperfine_shift') || lowName === 'fwhm_total' || lowName === 'sigma_inhom';
 
             if (typeof val === 'number') {
                 if (isHzParam) {
@@ -3398,7 +3398,7 @@ function main() {
                         fmtLo = formatHz(b[0]);
                         fmtHi = formatHz(b[1]);
                     }
-                } else if (lowName === 'dip_depth' || lowName === 'k_np' || lowName === 'lorentz_frac') {
+                } else if (lowName === 'contrast' || lowName === 'k_np' || lowName === 'lorentz_frac') {
                     formatted = val.toFixed(3);
                     if (b) {
                         fmtLo = b[0].toFixed(3);
@@ -3420,7 +3420,7 @@ function main() {
             }
 
             let primaryAtMilestone = null;
-            if (plot && plot.metrics && name === 'center_freq') {
+            if (plot && plot.metrics && name === 'zero_field_freq') {
                 primaryAtMilestone = plot.metrics["primary_at_milestone"];
             }
 
@@ -3436,10 +3436,10 @@ function main() {
                 primaryAtMilestone: primaryAtMilestone
             });
 
-            // Derived magnetic field, shown right after zeeman_split (zeeman_split is
+            // Derived magnetic field, shown right after zeeman_shift (zeeman_shift is
             // the Zeeman-group half-separation, i.e. gamma * B for the NV electron spin).
-            if (name === 'zeeman_split' && typeof val === 'number' && Number.isFinite(val)) {
-                const bTesla = zeemanSplitToMagneticFieldTesla(val);
+            if (name === 'zeeman_shift' && typeof val === 'number' && Number.isFinite(val)) {
+                const bTesla = zeemanShiftToMagneticFieldTesla(val);
                 items.push({
                     label: 'Magnetic field',
                     val: formatMagneticField(bTesla),
@@ -4156,7 +4156,7 @@ function main() {
                     let threshVal = null;
                     if (data.absolute_thresholds && data.absolute_thresholds[param] != null) {
                         threshVal = data.absolute_thresholds[param];
-                    } else if (param === 'center_freq') {
+                    } else if (param === 'zero_field_freq') {
                         threshVal = 100000.0 / 1e9; // 100 KHz in GHz
                     } else if (data.convergence_threshold != null && bounds) {
                         threshVal = data.convergence_threshold * (bounds[1] - bounds[0]);
@@ -4499,7 +4499,7 @@ function main() {
             // long-standing frequency special-case) can be drawn accurately; a fractional
             // threshold would need bound width, which isn't available here.
             let threshVal = absolute_thresholds ? absolute_thresholds[param] : null;
-            if (threshVal == null && param === 'center_freq') threshVal = 100000.0;
+            if (threshVal == null && param === 'zero_field_freq') threshVal = 100000.0;
             if (threshVal != null) {
                 traces.push({
                     type: 'scatter', x: [xs[0], xs[xs.length - 1]], y: [threshVal, threshVal],
@@ -4947,7 +4947,7 @@ function main() {
 
                 if (isAbs) {
                     threshVal = data.absolute_thresholds ? data.absolute_thresholds[param] : null;
-                    if (threshVal === null && param === 'center_freq') {
+                    if (threshVal === null && param === 'zero_field_freq') {
                         threshVal = 100000.0;
                     }
                     thresholdLabel = `${formatNum(threshVal / 1000)} KHz threshold`;
@@ -5401,7 +5401,7 @@ function main() {
 
                 if (typeof it.finalEst === 'number' && Number.isFinite(it.finalEst)) {
                     const finalPct = Math.min(100, Math.max(0, (it.finalEst - lo) / (hi - lo) * 100));
-                    const formattedFinal = it.name && (it.name.toLowerCase().includes('freq') || it.name.toLowerCase().includes('linewidth') || it.name.toLowerCase().includes('split') || it.name === 'fwhm_total' || it.name === 'sigma_inhom') ? formatHz(it.finalEst) : it.finalEst.toFixed(3);
+                    const formattedFinal = it.name && (it.name.toLowerCase().includes('freq') || it.name.toLowerCase().includes('hwhm') || it.name.toLowerCase().includes('hyperfine_shift') || it.name === 'fwhm_total' || it.name === 'sigma_inhom') ? formatHz(it.finalEst) : it.finalEst.toFixed(3);
                     markersHtml += '<div class="param-range-marker" title="Final Inferred: ' + formattedFinal + '" style="left: ' + finalPct + '%; background-color: #ef4444; width: 8px; height: 8px; z-index: 9;"></div>';
                 }
 
@@ -5601,17 +5601,17 @@ function main() {
                 let f_span = null;
                 if (p && p.true_params && p.true_params.params) {
                     const params = p.true_params.params;
-                    const lw = params.linewidth;
-                    const split = params.split || 0.0;
+                    const lw = params.hwhm;
+                    const hyperfine_shift = params.hyperfine_shift || 0.0;
                     let domain_width = 5.0e8;
-                    if (p.true_params.bounds && p.true_params.bounds.center_freq) {
-                        const center_freq_bounds = p.true_params.bounds.center_freq;
-                        if (center_freq_bounds.length === 2 && center_freq_bounds[1] > center_freq_bounds[0]) {
-                            domain_width = center_freq_bounds[1] - center_freq_bounds[0];
+                    if (p.true_params.bounds && p.true_params.bounds.zero_field_freq) {
+                        const zero_field_freq_bounds = p.true_params.bounds.zero_field_freq;
+                        if (zero_field_freq_bounds.length === 2 && zero_field_freq_bounds[1] > zero_field_freq_bounds[0]) {
+                            domain_width = zero_field_freq_bounds[1] - zero_field_freq_bounds[0];
                         }
                     }
                     if (lw && lw > 0) {
-                        f_span = Math.max(2.0 * lw, split + lw) / domain_width;
+                        f_span = Math.max(2.0 * lw, hyperfine_shift + lw) / domain_width;
                     }
                 }
                 
@@ -5621,7 +5621,7 @@ function main() {
                 if (base_step != null) {
                     base.steps.push(base_step);
                     base.uncert.push(_mv(item, 'uncert'));
-                    base.err.push(_mv(item, 'abs_err_x', 'final_err_split', 'pair_rmse'));
+                    base.err.push(_mv(item, 'abs_err_x', 'final_err_shift', 'pair_rmse'));
                     base.steps_to_primary.push(_mv(item, 'steps_to_primary', 'primary_converged_step'));
                     base.uncert_at_primary.push(_mv(item, 'uncert_primary_at_milestone'));
                     base.err_at_primary.push(_mv(item, 'err_primary_at_milestone'));
@@ -5643,7 +5643,7 @@ function main() {
                 if (all_step != null) {
                     allConv.steps.push(all_step);
                     allConv.uncert.push(_mv(item, 'uncert'));
-                    allConv.err.push(_mv(item, 'abs_err_x', 'final_err_split', 'pair_rmse'));
+                    allConv.err.push(_mv(item, 'abs_err_x', 'final_err_shift', 'pair_rmse'));
                     allConv.f_spans.push(f_span);
                     allConv.repeats.push(rep);
                 }
@@ -5658,7 +5658,7 @@ function main() {
                 id, label,
                 steps:        _mv(d, 'measurements'),
                 uncert:       _mv(d, 'uncert'),
-                err:          _mv(d, 'abs_err_x', 'final_err_split', 'pair_rmse'),
+                err:          _mv(d, 'abs_err_x', 'final_err_shift', 'pair_rmse'),
                 steps_to_primary:  _mv(d, 'steps_to_primary', 'primary_converged_step'),
                 uncert_at_primary: _mv(d, 'uncert_primary_at_milestone'),
                 err_at_primary:    _mv(d, 'err_primary_at_milestone'),
@@ -5682,7 +5682,7 @@ function main() {
                     id: id + '_conv', label: label + ' converged',
                     steps: allStep,
                     uncert: _mv(d, 'uncert'),
-                    err:    _mv(d, 'abs_err_x', 'final_err_split', 'pair_rmse'),
+                    err:    _mv(d, 'abs_err_x', 'final_err_shift', 'pair_rmse'),
                     steps_to_primary: null, uncert_at_primary: null, err_at_primary: null,
                     stepsType: 'steps',
                 });
@@ -6671,20 +6671,20 @@ function main() {
         const tp = p.true_params;
         if (!tp || !tp.params) return null;
         const params = tp.params;
-        // Lineshape-agnostic width: Lorentzian models use "linewidth", Voigt/
-        // saturation-Voigt use "homogeneous_linewidth" — mirrors the same
+        // Lineshape-agnostic width: Lorentzian models use "hwhm", Voigt/
+        // saturation-Voigt use "hwhm_lorentz" — mirrors the same
         // fallback chain server-side in nvision/viz/experiments.py's
-        // _add_correct_f_span (final_est_linewidth / _homogeneous_linewidth /
+        // _add_correct_f_span (final_est_hwhm / _hwhm_lorentz /
         // _effective_hwhm), just against ground truth instead of estimates.
-        const lw = params.linewidth ?? params.homogeneous_linewidth ?? params.effective_hwhm ?? null;
-        // Total splitting extent: two Zeeman groups at +/- zeeman_split, plus
-        // any hyperfine "split" component — same combination as the Python side.
-        const zeeman = params.zeeman_split || 0.0;
-        const split = (params.split || 0.0) + zeeman * 2.0;
+        const lw = params.hwhm ?? params.hwhm_lorentz ?? params.effective_hwhm ?? null;
+        // Total splitting extent: two Zeeman groups at +/- zeeman_shift, plus
+        // any hyperfine shift component — same combination as the Python side.
+        const zeeman = params.zeeman_shift || 0.0;
+        const hyperfine_shift = (params.hyperfine_shift || 0.0) + zeeman * 2.0;
         let domainWidth = 5.0e8;
-        const fb = tp.bounds && tp.bounds.center_freq;
+        const fb = tp.bounds && tp.bounds.zero_field_freq;
         if (fb && fb.length === 2 && fb[1] > fb[0]) domainWidth = fb[1] - fb[0];
-        return (lw && lw > 0) ? Math.max(2.0 * lw, split + lw) / domainWidth : null;
+        return (lw && lw > 0) ? Math.max(2.0 * lw, hyperfine_shift + lw) / domainWidth : null;
     }
     function hlConvStep(p, mult) {
         // 'u' (primary-parameter uncertainty, the primary parameter) and 'tau' (its threshold)
@@ -7373,7 +7373,7 @@ function main() {
         const allStrats = [...new Set(scanPlots.map(p => p.strategy))].filter(Boolean).sort();
         const plotDiv = dashPanelDiv(container,
             `Steps to convergence vs signal span — pooled, τ×${hlTauMult}`,
-            'Each run by fractional signal span (linewidth / spectrum width). Log-binned median + IQR band. Sweep shown as total measurement count (dashed).',
+            'Each run by fractional signal span (hwhm / spectrum width). Log-binned median + IQR band. Sweep shown as total measurement count (dashed).',
             340, true);
         const traces = [];
         for (const strat of allStrats) {
@@ -7395,7 +7395,7 @@ function main() {
             traces.push(...t);
         }
         if (!traces.length) {
-            plotDiv.innerHTML = '<p style="color:#94a3b8;padding:1em;font-size:0.9em;">No f_span data — runs need linewidth in true_params.</p>';
+            plotDiv.innerHTML = '<p style="color:#94a3b8;padding:1em;font-size:0.9em;">No f_span data — runs need hwhm in true_params.</p>';
         } else {
             const layout = hlBaseLayout();
             layout.xaxis = { ...layout.xaxis, title: { text: 'Fractional signal span (f_span)', font: { size: 11 } }, type: 'log' };
@@ -7660,10 +7660,10 @@ function main() {
             for (const strat of strategies) {
                 const runs = cell.get(strat) || [];
                 if (!runs.length) continue;
-                const covPairs = runs.filter(p => _mv(p, 'abs_err_x', 'final_err_split', 'pair_rmse') != null && p.uncert != null && p.uncert > 0);
-                const k1 = covPairs.filter(p => _mv(p, 'abs_err_x', 'final_err_split', 'pair_rmse') <= p.uncert).length;
+                const covPairs = runs.filter(p => _mv(p, 'abs_err_x', 'final_err_shift', 'pair_rmse') != null && p.uncert != null && p.uncert > 0);
+                const k1 = covPairs.filter(p => _mv(p, 'abs_err_x', 'final_err_shift', 'pair_rmse') <= p.uncert).length;
                 const uncerts = runs.map(p => p.uncert).filter(v => v != null && v > 0);
-                const errors = runs.map(p => _mv(p, 'abs_err_x', 'final_err_split', 'pair_rmse')).filter(v => v != null);
+                const errors = runs.map(p => _mv(p, 'abs_err_x', 'final_err_shift', 'pair_rmse')).filter(v => v != null);
                 cellStats.set(`${strat}|${noise}`, {
                     cal: covPairs.length ? k1 / covPairs.length : null,
                     calK: k1, calN: covPairs.length,
@@ -7774,7 +7774,7 @@ function main() {
             const xs = [], ys = [];
             for (const p of scanPlots) {
                 if (p.strategy !== strat || p.generator === 'Dummy-Generator') continue;
-                const pErr = _mv(p, 'abs_err_x', 'final_err_split', 'pair_rmse');
+                const pErr = _mv(p, 'abs_err_x', 'final_err_shift', 'pair_rmse');
                 if (pErr == null || p.uncert == null || p.uncert <= 0) continue;
                 const fSpan = hlFSpan(p);
                 if (fSpan == null) continue;
@@ -7787,7 +7787,7 @@ function main() {
             traces.push(...t);
         }
         if (!traces.length) {
-            plotDiv.innerHTML = '<p style="color:#94a3b8;padding:1em;font-size:0.9em;">No f_span data — runs need linewidth in true_params.</p>';
+            plotDiv.innerHTML = '<p style="color:#94a3b8;padding:1em;font-size:0.9em;">No f_span data — runs need hwhm in true_params.</p>';
         } else {
             const layout = hlBaseLayout();
             layout.xaxis = { ...layout.xaxis, title: { text: 'Fractional signal span (f_span)', font: { size: 11 } }, type: 'log' };
@@ -7805,17 +7805,17 @@ function main() {
         const sigma = noiseSigma(p.noise) || (p.metrics && p.metrics.noise_sigma) || 0.01;
         if (sigma <= 0) return null;
         let bandwidth = 1e8;
-        if (p.true_params && p.true_params.bounds && p.true_params.bounds.center_freq) {
-            const b = p.true_params.bounds.center_freq;
+        if (p.true_params && p.true_params.bounds && p.true_params.bounds.zero_field_freq) {
+            const b = p.true_params.bounds.zero_field_freq;
             if (b[1] > b[0]) bandwidth = b[1] - b[0];
         }
         const tp = p.true_params && p.true_params.params;
         const m = p.metrics;
-        const lw = (tp && (tp.linewidth || tp.homogeneous_linewidth)) ||
-                   (m && (m.true_linewidth || m.grid_linewidth || m.final_est_effective_hwhm)) ||
+        const lw = (tp && (tp.hwhm || tp.hwhm_lorentz)) ||
+                   (m && (m.true_hwhm || m.grid_hwhm || m.final_est_effective_hwhm)) ||
                    2e6;
-        const cTotal = (tp && tp.c_total) ||
-                       (m && (m.true_c_total || m.grid_c_total || m.final_est_realized_contrast)) ||
+        const cTotal = (tp && tp.contrast_total) ||
+                       (m && (m.true_contrast_total || m.grid_contrast_total || m.final_est_realized_contrast)) ||
                        0.2;
         if (lw <= 0 || cTotal <= 0) return null;
 
@@ -7892,7 +7892,7 @@ function main() {
         layout.yaxis = { ...layout.yaxis, title: { text: 'Median |primary-parameter error| (Hz)', font: { size: 11 } }, type: 'log' };
         // Sweep-quality target: the practical accuracy delivered by the full sweep.
         const sweepRuns = sweepName ? byStrategy.get(sweepName) : [];
-        const sweepFinalMed = sweepRuns && sweepRuns.length ? hlMedian(sweepRuns.map(p => _mv(p, 'abs_err_x', 'final_err_split', 'pair_rmse'))) : null;
+        const sweepFinalMed = sweepRuns && sweepRuns.length ? hlMedian(sweepRuns.map(p => _mv(p, 'abs_err_x', 'final_err_shift', 'pair_rmse'))) : null;
         if (sweepFinalMed != null && sweepFinalMed > 0) {
             // On log axes Plotly shapes take raw data values, annotations log10
             layout.shapes = [{
@@ -7967,12 +7967,12 @@ function main() {
         if (!div) return;
         const labels = [], c1 = [], c1err = [], c2 = [], c2err = [], c3 = [], c3err = [], colors1 = [], colors2 = [], colors3 = [], hover1 = [], hover2 = [], hover3 = [];
         for (const strat of strategies) {
-            const pairs = byStrategy.get(strat).filter(p => _mv(p, 'abs_err_x', 'final_err_split', 'pair_rmse') != null && p.uncert != null && p.uncert > 0);
+            const pairs = byStrategy.get(strat).filter(p => _mv(p, 'abs_err_x', 'final_err_shift', 'pair_rmse') != null && p.uncert != null && p.uncert > 0);
             const n = pairs.length;
             if (!n) continue;
-            const k1 = pairs.filter(p => _mv(p, 'abs_err_x', 'final_err_split', 'pair_rmse') <= p.uncert).length;
-            const k2 = pairs.filter(p => _mv(p, 'abs_err_x', 'final_err_split', 'pair_rmse') <= 2 * p.uncert).length;
-            const k3 = pairs.filter(p => _mv(p, 'abs_err_x', 'final_err_split', 'pair_rmse') <= 3 * p.uncert).length;
+            const k1 = pairs.filter(p => _mv(p, 'abs_err_x', 'final_err_shift', 'pair_rmse') <= p.uncert).length;
+            const k2 = pairs.filter(p => _mv(p, 'abs_err_x', 'final_err_shift', 'pair_rmse') <= 2 * p.uncert).length;
+            const k3 = pairs.filter(p => _mv(p, 'abs_err_x', 'final_err_shift', 'pair_rmse') <= 3 * p.uncert).length;
             const w1 = hlWilson(k1, n), w2 = hlWilson(k2, n), w3 = hlWilson(k3, n);
             labels.push(_shortStratLabel(strat));
             c1.push(w1.p); c2.push(w2.p); c3.push(w3.p);
@@ -8189,7 +8189,7 @@ function main() {
             return;
         }
         const sweepRuns = byStrategy.get(sweepName);
-        const sweepFinalMed = hlMedian(sweepRuns.map(p => _mv(p, 'abs_err_x', 'final_err_split', 'pair_rmse')));
+        const sweepFinalMed = hlMedian(sweepRuns.map(p => _mv(p, 'abs_err_x', 'final_err_shift', 'pair_rmse')));
         const sweepMeasMed = hlMedian(sweepRuns.map(p => hlRunSteps(p)));
         if (sweepFinalMed == null || sweepMeasMed == null) {
             card('Sweep baseline present but missing final error/measurement data.', '#94a3b8');
@@ -8201,8 +8201,8 @@ function main() {
             const seriesRuns = runs.filter(p => p.series && p.series.e);
             const color = hlStratColor(strategies, strat);
             const crossStep = hlCrossStep(seriesRuns, sweepFinalMed);
-            const covPairs = runs.filter(p => _mv(p, 'abs_err_x', 'final_err_split', 'pair_rmse') != null && p.uncert != null && p.uncert > 0);
-            const w = covPairs.length ? hlWilson(covPairs.filter(p => _mv(p, 'abs_err_x', 'final_err_split', 'pair_rmse') <= p.uncert).length, covPairs.length) : null;
+            const covPairs = runs.filter(p => _mv(p, 'abs_err_x', 'final_err_shift', 'pair_rmse') != null && p.uncert != null && p.uncert > 0);
+            const w = covPairs.length ? hlWilson(covPairs.filter(p => _mv(p, 'abs_err_x', 'final_err_shift', 'pair_rmse') <= p.uncert).length, covPairs.length) : null;
             const covText = w ? `1σ coverage: ${(w.p * 100).toFixed(0)}% [${(w.lo * 100).toFixed(0)}–${(w.hi * 100).toFixed(0)}%] (n=${covPairs.length})` : 'coverage unavailable';
             let main;
             if (!seriesRuns.length) {
@@ -8390,7 +8390,7 @@ function main() {
             content.appendChild(poolRow);
             const plotDiv = dashPanelDiv(poolRow,
                 `Steps to convergence vs signal span — pooled, τ×${hlTauMult}`,
-                'Each run plotted by its fractional signal span (linewidth / full spectrum width). Log-binned median + IQR band. Sweep shown as total measurement count (dashed). Slim signals (small f_span) may need more measurements to locate.',
+                'Each run plotted by its fractional signal span (hwhm / full spectrum width). Log-binned median + IQR band. Sweep shown as total measurement count (dashed). Slim signals (small f_span) may need more measurements to locate.',
                 340, true);
             const traces = [];
             for (const strat of allStrats) {
@@ -8412,7 +8412,7 @@ function main() {
                 traces.push(...t);
             }
             if (!traces.length) {
-                plotDiv.innerHTML = '<p style="color:#94a3b8;padding:1em;font-size:0.9em;">No f_span data — runs need linewidth in true_params.</p>';
+                plotDiv.innerHTML = '<p style="color:#94a3b8;padding:1em;font-size:0.9em;">No f_span data — runs need hwhm in true_params.</p>';
             } else {
                 const layout = hlBaseLayout();
                 layout.xaxis = { ...layout.xaxis, title: { text: 'Fractional signal span (f_span)', font: { size: 11 } }, type: 'log' };
@@ -8459,8 +8459,8 @@ function main() {
                 for (const strat of strategies) {
                     const runs = cell.get(strat) || [];
                     if (!runs.length) continue;
-                    const covPairs = runs.filter(p => _mv(p, 'abs_err_x', 'final_err_split', 'pair_rmse') != null && p.uncert != null && p.uncert > 0);
-                    const k1 = covPairs.filter(p => _mv(p, 'abs_err_x', 'final_err_split', 'pair_rmse') <= p.uncert).length;
+                    const covPairs = runs.filter(p => _mv(p, 'abs_err_x', 'final_err_shift', 'pair_rmse') != null && p.uncert != null && p.uncert > 0);
+                    const k1 = covPairs.filter(p => _mv(p, 'abs_err_x', 'final_err_shift', 'pair_rmse') <= p.uncert).length;
                     const uncerts = runs.map(p => p.uncert).filter(v => v != null && v > 0);
                     cellUncert.set(`${strat}|${noise}`, {
                         cal: covPairs.length ? k1 / covPairs.length : null,
@@ -8543,7 +8543,7 @@ function main() {
                 const xs = [], ys = [];
                 for (const p of scanPlots) {
                     if (p.strategy !== strat || p.generator === 'Dummy-Generator') continue;
-                    const pErr = _mv(p, 'abs_err_x', 'final_err_split', 'pair_rmse');
+                    const pErr = _mv(p, 'abs_err_x', 'final_err_shift', 'pair_rmse');
                     if (pErr == null || p.uncert == null || p.uncert <= 0) continue;
                     const fSpan = hlFSpan(p);
                     if (fSpan == null) continue;
@@ -8558,7 +8558,7 @@ function main() {
                 traces.push(...t);
             }
             if (!traces.length) {
-                plotDiv.innerHTML = '<p style="color:#94a3b8;padding:1em;font-size:0.9em;">No f_span data — runs need linewidth in true_params.</p>';
+                plotDiv.innerHTML = '<p style="color:#94a3b8;padding:1em;font-size:0.9em;">No f_span data — runs need hwhm in true_params.</p>';
             } else {
                 const layout = hlBaseLayout();
                 layout.xaxis = { ...layout.xaxis, title: { text: 'Fractional signal span (f_span)', font: { size: 11 } }, type: 'log' };

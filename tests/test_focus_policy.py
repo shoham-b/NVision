@@ -9,7 +9,7 @@ Invariants checked here:
 * The focus never reaches into the belief: its parameter bounds, drive-frequency axis, and the model's x-range
   are identical before and after the focus changes.
 * Every EIG pick lies inside the focus; an empty focus fails loudly instead of falling back.
-* The locator derives the focus from ``belief.dip_candidates`` -- also with the default fixed ``center_freq``.
+* The locator derives the focus from ``belief.dip_candidates`` -- also with the default fixed ``zero_field_freq``.
 """
 
 from __future__ import annotations
@@ -257,7 +257,7 @@ def _mid_axis_dip(loc, half_width: float = 2e6) -> tuple[float, float]:
 
 def test_default_fixed_center_locator_narrows_to_the_dips():
     loc = _locator()
-    assert "center_freq" not in loc.belief.model.parameter_names()
+    assert "zero_field_freq" not in loc.belief.model.parameter_names()
     lo, hi = loc.belief.drive_freq_bounds_phys
     assert loc.bayesian_focus_window() is None
     dip = _mid_axis_dip(loc)
