@@ -319,3 +319,17 @@ def test_estimated_noise_std_is_90th_percentile():
 
     est = b.estimated_noise_std()
     assert np.isclose(est, 0.09)
+
+
+def test_linewidth_fwhm_prior_hz_spans_the_drive_amplitude_range():
+    # Pulsed drive: the pi-pulse line HWHM is 0.7988 * rabi_per_amp * amplitude. Narrowest at the
+    # minimum amplitude with the weakest coupling, widest at full amplitude with the strongest.
+    from nvision.spectra.drive import DRIVE_AMP_MIN_UNIT
+    from nvision.spectra.nv_center_drive import PI_PULSE_HWHM_PER_RABI
+
+    _, _, minimum, maximum = linewidth_fwhm_prior_hz({"rabi_per_amp": (1e6, 10e6), "sigma_inhom": (0.0, 0.0)})
+    assert np.isclose(minimum, 2 * PI_PULSE_HWHM_PER_RABI * 1e6 * DRIVE_AMP_MIN_UNIT)
+    assert np.isclose(maximum, 2 * PI_PULSE_HWHM_PER_RABI * 10e6)
+    # CW: width grows with saturation s = (a / drive_amp_sat)**2, so the largest drive_amp_sat is narrowest.
+    _, _, cw_min, cw_max = linewidth_fwhm_prior_hz({"drive_amp_sat": (0.05, 0.5), "sigma_inhom": (0.0, 0.0)})
+    assert 0.0 < cw_min < cw_max

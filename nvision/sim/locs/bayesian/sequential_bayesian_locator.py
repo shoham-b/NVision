@@ -22,6 +22,9 @@ from nvision.sim.defaults import (
 # c_max is not included: it's a fixed constant (NV_SATURATION_C_MAX), not an
 # inferred/estimated parameter, so it has no posterior uncertainty to gate on.
 _SATURATION_VOIGT_RAW_PARAMS: tuple[str, ...] = ("saturation", "sigma_inhom")
+# Inferred response of the sample to the microwave drive (drive-controlled models, see
+# nvision/spectra/nv_center_drive.py). Nuisance parameters: excluded from the convergence targets.
+DRIVE_RESPONSE_PARAMS: tuple[str, ...] = ("drive_amp_sat", "rabi_per_amp")
 
 
 def saturation_voigt_derived_sigmas(
@@ -319,7 +322,9 @@ class SequentialBayesianLocator(Locator):
         ``physical_uncertainties`` may be passed in to avoid recomputing the
         full O(particles x params) uncertainty pass.
         """
-        target_params = list(self.belief.model.parameter_names())
+        # The drive-response parameters describe the setup's coupling to the microwave field (a nuisance,
+        # like an instrument calibration), not the spectrum being located; they never gate convergence.
+        target_params = [name for name in self.belief.model.parameter_names() if name not in DRIVE_RESPONSE_PARAMS]
         if physical_uncertainties is None:
             physical_uncertainties = self.belief.uncertainty()
         bounds = self.belief.physical_param_bounds
@@ -391,7 +396,12 @@ class SequentialBayesianLocator(Locator):
         # 1. Evaluate ground-truth signal
         n = 20000
         drive_freqs_phys = np.linspace(lo_phys, hi_phys, n)
-        ys = np.array([true_signal(float(x)) for x in drive_freqs_phys], dtype=float)
+        # A uniform sweep runs at the baseline drive (drive-controlled signals; None otherwise).
+        baseline_drive = getattr(true_signal, "baseline_drive", None)
+        if baseline_drive is None:
+            ys = np.array([true_signal(float(x)) for x in drive_freqs_phys], dtype=float)
+        else:
+            ys = np.array([true_signal(float(x), baseline_drive) for x in drive_freqs_phys], dtype=float)
         drive_freqs_unit = (drive_freqs_phys - lo_phys) / domain_width
 
         # 2. Find dip segments on the ground-truth signal using noise_std=1e-6

@@ -365,6 +365,9 @@ function _filterScanMeasurementsByStep(measurements, stepCap) {
         if (measurements.sweep_index && measurements.sweep_index.length === measurements.x.length) {
             out.sweep_index = pick(measurements.sweep_index, idx);
         }
+        if (measurements.drive_amp_unit && measurements.drive_amp_unit.length === measurements.x.length) {
+            out.drive_amp_unit = pick(measurements.drive_amp_unit, idx);
+        }
     } else if (measurements.mode === 'phases' && measurements.fine_step && measurements.fine_x &&
                measurements.fine_step.length === measurements.fine_x.length) {
         const idx = keepIndices(measurements.fine_step, measurements.fine_x.length);
@@ -481,11 +484,18 @@ function _buildScanFigure(def, data) {
             // sweep, then scans them all again — sweep_index is that real time axis, and
             // is a truer color than the locator's own adaptive visit order (`step`), which
             // can revisit one bin many sweeps apart from the next. Use it when present.
+            // A drive-choosing locator measures at many microwave amplitudes (high early in the
+            // search, lower once the dip is found) -- colour by amplitude so that choice is visible.
             const hasSweep = m.sweep_index && m.sweep_index.length === m.x.length;
-            const colorIdx = hasSweep
-                ? Array.from(m.sweep_index)
-                : (m.step && m.step.length === m.x.length) ? Array.from(m.step) : m.x.map((_, i) => i);
-            const colorLabel = hasSweep ? 'sweep' : 'step';
+            const amps = (m.drive_amp_unit && m.drive_amp_unit.length === m.x.length)
+                ? Array.from(m.drive_amp_unit) : null;
+            const hasDriveAmp = amps !== null && new Set(amps).size > 1;
+            const colorIdx = hasDriveAmp
+                ? amps
+                : hasSweep
+                    ? Array.from(m.sweep_index)
+                    : (m.step && m.step.length === m.x.length) ? Array.from(m.step) : m.x.map((_, i) => i);
+            const colorLabel = hasDriveAmp ? 'drive amp' : (hasSweep ? 'sweep' : 'step');
             const colorbar = hasMetrics
                 ? { title: { text: colorLabel }, len: 0.6, y: 0.8 }
                 : { title: { text: colorLabel } };

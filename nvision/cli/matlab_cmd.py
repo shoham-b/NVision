@@ -154,6 +154,10 @@ def _matlab_loop(
     """
     while not locator.done():
         drive_freq_unit = locator.next_drive_freq_unit()
+        if locator.next_drive() is not None:
+            raise ValueError(
+                f"{type(locator).__name__} chooses the microwave drive, but recorded MATLAB data has no drive axis."
+            )
         obs = data.measure(drive_freq_unit, drive_freq_min_phys, drive_freq_max_phys)
         locator.observe(obs)
 

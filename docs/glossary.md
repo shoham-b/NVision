@@ -13,6 +13,15 @@ code, comments or docs.
 
 `split` (the hyperfine splitting) is a fifth, separate parameter and is unrelated to `zeeman_split`.
 
+### Microwave drive (drive-controlled experiments)
+
+| Term | Symbol / names | What it is | Space |
+|---|---|---|---|
+| **drive** | `DriveSetting`, `Observation.drive`, `locator.next_drive()`, `TrueSignal.baseline_drive` | The microwave drive applied to one measurement: amplitude, plus the pulse duration for pulsed ODMR. A per-measurement *setting*, not a model parameter. See [drive control](amplitude_control.md). | — |
+| **`drive_amp_unit`** | `DriveSetting.drive_amp_unit`, `DRIVE_AMP_MIN_UNIT` | Microwave field amplitude as a fraction of the source's maximum (linear in field, so proportional to the Rabi frequency). | `[DRIVE_AMP_MIN_UNIT, 1]`, already normalized; there is no `_phys` amplitude. |
+| **`pulse_duration_s`** | `DriveSetting.pulse_duration_s` | Pulsed ODMR only: the pulse length, the locator's π-pulse calibration `t = 1/(2·Ω_est)`. | seconds |
+| **`drive_amp_sat`**, **`rabi_per_amp`** | model parameters | The sample's inferred *response* to the drive: CW amplitude at saturation `s = 1`; pulsed Rabi frequency at full amplitude (Hz). Nuisance parameters, excluded from convergence. | `drive_amp_sat`: fraction of max field; `rabi_per_amp`: Hz |
+
 ## Why the distinction matters
 
 * `center_freq` and `drive_freq` are different objects even though, by construction of the

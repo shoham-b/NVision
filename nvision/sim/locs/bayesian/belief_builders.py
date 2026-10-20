@@ -31,6 +31,7 @@ from nvision.sim.gen.nv_center_generator import (
     DEFAULT_NV_DRIVE_FREQ_MAX_PHYS,
     DEFAULT_NV_DRIVE_FREQ_MIN_PHYS,
 )
+from nvision.spectra.drive import DriveSetting
 from nvision.spectra.noise_model import NoiseSignalModel
 from nvision.spectra.unit_cube import UnitCubeSignalModel
 
@@ -47,7 +48,12 @@ def nv_lineshape_for_model(model: object) -> str:
     (Sobol).
     """
     from nvision.spectra.nv_center import NVCenterSaturationVoigtModel, NVCenterVoigtModel
+    from nvision.spectra.nv_center_drive import NVCenterCWDriveModel, NVCenterPulsedDriveModel
 
+    if isinstance(model, NVCenterCWDriveModel):
+        return "cw_drive"
+    if isinstance(model, NVCenterPulsedDriveModel):
+        return "pulsed_drive"
     if isinstance(model, NVCenterSaturationVoigtModel):
         return "saturation_voigt"
     if isinstance(model, NVCenterVoigtModel):
@@ -70,6 +76,7 @@ def nv_center_smc_belief(
     with_fixed_center_freq: bool = True,
     lineshape: str = "lorentzian",
     seed: int | None = None,
+    fixed_drive: DriveSetting | None = None,
 ) -> SMCMarginalDistribution:
     """NV-center belief: **unit** parameter particles, **physical** signal model.
 
@@ -99,6 +106,13 @@ def nv_center_smc_belief(
       homogeneous/power-broadened width *and* the realized contrast together via
       the saturation law) and ``sigma_inhom`` (independent inhomogeneous/Gaussian
       width). Respects ``hyperfine``/``infer_hyperfine``/``with_zeeman_splitting``.
+    * ``"cw_drive"`` / ``"pulsed_drive"`` — the drive-controlled CW and pulsed models of
+      :mod:`nvision.spectra.nv_center_drive` (inferring ``drive_amp_sat`` / ``rabi_per_amp``).
+      Respect ``hyperfine``/``with_zeeman_splitting``; ``infer_hyperfine`` is not supported.
+
+    ``fixed_drive`` (drive-controlled lineshapes only) builds the belief on the model's fixed-drive
+    view: for locators that do not choose the drive, every measurement is taken at that one drive.
+    Without it a drive-controlled belief needs every observation's drive (drive-choosing locators).
     """
     if noise_model is None:
         raise ValueError(
@@ -115,7 +129,33 @@ def nv_center_smc_belief(
         nv_center_voigt_bounds_for_domain,
     )
 
-    if lineshape == "saturation_voigt":
+    if lineshape in ("cw_drive", "pulsed_drive"):
+        from nvision.spectra.nv_center_drive import (
+            NVCenterCWDriveModel,
+            NVCenterPulsedDriveModel,
+            nv_center_drive_bounds_for_domain,
+        )
+
+        if infer_hyperfine:
+            raise ValueError(f"lineshape {lineshape!r} does not support infer_hyperfine=True.")
+        drive_model_cls = NVCenterCWDriveModel if lineshape == "cw_drive" else NVCenterPulsedDriveModel
+        model = drive_model_cls(
+            hyperfine=hyperfine,
+            with_zeeman_splitting=with_zeeman_splitting,
+            with_fixed_center_freq=with_fixed_center_freq,
+        )
+        merged_bounds = nv_center_drive_bounds_for_domain(
+            "cw" if lineshape == "cw_drive" else "pulsed",
+            DEFAULT_NV_DRIVE_FREQ_MIN_PHYS,
+            DEFAULT_NV_DRIVE_FREQ_MAX_PHYS,
+            hyperfine=hyperfine,
+            with_zeeman_splitting=with_zeeman_splitting,
+        )
+        if fixed_drive is not None:
+            model = model.at_drive(fixed_drive)
+    elif fixed_drive is not None:
+        raise ValueError(f"fixed_drive is only meaningful for a drive-controlled lineshape; got {lineshape!r}.")
+    elif lineshape == "saturation_voigt":
         model = NVCenterSaturationVoigtModel(
             hyperfine=hyperfine,
             infer_hyperfine=infer_hyperfine,

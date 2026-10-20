@@ -17,5 +17,6 @@ Welcome to the NVision documentation.
 -   [Deferred Graph Generation (graph workers, `nv graphs`)](graph_queue.md)
 -   [Classmethod Pattern](classmethod_pattern.md)
 -   [Amplitude Reparametrization (dip_depth → c_total)](dip_depth_reparametrization.md)
+-   [Microwave Drive Control (CW / pulsed, Bayesian-SBED-Drive)](amplitude_control.md)
 -   [Equations Reference (SBED/SMC inference stack + metrics)](equations/README.md)
 -   [UI Architecture (`static/` frontend)](ui_architecture.md)
