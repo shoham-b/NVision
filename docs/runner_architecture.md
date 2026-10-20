@@ -16,7 +16,7 @@ Instead of running a single long simulation, the runner breaks down tasks into *
 For every **Bayesian** strategy, the runner also measures a FWHM/3 `GenericSweepLocator` sweep of the same signal
 (its own RNG stream, cached per repeat) so the scan plot can overlay a plain sweep and its fit. It is decoupled
 from the strategy under test and feeds figures only, not the manifest metrics. Strategy-vs-strategy comparison
-is done by the `SimpleSweep*` / `Smart-*` strategies themselves (see [resonance_search.md](resonance_search.md)).
+is done by the `SimpleSweep*` / `Smart-*` strategies themselves (see [locator_comparison.md](locator_comparison.md)).
 
 ### 3. The Main Locator Phase
 A fresh belief is instantiated for the primary locator strategy.

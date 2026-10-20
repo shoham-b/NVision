@@ -117,7 +117,7 @@ equivalently n = W / (2Ω) = 150 MHz / 200 kHz = 750.
 
 **Step 6 — Scaling / caveats.**  The whole result reduces to n = W / (2Ω) ∝ W / Ω, so it is **config-dependent**: doubling the band → ≈ 1500; broadening the line to Ω = 1 MHz → ≈ 75.  The 750 is the value for the default 150 MHz half-window scan with a ~100 kHz line, not a fixed constant.  It surfaces as the sweep's `measurements_done` cap in the UI and as the `max_steps` chosen for sweep-baseline test runs.
 
-(The old `sobol_difference` metric was removed together with the Sobol baseline. Sweeps are now compared to SBED stage by stage; see [../resonance_search.md](../resonance_search.md).)
+(The old `sobol_difference` metric was removed together with the Sobol baseline. Sweeps are now compared to SBED stage by stage; see [../locator_comparison.md](../locator_comparison.md).)
 
 ---
 

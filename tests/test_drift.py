@@ -188,7 +188,7 @@ def test_drift_noise_names_round_trip():
 def test_drift_group_resolves_every_combination():
     from nvision.sim.run_groups import get_run_group
 
-    group = get_run_group("lorentzian-plain-drift")
+    group = get_run_group("lorentzian-drift")
     grid = CombinationGrid(extra_generators=group.extra_generators)
     gen = group.generator_names[0]
     for noise_name in group.noise_names:

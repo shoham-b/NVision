@@ -15,7 +15,7 @@ Welcome to the NVision documentation.
 -   [CLI Reference & Usage](cli_reference.md)
 -   [Caching & Interruption Salvaging](caching.md)
 -   [Deferred Graph Generation (graph workers, `nv graphs`)](graph_queue.md)
--   [Resonance Search: sweeps, Smart-Sweep/Smart-SBED, search/focus/refine stages](resonance_search.md)
+-   [Locator comparison: sweeps, Smart-Sweep/Smart-SBED, search/focus/refine stages](locator_comparison.md)
 -   [Classmethod Pattern](classmethod_pattern.md)
 -   [Amplitude Reparametrization (contrast → contrast_total)](contrast_reparametrization.md)
 -   [Microwave Drive Control (CW / pulsed, Bayesian-SBED-Drive)](amplitude_control.md)

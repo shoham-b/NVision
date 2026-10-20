@@ -67,15 +67,16 @@ Run preset combinations of simulations defined in `nvision.sim.run_groups.RunGro
 # List all available run groups
 uv run nv groups list
 
-# Run the 'sbed-only' group
-uv run nv groups run sbed-only
+# Run a group (shortcut: `uv run nv groups voigt-grid`)
+uv run nv groups run lorentzian-drift
 
-# Or use the shortcut alias
-uv run nv groups sbed-only
+# Run a subset of a group's locators/signals (what the former *-only groups did)
+uv run nv run --run-group voigt-grid --filter-strategy "^Bayesian-SBED$"
+uv run nv run --run-group lorentzian-drift --filter-signal c0.25
 
 # Resume an interrupted run: keeps completed/partial results from the latest session,
 # and runs unstarted combinations fresh without reading stale pre-session cache:
-uv run nv groups both-sbed --repeats 50 --resume
+uv run nv groups voigt-grid --repeats 50 --resume
 ```
 
 ### `nv render`

@@ -137,7 +137,6 @@ class CombinationGrid:
         self._resolve_generators.update(dict(sim_presets.param_grid_generators()))
         self._resolve_generators.update(dict(sim_presets.param_grid_generators(variant="voigt")))
         self._resolve_generators.update(dict(sim_presets.saturation_voigt_param_grid_generators()))
-        self._resolve_generators.update(dict(sim_presets.resonance_search_generators()))
         # Also registered here (a pre-existing gap this fixes): without it,
         # strategies_for() has no generator object to read the real hyperfine value
         # off of for this grid and has to fall back to parsing it out of the name.

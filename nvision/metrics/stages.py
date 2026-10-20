@@ -43,9 +43,10 @@ within about ``+-0.15 gamma`` of it -- the locally-linear regime where the estim
 design no longer depends on it.
 
 Assumptions: additive noise whose ``sigma`` does not depend on ``x`` or the drive, and nuisance parameters
-known (the resonance-search scenario). With free nuisance parameters a single measurement's information about
-``theta`` alone is the diagonal term, an upper bound on the efficient (Schur-complement) information. For a
-drive-controlled model the oracle also picks the drive amplitude (and, when pulsed, the true pi-pulse).
+known (a model whose other parameters were classified before). With free nuisance parameters a single
+measurement's information about ``theta`` alone is the diagonal term, an upper bound on the efficient
+(Schur-complement) information. For a drive-controlled model the oracle also picks the drive amplitude
+(and, when pulsed, the true pi-pulse).
 
 Steps are 1-indexed measurement counts. A stage that was never reached has ``None`` metrics -- for
 a plain sweep, which does not stop when it has converged, a short or absent *refine* stage is a real
