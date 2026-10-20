@@ -15,7 +15,7 @@ and names must stay identical — the evaluator binds them by name.
 
 Each function receives ``self`` explicitly (the locator instance) exactly
 as the original bound methods did, so the bodies are otherwise unchanged
-and free to use ``self.belief``, ``self._acquisition_bounds()``, etc.
+and free to use ``self.belief``, ``self._focus`` (a ``FocusRegion``), etc.
 Returned frequencies are physical Hz and MUST fall strictly within the
 domain bounds used elsewhere in the method (see the existing bounds checks
 below) — this codebase fails fast on out-of-domain values instead of
@@ -45,7 +45,7 @@ from nvision.sim.locs.bayesian.sbed_locator import (
 
 def _acquire(self) -> float:
     """Select the next measurement point by maximizing EIG over a drive-frequency grid."""
-    lo, hi = self._acquisition_bounds()
+    lo, hi = self._focus.lo, self._focus.hi
     if hi <= lo:
         return float(lo)
 
@@ -250,10 +250,9 @@ def _eig_acquire(self) -> float:
     candidates = self.belief.get_candidate_drive_freq_phys()
     candidates = self._thin_candidate_drive_freq_by_step(candidates)
 
-    lo, hi = self._acquisition_bounds()
     if (
         self._last_eig_physical_x is not None
-        and lo <= self._last_eig_physical_x <= hi
+        and self._focus.contains(np.array([self._last_eig_physical_x]))[0]
         and not np.any(np.isclose(candidates, self._last_eig_physical_x))
     ):
         candidates = np.append(candidates, self._last_eig_physical_x)

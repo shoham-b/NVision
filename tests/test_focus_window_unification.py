@@ -4,26 +4,22 @@ What's actually unified, and what isn't
 ----------------------------------------
 ``clamp_to_domain`` is the one piece of arithmetic genuinely shared by every
 narrowing site: the Bayesian locator's drive-frequency focus
-(``nvision.belief.focus_window.next_focus_window``), the sweep locators'
-``nvision.sim.locs.refocus.window``, and ``StagedSobolSweepLocator.per_dip_windows``.
-``TestClampToDomainRouting`` proves each of those call sites actually calls the
-shared function rather than a copy of its arithmetic.
+(``nvision.belief.focus_window.next_focus_region``, via ``FocusRegion.from_intervals``),
+the sweep locators' ``nvision.sim.locs.refocus.window``, and
+``StagedSobolSweepLocator.per_dip_windows``. ``TestClampToDomainRouting`` proves
+each of those call sites actually calls the shared function rather than a copy
+of its arithmetic.
 
-``FocusWindow.propose_narrowing`` (the floor + clamp + minimum-shrink-fraction
-decision) has exactly **one** caller: ``next_focus_window``.
-The sweep locators' ``StagedSobolSweepLocator``/``Stage3SobolLocator`` window
-updates go through ``FocusWindow.from_candidate`` instead, which only clamps
-and rejects a collapsed window -- it does not know about a width floor or a
-minimum-shrink-fraction. ``test_from_candidate_has_no_gating_parameters``
+The Bayesian focus is a multi-section ``FocusRegion`` (tested in
+``test_focus_policy.py``). The sweep locators' ``StagedSobolSweepLocator``/
+``Stage3SobolLocator`` window updates go through ``FocusWindow.from_candidate``,
+which only clamps and rejects a collapsed window -- it does not know about a
+width floor or a minimum-shrink-fraction. ``test_from_candidate_has_no_gating_parameters``
 pins that boundary down so a future refactor can't quietly claim more sharing
 than actually exists.
 
-``TestProposeNarrowingAgainstOracle`` and ``TestIsFullDomainAgainstOracle``
-fuzz the shared functions against reference implementations that are literal
-transcriptions of the pre-refactor inline code in
-``SMCMarginalDistribution._resample`` (see git history), asserting
-*exact* equality -- the refactor was meant to move code, not change any
-formula.
+``TestIsFullDomainAgainstOracle`` fuzzes ``FocusWindow.is_full_domain`` against a
+literal transcription of the pre-refactor inline check, asserting *exact* equality.
 """
 
 from __future__ import annotations
@@ -113,8 +109,8 @@ class TestFromCandidate:
     def test_has_no_gating_parameters(self):
         """Pins the boundary of what's shared: from_candidate (used by the
         sweep locators) only clamps and rejects collapse. It has no min_width
-        or min_narrowing_fraction knobs -- those live only on
-        propose_narrowing, whose only caller is next_focus_window. If this test
+        or min_narrowing_fraction knobs -- the Bayesian focus's minimum-shrink gate
+        lives in next_focus_region, on a FocusRegion. If this test
         starts failing because someone added those parameters, the module
         docstring's claim about what's NOT unified needs updating too.
         """
@@ -150,130 +146,9 @@ def _oracle_is_full_domain(lo: float, hi: float, domain_lo: float, domain_hi: fl
     return not ((hi - lo) < domain_width * (1.0 - eps))
 
 
-def _oracle_propose_narrowing(
-    lo_phys: float,
-    hi_phys: float,
-    lo_orig: float,
-    hi_orig: float,
-    candidate_lo: float,
-    candidate_hi: float,
-    min_width: float | None,
-    min_narrowing_fraction: float,
-) -> tuple[float, float] | None:
-    """Literal transcription of the old inlined gate in ``_resample``:
-
-    floor to min_width -> clamp to [lo_orig, hi_orig] -> reject on collapse
-    -> reject if shrink fraction is under the minimum.
-    """
-    new_lo, new_hi = candidate_lo, candidate_hi
-    if min_width is not None and (new_hi - new_lo) < min_width:
-        center = 0.5 * (new_hi + new_lo)
-        new_lo = center - min_width / 2.0
-        new_hi = center + min_width / 2.0
-
-    new_lo = max(new_lo, lo_orig)
-    new_hi = min(new_hi, hi_orig)
-    if new_hi <= new_lo:
-        return None
-
-    cur_width = hi_phys - lo_phys
-    shrink_frac = (cur_width - (new_hi - new_lo)) / cur_width if cur_width > 0.0 else None
-    if min_narrowing_fraction > 0.0 and shrink_frac is not None and shrink_frac < min_narrowing_fraction:
-        return None
-
-    return (new_lo, new_hi)
-
-
-# Bounded, finite floats -- narrowing math doesn't need to handle inf/nan and
+# Bounded, finite floats -- the full-domain check doesn't need to handle inf/nan and
 # neither did the pre-refactor code.
 _finite_floats = st.floats(min_value=-1e9, max_value=1e9, allow_nan=False, allow_infinity=False)
-
-
-@st.composite
-def _narrowing_scenarios(draw):
-    full_lo = draw(_finite_floats)
-    full_width = draw(st.floats(min_value=1e-3, max_value=1e6, allow_nan=False, allow_infinity=False))
-    full_hi = full_lo + full_width
-
-    # Current window: a sub-interval of the domain (as FocusWindow requires).
-    lo = draw(st.floats(min_value=full_lo, max_value=full_hi, allow_nan=False, allow_infinity=False))
-    hi = draw(st.floats(min_value=lo, max_value=full_hi, allow_nan=False, allow_infinity=False))
-    assume(hi > lo)
-
-    # Candidate: allowed to straddle or fall entirely outside the domain.
-    span = draw(st.floats(min_value=-2e6, max_value=2e6, allow_nan=False, allow_infinity=False))
-    candidate_lo = draw(st.floats(min_value=full_lo - full_width, max_value=full_hi + full_width))
-    candidate_hi = candidate_lo + abs(span)
-
-    min_width = draw(st.one_of(st.none(), st.floats(min_value=0.0, max_value=full_width * 3, allow_nan=False)))
-    min_narrowing_fraction = draw(st.floats(min_value=0.0, max_value=1.0, allow_nan=False))
-
-    return full_lo, full_hi, lo, hi, candidate_lo, candidate_hi, min_width, min_narrowing_fraction
-
-
-class TestProposeNarrowingAgainstOracle:
-    @settings(deadline=None, max_examples=300)
-    @given(_narrowing_scenarios())
-    def test_matches_pre_refactor_gate_exactly(self, scenario):
-        full_lo, full_hi, lo, hi, candidate_lo, candidate_hi, min_width, min_narrowing_fraction = scenario
-
-        window = FocusWindow(lo=lo, hi=hi, full_lo=full_lo, full_hi=full_hi)
-        actual = window.propose_narrowing(
-            candidate_lo, candidate_hi, min_width=min_width, min_narrowing_fraction=min_narrowing_fraction
-        )
-        expected = _oracle_propose_narrowing(
-            lo, hi, full_lo, full_hi, candidate_lo, candidate_hi, min_width, min_narrowing_fraction
-        )
-
-        if expected is None:
-            assert actual is None
-        else:
-            assert actual is not None
-            assert (actual.lo, actual.hi) == expected
-
-    def test_rejects_insufficient_shrink(self):
-        window = FocusWindow(lo=0.0, hi=100.0, full_lo=-1e6, full_hi=1e6)
-        # Shrinks by exactly 4% when 5% is required.
-        result = window.propose_narrowing(2.0, 98.0, min_narrowing_fraction=0.05)
-        assert result is None
-
-    def test_accepts_exactly_at_the_shrink_boundary(self):
-        window = FocusWindow(lo=0.0, hi=100.0, full_lo=-1e6, full_hi=1e6)
-        # Shrinks by exactly 5% when 5% is required -- boundary is inclusive
-        # (oracle's reject condition is strict '<').
-        result = window.propose_narrowing(2.5, 97.5, min_narrowing_fraction=0.05)
-        assert result is not None
-        assert (result.lo, result.hi) == (2.5, 97.5)
-
-    def test_min_width_floor_recenters_narrow_candidate(self):
-        window = FocusWindow(lo=0.0, hi=100.0, full_lo=-1e6, full_hi=1e6)
-        # Candidate [49, 51] (width 2) floored to width 10, centered on 50.
-        result = window.propose_narrowing(49.0, 51.0, min_width=10.0, min_narrowing_fraction=0.0)
-        assert result is not None
-        assert (result.lo, result.hi) == (45.0, 55.0)
-
-    def test_min_width_larger_than_domain_clamps_to_domain(self):
-        window = FocusWindow(lo=40.0, hi=60.0, full_lo=0.0, full_hi=100.0)
-        result = window.propose_narrowing(49.0, 51.0, min_width=1000.0, min_narrowing_fraction=0.0)
-        assert result is not None
-        assert (result.lo, result.hi) == (0.0, 100.0)
-
-    def test_candidate_entirely_outside_domain_is_rejected(self):
-        window = FocusWindow(lo=0.0, hi=10.0, full_lo=0.0, full_hi=10.0)
-        assert window.propose_narrowing(1000.0, 2000.0) is None
-
-    def test_candidate_wider_than_current_window_rejected_by_fraction_gate(self):
-        """A candidate that would *widen* the window has a negative shrink
-        fraction, so any positive min_narrowing_fraction rejects it --
-        propose_narrowing is a narrowing-only decision, unlike the sweep
-        path's from_candidate which happily accepts a wider window.
-        """
-        window = FocusWindow(lo=40.0, hi=60.0, full_lo=0.0, full_hi=100.0)
-        assert window.propose_narrowing(0.0, 100.0, min_narrowing_fraction=0.05) is None
-        # With no fraction gate it's accepted, matching from_candidate's semantics.
-        result = window.propose_narrowing(0.0, 100.0, min_narrowing_fraction=0.0)
-        assert result is not None
-        assert (result.lo, result.hi) == (0.0, 100.0)
 
 
 class TestIsFullDomainAgainstOracle:
@@ -301,7 +176,7 @@ class TestIsFullDomainAgainstOracle:
 
 
 class TestClampToDomainRouting:
-    def test_next_focus_window_routes_through_clamp(self, monkeypatch):
+    def test_next_focus_region_routes_through_clamp(self, monkeypatch):
         import nvision.belief.focus_window as fw_mod
         from nvision.belief.dip_detection import DipCandidate
 
@@ -314,8 +189,8 @@ class TestClampToDomainRouting:
 
         monkeypatch.setattr(fw_mod, "clamp_to_domain", spy)
 
-        focus = FocusWindow(lo=0.0, hi=100.0, full_lo=0.0, full_hi=100.0)
-        fw_mod.next_focus_window(
+        focus = fw_mod.FocusRegion.full(0.0, 100.0)
+        fw_mod.next_focus_region(
             focus,
             dips=[DipCandidate(50.0, 6.0, 6, 48.0, 52.0, 0.999, 1.0)],
             pad_phys=5.0,

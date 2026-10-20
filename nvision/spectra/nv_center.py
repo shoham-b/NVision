@@ -249,6 +249,9 @@ def physics_config_fingerprint() -> str:
         "center-center_freq-rename-v1",
         # Bumped when the probe axis was renamed to drive_freq (persisted spec / config / payload names).
         "drive-freq-rename-v1",
+        # Bumped when the SBED focus became one padded section per significant dip (overlaps merged)
+        # instead of a single bounding interval: the empty axis between separated dips is no longer scanned.
+        "sbed-focus-sections-v1",
         MIN_LINEWIDTH,
         MAX_LINEWIDTH,
         MIN_SPLIT,
