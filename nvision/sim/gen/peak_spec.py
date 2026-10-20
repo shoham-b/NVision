@@ -64,6 +64,8 @@ LORENTZIAN = PeakSpec(
 )
 
 
-def _true_signal_from_typed(model, typed_params, bounds: dict[str, tuple[float, float]]) -> TrueSignal:
-    """Create a backward-compatible TrueSignal from typed model params."""
-    return TrueSignal.from_typed(model=model, params=typed_params, bounds=bounds)
+def _true_signal_from_typed(
+    model, typed_params, bounds: dict[str, tuple[float, float]], baseline_drive=None
+) -> TrueSignal:
+    """Create a backward-compatible TrueSignal from typed model params (``baseline_drive``: drive-controlled only)."""
+    return TrueSignal.from_typed(model=model, params=typed_params, bounds=bounds, baseline_drive=baseline_drive)

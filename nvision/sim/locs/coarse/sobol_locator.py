@@ -811,7 +811,12 @@ class StagedSobolSweepLocator(Locator):
             return None
         n = 20000
         drive_freqs_phys = np.linspace(self.domain_lo, self.domain_hi, n)
-        ys = np.array([self._true_signal(float(x)) for x in drive_freqs_phys], dtype=float)
+        # A uniform sweep runs at the baseline drive (drive-controlled signals; None otherwise).
+        baseline_drive = getattr(self._true_signal, "baseline_drive", None)
+        if baseline_drive is None:
+            ys = np.array([self._true_signal(float(x)) for x in drive_freqs_phys], dtype=float)
+        else:
+            ys = np.array([self._true_signal(float(x), baseline_drive) for x in drive_freqs_phys], dtype=float)
         drive_freqs_unit = (drive_freqs_phys - self.domain_lo) / domain_width
         return self._detect_dip_segments(drive_freqs_unit, ys, noise_std=1e-6, min_width=0.0)
 

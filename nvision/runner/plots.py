@@ -597,7 +597,7 @@ def _bayesian_auxiliary_entries(
         with suppress(Exception):
             oracle_crlb_hist = oracle_crlb_history(
                 n_steps=len(bayesian_snapshots),
-                model=run_result.true_signal.model,
+                model=run_result.true_signal.baseline_model,
                 true_typed_params=run_result.true_signal.typed_parameters,
                 x_lo=float(experiment.drive_freq_min_phys),
                 x_hi=float(experiment.drive_freq_max_phys),
@@ -768,7 +768,10 @@ def get_or_run_sobol_baseline(
         bounds.update(experiment.true_signal.noise_bounds)
 
     belief = nv_center_smc_belief(
-        bounds, noise_model=experiment.true_signal.noise_model, lineshape=nv_lineshape_for_model(model)
+        bounds,
+        noise_model=experiment.true_signal.noise_model,
+        lineshape=nv_lineshape_for_model(model),
+        fixed_drive=experiment.true_signal.baseline_drive,
     )
 
     locator = SimpleSobolBayesianLocator(
@@ -888,7 +891,10 @@ def get_or_run_simplesweep_baseline(
         bounds.update(experiment.true_signal.noise_bounds)
 
     belief = nv_center_smc_belief(
-        bounds, noise_model=experiment.true_signal.noise_model, lineshape=nv_lineshape_for_model(model)
+        bounds,
+        noise_model=experiment.true_signal.noise_model,
+        lineshape=nv_lineshape_for_model(model),
+        fixed_drive=experiment.true_signal.baseline_drive,
     )
 
     f_domain_width = float(
@@ -899,7 +905,7 @@ def get_or_run_simplesweep_baseline(
 
     locator = GenericSweepLocator(
         belief=belief,
-        signal_model=model,
+        signal_model=experiment.true_signal.baseline_model,
         max_steps=max_steps,
         noise_std=noise_std,
         domain_lo=experiment.drive_freq_min_phys,

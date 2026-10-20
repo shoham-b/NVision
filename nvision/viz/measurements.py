@@ -57,6 +57,17 @@ def _noise_scale_for_scan(scan: Any, over_frequency_noise: CompositeOverFrequenc
     return 1.0
 
 
+def _display_model(scan: Any, model: Any) -> Any:
+    """Frequency-only model for plotting: a drive-controlled model is shown at the experiment's baseline drive.
+
+    Measurements of a drive-choosing run are taken at many drives; the dense true-signal and belief
+    curves are drawn at one reference drive, the baseline (the drive fixed-drive locators use).
+    """
+    if model is not None and getattr(model, "controls_drive", False):
+        return model.at_drive(scan.true_signal.baseline_drive)
+    return model
+
+
 def _dense_model_curve(model: Any, xs: np.ndarray, values_in_order: Sequence[float]) -> np.ndarray | None:
     """Evaluate one parameter set over many ``xs`` in a single vectorized call.
 
@@ -96,6 +107,7 @@ def _true_signal_dense_y(scan: Any, xs: np.ndarray) -> np.ndarray:
     """Dense true-signal curve, vectorized when the model supports it."""
     true_signal = scan.true_signal
     model = getattr(true_signal, "model", None)
+    model = _display_model(scan, model)
     if model is not None and hasattr(true_signal, "typed_parameters"):
         try:
             values = model.spec.pack_params(true_signal.typed_parameters)
@@ -105,6 +117,8 @@ def _true_signal_dense_y(scan: Any, xs: np.ndarray) -> np.ndarray:
             curve = _dense_model_curve(model, xs, values)
             if curve is not None:
                 return curve
+    if model is not None and getattr(true_signal, "baseline_drive", None) is not None:
+        return np.asarray([float(true_signal(float(x), true_signal.baseline_drive)) for x in xs], dtype=float)
     return np.asarray([float(scan.signal(x)) for x in xs], dtype=float)
 
 
@@ -158,9 +172,9 @@ def _mode_belief_dense_y(
     """
     mode_estimates = _align_mode_split_with_ground_truth(scan, mode_estimates)
     if belief_unit_cube is not None:
-        return _mode_dense_y_unit_cube(belief_unit_cube, xs, mode_estimates)
+        return _mode_dense_y_unit_cube(_display_model(scan, belief_unit_cube), xs, mode_estimates)
 
-    model = getattr(scan.true_signal, "model", None)
+    model = _display_model(scan, getattr(scan.true_signal, "model", None))
     bounds = getattr(scan.true_signal, "bounds", None)
     if model is None or bounds is None:
         return None
@@ -481,6 +495,11 @@ def _measurements_from_history(history: pl.DataFrame) -> dict[str, Any]:
         sweep_idx_s = history.get_column("sweep_index").to_list()
         if sweep_idx_s and all(v is not None for v in sweep_idx_s):
             result["sweep_index"] = [int(v) for v in sweep_idx_s]
+    # Drive-choosing runs measure at many microwave amplitudes; colour by amplitude when every point has one.
+    if "drive_amp_unit" in history.columns:
+        amps = history.get_column("drive_amp_unit").to_list()
+        if amps and all(v is not None for v in amps):
+            result["drive_amp_unit"] = [float(v) for v in amps]
     return result
 
 

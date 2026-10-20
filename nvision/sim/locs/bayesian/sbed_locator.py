@@ -154,6 +154,11 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
 
     def _eig_acquire(self) -> float:
         """The EIG-maximising candidate among the belief's epoch candidate points inside the focus."""
+        candidate_drive_freq_phys = self._eig_candidate_drive_freq_phys()
+        return float(self.belief.select_max_information_gain(candidate_drive_freq_phys, 1)[0])
+
+    def _eig_candidate_drive_freq_phys(self) -> np.ndarray:
+        """The epoch's candidate drive frequencies (Hz) inside the focus, thinned to ``candidate_step_hz``."""
         candidate_drive_freq_phys = self.belief.get_candidate_drive_freq_phys()
         focus_lo, focus_hi = self._acquisition_bounds()
         candidate_drive_freq_phys = candidate_drive_freq_phys[
@@ -161,8 +166,7 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         ]
         if candidate_drive_freq_phys.size == 0:
             raise ValueError(f"No epoch candidate lies inside the focus [{focus_lo}, {focus_hi}] Hz.")
-        candidate_drive_freq_phys = self._thin_candidate_drive_freq_by_step(candidate_drive_freq_phys)
-        return float(self.belief.select_max_information_gain(candidate_drive_freq_phys, 1)[0])
+        return self._thin_candidate_drive_freq_by_step(candidate_drive_freq_phys)
 
     def _observe_acquisition(self, obs: Observation) -> None:
         """Handle acquisition observations and manually trigger resample checks.
@@ -186,17 +190,20 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
             return
         particles = belief.particles_phys()
         est = belief.estimates()
+        # Widest width the drive can produce (drive-controlled), so the focus covers every candidate drive.
+        width_amps = belief.width_drive_amp_units()
+        width_amp = None if width_amps == [None] else max(width_amps)
         half_span = (
             particles.get("zeeman_split", 0.0)
             + particles.get("split", 0.0)
-            + NVISION_SMC_FOCUSING_COVER_FACTOR * effective_hwhm(particles)
+            + NVISION_SMC_FOCUSING_COVER_FACTOR * effective_hwhm(particles, drive_amp_unit=width_amp)
         )
         half_span = np.broadcast_to(half_span, particles["center_freq"].shape)
         self._focus, expanded = next_focus_window(
             self._focus,
             center_freq_particles_phys=particles["center_freq"],
             active_half_span_particles_phys=half_span,
-            omega_phys=float(effective_hwhm(est)),
+            omega_phys=float(effective_hwhm(est, drive_amp_unit=width_amp)),
             zeeman_split_phys=float(est.get("zeeman_split", 0.0)),
             step=belief._step_count,
             last_expansion_step=self._last_focus_expansion_step,

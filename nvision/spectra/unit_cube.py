@@ -6,6 +6,7 @@ from collections.abc import Sequence
 
 import numpy as np
 
+from nvision.spectra.drive import DriveSetting
 from nvision.spectra.dtypes import FLOAT_DTYPE
 from nvision.spectra.signal import (
     SignalModel,
@@ -57,7 +58,7 @@ class UnitCubeSignalModel[ParamsT, SampleParamsT, UncertaintyT](SignalModel[Para
     of dict bounds and polymorphic ``inner``.
     """
 
-    __slots__ = ("inner", "param_bounds_phys", "x_bounds_phys")
+    __slots__ = ("_drive_views", "inner", "param_bounds_phys", "x_bounds_phys")
     _BOUND_TOL = float(_FI.eps)
 
     def __init__(
@@ -71,6 +72,8 @@ class UnitCubeSignalModel[ParamsT, SampleParamsT, UncertaintyT](SignalModel[Para
         # full-domain bounds and must not be aliased by the model.
         self.param_bounds_phys = dict(param_bounds_phys)
         self.x_bounds_phys = x_bounds_phys
+        # Fixed-drive views of a drive-controlled inner model, one per DriveSetting (see at_drive).
+        self._drive_views: dict[DriveSetting, UnitCubeSignalModel] = {}
 
     @property
     def spec(self) -> ParamSpec[ParamsT, SampleParamsT, UncertaintyT]:
@@ -224,6 +227,26 @@ class UnitCubeSignalModel[ParamsT, SampleParamsT, UncertaintyT](SignalModel[Para
 
         typed_samples_phys = self.inner.spec.unpack_samples(tuple(phys_arrays))
         return self.inner.compute_vectorized_many_fast(drive_freqs_phys, typed_samples_phys)
+
+    @property
+    def controls_drive(self) -> bool:
+        return self.inner.controls_drive
+
+    @property
+    def is_pulsed(self) -> bool:
+        return self.inner.is_pulsed
+
+    @property
+    def fixed_drive(self) -> DriveSetting | None:
+        return self.inner.fixed_drive
+
+    def at_drive(self, drive: DriveSetting) -> UnitCubeSignalModel:
+        """Unit-cube wrapper around the inner model's fixed-drive view (same bounds and drive-frequency axis)."""
+        view = self._drive_views.get(drive)
+        if view is None:
+            view = UnitCubeSignalModel(self.inner.at_drive(drive), self.param_bounds_phys, self.x_bounds_phys)
+            self._drive_views[drive] = view
+        return view
 
     def is_scale_parameter(self, name: str) -> bool:
         return self.inner.is_scale_parameter(name)

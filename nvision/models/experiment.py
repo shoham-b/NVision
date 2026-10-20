@@ -13,6 +13,7 @@ import numpy as np
 
 from nvision.models.noise import CompositeNoise
 from nvision.models.observation import DEFAULT_MEASUREMENT_NOISE_STD, Observation, aggregate_shots
+from nvision.spectra.drive import DriveSetting
 from nvision.spectra.signal import TrueSignal
 
 if TYPE_CHECKING:
@@ -66,6 +67,7 @@ class CoreExperiment:
         rng: random.Random,
         n_shots: int = 1,
         shot_index: int | None = None,
+        drive: DriveSetting | None = None,
     ) -> Observation:
         """Take a measurement at normalized position.
 
@@ -84,6 +86,10 @@ class CoreExperiment:
             Shots already taken in this run (0 for the first). Required when the
             experiment drifts, since the true signal then depends on time; shot ``i``
             of the batch is taken at ``shot_index + i``. Ignored otherwise.
+        drive : DriveSetting | None
+            Microwave drive to apply, for drive-controlled signals. ``None`` applies the true
+            signal's ``baseline_drive``; giving a drive to a signal without drive control raises.
+            The drive actually applied is recorded on the returned Observation.
 
         Returns
         -------
@@ -93,15 +99,17 @@ class CoreExperiment:
         if n_shots < 1:
             raise ValueError(f"n_shots must be >= 1, got {n_shots}")
 
+        drive = self.resolve_drive(drive)
+
         # Denormalize to physical domain
         width = self.drive_freq_max_phys - self.drive_freq_min_phys
         x_physical = self.drive_freq_min_phys + drive_freq_unit * width
 
         if self.drift is not None or (self.noise is not None and self.noise.drift is not None):
-            return self._measure_drifting(drive_freq_unit, x_physical, rng, n_shots, shot_index)
+            return self._measure_drifting(drive_freq_unit, x_physical, rng, n_shots, shot_index, drive)
 
         # Get true (clean) signal value
-        signal_value = self.true_signal(x_physical)
+        signal_value = self.true_signal(x_physical) if drive is None else self.true_signal(x_physical, drive)
 
         # Determine noise metadata
         noise_std = DEFAULT_MEASUREMENT_NOISE_STD  # default for no-noise case (aligned with Observation)
@@ -127,7 +135,22 @@ class CoreExperiment:
             ys=shots,
             prior_noise_std=noise_std,
             frequency_noise_model=frequency_noise_model,
+            drive=drive,
         )
+
+    def resolve_drive(self, drive: DriveSetting | None) -> DriveSetting | None:
+        """The drive a measurement requested with ``drive`` is actually taken at.
+
+        Drive-controlled signals: ``drive`` itself, or the baseline drive when the locator chose none.
+        Other signals: always ``None`` (raises if a drive was requested).
+        """
+        # Duck-typed true signals (plain callables, MATLAB proxies) have no drive control.
+        model = getattr(self.true_signal, "model", None)
+        if getattr(model, "controls_drive", False):
+            return drive if drive is not None else self.true_signal.baseline_drive
+        if drive is not None:
+            raise ValueError(f"This experiment's signal is not drive-controlled; got drive {drive!r}.")
+        return None
 
     def _measure_drifting(
         self,
@@ -136,6 +159,7 @@ class CoreExperiment:
         rng: random.Random,
         n_shots: int,
         shot_index: int | None,
+        drive: DriveSetting | None,
     ) -> Observation:
         if self.drift is None:
             raise ValueError(
@@ -152,7 +176,7 @@ class CoreExperiment:
             if self.noise.over_frequency_noise is not None:
                 frequency_noise_model = self.frequency_noise_model()
 
-        model = self.true_signal.model
+        model = self.true_signal.model if drive is None else self.true_signal.model_at(drive)
         base = self.true_signal.typed_parameters
         shots = np.empty(n_shots, dtype=np.float64)
         for i in range(n_shots):
@@ -167,6 +191,7 @@ class CoreExperiment:
             ys=shots,
             prior_noise_std=noise_std,
             frequency_noise_model=frequency_noise_model,
+            drive=drive,
         )
 
     @property

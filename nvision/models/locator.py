@@ -4,6 +4,7 @@ from abc import ABC, abstractmethod
 
 from nvision.belief.abstract_marginal import AbstractMarginalDistribution
 from nvision.models.observation import Observation
+from nvision.spectra.drive import DriveSetting
 
 
 class Locator(ABC):
@@ -88,6 +89,18 @@ class Locator(ABC):
                 "frequency in [0, 1] over the full range (map physical Hz before returning)."
             )
         return drive_freq_unit
+
+    # True for locators that choose the microwave drive per measurement (see :meth:`next_drive`).
+    CHOOSES_DRIVE: bool = False
+
+    def next_drive(self) -> DriveSetting | None:
+        """The microwave drive for the measurement just proposed by :meth:`next`.
+
+        Called right after :meth:`next_drive_freq_unit`. ``None`` (the default) lets the experiment
+        apply its baseline drive -- every locator that does not choose the drive. Drive-choosing
+        locators (``CHOOSES_DRIVE = True``) return the setting picked together with the frequency.
+        """
+        return None
 
     @abstractmethod
     def done(self) -> bool:

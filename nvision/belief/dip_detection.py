@@ -55,8 +55,16 @@ def effective_max_linewidth_hz(phys_bounds: Mapping[str, tuple[float, float]]) -
     inferred estimate.
     """
     from nvision.spectra.nv_center import effective_hwhm
+    from nvision.spectra.nv_center_drive import is_drive_param_dict
 
-    return float(effective_hwhm({name: hi for name, (_, hi) in phys_bounds.items()}))
+    widest = {name: hi for name, (_, hi) in phys_bounds.items()}
+    if is_drive_param_dict(widest):
+        # Drive-controlled: widest at full amplitude with the strongest coupling (smallest
+        # drive_amp_sat / largest rabi_per_amp).
+        if "drive_amp_sat" in phys_bounds:
+            widest["drive_amp_sat"] = phys_bounds["drive_amp_sat"][0]
+        return float(effective_hwhm(widest, drive_amp_unit=1.0))
+    return float(effective_hwhm(widest))
 
 
 def min_linewidth_hz(phys_bounds: Mapping[str, tuple[float, float]]) -> float:
@@ -67,6 +75,19 @@ def min_linewidth_hz(phys_bounds: Mapping[str, tuple[float, float]]) -> float:
     for name in ("linewidth", "homogeneous_linewidth"):
         if name in phys_bounds:
             return float(phys_bounds[name][0])
+    from nvision.spectra.nv_center_drive import BASELINE_DRIVE_AMP_UNIT, drive_effective_hwhm, is_drive_param_dict
+
+    if is_drive_param_dict(phys_bounds):
+        # Drive-controlled: the narrowest dip at the baseline drive amplitude (the drive a fixed-drive
+        # sweep uses), with the weakest coupling and no inhomogeneous broadening. Every locator on the
+        # same generator gets the same budget from this, so drive-choosing and fixed-drive runs compare
+        # at equal step counts.
+        narrowest = {"sigma_inhom": 0.0}
+        if "drive_amp_sat" in phys_bounds:
+            narrowest["drive_amp_sat"] = phys_bounds["drive_amp_sat"][1]
+        else:
+            narrowest["rabi_per_amp"] = phys_bounds["rabi_per_amp"][0]
+        return float(drive_effective_hwhm(narrowest, BASELINE_DRIVE_AMP_UNIT))
     raise ValueError(
         f"min_linewidth_hz: bounds define no 'linewidth' or 'homogeneous_linewidth'; got {sorted(phys_bounds)}"
     )

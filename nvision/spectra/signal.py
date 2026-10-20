@@ -9,6 +9,7 @@ from typing import Any, Protocol, runtime_checkable
 
 import numpy as np
 
+from nvision.spectra.drive import DriveSetting
 from nvision.spectra.spec import NoiseSignalModel, ParamSpec, ParamsT, SampleParamsT, UncertaintyT
 
 
@@ -97,6 +98,33 @@ class SignalModel[ParamsT, SampleParamsT, UncertaintyT](ABC):
         use it.  Never call from weight updates or uncertainty computation.
         """
         return self.compute_vectorized_many(x_array, samples)
+
+    # ------------------------------------------------------------------
+    # Microwave drive control (see nvision/spectra/drive.py)
+    # ------------------------------------------------------------------
+
+    @property
+    def controls_drive(self) -> bool:
+        """True when predictions depend on a per-measurement :class:`DriveSetting`.
+
+        A drive-controlled model cannot be evaluated directly; use :meth:`at_drive` for a
+        fixed-drive view, or :func:`nvision.spectra.drive.compute_vectorized_many_driven`.
+        """
+        return False
+
+    @property
+    def is_pulsed(self) -> bool:
+        """True for pulsed ODMR models, whose drive settings carry a pulse duration."""
+        return False
+
+    def at_drive(self, drive: DriveSetting) -> SignalModel:
+        """Fixed-drive view: an ordinary (frequency-only) model with the same parameters."""
+        raise ValueError(f"{type(self).__name__} is not drive-controlled; it has no drive to fix.")
+
+    @property
+    def fixed_drive(self) -> DriveSetting | None:
+        """The drive a fixed-drive view evaluates at; ``None`` for every other model."""
+        return None
 
     @property
     def inner(self) -> SignalModel:
@@ -201,9 +229,34 @@ class TrueSignal[ParamsT]:
     bounds: Mapping[str, tuple[float, float]]
     noise_model: NoiseSignalModel | None = None
     noise_bounds: Mapping[str, tuple[float, float]] = field(default_factory=dict)
+    # Drive used by measurements that do not choose one (fixed-drive locators), for drive-controlled
+    # models only. An explicit experiment setting -- every such measurement records it.
+    baseline_drive: DriveSetting | None = None
 
-    def __call__(self, x: float) -> float:
-        return float(self.model.compute(float(x), self.typed_parameters))
+    def __post_init__(self) -> None:
+        if self.model.controls_drive and self.baseline_drive is None:
+            raise ValueError(f"A drive-controlled TrueSignal ({type(self.model).__name__}) needs a baseline_drive.")
+        if not self.model.controls_drive and self.baseline_drive is not None:
+            raise ValueError(f"{type(self.model).__name__} is not drive-controlled; baseline_drive must be None.")
+
+    def __call__(self, x: float, drive: DriveSetting | None = None) -> float:
+        """Clean signal at drive frequency ``x`` (Hz); ``drive`` is required iff the model is drive-controlled."""
+        return float(self.model_at(drive).compute(float(x), self.typed_parameters))
+
+    def model_at(self, drive: DriveSetting | None) -> SignalModel[ParamsT, Any, Any]:
+        """The frequency-only model that predicts a measurement taken at ``drive``."""
+        if self.model.controls_drive:
+            if drive is None:
+                raise ValueError(f"{type(self.model).__name__} is drive-controlled; a measurement needs a drive.")
+            return self.model.at_drive(drive)
+        if drive is not None:
+            raise ValueError(f"{type(self.model).__name__} is not drive-controlled; got drive {drive!r}.")
+        return self.model
+
+    @property
+    def baseline_model(self) -> SignalModel[ParamsT, Any, Any]:
+        """Frequency-only model at the baseline drive (the plain model when not drive-controlled)."""
+        return self.model_at(self.baseline_drive)
 
     @property
     def parameter_names(self) -> tuple[str, ...]:
@@ -248,6 +301,7 @@ class TrueSignal[ParamsT]:
         params: ParamsT,
         *,
         bounds: Mapping[str, tuple[float, float]],
+        baseline_drive: DriveSetting | None = None,
     ) -> TrueSignal[ParamsT]:
         """Build a TrueSignal from typed params plus explicit legacy bounds."""
 
@@ -257,4 +311,4 @@ class TrueSignal[ParamsT]:
         if missing:
             raise KeyError(f"Missing bounds for typed TrueSignal parameters: {missing}")
         _ = values  # Keep pack validation coupled to names order.
-        return cls(model=model, typed_parameters=params, bounds=dict(bounds))
+        return cls(model=model, typed_parameters=params, bounds=dict(bounds), baseline_drive=baseline_drive)

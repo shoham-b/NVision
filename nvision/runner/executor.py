@@ -41,6 +41,7 @@ from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBaye
 from nvision.sim.locs.bayesian.sobol_bayesian_locator import SimpleSobolBayesianLocator
 from nvision.sim.locs.coarse import SweepingLocator
 from nvision.sim.locs.dyadic import van_der_corput_fraction
+from nvision.spectra.drive import DriveSetting
 from nvision.tools import stall_watch
 from nvision.tools.log_context import reset_combination_log_initials, set_combination_log_initials
 from nvision.viz import Viz
@@ -95,6 +96,16 @@ type RepeatResult = tuple[list[dict[str, Any]], dict[str, Any]]
 type TaskResults = list[RepeatResult]
 
 
+def _replayed_drive(cached_obs: Observation, requested: DriveSetting | None) -> DriveSetting | None:
+    """Drive of a replayed cached observation: only valid when the locator did not choose a different one.
+
+    Cached sweeps are keyed by experiment, not by drive, so they were measured at the baseline drive.
+    """
+    if requested is not None and requested != cached_obs.drive:
+        raise ValueError(f"Cannot replay a cached observation taken at {cached_obs.drive!r} for drive {requested!r}.")
+    return cached_obs.drive
+
+
 def run_loop(
     locator_class: type[Locator],
     experiment: CoreExperiment,
@@ -124,7 +135,7 @@ def run_loop(
     )
     if needs_belief and ("belief" not in locator_config or "signal_model" not in locator_config):
         locator_config.setdefault("belief", _create_sweep_belief(experiment))
-        locator_config.setdefault("signal_model", experiment.true_signal.model)
+        locator_config.setdefault("signal_model", experiment.true_signal.baseline_model)
 
     if issubclass(locator_class, SequentialBayesianLocator):
         # Seeds the belief's own random stream from (but without consuming) the repeat's rng.
@@ -177,6 +188,7 @@ def run_loop(
         _check_memory_limit()
         step += 1
         drive_freq_unit = locator.next_drive_freq_unit()
+        drive = locator.next_drive()
 
         obs: Observation | None = None
         # Use cached observation if in sweep phase and cache available
@@ -187,6 +199,7 @@ def run_loop(
                 signal_value=cached_obs.signal_value,
                 noise_std=cached_obs.noise_std,
                 frequency_noise_model=cached_obs.frequency_noise_model,
+                drive=_replayed_drive(cached_obs, drive),
             )
         elif dyadic_table is not None:
             frac = van_der_corput_fraction(getattr(locator, "inference_step_count", step))
@@ -198,10 +211,11 @@ def run_loop(
                     signal_value=cached_obs.signal_value,
                     noise_std=cached_obs.noise_std,
                     frequency_noise_model=cached_obs.frequency_noise_model,
+                    drive=_replayed_drive(cached_obs, drive),
                 )
 
         if obs is None:
-            obs = experiment.measure(drive_freq_unit, rng, n_shots=n_shots, shot_index=shot_index)
+            obs = experiment.measure(drive_freq_unit, rng, n_shots=n_shots, shot_index=shot_index, drive=drive)
         shot_index += n_shots
 
         if collected_sweep_observations is not None:
@@ -1118,6 +1132,7 @@ class _TaskRunner:
             parameter_bounds,
             noise_model=experiment.true_signal.noise_model,
             lineshape=nv_lineshape_for_model(experiment.true_signal.model),
+            fixed_drive=experiment.true_signal.baseline_drive,
         )
 
         locator = SimpleSobolBayesianLocator(
@@ -1194,6 +1209,7 @@ class _TaskRunner:
             parameter_bounds,
             noise_model=experiment.true_signal.noise_model,
             lineshape=nv_lineshape_for_model(experiment.true_signal.model),
+            fixed_drive=experiment.true_signal.baseline_drive,
         )
 
         domain_width = float(
@@ -1204,7 +1220,7 @@ class _TaskRunner:
 
         locator = GenericSweepLocator(
             belief=belief,
-            signal_model=experiment.true_signal.model,
+            signal_model=experiment.true_signal.baseline_model,
             max_steps=max_steps,
             noise_std=noise_std,
             domain_lo=experiment.drive_freq_min_phys,
@@ -1375,7 +1391,10 @@ class _TaskRunner:
             # re-measuring the same physical positions with fresh noise.
             return round_to_dyadic_points(NVISION_SIMPLESWEEP_MAX_STEPS)
 
-        if locator_class.__name__ == "SequentialBayesianExperimentDesignLocator":
+        from nvision.sim.locs.bayesian.sbed_locator import SequentialBayesianExperimentDesignLocator
+
+        if issubclass(locator_class, SequentialBayesianExperimentDesignLocator):
+            # Includes the drive-choosing SBED subclass: same budget, so the comparison is fair.
             from nvision.sim.defaults import NVISION_SBED_STEPS_FRACTION
 
             return max(1, int(np.ceil(simplesweep_steps * NVISION_SBED_STEPS_FRACTION)))
@@ -1435,7 +1454,7 @@ class _TaskRunner:
         # For locators that require belief, add belief and signal_model
         if requires_belief:
             cfg["belief"] = _create_sweep_belief(experiment)
-            cfg["signal_model"] = experiment.true_signal.model
+            cfg["signal_model"] = experiment.true_signal.baseline_model
 
         precompute_sweep(locator_class, experiment, rng, self._sweep_cache, **cfg)
 
@@ -1520,6 +1539,10 @@ class _TaskRunner:
             "max_steps": max_steps,
             "parameter_bounds": self._injected_parameter_bounds(experiment),
         }
+        if is_bayesian and experiment.true_signal.model.controls_drive and not locator_class.CHOOSES_DRIVE:
+            # A Bayesian locator that does not choose the drive models the signal at the baseline drive
+            # every one of its measurements is taken at.
+            cfg["fixed_drive"] = experiment.true_signal.baseline_drive
         if requires_belief:
             cfg["noise_model"] = experiment.true_signal.noise_model
         if not is_bayesian:
@@ -1532,7 +1555,7 @@ class _TaskRunner:
                 cfg["signal_max_span"] = signal_max_span
             if requires_belief:
                 cfg["belief"] = _create_sweep_belief(experiment)
-                cfg["signal_model"] = experiment.true_signal.model
+                cfg["signal_model"] = experiment.true_signal.baseline_model
 
         # --- Pre-run CRLB feasibility gate (Bayesian locators only) -------
         # Uses true parameter values (oracle) to check whether ANY parameter's
@@ -1558,7 +1581,7 @@ class _TaskRunner:
             # ridge-dominated 1000, independent of the data.
             param_bounds_for_gate = self._injected_parameter_bounds(experiment)
             crlbs_gate = marginal_crlbs_at_budget(
-                model=experiment.true_signal.model,
+                model=experiment.true_signal.baseline_model,
                 true_typed_params=experiment.true_signal.typed_parameters,
                 x_lo=float(experiment.drive_freq_min_phys),
                 x_hi=float(experiment.drive_freq_max_phys),

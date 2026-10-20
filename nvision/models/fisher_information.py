@@ -266,8 +266,16 @@ class CumulativeFisher:
         self.unit_fim = np.zeros((len(self.names), len(self.names)), dtype=np.float64)
 
     def add(self, x: float, parameters: Any, obs: Observation | None) -> bool:
-        """Add the FIM of one observation at ``x``, evaluated at ``parameters``; False if no gradient exists."""
-        fim = unit_normalized_fim(self.model, parameters, x, obs, self.bounds)
+        """Add the FIM of one observation at ``x``, evaluated at ``parameters``; False if no gradient exists.
+
+        A drive-controlled model is evaluated at the observation's own drive.
+        """
+        model = self.model
+        if getattr(model, "controls_drive", False):  # duck-typed test models have no drive attribute
+            if obs is None or obs.drive is None:
+                raise ValueError("CumulativeFisher.add: a drive-controlled model needs the observation's drive.")
+            model = model.at_drive(obs.drive)
+        fim = unit_normalized_fim(model, parameters, x, obs, self.bounds)
         if fim is None:
             return False
         self.unit_fim += fim
