@@ -23,11 +23,16 @@ from tests.noise import gaussian_noise
 @pytest.mark.timeout(120)
 def test_bayesian_sbed_nv_updates_with_normalized_probe_and_physical_signal():
     rng = random.Random(11)
-    gen = NVCenterCoreGenerator(x_min=2.6e9, x_max=3.1e9, variant="lorentzian")
+    gen = NVCenterCoreGenerator(drive_freq_min_phys=2.6e9, drive_freq_max_phys=3.1e9, variant="lorentzian")
     true_signal = gen.generate(rng)
-    x_min, x_max = true_signal.get_param_bounds("center_freq")
-    assert x_min is not None
-    exp = CoreExperiment(true_signal=true_signal, noise=None, x_min=x_min, x_max=x_max)
+    drive_freq_min_phys, drive_freq_max_phys = true_signal.get_param_bounds("center_freq")
+    assert drive_freq_min_phys is not None
+    exp = CoreExperiment(
+        true_signal=true_signal,
+        noise=None,
+        drive_freq_min_phys=drive_freq_min_phys,
+        drive_freq_max_phys=drive_freq_max_phys,
+    )
     pb = {name: true_signal.get_param_bounds(name) for name in true_signal.parameter_names}
     cfg = {
         "builder": nv_center_smc_belief,
@@ -36,7 +41,7 @@ def test_bayesian_sbed_nv_updates_with_normalized_probe_and_physical_signal():
         "convergence_threshold": 0.15,
         "parameter_bounds": pb,
     }
-    final = Observer(true_signal, exp.x_min, exp.x_max).watch(
+    final = Observer(true_signal, exp.drive_freq_min_phys, exp.drive_freq_max_phys).watch(
         run_loop(SequentialBayesianExperimentDesignLocator, exp, rng, **cfg)
     )
     assert final.snapshots
@@ -86,7 +91,7 @@ def test_unit_cube_compute_vectorized_many_fast_dispatches_to_inner_fast():
     wrapped, inner = _make_unit_cube_nv_model()
     rng = np.random.default_rng(0)
     param_arrays = [rng.random(100).astype(np.float32) for _ in range(5)]
-    xs = rng.random(50).astype(np.float32)
+    drive_freqs_unit = rng.random(50).astype(np.float32)
 
     fast_calls: list[int] = []
     many_calls: list[int] = []
@@ -106,7 +111,7 @@ def test_unit_cube_compute_vectorized_many_fast_dispatches_to_inner_fast():
     inner.compute_vectorized_many = _track_many
 
     try:
-        wrapped.compute_vectorized_many_fast(xs, param_arrays)
+        wrapped.compute_vectorized_many_fast(drive_freqs_unit, param_arrays)
         assert len(fast_calls) == 1, "inner.compute_vectorized_many_fast was not called"
         assert len(many_calls) == 0, "compute_vectorized_many was called instead of fast variant"
     finally:
@@ -119,7 +124,7 @@ def test_unit_cube_compute_vectorized_many_dispatches_to_inner_exact():
     wrapped, inner = _make_unit_cube_nv_model()
     rng = np.random.default_rng(1)
     param_arrays = [rng.random(100).astype(np.float32) for _ in range(5)]
-    xs = rng.random(50).astype(np.float32)
+    drive_freqs_unit = rng.random(50).astype(np.float32)
 
     fast_calls: list[int] = []
     many_calls: list[int] = []
@@ -139,7 +144,7 @@ def test_unit_cube_compute_vectorized_many_dispatches_to_inner_exact():
     inner.compute_vectorized_many = _track_many
 
     try:
-        wrapped.compute_vectorized_many(xs, param_arrays)
+        wrapped.compute_vectorized_many(drive_freqs_unit, param_arrays)
         assert len(many_calls) == 1, "inner.compute_vectorized_many was not called"
         assert len(fast_calls) == 0, "fast kernel was called from exact path"
     finally:
@@ -152,10 +157,10 @@ def test_unit_cube_fast_and_exact_outputs_are_close():
     wrapped, _ = _make_unit_cube_nv_model()
     rng = np.random.default_rng(2)
     param_arrays = [rng.random(200).astype(np.float32) for _ in range(5)]
-    xs = rng.random(100).astype(np.float32)
+    drive_freqs_unit = rng.random(100).astype(np.float32)
 
-    out_exact = wrapped.compute_vectorized_many(xs, param_arrays)
-    out_fast = wrapped.compute_vectorized_many_fast(xs, param_arrays)
+    out_exact = wrapped.compute_vectorized_many(drive_freqs_unit, param_arrays)
+    out_fast = wrapped.compute_vectorized_many_fast(drive_freqs_unit, param_arrays)
 
     assert out_exact.shape == out_fast.shape
     np.testing.assert_allclose(out_fast, out_exact, rtol=1e-4, atol=1e-6)

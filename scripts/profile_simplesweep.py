@@ -20,15 +20,20 @@ from nvision import CoreExperiment, GenericSweepLocator, NVCenterCoreGenerator, 
 
 
 def make_experiment(rng: random.Random) -> CoreExperiment:
-    gen = NVCenterCoreGenerator(x_min=2.6e9, x_max=3.1e9, variant="lorentzian")
+    gen = NVCenterCoreGenerator(drive_freq_min_phys=2.6e9, drive_freq_max_phys=3.1e9, variant="lorentzian")
     true_signal = gen.generate(rng)
-    x_min, x_max = None, None
+    drive_freq_min_phys, drive_freq_max_phys = None, None
     for name in true_signal.parameter_names:
         if "center_freq" in name:
-            x_min, x_max = true_signal.get_param_bounds(name)
+            drive_freq_min_phys, drive_freq_max_phys = true_signal.get_param_bounds(name)
             break
-    assert x_min is not None
-    return CoreExperiment(true_signal=true_signal, noise=None, x_min=x_min, x_max=x_max)
+    assert drive_freq_min_phys is not None
+    return CoreExperiment(
+        true_signal=true_signal,
+        noise=None,
+        drive_freq_min_phys=drive_freq_min_phys,
+        drive_freq_max_phys=drive_freq_max_phys,
+    )
 
 
 def run_sweep(exp: CoreExperiment, rng: random.Random, n_steps: int) -> None:
@@ -58,8 +63,8 @@ print(stream.getvalue())
 
 exp2 = make_experiment(random.Random(99))
 xs_norm = np.linspace(0.0, 1.0, N)
-x_min, x_max = exp2.x_min, exp2.x_max
-xs_phys = x_min + xs_norm * (x_max - x_min)
+drive_freq_min_phys, drive_freq_max_phys = exp2.drive_freq_min_phys, exp2.drive_freq_max_phys
+xs_phys = drive_freq_min_phys + xs_norm * (drive_freq_max_phys - drive_freq_min_phys)
 
 # Time the scalar measure loop (current behavior)
 t0 = time.perf_counter()

@@ -43,7 +43,7 @@ def _build_locator(domain_lo=2.82, domain_hi=2.92, n_steps=100) -> GenericSweepL
         unit_model,
         num_particles=50,
         physical_param_bounds=unit_model.param_bounds_phys,
-        physical_x_bounds=(domain_lo, domain_hi),
+        drive_freq_bounds_phys=(domain_lo, domain_hi),
         noise_model=gaussian_noise(),
     )
     return GenericSweepLocator(
@@ -82,12 +82,12 @@ def _inject_sweep_data(
     domain_lo = locator._domain_lo
     domain_hi = locator._domain_hi
     n = locator.max_steps
-    xs_norm = np.linspace(0.0, 1.0, n)
-    for x_norm in xs_norm:
-        x_phys = domain_lo + x_norm * (domain_hi - domain_lo)
-        y_true = float(phys_model.compute(x_phys, true_params))
+    drive_freqs_unit = np.linspace(0.0, 1.0, n)
+    for drive_freq_unit in drive_freqs_unit:
+        drive_freq_phys = domain_lo + drive_freq_unit * (domain_hi - domain_lo)
+        y_true = float(phys_model.compute(drive_freq_phys, true_params))
         y_obs = y_true + rng.normal(0, noise_std)
-        obs = Observation(x=x_norm, signal_value=y_obs, noise_std=noise_std)
+        obs = Observation(drive_freq_unit=drive_freq_unit, signal_value=y_obs, noise_std=noise_std)
         locator.history.append(obs)
         locator._pending_obs.append(obs)
     # step_count drives effective_step_count(); set it so metrics are computed correctly.
@@ -101,7 +101,7 @@ def _build_locator_for(model, bounds, domain_lo, domain_hi, n_steps=100, noise_s
         unit_model,
         num_particles=50,
         physical_param_bounds=unit_model.param_bounds_phys,
-        physical_x_bounds=(domain_lo, domain_hi),
+        drive_freq_bounds_phys=(domain_lo, domain_hi),
         noise_model=gaussian_noise(),
     )
     return GenericSweepLocator(
@@ -119,12 +119,12 @@ def _inject_sweep_data_for(locator, model, true_params, noise_std, seed=1) -> No
     rng = default_rng(seed)
     domain_lo, domain_hi = locator._domain_lo, locator._domain_hi
     n = locator.max_steps
-    xs_norm = np.linspace(0.0, 1.0, n)
-    for x_norm in xs_norm:
-        x_phys = domain_lo + x_norm * (domain_hi - domain_lo)
-        y_true = float(model.compute(x_phys, true_params))
+    drive_freqs_unit = np.linspace(0.0, 1.0, n)
+    for drive_freq_unit in drive_freqs_unit:
+        drive_freq_phys = domain_lo + drive_freq_unit * (domain_hi - domain_lo)
+        y_true = float(model.compute(drive_freq_phys, true_params))
         y_obs = y_true + rng.normal(0, noise_std)
-        obs = Observation(x=x_norm, signal_value=y_obs, noise_std=noise_std)
+        obs = Observation(drive_freq_unit=drive_freq_unit, signal_value=y_obs, noise_std=noise_std)
         locator.history.append(obs)
         locator._pending_obs.append(obs)
     locator.step_count = n
@@ -227,8 +227,8 @@ def test_sweep_fit_via_run_loop():
     exp = CoreExperiment(
         true_signal=true_signal,
         noise=CompositeNoise(),
-        x_min=2.8,
-        x_max=2.9,
+        drive_freq_min_phys=2.8,
+        drive_freq_max_phys=2.9,
     )
 
     rng = random.Random(42)
@@ -238,8 +238,8 @@ def test_sweep_fit_via_run_loop():
         exp,
         rng,
         max_steps=150,
-        domain_lo=exp.x_min,
-        domain_hi=exp.x_max,
+        domain_lo=exp.drive_freq_min_phys,
+        domain_hi=exp.drive_freq_max_phys,
         parameter_bounds=bounds,
     ):
         locator = loc
@@ -456,7 +456,9 @@ def test_sweep_fit_raises_when_bounds_incomplete():
         typed_parameters=true_params,
         bounds={"center_freq": (2.8, 2.9)},
     )
-    exp = CoreExperiment(true_signal=true_signal, noise=CompositeNoise(), x_min=2.8, x_max=2.9)
+    exp = CoreExperiment(
+        true_signal=true_signal, noise=CompositeNoise(), drive_freq_min_phys=2.8, drive_freq_max_phys=2.9
+    )
 
     rng = random.Random(42)
     locator = None
@@ -467,9 +469,9 @@ def test_sweep_fit_raises_when_bounds_incomplete():
         exp,
         rng,
         max_steps=50,
-        domain_lo=exp.x_min,
-        domain_hi=exp.x_max,
-        parameter_bounds={"center_freq": (exp.x_min, exp.x_max)},
+        domain_lo=exp.drive_freq_min_phys,
+        domain_hi=exp.drive_freq_max_phys,
+        parameter_bounds={"center_freq": (exp.drive_freq_min_phys, exp.drive_freq_max_phys)},
     ):
         locator = loc
 
@@ -532,11 +534,11 @@ def test_sweep_then_fit_finds_good_fit_at_low_snr(seed):
     rng = default_rng(seed)
     domain_width = domain_hi - domain_lo
     while not locator.done():
-        x_norm = locator.next()
-        x_phys = domain_lo + x_norm * domain_width
-        y_true = float(model.compute(x_phys, true_params))
+        drive_freq_unit = locator.next_drive_freq_unit()
+        drive_freq_phys = domain_lo + drive_freq_unit * domain_width
+        y_true = float(model.compute(drive_freq_phys, true_params))
         y_obs = y_true + rng.normal(0, noise_std)
-        locator.observe(Observation(x=x_norm, signal_value=y_obs, noise_std=noise_std))
+        locator.observe(Observation(drive_freq_unit=drive_freq_unit, signal_value=y_obs, noise_std=noise_std))
 
     locator.finalize()
     res = locator.result()

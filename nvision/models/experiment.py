@@ -31,9 +31,9 @@ class CoreExperiment:
         Ground truth signal to measure
     noise : CompositeNoise | None
         Noise model to apply to measurements
-    x_min : float
+    drive_freq_min_phys : float
         Physical domain minimum
-    x_max : float
+    drive_freq_max_phys : float
         Physical domain maximum
     drift : DriftTrajectory | None
         This repeat's realization of ``noise.drift`` (see
@@ -43,8 +43,8 @@ class CoreExperiment:
 
     true_signal: TrueSignal
     noise: CompositeNoise | None
-    x_min: float
-    x_max: float
+    drive_freq_min_phys: float
+    drive_freq_max_phys: float
     drift: DriftTrajectory | None = None
 
     def frequency_noise_model(self) -> tuple[dict[str, object], ...] | None:
@@ -62,7 +62,7 @@ class CoreExperiment:
 
     def measure(
         self,
-        x_normalized: float,
+        drive_freq_unit: float,
         rng: random.Random,
         n_shots: int = 1,
         shot_index: int | None = None,
@@ -71,7 +71,7 @@ class CoreExperiment:
 
         Parameters
         ----------
-        x_normalized : float
+        drive_freq_unit : float
             Position in [0, 1] normalized space
         rng : random.Random
             Random number generator for noise
@@ -94,11 +94,11 @@ class CoreExperiment:
             raise ValueError(f"n_shots must be >= 1, got {n_shots}")
 
         # Denormalize to physical domain
-        width = self.x_max - self.x_min
-        x_physical = self.x_min + x_normalized * width
+        width = self.drive_freq_max_phys - self.drive_freq_min_phys
+        x_physical = self.drive_freq_min_phys + drive_freq_unit * width
 
         if self.drift is not None or (self.noise is not None and self.noise.drift is not None):
-            return self._measure_drifting(x_normalized, x_physical, rng, n_shots, shot_index)
+            return self._measure_drifting(drive_freq_unit, x_physical, rng, n_shots, shot_index)
 
         # Get true (clean) signal value
         signal_value = self.true_signal(x_physical)
@@ -123,7 +123,7 @@ class CoreExperiment:
 
         # Aggregate into a single sufficient-statistic Observation (normalized space)
         return aggregate_shots(
-            x=x_normalized,
+            drive_freq_unit=drive_freq_unit,
             ys=shots,
             prior_noise_std=noise_std,
             frequency_noise_model=frequency_noise_model,
@@ -131,7 +131,7 @@ class CoreExperiment:
 
     def _measure_drifting(
         self,
-        x_normalized: float,
+        drive_freq_unit: float,
         x_physical: float,
         rng: random.Random,
         n_shots: int,
@@ -163,7 +163,7 @@ class CoreExperiment:
                 shots[i] = clean
 
         return aggregate_shots(
-            x=x_normalized,
+            drive_freq_unit=drive_freq_unit,
             ys=shots,
             prior_noise_std=noise_std,
             frequency_noise_model=frequency_noise_model,
@@ -180,6 +180,6 @@ class CoreExperiment:
         values = self.true_signal.parameter_values()
         return [value for name, value in values.items() if "center_freq" in name or "position" in name]
 
-    def denormalize_x(self, x_normalized: float) -> float:
+    def denormalize_drive_freq(self, drive_freq_unit: float) -> float:
         """Convert normalized x to physical domain."""
-        return self.x_min + x_normalized * (self.x_max - self.x_min)
+        return self.drive_freq_min_phys + drive_freq_unit * (self.drive_freq_max_phys - self.drive_freq_min_phys)

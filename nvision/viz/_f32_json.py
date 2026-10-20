@@ -7,13 +7,13 @@ Numeric arrays are stored as little-endian binary, base64-encoded, under one of:
   [0, 1] range first, tried when raw float16 would overflow or be too coarse
 - ``__f32__``  — float32 fallback, used whenever float16 (raw or rescaled) would
   merge two originally-distinguishable values (e.g. a dense, narrow-range
-  probe axis where adjacent points differ by far less than the array's span)
+  drive-frequency axis where adjacent points differ by far less than the array's span)
 
 The choice is made per-array by actually attempting float16 and checking the
 round-trip error against the array's own finest gap between distinct values —
 not by guessing from the field name. This keeps arrays like probability
 weights, particle clouds, and signal curves small while leaving arrays that
-need it (e.g. a physical-Hz probe-axis grid) at full float32 precision.
+need it (e.g. a physical-Hz drive-frequency grid) at full float32 precision.
 
 The JS decoder in plotly-utils.js converts all three encodings back to a
 Float32Array that Plotly.js accepts natively.
@@ -61,7 +61,7 @@ def _f16_tolerance(finite: np.ndarray, lo: float, hi: float, overflowed: bool) -
     """Max reconstruction error we're willing to accept for this array.
 
     ``overflowed`` means raw float16 can't even hold the array's magnitude (e.g. a
-    probe axis in raw Hz, ~1e9) -- that's the signature of an unscaled physical
+    drive-frequency axis in raw Hz, ~1e9) -- that's the signature of an unscaled physical
     coordinate, not a plotted value (this codebase always pre-scales physical
     parameters like linewidth/zeeman_split down to O(1-100) before serializing them,
     so anything that still overflows float16 is coordinate-scale by construction).

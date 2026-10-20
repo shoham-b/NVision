@@ -123,7 +123,7 @@ class GridStudyMixin:
         noise_label = f"sigma={noise_key:g}" if isinstance(noise_key, int | float) else str(noise_key)
         payload = {
             "_graph_type": "heatmap",
-            "title": f"Steps to freq. convergence — {strat} ({noise_label})",
+            "title": f"Steps to primary convergence — {strat} ({noise_label})",
             "xaxis_title": x_label,
             "yaxis_title": y_label,
             "x": xs,
@@ -185,9 +185,9 @@ class GridStudyMixin:
 
         payload = {
             "_graph_type": "chart",
-            "title": f"Steps to freq. convergence vs noise — {strat}",
+            "title": f"Steps to primary convergence vs noise — {strat}",
             "xaxis_title": "Noise sigma",
-            "yaxis_title": "Median steps to freq. convergence (converged repeats)",
+            "yaxis_title": "Median steps to primary convergence (converged repeats)",
             "mode": "lines+markers",
             "series": series,
         }

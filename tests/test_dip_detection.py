@@ -145,22 +145,22 @@ def test_sorted_observation_arrays_lazy_incremental_across_calls():
 
 def test_belief_sorted_observations_stay_consistent_across_updates_and_resamples():
     # End-to-end: many updates with forced resamples (each triggers dip detection via
-    # _generate_epoch_candidate_x -> sorted_observation_arrays with assume_sorted=True),
+    # _generate_epoch_candidate_drive_freq -> sorted_observation_arrays with assume_sorted=True),
     # so the fail-fast "not ascending" ValueError would surface if sorting ever drifted.
     from nvision.models.observation import Observation
     from nvision.spectra.noise_model import GaussianNoiseSignalModel
 
     noise_model = GaussianNoiseSignalModel(prior_bounds={"noise_sigma": (0.01, 0.05)})
     b = nv_center_smc_belief(num_particles=100, noise_model=noise_model, with_fixed_center_freq=False)
-    axis_before = (b.physical_x_bounds, dict(b.physical_param_bounds))
+    axis_before = (b.drive_freq_bounds_phys, dict(b.physical_param_bounds))
 
     rng = np.random.default_rng(123)
     for i in range(60):
-        b.update(Observation(x=float(rng.uniform(0.0, 1.0)), signal_value=float(rng.uniform(0.5, 1.0))))
+        b.update(Observation(drive_freq_unit=float(rng.uniform(0.0, 1.0)), signal_value=float(rng.uniform(0.5, 1.0))))
         if i % 10 == 9:
             b._resample()
 
-    assert (b.physical_x_bounds, dict(b.physical_param_bounds)) == axis_before
+    assert (b.drive_freq_bounds_phys, dict(b.physical_param_bounds)) == axis_before
     xs_sorted, _ = b.sorted_observation_arrays()
     xs_raw, _ = b.observation_arrays()
     assert np.array_equal(xs_sorted, np.sort(xs_raw))
@@ -196,7 +196,7 @@ def test_noise_sigma_updates_every_update_but_dip_detection_only_upon_resampling
     # 1. Update with a high-noise observation.
     # The noise estimate MUST change immediately because noise is updated on every update().
     # However, dip centers must remain empty because dip detection only runs upon resampling.
-    obs = Observation(x=0.5, signal_value=0.5)
+    obs = Observation(drive_freq_unit=0.5, signal_value=0.5)
     b.update(obs)
 
     post_update_noise_std = b.estimated_noise_std()

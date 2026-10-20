@@ -241,15 +241,25 @@ class AbstractMarginalDistribution(ABC):
         for obs in observations:
             self.update(obs)
 
-    def get_candidate_x_phys(self) -> np.ndarray:
+    @property
+    def drive_freq_bounds_phys(self) -> tuple[float, float]:
+        """Full drive-frequency range ``(min, max)`` in Hz that candidates may be drawn from.
+
+        Default for beliefs that live in physical space: the first parameter's bounds. The unit-cube SMC
+        belief overrides this with its own fixed field.
+        """
+        lo_phys, hi_phys = self.physical_param_bounds[self.model.parameter_names()[0]]
+        return float(lo_phys), float(hi_phys)
+
+    def get_candidate_drive_freq_phys(self) -> np.ndarray:
         """Return candidate measurement positions for acquisition selection.
 
         Subclasses override this to implement custom grid generation logic (e.g.
         epoch-based grids, slope-targeted grids, etc.). If not overridden,
         returns a default linear grid based on model spans.
         """
-        lo, hi = self.physical_param_bounds[self.model.parameter_names()[0]]
-        return np.linspace(lo, hi, 100)
+        lo_phys, hi_phys = self.drive_freq_bounds_phys
+        return np.linspace(lo_phys, hi_phys, 100)
 
     def _to_physical(self, param_name: str, val: float) -> float:
         """Convert an internal coordinate back to physical space.

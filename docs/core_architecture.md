@@ -29,7 +29,7 @@ A critical design feature of the inference engine is the strict separation betwe
 
 - **Unit Normalized Parameters (`[0, 1]`)**: The core SMC engine and likelihood algorithms operate strictly on the unit-cube `[0, 1]`. This ensures uniform convergence thresholds, prevents scale imbalances during multidimensional acquisition optimizations, and makes the core algorithms completely agnostic to the underlying physical dimensions.
 - **Physically Scaled Parameters**: The physical bounds and scaling logic are abstracted away from the core particle math.
-- **`SMCMarginalDistribution`**: Particles and likelihoods live on the unit cube, while the public summaries (`.estimates()`, `.uncertainty()`, covariance matrices, `.get_candidate_x_phys()`) transparently denormalize back into physical scales for the CLI monitors and UI plots. The probe axis is always the full domain; which part of it may be scanned (the focus) is owned by the locator, not the belief.
+- **`SMCMarginalDistribution`**: Particles and likelihoods live on the unit cube, while the public summaries (`.estimates()`, `.uncertainty()`, covariance matrices, `.get_candidate_drive_freq_phys()`) transparently denormalize back into physical scales for the CLI monitors and UI plots. The drive-frequency axis is always the full domain; which part of it may be scanned (the focus) is owned by the locator, not the belief.
 
 ### 4. Sequential Bayesian Experiment Design (SBED)
 
@@ -37,7 +37,7 @@ The flagship locator strategy is the SBED locator (`nvision/sim/locs/bayesian/sb
 
 - **Prior Initialization**: When a simulation starts, the generator provides the deterministic parameter boundaries. To ensure efficient convergence, the SBED locator does not use flat uniform priors — particles are initialized using dynamically narrowed **Gaussian priors** drawn around the underlying values, sized via `PRIOR_STD_FRACTION` (`nvision/spectra/nv_center.py`). `center_freq` itself is fixed by default (see above), so in the default configuration it is not part of this randomized initialization at all — only the free shape parameters (linewidth, split, hyperfine, contrast, and `center_freq` itself when a locator explicitly enables `with_fixed_center_freq=False`) are.
   The prior's *mean* is itself a random draw, `gauss(true_value, PRIOR_STD_FRACTION-width * PRIOR_MEAN_OFFSET_SIGMAS)` — deliberately wider than the prior's own reported std (default multiplier 3.0), so the prior is usually centered a couple of sigma away from the true value rather than suspiciously close to it, simulating a real experimentalist's imperfect calibration guess instead of implicitly leaking the answer. Particle sampling truncates (not clips) to the parameter's physical bounds, so an out-of-range prior mean is handled correctly rather than collapsing particles onto the boundary (see `_sample_truncated_normal` in `nvision/belief/smc_marginal.py`).
-- **Acquisition Strategy**: The locator iteratively proposes new experimental coordinates (e.g., candidate_x points) that are explicitly calculated to maximize the expected information gain (reducing the entropy) of the particle cloud.
+- **Acquisition Strategy**: The locator iteratively proposes new experimental coordinates (e.g., candidate_drive_freq points) that are explicitly calculated to maximize the expected information gain (reducing the entropy) of the particle cloud.
 
 ---
 

@@ -3,7 +3,7 @@
 The default NV model is Zeeman-split: two identical dips at
 ``center_freq +/- zeeman_split``. High-EIG acquisition candidates must concentrate near *both* real dip
 locations and avoid the empty gap between them -- verified by ranking ``expected_information_gain``
-over ``get_candidate_x_phys()``, not by raw candidate density (the baseline term deliberately keeps a
+over ``get_candidate_drive_freq_phys()``, not by raw candidate density (the baseline term deliberately keeps a
 sparse, uniform background of low-value candidates everywhere, as a hedge against a wrong belief;
 EIG-argmax selection is what actually determines where the locator measures).
 
@@ -45,7 +45,7 @@ class TestGapAwareAcquisition:
 
         _concentrate_and_resample(smc, f0, delta0, seed=0, n=2000)
 
-        cands = smc.get_candidate_x_phys()
+        cands = smc.get_candidate_drive_freq_phys()
         eig = smc.expected_information_gain(cands)
         order = np.argsort(eig)[::-1]
 

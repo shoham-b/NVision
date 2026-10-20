@@ -33,7 +33,7 @@ def test_acquire_explores_uniformly_over_the_full_probe_axis_when_the_draw_is_lo
     loc.inference_step_count = 0
     loc.belief._rng = _FixedRng(0.0)
     loc._eig_acquire = lambda: pytest.fail("EIG must be skipped on an explore step")
-    lo, hi = loc.belief.physical_x_bounds
+    lo, hi = loc.belief.drive_freq_bounds_phys
     assert loc._acquire() == 0.5 * (lo + hi)
 
 

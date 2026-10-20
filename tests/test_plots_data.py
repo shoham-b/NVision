@@ -507,9 +507,9 @@ class TestWriteConvergenceMetricsData:
             param_bounds={"center_freq": (2.6e9, 3.1e9), "linewidth": (1e6, 20e6)},
         )
         data = _load(out)
-        probe_lo_phys, probe_hi_phys = data["param_bounds"]["center_freq"]
-        assert abs(probe_lo_phys - 2.6) < 1e-9
-        assert abs(probe_hi_phys - 3.1) < 1e-9
+        drive_freq_min_phys, drive_freq_max_phys = data["param_bounds"]["center_freq"]
+        assert abs(drive_freq_min_phys - 2.6) < 1e-9
+        assert abs(drive_freq_max_phys - 3.1) < 1e-9
         lw_lo, lw_hi = data["param_bounds"]["linewidth"]
         assert abs(lw_lo - 1.0) < 1e-9
         assert abs(lw_hi - 20.0) < 1e-9

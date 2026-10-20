@@ -22,8 +22,8 @@ from nvision.cli.app_instance import app
 from nvision.runner.cache import strip_heavy_fields
 from nvision.sim.combinations import CombinationGrid
 from nvision.sim.gen.nv_center_generator import (
-    DEFAULT_NV_PROBE_X_MAX,
-    DEFAULT_NV_PROBE_X_MIN,
+    DEFAULT_NV_DRIVE_FREQ_MAX_PHYS,
+    DEFAULT_NV_DRIVE_FREQ_MIN_PHYS,
 )
 from nvision.tools.artifacts import (
     prepare_artifact_tree,
@@ -325,8 +325,8 @@ def recalc_metrics(
             experiment = CoreExperiment(
                 true_signal=true_signal,
                 noise=combo.noise,
-                x_min=DEFAULT_NV_PROBE_X_MIN,
-                x_max=DEFAULT_NV_PROBE_X_MAX,
+                drive_freq_min_phys=DEFAULT_NV_DRIVE_FREQ_MIN_PHYS,
+                drive_freq_max_phys=DEFAULT_NV_DRIVE_FREQ_MAX_PHYS,
             )
             truth_positions = _truth_positions(experiment)
 

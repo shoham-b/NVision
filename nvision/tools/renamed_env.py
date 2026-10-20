@@ -1,4 +1,4 @@
-"""Fail-fast guard for environment variables that were renamed in the center_freq / probe-axis disambiguation.
+"""Fail-fast guard for environment variables that were renamed in the center_freq / drive_freq disambiguation.
 
 An old name that is still set (shell or ``.env``) would otherwise be silently ignored and the default
 used instead, so a tuned value would vanish without any visible error. Every module that reads one of
@@ -15,7 +15,8 @@ from dotenv import load_dotenv
 RENAMED_ENV_VARS: dict[str, str] = {
     "NVISION_FREQ_CONVERGENCE_THRESHOLD": "NVISION_CENTER_FREQ_CONVERGENCE_THRESHOLD",
     "NVISION_FREQ_CRLB_SAFETY_FACTOR": "NVISION_CENTER_FREQ_CRLB_SAFETY_FACTOR",
-    "NVISION_NV_CENTER_FREQ_DELTA_HZ": "NVISION_NV_PROBE_DELTA_HZ",
+    "NVISION_NV_CENTER_FREQ_DELTA_HZ": "NVISION_NV_DRIVE_FREQ_DELTA_HZ",
+    "NVISION_NV_PROBE_DELTA_HZ": "NVISION_NV_DRIVE_FREQ_DELTA_HZ",
     "NVISION_SWEEP_FIT_FREQ_STARTS": "NVISION_SWEEP_FIT_CENTER_FREQ_STARTS",
 }
 

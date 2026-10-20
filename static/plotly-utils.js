@@ -306,7 +306,7 @@ function _paramLetterFor(trueParams, candidates) {
     return '';
 }
 
-// A locator that revisits the same discrete probe bin (e.g. matlab-run cycling
+// A locator that revisits the same discrete drive-frequency bins (e.g. matlab-run cycling
 // through a real .mat file's per-shot data one shot at a time) plots several dots at
 // the *exact* same x. Left alone they just stack invisibly on top of each other with
 // no visual cue they're the same bin. Group them into one vertical stem per unique x
@@ -477,7 +477,7 @@ function _buildScanFigure(def, data) {
                 }, sa));
             }
         } else if (m.mode === 'steps') {
-            // A real acquisition (e.g. MATLAB replay) scans every probe point once per
+            // A real acquisition (e.g. MATLAB replay) scans every drive-frequency points once per
             // sweep, then scans them all again — sweep_index is that real time axis, and
             // is a truer color than the locator's own adaptive visit order (`step`), which
             // can revisit one bin many sweeps apart from the next. Use it when present.

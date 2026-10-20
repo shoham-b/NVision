@@ -388,7 +388,9 @@ def test_task_runner_resume_and_override(tmp_path: Path, monkeypatch):
     from nvision.sim.combinations import Combination
     from nvision.sim.gen.nv_center_generator import NVCenterCoreGenerator
 
-    sig = NVCenterCoreGenerator(x_min=2.6e9, x_max=3.1e9, variant="lorentzian", with_zeeman_splitting=False)
+    sig = NVCenterCoreGenerator(
+        drive_freq_min_phys=2.6e9, drive_freq_max_phys=3.1e9, variant="lorentzian", with_zeeman_splitting=False
+    )
     noise = CompositeNoise(over_frequency_noise=CompositeOverFrequencyNoise([OverFrequencyGaussianNoise(0.01)]))
     combo = Combination(
         generator=sig,
@@ -685,7 +687,9 @@ def test_cache_miss_explanations(tmp_path: Path, caplog):
     from nvision.sim.combinations import Combination
     from nvision.sim.gen.nv_center_generator import NVCenterCoreGenerator
 
-    sig = NVCenterCoreGenerator(x_min=2.6e9, x_max=3.1e9, variant="lorentzian", with_zeeman_splitting=False)
+    sig = NVCenterCoreGenerator(
+        drive_freq_min_phys=2.6e9, drive_freq_max_phys=3.1e9, variant="lorentzian", with_zeeman_splitting=False
+    )
     noise = CompositeNoise(over_frequency_noise=CompositeOverFrequencyNoise([OverFrequencyGaussianNoise(0.01)]))
     combo = Combination(
         generator=sig,
@@ -839,7 +843,9 @@ def test_schema_version_8_fallback(tmp_path: Path, caplog):
     from nvision.sim.combinations import Combination
     from nvision.sim.gen.nv_center_generator import NVCenterCoreGenerator
 
-    sig = NVCenterCoreGenerator(x_min=2.6e9, x_max=3.1e9, variant="lorentzian", with_zeeman_splitting=False)
+    sig = NVCenterCoreGenerator(
+        drive_freq_min_phys=2.6e9, drive_freq_max_phys=3.1e9, variant="lorentzian", with_zeeman_splitting=False
+    )
     noise = CompositeNoise(over_frequency_noise=CompositeOverFrequencyNoise([OverFrequencyGaussianNoise(0.01)]))
     combo = Combination(
         generator=sig,
@@ -945,7 +951,9 @@ def test_restore_cached_results_does_not_materialize_graphs_to_disk(tmp_path: Pa
     from nvision.sim.combinations import Combination
     from nvision.sim.gen.nv_center_generator import NVCenterCoreGenerator
 
-    sig = NVCenterCoreGenerator(x_min=2.6e9, x_max=3.1e9, variant="lorentzian", with_zeeman_splitting=False)
+    sig = NVCenterCoreGenerator(
+        drive_freq_min_phys=2.6e9, drive_freq_max_phys=3.1e9, variant="lorentzian", with_zeeman_splitting=False
+    )
     noise = CompositeNoise(over_frequency_noise=CompositeOverFrequencyNoise([OverFrequencyGaussianNoise(0.01)]))
     combo = Combination(
         generator=sig,
@@ -1047,7 +1055,9 @@ def test_task_runner_dry_run(tmp_path: Path, monkeypatch):
     from nvision.sim.combinations import Combination
     from nvision.sim.gen.nv_center_generator import NVCenterCoreGenerator
 
-    sig = NVCenterCoreGenerator(x_min=2.6e9, x_max=3.1e9, variant="lorentzian", with_zeeman_splitting=False)
+    sig = NVCenterCoreGenerator(
+        drive_freq_min_phys=2.6e9, drive_freq_max_phys=3.1e9, variant="lorentzian", with_zeeman_splitting=False
+    )
     noise = CompositeNoise(over_frequency_noise=CompositeOverFrequencyNoise([OverFrequencyGaussianNoise(0.01)]))
     combo = Combination(
         generator=sig,

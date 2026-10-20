@@ -189,32 +189,38 @@ def testfisher_history_bounds_are_dicts_not_ndarrays() -> None:
 
     model = _SimpleGaussModel()
     param_names = model.parameter_names()
-    xs = np.linspace(0.2, 0.8, 10)
+    drive_freqs_unit = np.linspace(0.2, 0.8, 10)
     true_params = _GaussParams(amplitude=0.5, center=0.5)
     snapshots = [
         SimpleNamespace(
-            obs=Observation(x=float(x), signal_value=model.compute_from_params(float(x), true_params), noise_std=0.01),
+            obs=Observation(
+                drive_freq_unit=float(drive_freq_unit),
+                signal_value=model.compute_from_params(float(drive_freq_unit), true_params),
+                noise_std=0.01,
+            ),
             belief=SimpleNamespace(model=model),
         )
-        for x in xs
+        for drive_freq_unit in drive_freqs_unit
     ]
     # estimates_hist is belief.estimates()'s contract: dict[str, float], not the
     # model's typed params object -- fisher_history converts internally.
-    estimates_hist = [dict(zip(param_names, model.spec.pack_params(true_params), strict=True)) for _ in xs]
+    estimates_hist = [
+        dict(zip(param_names, model.spec.pack_params(true_params), strict=True)) for _ in drive_freqs_unit
+    ]
     physical_bounds = {"amplitude": (0.0, 1.0), "center": (0.0, 1.0)}
 
     fisher_hist, fisher_bounds_hist, fim_is_degenerate = fisher_history(
-        snapshots, estimates_hist, param_names, physical_bounds
+        snapshots, estimates_hist, param_names, physical_bounds, (0.0, 1.0)
     )
 
     assert not fim_is_degenerate
-    assert len(fisher_bounds_hist) == len(fisher_hist) == len(xs)
+    assert len(fisher_bounds_hist) == len(fisher_hist) == len(drive_freqs_unit)
     for bounds in fisher_bounds_hist:
         assert isinstance(bounds, dict), f"expected dict, got {type(bounds)}"
         assert set(bounds) == set(param_names)
         assert all(math.isfinite(v) and v > 0 for v in bounds.values())
 
-    actual_uncertainty_hist = [dict.fromkeys(param_names, 0.05) for _ in xs]
+    actual_uncertainty_hist = [dict.fromkeys(param_names, 0.05) for _ in drive_freqs_unit]
     data = write_fisher_data(fisher_bounds_hist, actual_uncertainty_hist, fisher_hist, param_names)
     assert data is not None
 
@@ -244,21 +250,28 @@ def testfisher_history_normalizes_across_wildly_different_scales() -> None:
         "k_np": (0.1, 10.0),
         "c_total": (0.0, 1.0),
     }
-    xs = np.linspace(2.8e9, 2.94e9, 40)
+    drive_freq_bounds_phys = (2.8e9, 2.94e9)
+    drive_freqs_phys = np.linspace(*drive_freq_bounds_phys, 40)
 
     def _fisher_bounds_for_noise(noise_std: float) -> dict[str, float]:
         snapshots = [
             SimpleNamespace(
-                obs=Observation(x=float(x), signal_value=model.compute(float(x), true_params), noise_std=noise_std),
+                obs=Observation(
+                    drive_freq_unit=float((drive_freq_phys - drive_freq_bounds_phys[0]) / 1.4e8),
+                    signal_value=model.compute(float(drive_freq_phys), true_params),
+                    noise_std=noise_std,
+                ),
                 belief=SimpleNamespace(model=model),
             )
-            for x in xs
+            for drive_freq_phys in drive_freqs_phys
         ]
         # estimates_hist is belief.estimates()'s contract: dict[str, float], not the
         # model's typed params object -- fisher_history converts internally.
-        estimates_hist = [dict(zip(param_names, model.spec.pack_params(true_params), strict=True)) for _ in xs]
+        estimates_hist = [
+            dict(zip(param_names, model.spec.pack_params(true_params), strict=True)) for _ in drive_freqs_phys
+        ]
         _, fisher_bounds_hist, fim_is_degenerate = fisher_history(
-            snapshots, estimates_hist, param_names, physical_bounds
+            snapshots, estimates_hist, param_names, physical_bounds, drive_freq_bounds_phys
         )
         assert not fim_is_degenerate
         return fisher_bounds_hist[-1]
@@ -398,7 +411,7 @@ def _make_sbed_locator(max_steps: int = 500):
         parameter_bounds=param_bounds,
         num_particles=50,
         physical_param_bounds=phys_bounds,
-        physical_x_bounds=x_bounds,
+        drive_freq_bounds_phys=x_bounds,
         noise_model=gaussian_noise(),
     )
     return SequentialBayesianExperimentDesignLocator(belief=belief, max_steps=max_steps)
@@ -445,7 +458,7 @@ def test_crlb_stop_needs_consecutive_primary_passes() -> None:
 
     locator = _make_sbed_locator()
     for x in np.linspace(0.05, 0.95, 12):
-        locator.belief.update(Observation(x=float(x), signal_value=0.97, noise_std=0.02))
+        locator.belief.update(Observation(drive_freq_unit=float(x), signal_value=0.97, noise_std=0.02))
     patience = locator._convergence_patience_steps
 
     verdicts = iter([True] * (patience - 1) + [False] + [True] * patience)

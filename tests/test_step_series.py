@@ -66,7 +66,7 @@ def _make_run(n_steps=10, true_value=0.5, with_crlb=False, focus_windows=None):
         uncert = 0.2 / (i + 1)
         crlb = (0.05 / np.sqrt(i + 1)) if with_crlb else None
         belief = _make_mock_belief(model, est, uncert, crlb=crlb)
-        obs = Observation(x=0.5, signal_value=1.0, noise_std=0.01)
+        obs = Observation(drive_freq_unit=0.5, signal_value=1.0, noise_std=0.01)
         windows = focus_windows[i] if focus_windows is not None else None
         snapshots.append(StepSnapshot(obs=obs, belief=belief, true_signal=true_signal, focus_window_candidates=windows))
     return RunResult(snapshots=snapshots, true_signal=true_signal)
@@ -209,7 +209,7 @@ def _make_fixed_frequency_run(n_steps=10, true_value=0.5):
         est = true_value + 0.1 / (i + 1)
         uncert = 0.2 / (i + 1)
         belief = _make_mock_zeeman_belief(model, est, uncert)
-        obs = Observation(x=0.5, signal_value=1.0, noise_std=0.01)
+        obs = Observation(drive_freq_unit=0.5, signal_value=1.0, noise_std=0.01)
         snapshots.append(StepSnapshot(obs=obs, belief=belief, true_signal=true_signal))
     return RunResult(snapshots=snapshots, true_signal=true_signal)
 

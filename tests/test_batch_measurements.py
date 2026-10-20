@@ -1,4 +1,4 @@
-"""Tests for multi-shot (batch) measurements per-probe-point.
+"""Tests for multi-shot (batch) measurements per-drive-frequency-point.
 
 Covers the sufficient-statistic aggregation (``aggregate_shots``), the batched
 ``CoreExperiment.measure`` path, the Rao-Blackwell noise-posterior update that
@@ -13,6 +13,7 @@ import random
 import numpy as np
 
 from nvision.models.experiment import CoreExperiment
+from nvision.models.locator import Locator
 from nvision.models.measurement_noise import DEFAULT_MEASUREMENT_NOISE_STD
 from nvision.models.noise import CompositeNoise, CompositeOverFrequencyNoise
 from nvision.models.observation import Observation, aggregate_shots
@@ -24,7 +25,7 @@ from nvision.noises.over_frequency.gaussian_noise import OverFrequencyGaussianNo
 # --------------------------------------------------------------------------- #
 def test_aggregate_shots_identical_shots():
     """Degenerate batch (all shots equal): mean is exact, empirical std is zero."""
-    obs = aggregate_shots(2.75e9, np.full(5, 0.7), prior_noise_std=0.05)
+    obs = aggregate_shots(0.5, np.full(5, 0.7), prior_noise_std=0.05)
     assert obs.signal_value == 0.7
     assert obs.n_shots == 5
     # s == 0 -> noise_std falls back to prior/sqrt(k); sample_var is still 0.0 (k >= 2)
@@ -35,7 +36,7 @@ def test_aggregate_shots_identical_shots():
 def test_aggregate_shots_known_variance():
     """Batch mean has precision s/sqrt(k) and sample_var matches np.var(ddof=1)."""
     ys = np.array([0.40, 0.50, 0.60, 0.55, 0.45])
-    obs = aggregate_shots(2.75e9, ys, prior_noise_std=0.05)
+    obs = aggregate_shots(0.5, ys, prior_noise_std=0.05)
     s = float(np.std(ys, ddof=1))
     assert obs.signal_value == float(np.mean(ys))
     assert obs.n_shots == 5
@@ -45,7 +46,7 @@ def test_aggregate_shots_known_variance():
 
 def test_aggregate_shots_single_shot():
     """k == 1 reproduces a single-measurement Observation (no variance estimable)."""
-    obs = aggregate_shots(2.75e9, np.array([0.3]), prior_noise_std=0.05)
+    obs = aggregate_shots(0.5, np.array([0.3]), prior_noise_std=0.05)
     assert obs.signal_value == 0.3
     assert obs.n_shots == 1
     assert obs.sample_var is None
@@ -57,9 +58,9 @@ def test_aggregate_shots_single_shot():
 # --------------------------------------------------------------------------- #
 def test_measure_n_shots_1_identity():
     """n_shots=1 with no noise is value-identical to a single clean measurement."""
-    exp = CoreExperiment(true_signal=lambda x: 0.7, noise=None, x_min=2.7e9, x_max=2.8e9)
+    exp = CoreExperiment(true_signal=lambda x: 0.7, noise=None, drive_freq_min_phys=2.7e9, drive_freq_max_phys=2.8e9)
     obs = exp.measure(0.5, random.Random(0), n_shots=1)
-    assert obs.x == 0.5
+    assert obs.drive_freq_unit == 0.5
     assert obs.signal_value == 0.7
     assert obs.noise_std == DEFAULT_MEASUREMENT_NOISE_STD
     assert obs.n_shots == 1
@@ -70,7 +71,7 @@ def test_measure_batch_produces_variance():
     """A stochastic batch yields n_shots=k, a positive sample_var, and noise_std = s/sqrt(k)."""
     ofn = CompositeOverFrequencyNoise([OverFrequencyGaussianNoise(std=0.1)])
     noise = CompositeNoise(over_frequency_noise=ofn)
-    exp = CoreExperiment(true_signal=lambda x: 1.0, noise=noise, x_min=2.7e9, x_max=2.8e9)
+    exp = CoreExperiment(true_signal=lambda x: 1.0, noise=noise, drive_freq_min_phys=2.7e9, drive_freq_max_phys=2.8e9)
 
     obs = exp.measure(0.5, random.Random(0), n_shots=16)
     assert obs.n_shots == 16
@@ -95,8 +96,8 @@ def _make_rb_belief(seed: int = 0):
     class _NoCandidateSMC(SMCMarginalDistribution):
         # The base epoch-grid needs a 'linewidth' estimate the GaussianModel
         # doesn't expose; a no-op keeps construction cheap for the update test.
-        def _generate_epoch_candidate_x(self) -> None:
-            self._candidate_x_unit = np.linspace(0.0, 1.0, 10).astype(np.float32)
+        def _generate_epoch_candidate_drive_freq(self) -> None:
+            self._candidate_drive_freq_unit = np.linspace(0.0, 1.0, 10).astype(np.float32)
 
     model = GaussianModel()
     model.signal_min_span = lambda w: 1e5
@@ -126,7 +127,7 @@ def test_rb_batch_tightens_noise_posterior():
     ys = np.array([0.40, 0.50, 0.60, 0.55, 0.45])
     k = len(ys)
     batch = aggregate_shots(0.5, ys, prior_noise_std=0.05)
-    single = Observation(x=0.5, signal_value=float(np.mean(ys)), noise_std=0.05)
+    single = Observation(drive_freq_unit=0.5, signal_value=float(np.mean(ys)), noise_std=0.05)
 
     b_batch = _make_rb_belief()
     b_single = _make_rb_belief()
@@ -148,8 +149,8 @@ def test_rb_batch_tightens_noise_posterior():
 
 def test_rb_single_shot_update_unchanged():
     """n_shots=1 (or absent) leaves the RB update numerically identical to before."""
-    plain = Observation(x=0.5, signal_value=0.42, noise_std=0.05)
-    with_default = Observation(x=0.5, signal_value=0.42, noise_std=0.05, n_shots=1)
+    plain = Observation(drive_freq_unit=0.5, signal_value=0.42, noise_std=0.05)
+    with_default = Observation(drive_freq_unit=0.5, signal_value=0.42, noise_std=0.05, n_shots=1)
 
     b_plain = _make_rb_belief()
     b_default = _make_rb_belief()
@@ -164,12 +165,13 @@ def test_rb_single_shot_update_unchanged():
 # --------------------------------------------------------------------------- #
 # run_loop wiring: n_shots reaches experiment.measure
 # --------------------------------------------------------------------------- #
-class _FakeLocator:
-    """Minimal Locator stand-in that records every Observation it receives."""
+class _FakeLocator(Locator):
+    """Minimal Locator that records every Observation it receives."""
 
     REQUIRES_BELIEF = False
 
     def __init__(self, max_calls: int = 3):
+        super().__init__(belief=None)  # type: ignore[arg-type]
         self.max_calls = max_calls
         self.calls = 0
         self.received: list[Observation] = []
@@ -197,7 +199,7 @@ def test_run_loop_passes_n_shots_to_measure():
 
     ofn = CompositeOverFrequencyNoise([OverFrequencyGaussianNoise(std=0.1)])
     noise = CompositeNoise(over_frequency_noise=ofn)
-    exp = CoreExperiment(true_signal=lambda x: 1.0, noise=noise, x_min=2.7e9, x_max=2.8e9)
+    exp = CoreExperiment(true_signal=lambda x: 1.0, noise=noise, drive_freq_min_phys=2.7e9, drive_freq_max_phys=2.8e9)
 
     locators = list(run_loop(_FakeLocator, exp, random.Random(0), n_shots=8))
     obs = locators[-1].received
@@ -209,7 +211,7 @@ def test_run_loop_passes_n_shots_to_measure():
 def test_run_loop_default_n_shots_is_single_shot():
     from nvision.runner.executor import run_loop
 
-    exp = CoreExperiment(true_signal=lambda x: 1.0, noise=None, x_min=2.7e9, x_max=2.8e9)
+    exp = CoreExperiment(true_signal=lambda x: 1.0, noise=None, drive_freq_min_phys=2.7e9, drive_freq_max_phys=2.8e9)
     locators = list(run_loop(_FakeLocator, exp, random.Random(0)))
     obs = locators[-1].received
     assert all(o.n_shots == 1 for o in obs)

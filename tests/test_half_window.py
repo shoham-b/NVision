@@ -1,4 +1,4 @@
-"""The probe window is the upper half [D, D + delta] of the mirror-symmetric NV spectrum."""
+"""The drive-frequency window is the upper half [D, D + delta] of the mirror-symmetric NV spectrum."""
 
 from __future__ import annotations
 
@@ -9,16 +9,16 @@ import pytest
 
 from nvision.sim.gen.nv_center_generator import NVCenterCoreGenerator
 from nvision.spectra.nv_center import (
-    DEFAULT_NV_PROBE_X_MAX,
-    DEFAULT_NV_PROBE_X_MIN,
-    NV_PROBE_DELTA_HZ,
+    DEFAULT_NV_DRIVE_FREQ_MAX_PHYS,
+    DEFAULT_NV_DRIVE_FREQ_MIN_PHYS,
+    NV_DRIVE_FREQ_DELTA_HZ,
     NV_ZERO_FIELD_SPLITTING_HZ,
 )
 
 
 def test_window_is_upper_half_above_zero_field_splitting():
-    assert DEFAULT_NV_PROBE_X_MIN == NV_ZERO_FIELD_SPLITTING_HZ
-    assert DEFAULT_NV_PROBE_X_MAX == NV_ZERO_FIELD_SPLITTING_HZ + NV_PROBE_DELTA_HZ
+    assert DEFAULT_NV_DRIVE_FREQ_MIN_PHYS == NV_ZERO_FIELD_SPLITTING_HZ
+    assert DEFAULT_NV_DRIVE_FREQ_MAX_PHYS == NV_ZERO_FIELD_SPLITTING_HZ + NV_DRIVE_FREQ_DELTA_HZ
 
 
 @pytest.mark.parametrize("variant", ["lorentzian", "voigt"])

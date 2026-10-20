@@ -1,13 +1,13 @@
-"""The probe-axis focus: a locator-owned window limiting which candidate x positions may be scanned.
+"""The drive-frequency focus: a locator-owned window limiting which candidate x positions may be scanned.
 
 Invariants checked here:
 
 * ``next_focus_window`` (pure policy) narrows around the posterior, expands on boundary pile-up, and
   honours the narrowing delays.
-* The focus never reaches into the belief: its parameter bounds, probe axis, and the model's x-range
+* The focus never reaches into the belief: its parameter bounds, drive-frequency axis, and the model's x-range
   are identical before and after the focus changes.
 * Every EIG pick lies inside the focus; an empty focus fails loudly instead of falling back.
-* With the default fixed ``center_freq`` the focus stays the full probe axis.
+* With the default fixed ``center_freq`` the focus stays the full drive-frequency axis.
 """
 
 from __future__ import annotations
@@ -139,7 +139,7 @@ def _free_center_locator(**belief_kwargs):
 def _belief_geometry(belief):
     return (
         dict(belief.physical_param_bounds),
-        belief.physical_x_bounds,
+        belief.drive_freq_bounds_phys,
         dict(belief.model.param_bounds_phys),
         belief.model.x_bounds_phys,
     )
@@ -227,7 +227,7 @@ def test_eig_pick_lies_inside_the_focus():
 
 def test_empty_focus_fails_loudly():
     loc = _free_center_locator(with_zeeman_splitting=True, hyperfine="unresolved")
-    cands = np.sort(loc.belief.get_candidate_x_phys())
+    cands = np.sort(loc.belief.get_candidate_drive_freq_phys())
     i = int(np.argmax(np.diff(cands)))
     mid = 0.5 * (cands[i] + cands[i + 1])
     loc._focus = FocusWindow(lo=mid - 0.1, hi=mid + 0.1, full_lo=FULL[0], full_hi=FULL[1])

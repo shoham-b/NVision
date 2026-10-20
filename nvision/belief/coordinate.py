@@ -8,7 +8,7 @@ Two orthogonal transforms operate on measurement data:
     Owned by the belief.  All parameters carry one.
 
 ``FocusWindow`` (see ``nvision.belief.focus_window``)
-    Physical [lo, hi] sub-interval of the probe axis that the locator
+    Physical [lo, hi] sub-interval of the drive-frequency axis that the locator
     currently probes.  Can narrow during a run (always returns a new
     instance).  Owned by the locator.  Carries immutable ``full_lo``/
     ``full_hi`` so ``CoreExperiment.measure()`` normalisation is always

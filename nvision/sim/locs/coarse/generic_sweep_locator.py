@@ -96,7 +96,7 @@ class GenericSweepLocator(SweepingLocator):
         Minimum expected signal span for density calculation.
     signal_max_span : float | None, default None
         Maximum expected signal span for window sizing.
-    probe_axis_param : str | None, default None
+    center_param : str | None, default None
         Parameter name being scanned.
     domain_lo : float, default 0.0
         Domain lower bound in physical units.
@@ -115,7 +115,7 @@ class GenericSweepLocator(SweepingLocator):
         noise_max_dev: float | None = None,
         signal_min_span: float | None = None,
         signal_max_span: float | None = None,
-        probe_axis_param: str | None = None,
+        center_param: str | None = None,
         parameter_bounds: dict[str, tuple[float, float]] | None = None,
         **kwargs: Any,
     ) -> GenericSweepLocator:
@@ -123,12 +123,12 @@ class GenericSweepLocator(SweepingLocator):
         domain_hi = kwargs.get("domain_hi")
 
         if (domain_lo is None or domain_hi is None) and parameter_bounds is not None:
-            # "center_freq" is always the probe x-axis for NV-center models even
+            # "center_freq" is always the drive-frequency axis for NV-center models even
             # when fixed (not inferred) and therefore absent from
             # signal_model.parameter_names() -- same landmine as
-            # SweepingLocator.__init__'s own probe_axis_param default.
-            if probe_axis_param:
-                param_name = probe_axis_param
+            # SweepingLocator.__init__'s own center_param default.
+            if center_param:
+                param_name = center_param
             elif "center_freq" in parameter_bounds:
                 param_name = "center_freq"
             else:
@@ -150,7 +150,7 @@ class GenericSweepLocator(SweepingLocator):
             noise_max_dev=noise_max_dev,
             signal_min_span=signal_min_span,
             signal_max_span=signal_max_span,
-            probe_axis_param=probe_axis_param,
+            center_param=center_param,
             domain_lo=domain_lo,
             domain_hi=domain_hi,
         )
@@ -168,7 +168,7 @@ class GenericSweepLocator(SweepingLocator):
         noise_max_dev: float | None = None,
         signal_min_span: float | None = None,
         signal_max_span: float | None = None,
-        probe_axis_param: str | None = None,
+        center_param: str | None = None,
         domain_lo: float = 0.0,
         domain_hi: float = 1.0,
     ):
@@ -180,7 +180,7 @@ class GenericSweepLocator(SweepingLocator):
             noise_max_dev=noise_max_dev,
             signal_min_span=signal_min_span,
             signal_max_span=signal_max_span,
-            probe_axis_param=probe_axis_param,
+            center_param=center_param,
             domain_lo=domain_lo,
             domain_hi=domain_hi,
         )
@@ -241,25 +241,12 @@ class GenericSweepLocator(SweepingLocator):
         if not self._pending_obs:
             return
 
-        mapped_obs = []
-        is_unit_cube = type(self.belief.model).__name__ == "UnitCubeSignalModel"
-
-        if is_unit_cube:
-            mapped_obs = self._pending_obs
-        else:
-            from nvision.models.observation import Observation
-
-            width = self._domain_hi - self._domain_lo
-            for o in self._pending_obs:
-                x_phys = self._domain_lo + o.x * width
-                mapped_obs.append(
-                    Observation(
-                        x=x_phys,
-                        signal_value=o.signal_value,
-                        noise_std=o.noise_std,
-                        frequency_noise_model=o.frequency_noise_model,
-                    )
-                )
+        if not np.allclose(self.belief.drive_freq_bounds_phys, (self._domain_lo, self._domain_hi), rtol=1e-9, atol=0.0):
+            raise ValueError(
+                f"belief drive_freq_bounds_phys {self.belief.drive_freq_bounds_phys} do not match this locator's "
+                f"domain ({self._domain_lo}, {self._domain_hi}); observations are unit coordinates of one range."
+            )
+        mapped_obs = self._pending_obs
 
         if hasattr(self.belief, "batch_update"):
             chunk = NVISION_SWEEP_BATCH_CHUNK_SIZE
@@ -270,7 +257,7 @@ class GenericSweepLocator(SweepingLocator):
                 self.belief.update(obs)
         self._pending_obs.clear()
 
-    def _fit_model(self, xs_norm: np.ndarray, ys: np.ndarray) -> tuple[float, float]:
+    def _fit_model(self, drive_freqs_unit: np.ndarray, ys: np.ndarray) -> tuple[float, float]:
         """Fit the physical model to sweep data via least squares.
 
         Returns (center_freq_phys, uncert_phys).  The fit uses all sweep points
@@ -282,25 +269,25 @@ class GenericSweepLocator(SweepingLocator):
         """
         inner = self._inner_model()
         param_names = inner.parameter_names()
-        probe_axis_param = self._probe_axis_param
-        # probe_axis_param (almost always "center_freq") may be fixed rather than a free
+        center_param = self._center_param
+        # center_param (almost always "center_freq") may be fixed rather than a free
         # fit parameter (e.g. NVCenterVoigtModel(with_fixed_center_freq=True)) --
         # curve_fit then only fits the *other* parameters (linewidth, zeeman_split,
         # c_total, ...); the scan axis's value comes from the model's fixed_values
         # instead of the fitted vector, with zero uncertainty (it wasn't estimated).
-        scan_idx: int | None
-        fixed_scan_value: float | None = None
-        if probe_axis_param in param_names:
-            scan_idx = param_names.index(probe_axis_param)
+        center_idx: int | None
+        fixed_center_value: float | None = None
+        if center_param in param_names:
+            center_idx = param_names.index(center_param)
         else:
-            scan_idx = None
+            center_idx = None
             fixed_vals = getattr(inner.spec, "fixed_values", None) or {}
-            if probe_axis_param not in fixed_vals:
+            if center_param not in fixed_vals:
                 raise ValueError(
-                    f"probe_axis_param {probe_axis_param!r} is neither one of the model's fitted "
+                    f"center_param {center_param!r} is neither one of the model's fitted "
                     f"parameters {param_names} nor a fixed value on its spec."
                 )
-            fixed_scan_value = float(fixed_vals[probe_axis_param])
+            fixed_center_value = float(fixed_vals[center_param])
         # Contrast/amplitude parameter name: "c_total" for every lineshape now
         # (Lorentzian, plain Voigt, saturation-Voigt all share this convention).
         ct_idx = next((param_names.index(n) for n in ("c_total", "c_max") if n in param_names), None)
@@ -310,16 +297,16 @@ class GenericSweepLocator(SweepingLocator):
         param_bounds_phys = self._resolve_physical_bounds(param_names)
         lo_bounds = [param_bounds_phys[n][0] for n in param_names]
         hi_bounds = [param_bounds_phys[n][1] for n in param_names]
-        phys_priors = self._resolve_physical_priors(param_names, probe_axis_param, param_bounds_phys)
+        phys_priors = self._resolve_physical_priors(param_names, center_param, param_bounds_phys)
 
         domain_lo, domain_hi = self._domain_lo, self._domain_hi
         domain_width = domain_hi - domain_lo
-        xs_phys = domain_lo + xs_norm * domain_width
-        n_pts = len(xs_norm)
+        drive_freqs_phys = domain_lo + drive_freqs_unit * domain_width
+        n_pts = len(drive_freqs_unit)
 
         smoothed, window = self._smooth_for_peak_detection(ys)
         dip_depth = self._estimate_dip_depth(ys, smoothed, window)
-        hwhm_est = self._estimate_hwhm(xs_norm, smoothed, dip_depth, domain_width)
+        hwhm_est = self._estimate_hwhm(drive_freqs_unit, smoothed, dip_depth, domain_width)
         # Width parameter name: "linewidth" (Lorentzian) or "homogeneous_linewidth"
         # (Voigt) — both HWHM-scale now, unlike the old kernel-native "fwhm_total"
         # (full-width) Voigt used to expose directly.
@@ -338,7 +325,7 @@ class GenericSweepLocator(SweepingLocator):
         # optimizer only grows sigma_inhom if the data actually supports it.
         sigma_inhom_idx = param_names.index("sigma_inhom") if "sigma_inhom" in param_names else None
         seeds = self._seed_center_freq_and_splits(
-            xs_norm, ys, smoothed, dip_depth, domain_lo, domain_width, zs_idx, split_idx, lo_bounds, hi_bounds
+            drive_freqs_unit, ys, smoothed, dip_depth, domain_lo, domain_width, zs_idx, split_idx, lo_bounds, hi_bounds
         )
 
         # Parameters with no data-driven seed below (e.g. k_np) start at their belief-prior
@@ -347,10 +334,10 @@ class GenericSweepLocator(SweepingLocator):
         # Data-seeded parameters keep their data-driven seeds: starting sigma_inhom at a broad
         # default is the documented wrong-basin trap, so priors are NOT used for those.
         data_seeded_idx = {
-            i for i in (scan_idx, ct_idx, width_idx, sigma_inhom_idx, zs_idx, split_idx) if i is not None
+            i for i in (center_idx, ct_idx, width_idx, sigma_inhom_idx, zs_idx, split_idx) if i is not None
         }
         start_priors = self._resolve_physical_priors(
-            param_names, probe_axis_param, param_bounds_phys, names=frozenset(param_names)
+            param_names, center_param, param_bounds_phys, names=frozenset(param_names)
         )
 
         def make_p0(center_freq_phys: float, half_sep_hz: float | None, hf_split_hz: float | None) -> list[float]:
@@ -359,8 +346,8 @@ class GenericSweepLocator(SweepingLocator):
                 i = param_names.index(name)
                 if i not in data_seeded_idx:
                     p0[i] = float(np.clip(prior_mean, lo_bounds[i], hi_bounds[i]))
-            if scan_idx is not None:
-                p0[scan_idx] = float(np.clip(center_freq_phys, domain_lo, domain_hi))
+            if center_idx is not None:
+                p0[center_idx] = float(np.clip(center_freq_phys, domain_lo, domain_hi))
             if ct_idx is not None:
                 p0[ct_idx] = float(np.clip(dip_depth, lo_bounds[ct_idx], hi_bounds[ct_idx]))
             if width_idx is not None and hwhm_est is not None and hwhm_est > 0:
@@ -386,7 +373,7 @@ class GenericSweepLocator(SweepingLocator):
             return p0
 
         candidates = self._build_fit_candidates(
-            xs_norm=xs_norm,
+            drive_freqs_unit=drive_freqs_unit,
             ys=ys,
             domain_lo=domain_lo,
             domain_width=domain_width,
@@ -445,7 +432,7 @@ class GenericSweepLocator(SweepingLocator):
                 return data_vals
 
         if n_prior_terms:
-            xs_fit = np.concatenate([xs_phys, np.zeros(n_prior_terms)])
+            xs_fit = np.concatenate([drive_freqs_phys, np.zeros(n_prior_terms)])
             ys_fit = np.concatenate([ys, np.array([phys_priors[n][0] for n in prior_names])])
             sigma_fit = np.concatenate(
                 [
@@ -454,7 +441,7 @@ class GenericSweepLocator(SweepingLocator):
                 ]
             )
         else:
-            xs_fit, ys_fit, sigma_fit = xs_phys, ys, None
+            xs_fit, ys_fit, sigma_fit = drive_freqs_phys, ys, None
 
         # Early stop: a start that reaches the noise floor (reduced chi-square within K sigmas of
         # 1) ends the race. Only at high peak SNR, where the smart seeds are trusted; at low SNR
@@ -480,24 +467,24 @@ class GenericSweepLocator(SweepingLocator):
             data_noise_std=max(float(self._noise_std), 1e-12),
         )
 
-        center_freq_phys = float(best_popt[scan_idx]) if scan_idx is not None else fixed_scan_value
+        center_freq_phys = float(best_popt[center_idx]) if center_idx is not None else fixed_center_value
         if not (domain_lo <= center_freq_phys <= domain_hi):
             raise RuntimeError(
                 f"fitted center_freq {center_freq_phys} fell outside the domain [{domain_lo}, {domain_hi}]"
             )
 
         # Store the full fitted parameter vector so the visualization can draw the
-        # actual fit instead of the (collapsed) SMC belief marginal mode. probe_axis_param
+        # actual fit instead of the (collapsed) SMC belief marginal mode. center_param
         # isn't part of best_popt when fixed, so add it back explicitly.
         self._fit_params_phys = {n: float(v) for n, v in zip(param_names, best_popt, strict=False)}
-        if scan_idx is None:
-            self._fit_params_phys[probe_axis_param] = center_freq_phys
+        if center_idx is None:
+            self._fit_params_phys[center_param] = center_freq_phys
 
-        # scan_idx is None => probe_axis_param was fixed, not fit -- no covariance to
+        # center_idx is None => center_param was fixed, not fit -- no covariance to
         # report, and it wasn't estimated, so its uncertainty is exactly zero.
         uncert_phys = (
-            self._report_fit_uncertainty(best_pcov, scan_idx, dip_depth, n_pts, domain_width, lw_guess)
-            if scan_idx is not None
+            self._report_fit_uncertainty(best_pcov, center_idx, dip_depth, n_pts, domain_width, lw_guess)
+            if center_idx is not None
             else 0.0
         )
         return center_freq_phys, uncert_phys
@@ -547,7 +534,7 @@ class GenericSweepLocator(SweepingLocator):
     def _resolve_physical_priors(
         self,
         param_names: list[str],
-        probe_axis_param: str,
+        center_param: str,
         param_bounds_phys: dict[str, tuple[float, float]],
         names: frozenset[str] | None = None,
     ) -> dict[str, tuple[float, float]]:
@@ -569,7 +556,7 @@ class GenericSweepLocator(SweepingLocator):
         priors, so reading ``self.belief.priors`` alone never found any in the real pipeline;
         that unit-space attribute is only a fallback for locators built with an SMC belief.
 
-        ``probe_axis_param`` (center_freq) is excluded even if a prior exists for it: localizing
+        ``center_param`` (center_freq) is excluded even if a prior exists for it: localizing
         center_freq from data is the entire point of the sweep, and its prior is a coarse
         "sin^2" shape rather than a Gaussian mean/std anyway.
         """
@@ -580,7 +567,7 @@ class GenericSweepLocator(SweepingLocator):
             return {}
         phys_priors: dict[str, tuple[float, float]] = {}
         for name in param_names:
-            if name == probe_axis_param or name not in allowed:
+            if name == center_param or name not in allowed:
                 continue
             if raw_phys and name in raw_phys:
                 prior_val = raw_phys[name]
@@ -659,7 +646,7 @@ class GenericSweepLocator(SweepingLocator):
 
     @staticmethod
     def _estimate_hwhm(
-        xs_norm: np.ndarray, smoothed: np.ndarray, dip_depth: float, domain_width: float
+        drive_freqs_unit: np.ndarray, smoothed: np.ndarray, dip_depth: float, domain_width: float
     ) -> float | None:
         """Estimate the deepest dip's half-width-at-half-max (HWHM) directly
         from the data, in the same units as this codebase's ``linewidth``
@@ -689,12 +676,12 @@ class GenericSweepLocator(SweepingLocator):
             right += 1
         if right <= left:
             return None
-        fwhm_norm = float(xs_norm[right] - xs_norm[left])
+        fwhm_norm = float(drive_freqs_unit[right] - drive_freqs_unit[left])
         return 0.5 * fwhm_norm * domain_width
 
     def _seed_center_freq_and_splits(
         self,
-        xs_norm: np.ndarray,
+        drive_freqs_unit: np.ndarray,
         ys: np.ndarray,
         smoothed: np.ndarray,
         dip_depth: float,
@@ -746,7 +733,7 @@ class GenericSweepLocator(SweepingLocator):
         # Deepest raw point: use raw ys, not smoothed — np.convolve(mode='same')
         # zero-pads the boundaries and can drag the smoothed edge value below the
         # real dip, making argmin(smoothed) pick the domain edge.
-        argmin_center_freq = domain_lo + float(xs_norm[np.argmin(ys)]) * domain_width
+        argmin_center_freq = domain_lo + float(drive_freqs_unit[np.argmin(ys)]) * domain_width
 
         # Prominence floor must clear the (smoothed) noise so isolated fluctuations
         # aren't mistaken for dips.  Smoothing reduces noise by ~sqrt(window), but we
@@ -790,7 +777,7 @@ class GenericSweepLocator(SweepingLocator):
         # (at least 2), so stray noise peaks don't corrupt the grouping.
         keep = max(2, min(len(peaks), n_expected_dips))
         top_order = np.argsort(props["prominences"])[::-1][:keep]
-        positions = np.sort(domain_lo + xs_norm[peaks[top_order]] * domain_width)
+        positions = np.sort(domain_lo + drive_freqs_unit[peaks[top_order]] * domain_width)
 
         if zs_idx is not None:
             # Split into the two Zeeman groups at the largest position gap —
@@ -859,7 +846,7 @@ class GenericSweepLocator(SweepingLocator):
     def _build_fit_candidates(
         self,
         *,
-        xs_norm: np.ndarray,
+        drive_freqs_unit: np.ndarray,
         ys: np.ndarray,
         domain_lo: float,
         domain_width: float,
@@ -896,7 +883,7 @@ class GenericSweepLocator(SweepingLocator):
              multi-start grid.
         """
         center_freq_init, half_sep, hf_split_init = seeds[0]
-        argmin_center_freq = domain_lo + float(xs_norm[np.argmin(ys)]) * domain_width
+        argmin_center_freq = domain_lo + float(drive_freqs_unit[np.argmin(ys)]) * domain_width
         candidates = list(seeds)
         candidates.append((argmin_center_freq, half_sep, hf_split_init))
 
@@ -958,7 +945,7 @@ class GenericSweepLocator(SweepingLocator):
     @staticmethod
     def _run_curve_fit_candidates(
         curve_fn,
-        xs_phys: np.ndarray,
+        drive_freqs_phys: np.ndarray,
         ys: np.ndarray,
         candidates: list[tuple[float, float | None, float | None]],
         make_p0,
@@ -980,7 +967,7 @@ class GenericSweepLocator(SweepingLocator):
         parameter vector mixes a GHz-scale center_freq with O(1) shape
         parameters (k_np, c_total), a ~1e9 conditioning spread.  Without
         scaling, the trust-region steps and the xtol termination test are
-        dominated by the probe axis, so the optimizer stops while the
+        dominated by the drive-frequency axis, so the optimizer stops while the
         *shape* parameters are still far from their optimum — center_freq comes
         out fine but the fitted curve's depth/width visibly deviates from the
         data.
@@ -1008,7 +995,7 @@ class GenericSweepLocator(SweepingLocator):
         for center_freq_c, half_c, hf_c in candidates:
             p0 = make_p0(center_freq_c, half_c, hf_c)
             # Candidates that resolve to the same start vector give the identical fit (curve_fit
-            # is deterministic) -- e.g. a probe-axis grid when center_freq is fixed, so make_p0
+            # is deterministic) -- e.g. a drive-frequency grid when center_freq is fixed, so make_p0
             # ignores it. Skipping repeats cannot change the winner, only the run time.
             p0_key = tuple(p0)
             if p0_key in seen_p0:
@@ -1017,7 +1004,7 @@ class GenericSweepLocator(SweepingLocator):
             try:
                 popt, pcov = curve_fit(
                     curve_fn,
-                    xs_phys,
+                    drive_freqs_phys,
                     ys,
                     p0=p0,
                     bounds=(lo_bounds, hi_bounds),
@@ -1029,7 +1016,7 @@ class GenericSweepLocator(SweepingLocator):
                 )
             except Exception:
                 continue
-            resid_vec = curve_fn(xs_phys, *popt) - ys
+            resid_vec = curve_fn(drive_freqs_phys, *popt) - ys
             if sigma is not None:
                 resid_vec = resid_vec / sigma
             resid = float(np.sum(resid_vec**2))
@@ -1039,7 +1026,7 @@ class GenericSweepLocator(SweepingLocator):
                 best_pcov = pcov
             if early_stop_redchi2 is not None:
                 weights = sigma if sigma is not None else data_noise_std
-                chi2 = float(np.sum(((curve_fn(xs_phys, *popt) - ys) / weights) ** 2))
+                chi2 = float(np.sum(((curve_fn(drive_freqs_phys, *popt) - ys) / weights) ** 2))
                 if chi2 / (len(ys) - len(popt)) <= early_stop_redchi2:
                     break
 
@@ -1050,7 +1037,7 @@ class GenericSweepLocator(SweepingLocator):
     def _report_fit_uncertainty(
         self,
         best_pcov: np.ndarray | None,
-        scan_idx: int,
+        center_idx: int,
         dip_depth: float,
         n_pts: int,
         domain_width: float,
@@ -1062,7 +1049,7 @@ class GenericSweepLocator(SweepingLocator):
         """
         fit_std = float("inf")
         if best_pcov is not None and np.all(np.isfinite(best_pcov)):
-            var = float(best_pcov[scan_idx, scan_idx])
+            var = float(best_pcov[center_idx, center_idx])
             if var > 0:
                 fit_std = float(np.sqrt(var))
         contrast_fit = next(
@@ -1100,7 +1087,7 @@ class GenericSweepLocator(SweepingLocator):
         if self.history.count == 0:
             return
         domain_width = self._domain_hi - self._domain_lo
-        center_freq_phys, uncert_phys = self._fit_model(self.history.xs, self.history.ys)
+        center_freq_phys, uncert_phys = self._fit_model(self.history.drive_freqs_unit, self.history.ys)
 
         self._flush_pending_obs()
 

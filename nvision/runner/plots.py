@@ -100,11 +100,11 @@ def _subsample_snapshots(snapshots: list, max_frames: int = _MAX_VIZ_SNAPSHOTS) 
     return [snapshots[i] for i in indices]
 
 
-def _resolve_probe_axis_param(strat_obj: Any, run_result: RunResult) -> str:
+def _resolve_center_param(strat_obj: Any, run_result: RunResult) -> str:
     """Parameter used for 1D posterior animation (matches BayesianLocator scan axis)."""
     if isinstance(strat_obj, dict):
         cfg = strat_obj.get("config") or {}
-        sp = cfg.get("probe_axis_param")
+        sp = cfg.get("center_param")
         if isinstance(sp, str) and sp.strip():
             return sp.strip()
     if run_result.snapshots:
@@ -116,7 +116,7 @@ def _resolve_probe_axis_param(strat_obj: Any, run_result: RunResult) -> str:
 
 def _posterior_animation_inputs(
     run_result: RunResult,
-    probe_axis_param: str,
+    center_param: str,
     start_idx: int = 0,
 ) -> tuple[list[np.ndarray], np.ndarray] | None:
     """Build (posterior_history, freq_grid) for ``plot_posterior_animation``.
@@ -125,7 +125,7 @@ def _posterior_animation_inputs(
     ----------
     run_result : RunResult
         Full result with snapshots
-    probe_axis_param : str
+    center_param : str
         Parameter to extract posterior for
     start_idx : int
         Starting index to slice snapshots (used to exclude initial sweep stages)
@@ -142,19 +142,19 @@ def _posterior_animation_inputs(
 
     b0 = snapshots[0].belief
     if isinstance(b0, GridMarginalDistribution):
-        grid = b0.get_grid_param(probe_axis_param).grid
-        hist = [s.belief.get_grid_param(probe_axis_param).posterior.copy() for s in snapshots]
+        grid = b0.get_grid_param(center_param).grid
+        hist = [s.belief.get_grid_param(center_param).posterior.copy() for s in snapshots]
         return hist, grid
 
     if isinstance(b0, SMCMarginalDistribution):
-        idx = b0._param_names.index(probe_axis_param)
+        idx = b0._param_names.index(center_param)
         hist: list[np.ndarray] = []
 
         is_unit_cube = False
         lo, hi = 0.0, 1.0
         if hasattr(b0, "model") and isinstance(b0.model, UnitCubeSignalModel):
             is_unit_cube = True
-            lo, hi = b0.model.param_bounds_phys[probe_axis_param]
+            lo, hi = b0.model.param_bounds_phys[center_param]
 
         frame_memo: dict[int, np.ndarray] = {}
         for s in snapshots:
@@ -235,7 +235,7 @@ def _extract_smc_posterior(snapshots: list, names: list[str]) -> dict[str, tuple
     use_rb = getattr(b0, "noise_model", None) is not None
 
     # Resolve particle column indices once; physical bounds are resolved
-    # per snapshot because the probe window can narrow during a run.
+    # per snapshot because the drive-frequency window can narrow during a run.
     param_idx = {
         param_name: (None if (param_name == "noise_sigma" and use_rb) else b0._param_names.index(param_name))
         for param_name in names
@@ -336,7 +336,7 @@ def _bayesian_auxiliary_entries(
     before manifests are written) rather than written to disk.
     """
     extra: list[dict[str, Any]] = []
-    probe_axis_param = _resolve_probe_axis_param(strat_obj, run_result)
+    center_param = _resolve_center_param(strat_obj, run_result)
     true_params = run_result.true_signal.parameter_values()
     if experiment is not None and experiment.noise is not None:
         with suppress(Exception):
@@ -435,10 +435,10 @@ def _bayesian_auxiliary_entries(
             extra.append(ie)
     else:
         # Fallback for non-SMC/grid beliefs: single-param posterior animation
-        anim_inputs = _posterior_animation_inputs(viz_run_result, probe_axis_param, start_idx=sweep_steps)
+        anim_inputs = _posterior_animation_inputs(viz_run_result, center_param, start_idx=sweep_steps)
         if anim_inputs is not None:
             posterior_history, freq_grid = anim_inputs
-            anim_single = {probe_axis_param: (posterior_history, freq_grid)}
+            anim_single = {center_param: (posterior_history, freq_grid)}
             physical_bounds = (
                 getattr(bayesian_snapshots[0].belief, "physical_param_bounds", {}) if bayesian_snapshots else {}
             )
@@ -580,7 +580,11 @@ def _bayesian_auxiliary_entries(
         # is a full O(N x d) pass).
         actual_uncertainty_hist = param_hist  # Actual SMC uncertainty (already computed)
         fisher_hist, fisher_bounds_hist, fim_is_degenerate = fisher_history(
-            bayesian_snapshots, estimates_hist, param_names, physical_bounds
+            bayesian_snapshots,
+            estimates_hist,
+            param_names,
+            physical_bounds,
+            bayesian_snapshots[0].belief.drive_freq_bounds_phys,
         )
 
         # Oracle CRLB: the hard information limit for step+1 ideal (uniformly
@@ -595,8 +599,8 @@ def _bayesian_auxiliary_entries(
                 n_steps=len(bayesian_snapshots),
                 model=run_result.true_signal.model,
                 true_typed_params=run_result.true_signal.typed_parameters,
-                x_lo=float(experiment.x_min),
-                x_hi=float(experiment.x_max),
+                x_lo=float(experiment.drive_freq_min_phys),
+                x_hi=float(experiment.drive_freq_max_phys),
                 noise_std=float(bayesian_snapshots[0].obs.noise_std),
                 bounds=physical_bounds,
             )
@@ -720,7 +724,7 @@ def get_or_run_sobol_baseline(
         repeat_idx,
     )
 
-    if sobol_data is not None and "sobol_xs" in sobol_data:
+    if sobol_data is not None and "sobol_drive_freqs_unit" in sobol_data:
         return sobol_data
 
     # Otherwise, simulate it dynamically!
@@ -771,14 +775,14 @@ def get_or_run_sobol_baseline(
         belief=belief,
         max_steps=10000,
     )
-    # See nvision/runner/executor.py's identical Sobol-baseline block: field names
-    # keep their historical "freq" spelling, only the tracked parameter changes.
+    # See nvision/runner/executor.py's identical Sobol-baseline block: tracked
+    # parameter is the locator's primary param (sobol_primary_* fields).
     primary_param = locator._primary_param or "center_freq"
 
     key = measurement_repeat_key(seed, generator_name, "sobol_baseline", noise_name, repeat_idx)
     sobol_rng = random.Random(repeat_seed_int(key))
 
-    sobol_xs = []
+    sobol_drive_freqs_unit = []
     sobol_ys = []
     sobol_primary_steps = None
     sobol_primary_uncert_at_conv = None
@@ -786,10 +790,10 @@ def get_or_run_sobol_baseline(
     true_primary = experiment.true_signal.get_param_value(primary_param)
 
     while not locator.done():
-        x_current = locator.next()
-        obs = experiment.measure(x_current, sobol_rng, shot_index=len(sobol_xs))
+        drive_freq_unit = locator.next_drive_freq_unit()
+        obs = experiment.measure(drive_freq_unit, sobol_rng, shot_index=len(sobol_drive_freqs_unit))
         locator.observe(obs)
-        sobol_xs.append(float(obs.x))
+        sobol_drive_freqs_unit.append(float(obs.drive_freq_unit))
         sobol_ys.append(float(obs.signal_value))
 
         # Record metrics at the exact moment of primary-parameter convergence
@@ -812,7 +816,7 @@ def get_or_run_sobol_baseline(
         "sobol_primary_err_at_conv": sobol_primary_err_at_conv,
         "sobol_baseline_uncert": sobol_final_uncert,
         "sobol_baseline_err": sobol_final_err,
-        "sobol_xs": sobol_xs,
+        "sobol_drive_freqs_unit": sobol_drive_freqs_unit,
         "sobol_ys": sobol_ys,
         "sobol_mode_estimates": sobol_mode_estimates,
     }
@@ -840,7 +844,7 @@ def get_or_run_simplesweep_baseline(
     from nvision.runner.sweep_cache import get_cached_simplesweep_baseline, put_cached_simplesweep_baseline
 
     data = get_cached_simplesweep_baseline(experiment, seed, generator_name, noise_name, repeat_idx)
-    if data is not None and "sweep_xs" in data:
+    if data is not None and "sweep_drive_freqs_unit" in data:
         return data
 
     import math
@@ -861,7 +865,7 @@ def get_or_run_simplesweep_baseline(
         if hasattr(experiment.noise, "estimated_max_noise_deviation"):
             noise_max_dev = float(experiment.noise.estimated_max_noise_deviation(n_samples=6))
 
-    domain_width = float(experiment.x_max - experiment.x_min)
+    domain_width = float(experiment.drive_freq_max_phys - experiment.drive_freq_min_phys)
     signal_max_span = None
     model = experiment.true_signal.model
     if hasattr(model, "signal_max_span") and callable(model.signal_max_span):
@@ -887,7 +891,9 @@ def get_or_run_simplesweep_baseline(
         bounds, noise_model=experiment.true_signal.noise_model, lineshape=nv_lineshape_for_model(model)
     )
 
-    f_domain_width = float(experiment.x_max - experiment.x_min)  # full probe axis width, Hz
+    f_domain_width = float(
+        experiment.drive_freq_max_phys - experiment.drive_freq_min_phys
+    )  # full drive-frequency axis width, Hz
     min_linewidth = min_linewidth_hz(bounds)
     max_steps = max(30, math.ceil(f_domain_width / min_linewidth))
 
@@ -896,8 +902,8 @@ def get_or_run_simplesweep_baseline(
         signal_model=model,
         max_steps=max_steps,
         noise_std=noise_std,
-        domain_lo=experiment.x_min,
-        domain_hi=experiment.x_max,
+        domain_lo=experiment.drive_freq_min_phys,
+        domain_hi=experiment.drive_freq_max_phys,
         **({} if noise_max_dev is None else {"noise_max_dev": noise_max_dev}),
         **({} if signal_max_span is None else {"signal_max_span": signal_max_span}),
     )
@@ -905,14 +911,14 @@ def get_or_run_simplesweep_baseline(
     key = measurement_repeat_key(seed, generator_name, "simplesweep_baseline", noise_name, repeat_idx)
     sweep_rng = random.Random(repeat_seed_int(key))
 
-    sweep_xs: list[float] = []
+    sweep_drive_freqs_unit: list[float] = []
     sweep_ys: list[float] = []
 
     while not locator.done():
-        x_current = locator.next()
-        obs = experiment.measure(x_current, sweep_rng, shot_index=len(sweep_xs))
+        drive_freq_unit = locator.next_drive_freq_unit()
+        obs = experiment.measure(drive_freq_unit, sweep_rng, shot_index=len(sweep_drive_freqs_unit))
         locator.observe(obs)
-        sweep_xs.append(float(obs.x))
+        sweep_drive_freqs_unit.append(float(obs.drive_freq_unit))
         sweep_ys.append(float(obs.signal_value))
 
     # finalize() flushes the deferred belief updates and runs the dip fit;
@@ -926,7 +932,7 @@ def get_or_run_simplesweep_baseline(
         sweep_mode_estimates = belief_mode_estimates(locator.belief)
 
     new_data = {
-        "sweep_xs": sweep_xs,
+        "sweep_drive_freqs_unit": sweep_drive_freqs_unit,
         "sweep_ys": sweep_ys,
         "sweep_mode_estimates": sweep_mode_estimates,
     }
@@ -993,18 +999,18 @@ def generate_attempt_plots(
 
     focus_window = run_result.focus_window if run_result is not None else None
     # Fallback to narrowed_param_bounds only when they are genuinely tighter than
-    # the full domain.  Prefer a probe-axis-like parameter, otherwise skip.
+    # the full domain.  Prefer a drive-frequency-like parameter, otherwise skip.
     if focus_window is None and run_result is not None and run_result.narrowed_param_bounds:
         nb = run_result.narrowed_param_bounds
-        probe_axis_param_name = None
+        center_param_name = None
         for name in nb:
             if "freq" in name.lower() or name in ("x", "center_freq"):
-                probe_axis_param_name = name
+                center_param_name = name
                 break
-        if probe_axis_param_name is None:
-            probe_axis_param_name = next(iter(nb))
-        lo, hi = nb[probe_axis_param_name]
-        domain_width = current_scan.x_max - current_scan.x_min
+        if center_param_name is None:
+            center_param_name = next(iter(nb))
+        lo, hi = nb[center_param_name]
+        domain_width = current_scan.drive_freq_max_phys - current_scan.drive_freq_min_phys
         if hi - lo < domain_width * (1.0 - 1e-9):
             focus_window = (lo, hi)
     per_dip_windows = run_result.per_dip_windows if run_result is not None else None
@@ -1029,10 +1035,10 @@ def generate_attempt_plots(
             belief_unit_cube = m
 
     # Retrieve Sobol and SimpleSweep baseline measurements & estimates
-    sobol_xs: list[float] | None = None
+    sobol_drive_freqs_unit: list[float] | None = None
     sobol_ys: list[float] | None = None
     sobol_mode_estimates: dict[str, float] | None = None
-    sweep_xs: list[float] | None = None
+    sweep_drive_freqs_unit: list[float] | None = None
     sweep_ys: list[float] | None = None
     sweep_mode_estimates: dict[str, float] | None = None
     wants_baselines = plots_wanted(strat_name, attempt_idx_in_combo) and not defer
@@ -1052,7 +1058,7 @@ def generate_attempt_plots(
                 attempt_idx_in_combo,
             )
             if sobol_data:
-                sobol_xs = sobol_data.get("sobol_xs")
+                sobol_drive_freqs_unit = sobol_data.get("sobol_drive_freqs_unit")
                 sobol_ys = sobol_data.get("sobol_ys")
                 sobol_mode_estimates = sobol_data.get("sobol_mode_estimates")
         except Exception as exc:
@@ -1069,7 +1075,7 @@ def generate_attempt_plots(
                 attempt_idx_in_combo,
             )
             if simplesweep_data:
-                sweep_xs = simplesweep_data.get("sweep_xs")
+                sweep_drive_freqs_unit = simplesweep_data.get("sweep_drive_freqs_unit")
                 sweep_ys = simplesweep_data.get("sweep_ys")
                 sweep_mode_estimates = simplesweep_data.get("sweep_mode_estimates")
         except Exception as exc:
@@ -1131,10 +1137,10 @@ def generate_attempt_plots(
             per_dip_windows=per_dip_windows,
             belief_unit_cube=belief_unit_cube,
             narrowed_param_bounds=run_result.narrowed_param_bounds if run_result is not None else None,
-            sobol_xs=sobol_xs,
+            sobol_drive_freqs_unit=sobol_drive_freqs_unit,
             sobol_ys=sobol_ys,
             sobol_mode_estimates=sobol_mode_estimates,
-            sweep_xs=sweep_xs,
+            sweep_drive_freqs_unit=sweep_drive_freqs_unit,
             sweep_ys=sweep_ys,
             sweep_mode_estimates=sweep_mode_estimates,
             true_params=_true_params_dict,

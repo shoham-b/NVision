@@ -170,8 +170,13 @@ def get_shared_core_experiment(
         cached = _sync_from_shm(key)
 
     if cached is not None:
-        true_signal, x_min, x_max = cached
-        return CoreExperiment(true_signal=true_signal, noise=task.noise, x_min=x_min, x_max=x_max)
+        true_signal, drive_freq_min_phys, drive_freq_max_phys = cached
+        return CoreExperiment(
+            true_signal=true_signal,
+            noise=task.noise,
+            drive_freq_min_phys=drive_freq_min_phys,
+            drive_freq_max_phys=drive_freq_max_phys,
+        )
 
     # 2. Coordinate generation/write via locks
     if _SHM_LOCK is not None:
@@ -180,38 +185,68 @@ def get_shared_core_experiment(
                 # Re-sync and re-check inside shared lock
                 cached = _sync_from_shm(key)
                 if cached is not None:
-                    true_signal, x_min, x_max = cached
-                    return CoreExperiment(true_signal=true_signal, noise=task.noise, x_min=x_min, x_max=x_max)
+                    true_signal, drive_freq_min_phys, drive_freq_max_phys = cached
+                    return CoreExperiment(
+                        true_signal=true_signal,
+                        noise=task.noise,
+                        drive_freq_min_phys=drive_freq_min_phys,
+                        drive_freq_max_phys=drive_freq_max_phys,
+                    )
 
                 # Generate and write to SHM
                 rng = random.Random(repeat_seed_int(key))
                 exp = build(rng)
-                bundle = (exp.true_signal, exp.x_min, exp.x_max)
+                bundle = (exp.true_signal, exp.drive_freq_min_phys, exp.drive_freq_max_phys)
                 _DESERIALIZED_CACHE[key] = bundle
                 _write_to_shm(key, bundle)
-                return CoreExperiment(true_signal=exp.true_signal, noise=task.noise, x_min=exp.x_min, x_max=exp.x_max)
+                return CoreExperiment(
+                    true_signal=exp.true_signal,
+                    noise=task.noise,
+                    drive_freq_min_phys=exp.drive_freq_min_phys,
+                    drive_freq_max_phys=exp.drive_freq_max_phys,
+                )
         except (OSError, EOFError, RuntimeError) as exc:
             log.debug("Shared lock connection closed in get_shared_core_experiment: %s", exc)
             # Fall back to local-only logic
             with _LOCK:
                 cached = _SIGNAL_BUNDLE_BY_KEY.get(key)
                 if cached is not None:
-                    true_signal, x_min, x_max = cached
-                    return CoreExperiment(true_signal=true_signal, noise=task.noise, x_min=x_min, x_max=x_max)
+                    true_signal, drive_freq_min_phys, drive_freq_max_phys = cached
+                    return CoreExperiment(
+                        true_signal=true_signal,
+                        noise=task.noise,
+                        drive_freq_min_phys=drive_freq_min_phys,
+                        drive_freq_max_phys=drive_freq_max_phys,
+                    )
 
                 rng = random.Random(repeat_seed_int(key))
                 exp = build(rng)
-                _SIGNAL_BUNDLE_BY_KEY[key] = (exp.true_signal, exp.x_min, exp.x_max)
-                return CoreExperiment(true_signal=exp.true_signal, noise=task.noise, x_min=exp.x_min, x_max=exp.x_max)
+                _SIGNAL_BUNDLE_BY_KEY[key] = (exp.true_signal, exp.drive_freq_min_phys, exp.drive_freq_max_phys)
+                return CoreExperiment(
+                    true_signal=exp.true_signal,
+                    noise=task.noise,
+                    drive_freq_min_phys=exp.drive_freq_min_phys,
+                    drive_freq_max_phys=exp.drive_freq_max_phys,
+                )
     else:
         # Fallback to local-only logic
         with _LOCK:
             cached = _SIGNAL_BUNDLE_BY_KEY.get(key)
             if cached is not None:
-                true_signal, x_min, x_max = cached
-                return CoreExperiment(true_signal=true_signal, noise=task.noise, x_min=x_min, x_max=x_max)
+                true_signal, drive_freq_min_phys, drive_freq_max_phys = cached
+                return CoreExperiment(
+                    true_signal=true_signal,
+                    noise=task.noise,
+                    drive_freq_min_phys=drive_freq_min_phys,
+                    drive_freq_max_phys=drive_freq_max_phys,
+                )
 
             rng = random.Random(repeat_seed_int(key))
             exp = build(rng)
-            _SIGNAL_BUNDLE_BY_KEY[key] = (exp.true_signal, exp.x_min, exp.x_max)
-            return CoreExperiment(true_signal=exp.true_signal, noise=task.noise, x_min=exp.x_min, x_max=exp.x_max)
+            _SIGNAL_BUNDLE_BY_KEY[key] = (exp.true_signal, exp.drive_freq_min_phys, exp.drive_freq_max_phys)
+            return CoreExperiment(
+                true_signal=exp.true_signal,
+                noise=task.noise,
+                drive_freq_min_phys=exp.drive_freq_min_phys,
+                drive_freq_max_phys=exp.drive_freq_max_phys,
+            )

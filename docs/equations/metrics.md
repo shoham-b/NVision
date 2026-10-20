@@ -22,7 +22,7 @@ $$\text{abs\_err\_x}_k = |\hat{f}_k - f_{{\rm true},k}|, \qquad \text{pair\_rmse
 
 ## 2. Uniform-Sampling Baseline (and why the sweep step count is what it is)
 
-A uniform / Sobol sweep places points evenly across the whole probe axis.  Its step count is set by one principle: **a dip can only be found if enough sample points land inside it.**  If the narrowest feature is width w and the band is W wide, uniform points spaced W/n apart fall inside that feature only if the spacing is smaller than the feature — and to actually *resolve* it (not just clip an edge) you need several points across it.  That gives the master relation used everywhere below:
+A uniform / Sobol sweep places points evenly across the whole drive-frequency axis.  Its step count is set by one principle: **a dip can only be found if enough sample points land inside it.**  If the narrowest feature is width w and the band is W wide, uniform points spaced W/n apart fall inside that feature only if the spacing is smaller than the feature — and to actually *resolve* it (not just clip an edge) you need several points across it.  That gives the master relation used everywhere below:
 
 $$n = \frac{W}{w} \times (\text{samples per feature})$$
 
@@ -105,7 +105,7 @@ The form n = 2W/w is exactly the code's `expected_uniform_points = 2·domain_wid
 
 | Quantity | Value | Source |
 |---|---|---|
-| Band W | half window [D, D + Δ], Δ = 150 MHz | `NVISION_NV_PROBE_DELTA_HZ` |
+| Band W | half window [D, D + Δ], Δ = 150 MHz | `NVISION_NV_DRIVE_FREQ_DELTA_HZ` |
 | Linewidth Ω | ≈ 100 kHz (effective narrow dip, HWHM) | true-signal linewidth |
 | Dip width w = 4Ω | ≈ 400 kHz | Step 2 |
 

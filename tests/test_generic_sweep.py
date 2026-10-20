@@ -42,7 +42,7 @@ def test_generic_sweep_classic_fit():
         num_particles=100,
         seed=42,
         physical_param_bounds=unit_model.param_bounds_phys,
-        physical_x_bounds=unit_model.x_bounds_phys,
+        drive_freq_bounds_phys=unit_model.x_bounds_phys,
         noise_model=gaussian_noise(),
     )
 
@@ -57,7 +57,7 @@ def test_generic_sweep_classic_fit():
 
     # Simulate a sweep
     while not locator.done():
-        x = locator.next()
+        drive_freq_unit = locator.next_drive_freq_unit()
 
         # Evaluate model to get y
         u_arrs = []
@@ -66,9 +66,9 @@ def test_generic_sweep_classic_fit():
             u = (true_params[name] - lo) / (hi - lo)
             u_arrs.append(np.array([u]))
 
-        y_true = unit_model.compute_vectorized_many(np.array([x]), u_arrs)[0, 0]
+        y_true = unit_model.compute_vectorized_many(np.array([drive_freq_unit]), u_arrs)[0, 0]
         y_obs = y_true + np.random.normal(0, 0.005)
-        locator.observe(Observation(x, y_obs))
+        locator.observe(Observation(drive_freq_unit, y_obs))
 
     locator.finalize()
     res = locator.result()

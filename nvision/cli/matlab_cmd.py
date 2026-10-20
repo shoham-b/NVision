@@ -79,14 +79,14 @@ class _MatlabSignalProxy:
 
     model = None  # needed by some code paths that check hasattr(true_signal, 'model')
 
-    def __init__(self, probe_lo_phys: float, probe_hi_phys: float, data: Any = None) -> None:
-        self._probe_lo_phys = probe_lo_phys
-        self._probe_hi_phys = probe_hi_phys
-        self._interp_probe_axis_phys: np.ndarray | None = None
+    def __init__(self, drive_freq_min_phys: float, drive_freq_max_phys: float, data: Any = None) -> None:
+        self._drive_freq_min_phys = drive_freq_min_phys
+        self._drive_freq_max_phys = drive_freq_max_phys
+        self._interp_drive_freq_phys: np.ndarray | None = None
         self._interp_signal: np.ndarray | None = None
         if data is not None:
-            order = np.argsort(data.probe_axis_phys)
-            self._interp_probe_axis_phys = np.asarray(data.probe_axis_phys, dtype=float)[order]
+            order = np.argsort(data.drive_freq_phys)
+            self._interp_drive_freq_phys = np.asarray(data.drive_freq_phys, dtype=float)[order]
             signal = np.asarray(data.signal, dtype=float)[order]
             # NaN out any bin this run never actually measured. The file can hold a real
             # recorded mean for every bin, but a given run may have converged early or
@@ -97,9 +97,9 @@ class _MatlabSignalProxy:
             self._interp_signal = np.where(visited, signal, np.nan)
 
     def __call__(self, x: float) -> float:
-        if self._interp_probe_axis_phys is None or self._interp_signal is None:
+        if self._interp_drive_freq_phys is None or self._interp_signal is None:
             return float("nan")
-        return float(np.interp(x, self._interp_probe_axis_phys, self._interp_signal))
+        return float(np.interp(x, self._interp_drive_freq_phys, self._interp_signal))
 
     def parameter_values(self) -> dict[str, float]:
         return {"center_freq": float("nan")}
@@ -108,23 +108,25 @@ class _MatlabSignalProxy:
         return float("nan")
 
     def all_bounds(self) -> dict[str, tuple[float, float]]:
-        return {"center_freq": (self._probe_lo_phys, self._probe_hi_phys)}
+        return {"center_freq": (self._drive_freq_min_phys, self._drive_freq_max_phys)}
 
 
 class _MatlabExperiment:
     """Minimal CoreExperiment duck-type backed by a MatlabDataFile."""
 
-    def __init__(self, data: Any, true_signal: _MatlabSignalProxy, probe_lo_phys: float, probe_hi_phys: float) -> None:
+    def __init__(
+        self, data: Any, true_signal: _MatlabSignalProxy, drive_freq_min_phys: float, drive_freq_max_phys: float
+    ) -> None:
         self.true_signal = true_signal
         self.noise = None  # real measurements: no CompositeNoise model, mirrors CoreExperiment.noise
-        self.x_min = probe_lo_phys
-        self.x_max = probe_hi_phys
+        self.drive_freq_min_phys = drive_freq_min_phys
+        self.drive_freq_max_phys = drive_freq_max_phys
         self._data = data
-        self._probe_lo_phys = probe_lo_phys
-        self._probe_hi_phys = probe_hi_phys
+        self._drive_freq_min_phys = drive_freq_min_phys
+        self._drive_freq_max_phys = drive_freq_max_phys
 
-    def measure(self, x_unit: float, rng: Any = None):
-        return self._data.measure(x_unit, self._probe_lo_phys, self._probe_hi_phys)
+    def measure(self, drive_freq_unit: float, rng: Any = None):
+        return self._data.measure(drive_freq_unit, self._drive_freq_min_phys, self._drive_freq_max_phys)
 
     @property
     def signal(self):
@@ -140,8 +142,8 @@ class _MatlabExperiment:
 def _matlab_loop(
     locator: Locator,
     data: Any,
-    probe_lo_phys: float,
-    probe_hi_phys: float,
+    drive_freq_min_phys: float,
+    drive_freq_max_phys: float,
     no_progress: bool,
 ) -> Generator[Locator]:
     """Adaptive measurement loop — yields locator state after each observation.
@@ -151,12 +153,12 @@ def _matlab_loop(
     locator does — the run is not obliged to consume every point in the file.
     """
     while not locator.done():
-        x_unit = locator.next()
-        obs = data.measure(x_unit, probe_lo_phys, probe_hi_phys)
+        drive_freq_unit = locator.next_drive_freq_unit()
+        obs = data.measure(drive_freq_unit, drive_freq_min_phys, drive_freq_max_phys)
         locator.observe(obs)
 
         if not no_progress:
-            phys_mhz = (probe_lo_phys + x_unit * (probe_hi_phys - probe_lo_phys)) / 1e6
+            phys_mhz = (drive_freq_min_phys + drive_freq_unit * (drive_freq_max_phys - drive_freq_min_phys)) / 1e6
             est = locator.belief.estimates()
             unc = locator.belief.uncertainty()
             freq_est_mhz = est.get("center_freq", float("nan")) / 1e6
@@ -242,7 +244,7 @@ def matlab_run(
     """Run the SBED locator on real ESR measurements from a MATLAB file.
 
     Loads a .mat file recorded by the NVision lab instrument, then adaptively
-    selects candidate_x points using the Bayesian SBED strategy. Results
+    selects candidate_drive_freq points using the Bayesian SBED strategy. Results
     are written to the artifact store so they appear in the ``nvision serve`` UI.
 
     With ``--all``, runs this same procedure over every ``.mat`` file in
@@ -336,14 +338,14 @@ def _real_data_c_total_threshold() -> Generator[None]:
     """
     from nvision.sim.defaults import PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS
     from nvision.spectra.nv_center import (
-        DEFAULT_NV_PROBE_X_MAX,
-        DEFAULT_NV_PROBE_X_MIN,
+        DEFAULT_NV_DRIVE_FREQ_MAX_PHYS,
+        DEFAULT_NV_DRIVE_FREQ_MIN_PHYS,
         nv_center_lorentzian_bounds_for_domain,
     )
 
     sim_lo, sim_hi = nv_center_lorentzian_bounds_for_domain(
-        DEFAULT_NV_PROBE_X_MIN,
-        DEFAULT_NV_PROBE_X_MAX,
+        DEFAULT_NV_DRIVE_FREQ_MIN_PHYS,
+        DEFAULT_NV_DRIVE_FREQ_MAX_PHYS,
         hyperfine="unresolved",
         with_zeeman_splitting=True,
     )["c_total"]
@@ -379,12 +381,13 @@ def _matlab_run_one(
     typer.echo(f"Loading: {matlab_file}")
     data = MatlabDataFile.load(matlab_file, valid_shots=valid_shots, noise_std_override=noise_std)
 
-    probe_lo_phys = float(data.probe_axis_phys.min())
-    probe_hi_phys = float(data.probe_axis_phys.max())
-    n_probe_points = len(data.probe_axis_phys)
+    drive_freq_min_phys = float(data.drive_freq_phys.min())
+    drive_freq_max_phys = float(data.drive_freq_phys.max())
+    n_drive_freq_points = len(data.drive_freq_phys)
 
     typer.echo(
-        f"Loaded {n_probe_points} frequencies: {probe_lo_phys / 1e6:.1f} to {probe_hi_phys / 1e6:.1f} MHz  |  "
+        f"Loaded {n_drive_freq_points} frequencies: "
+        f"{drive_freq_min_phys / 1e6:.1f} to {drive_freq_max_phys / 1e6:.1f} MHz  |  "
         f"valid shots: {data.n_valid_shots}  |  noise_std: {data.noise_std:.4f}"
     )
 
@@ -407,11 +410,11 @@ def _matlab_run_one(
     # 2840 MHz, split 51.7 MHz, lower peak at 2789 MHz against data starting at 2830 MHz.
     # A quarter of the span keeps the doublet inside a sweep that was deliberately
     # recorded around it. Note this cannot be done by narrowing the "center_freq" bound
-    # instead: nv_center_smc_belief reuses that same entry as the probe x-domain, so
+    # instead: nv_center_smc_belief reuses that same entry as the drive-frequency domain, so
     # tightening it would stop the locator from ever measuring the wings.
-    span = probe_hi_phys - probe_lo_phys
+    span = drive_freq_max_phys - drive_freq_min_phys
     locator_bounds = {
-        "center_freq": (probe_lo_phys, probe_hi_phys),
+        "center_freq": (drive_freq_min_phys, drive_freq_max_phys),
         "zeeman_split": (0.0, span / 4.0),
         "c_total": _REAL_DATA_C_TOTAL_BOUNDS,
     }
@@ -442,10 +445,10 @@ def _matlab_run_one(
     ts_str = datetime.now(UTC).isoformat()
 
     if not no_ui:
-        run_result = _run_with_observer(locator, data, probe_lo_phys, probe_hi_phys, no_progress)
+        run_result = _run_with_observer(locator, data, drive_freq_min_phys, drive_freq_max_phys, no_progress)
     else:
         # Plain loop — no artifact tracking
-        for _ in _matlab_loop(locator, data, probe_lo_phys, probe_hi_phys, no_progress):
+        for _ in _matlab_loop(locator, data, drive_freq_min_phys, drive_freq_max_phys, no_progress):
             pass
         run_result = None
 
@@ -480,8 +483,8 @@ def _matlab_run_one(
             run_result=run_result,
             data=data,
             matlab_file=matlab_file,
-            probe_lo_phys=probe_lo_phys,
-            probe_hi_phys=probe_hi_phys,
+            drive_freq_min_phys=drive_freq_min_phys,
+            drive_freq_max_phys=drive_freq_max_phys,
             max_steps=max_steps,
             elapsed=elapsed,
             ts_str=ts_str,
@@ -500,9 +503,9 @@ def _matlab_run_one(
     if out is not None:
         result = {
             "file": str(matlab_file),
-            "n_probe_points": n_probe_points,
-            "probe_lo_mhz": probe_lo_phys / 1e6,
-            "probe_hi_mhz": probe_hi_phys / 1e6,
+            "n_drive_freq_points": n_drive_freq_points,
+            "drive_freq_min_mhz": drive_freq_min_phys / 1e6,
+            "drive_freq_max_mhz": drive_freq_max_phys / 1e6,
             "n_valid_shots": data.n_valid_shots,
             "noise_std": data.noise_std,
             "max_steps": max_steps,
@@ -528,16 +531,18 @@ def _matlab_run_one(
 def _run_with_observer(
     locator: Locator,
     data: Any,
-    probe_lo_phys: float,
-    probe_hi_phys: float,
+    drive_freq_min_phys: float,
+    drive_freq_max_phys: float,
     no_progress: bool,
 ) -> Any:
     """Run the measurement loop with Observer tracking; return RunResult."""
     from nvision.models.observer import Observer
 
-    proxy = _MatlabSignalProxy(probe_lo_phys, probe_hi_phys)
-    observer = Observer(true_signal=proxy, x_min=probe_lo_phys, x_max=probe_hi_phys)
-    return observer.watch(_matlab_loop(locator, data, probe_lo_phys, probe_hi_phys, no_progress))
+    proxy = _MatlabSignalProxy(drive_freq_min_phys, drive_freq_max_phys)
+    observer = Observer(
+        true_signal=proxy, drive_freq_min_phys=drive_freq_min_phys, drive_freq_max_phys=drive_freq_max_phys
+    )
+    return observer.watch(_matlab_loop(locator, data, drive_freq_min_phys, drive_freq_max_phys, no_progress))
 
 
 def _write_artifacts(
@@ -546,8 +551,8 @@ def _write_artifacts(
     run_result: Any,
     data: Any,
     matlab_file: Path,
-    probe_lo_phys: float,
-    probe_hi_phys: float,
+    drive_freq_min_phys: float,
+    drive_freq_max_phys: float,
     max_steps: int,
     elapsed: float,
     ts_str: str,
@@ -585,14 +590,14 @@ def _write_artifacts(
     strat_name = "Bayesian-SBED"
     repeat_id = 0
 
-    proxy = _MatlabSignalProxy(probe_lo_phys, probe_hi_phys, data=data)
-    experiment = _MatlabExperiment(data, proxy, probe_lo_phys, probe_hi_phys)
+    proxy = _MatlabSignalProxy(drive_freq_min_phys, drive_freq_max_phys, data=data)
+    experiment = _MatlabExperiment(data, proxy, drive_freq_min_phys, drive_freq_max_phys)
 
     # Build DataFrames from the RunResult
-    history_df = run_result_to_history_df(run_result, repeat_id, probe_lo_phys, probe_hi_phys)
+    history_df = run_result_to_history_df(run_result, repeat_id, drive_freq_min_phys, drive_freq_max_phys)
 
     locator_result = locator.result()
-    finalize_record = run_result_to_finalize_record(run_result, locator_result, repeat_id, probe_lo_phys, probe_hi_phys)
+    finalize_record = run_result_to_finalize_record(run_result, locator_result, repeat_id)
     finalize_record["primary_converged_step"] = locator.primary_converged_step
     finalize_record["all_converged_step"] = locator.all_converged_step
     finalize_record["locator_steps"] = locator.step_count
@@ -636,19 +641,19 @@ def _write_artifacts(
         run_result=run_result,
     )
 
-    # Alternative "actual averages per-probe-point" view — the per-bin mean/std/min/max
+    # Alternative "actual averages per-drive-frequency-point" view — the per-bin mean/std/min/max
     # of every shot recorded in the .mat file, independent of which bins the locator
     # actually visited (contrast with the sampled-measurements scan plot above).
     if data.signal_mean is not None and data.signal_std is not None:
-        from nvision.runner.plots_data import write_matlab_probe_stats_data
+        from nvision.runner.plots_data import write_matlab_drive_freq_stats_data
 
-        stats_path = tree.scans_dir / f"{slug}_probe_stats.json.gz"
-        stats_bytes = write_matlab_probe_stats_data(
-            data.probe_axis_phys, data.signal_mean, data.signal_std, data.signal_min, data.signal_max
+        stats_path = tree.scans_dir / f"{slug}_drive_freq_stats.json.gz"
+        stats_bytes = write_matlab_drive_freq_stats_data(
+            data.drive_freq_phys, data.signal_mean, data.signal_std, data.signal_min, data.signal_max
         )
         if stats_bytes is not None:
             stats_entry = entry_base.copy()
-            stats_entry["type"] = "matlab_probe_stats"
+            stats_entry["type"] = "matlab_drive_freq_stats"
             stats_entry["path"] = str(stats_path.relative_to(out_dir))
             stats_entry["_bytes"] = stats_bytes
             plot_manifest.append(stats_entry)

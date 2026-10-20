@@ -20,9 +20,14 @@ def _make_experiment(generator, rng: random.Random, noise=None) -> CoreExperimen
     # "center_freq" is always in true_signal.bounds (the domain the signal was
     # generated over), even though it's fixed (not inferred, not in
     # parameter_names) by NVCenterCoreGenerator's default -- see its docstring.
-    x_min, x_max = true_signal.get_param_bounds("center_freq")
-    assert x_min is not None
-    return CoreExperiment(true_signal=true_signal, noise=noise, x_min=x_min, x_max=x_max)
+    drive_freq_min_phys, drive_freq_max_phys = true_signal.get_param_bounds("center_freq")
+    assert drive_freq_min_phys is not None
+    return CoreExperiment(
+        true_signal=true_signal,
+        noise=noise,
+        drive_freq_min_phys=drive_freq_min_phys,
+        drive_freq_max_phys=drive_freq_max_phys,
+    )
 
 
 def test_simple_sweep_locator_is_core_locator():
@@ -47,7 +52,7 @@ def test_simple_sweep_create_classmethod():
 
 def test_locator_runs_on_nv_center():
     rng = random.Random(99)
-    gen = NVCenterCoreGenerator(x_min=2.6e9, x_max=3.1e9, variant="lorentzian")
+    gen = NVCenterCoreGenerator(drive_freq_min_phys=2.6e9, drive_freq_max_phys=3.1e9, variant="lorentzian")
     exp = _make_experiment(gen, rng)
     steps = list(run_loop(GenericSweepLocator, exp, rng, max_steps=30))
     assert len(steps) > 0

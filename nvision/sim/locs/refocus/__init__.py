@@ -1,7 +1,7 @@
 """Shape-aware window narrowing for coarse sweep locators.
 
 Used by the sweep stack (``GenericSweepLocator``, ``StagedSobolSweepLocator``)
-to discard irrelevant probe-axis space mid-sweep.
+to discard irrelevant drive-frequency space mid-sweep.
 
 The approach is **geometric and model-free**: it looks for double-monotonic
 regions in the raw (x, y) observations (down then up = a dip), infers each

@@ -222,7 +222,7 @@ class Stage2SobolLocator:
         if self.history.count < 10:
             return
 
-        xs = self.history.xs
+        xs = self.history.drive_freqs_phys
         ys = self.history.ys
 
         # Only consider points that fall inside Stage 2's window
@@ -356,7 +356,7 @@ class Stage3SobolLocator:
                 self._done = True
                 return
 
-        xs = self.history.xs
+        xs = self.history.drive_freqs_phys
         ys = self.history.ys
 
         # Only consider points that fall inside the (possibly expanded) window
@@ -462,19 +462,19 @@ class StagedSobolSweepLocator(Locator):
         noise_max_dev: float | None = None,
         signal_min_span: float | None = None,
         signal_max_span: float | None = None,
-        probe_axis_param: str | None = None,
+        center_param: str | None = None,
         domain_lo: float = 0.0,
         domain_hi: float = 1.0,
         parameter_bounds: dict[str, tuple[float, float]] | None = None,
         **kwargs: Any,
     ) -> StagedSobolSweepLocator:
         if parameter_bounds is not None:
-            # "center_freq" is always the probe x-axis for NV-center models even
+            # "center_freq" is always the drive-frequency axis for NV-center models even
             # when fixed (not inferred) and therefore absent from
             # signal_model.parameter_names() -- same landmine as
             # GenericSweepLocator.create()'s own domain resolution.
-            if probe_axis_param:
-                param_name = probe_axis_param
+            if center_param:
+                param_name = center_param
             elif "center_freq" in parameter_bounds:
                 param_name = "center_freq"
             else:
@@ -491,7 +491,7 @@ class StagedSobolSweepLocator(Locator):
             noise_std=noise_std,
             noise_max_dev=noise_max_dev,
             signal_max_span=signal_max_span,
-            probe_axis_param=probe_axis_param,
+            center_param=center_param,
         )
 
     def __init__(
@@ -505,7 +505,7 @@ class StagedSobolSweepLocator(Locator):
         noise_std: float = 0.01,
         noise_max_dev: float | None = None,
         signal_max_span: float | None = None,
-        probe_axis_param: str | None = None,
+        center_param: str | None = None,
     ):
         super().__init__(belief)
         self.signal_model = signal_model
@@ -515,10 +515,10 @@ class StagedSobolSweepLocator(Locator):
         self.noise_std = noise_std
         self.noise_max_dev = noise_max_dev
         self.signal_max_span = signal_max_span
-        self.probe_axis_param = probe_axis_param
+        self.center_param = center_param
 
         self.step_count = 0
-        self.history = ObservationHistory(self.max_steps)
+        self.history = ObservationHistory(self.max_steps, (self.domain_lo, self.domain_hi))
         self._sobol_gen = vdc_generator()
         self._signal_found = False
         self._true_signal = None
@@ -587,27 +587,14 @@ class StagedSobolSweepLocator(Locator):
         if self.step_count > self.max_steps:
             return
 
-        domain_width = self.domain_hi - self.domain_lo
-        if domain_width > 1.5 and obs.x <= 1.5:
-            from nvision.models.observation import Observation
-
-            obs_physical = Observation(
-                x=self.domain_lo + obs.x * domain_width,
-                signal_value=obs.signal_value,
-                noise_std=obs.noise_std,
-                frequency_noise_model=obs.frequency_noise_model,
-            )
-        else:
-            obs_physical = obs
-
-        self.history.append(obs_physical)
+        self.history.append(obs)
         # Set last_obs so Observer can create snapshots for plotting, every
         # step -- independent of the deferred/batched belief update below.
-        self.belief.last_obs = obs_physical
-        self._pending_obs.append(obs_physical)
+        self.belief.last_obs = obs
+        self._pending_obs.append(obs)
         if len(self._pending_obs) >= NVISION_SOBOL_BATCH_CHUNK_SIZE:
             self._flush_pending_obs()
-        self._active_locator.observe(obs_physical)
+        self._active_locator.observe(obs)
 
         if self._active_locator is self._stage1 and self._active_locator.done():
             self._stage1_end_step = self.step_count
@@ -703,7 +690,7 @@ class StagedSobolSweepLocator(Locator):
         """Return individual focus windows around each detected dip, or None."""
         if self.history.count < 6:
             return None
-        xs = self.history.xs
+        xs = self.history.drive_freqs_phys
         ys = self.history.ys
         order = np.argsort(xs)
         xs_s = xs[order]
@@ -823,10 +810,10 @@ class StagedSobolSweepLocator(Locator):
         if domain_width <= 0:
             return None
         n = 20000
-        xs_phys = np.linspace(self.domain_lo, self.domain_hi, n)
-        ys = np.array([self._true_signal(float(x)) for x in xs_phys], dtype=float)
-        xs_norm = (xs_phys - self.domain_lo) / domain_width
-        return self._detect_dip_segments(xs_norm, ys, noise_std=1e-6, min_width=0.0)
+        drive_freqs_phys = np.linspace(self.domain_lo, self.domain_hi, n)
+        ys = np.array([self._true_signal(float(x)) for x in drive_freqs_phys], dtype=float)
+        drive_freqs_unit = (drive_freqs_phys - self.domain_lo) / domain_width
+        return self._detect_dip_segments(drive_freqs_unit, ys, noise_std=1e-6, min_width=0.0)
 
     def _true_signal_dip_width(self) -> float | None:
         """Return the narrowest dip width of the ground-truth signal in physical units."""
@@ -892,7 +879,7 @@ class StagedSobolSweepLocator(Locator):
             return metrics
 
         init_steps = self.effective_initial_sweep_steps()
-        xs = self.history.xs[:init_steps]
+        xs = self.history.drive_freqs_phys[:init_steps]
         ys = self.history.ys[:init_steps]
         order = np.argsort(xs)
         xs_s = xs[order]

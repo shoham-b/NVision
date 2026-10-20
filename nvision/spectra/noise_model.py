@@ -1,7 +1,7 @@
 """Abstractions for noise as a signal model.
 
 NoiseSignalModel mirrors SignalModel but operates on residuals (y_obs - μ)
-rather than probe positions x.
+rather than drive frequencies x.
 """
 
 from __future__ import annotations

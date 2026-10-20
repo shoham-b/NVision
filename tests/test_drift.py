@@ -19,11 +19,13 @@ from nvision.sim.gen.nv_center_generator import NVCenterCoreGenerator
 
 
 def _signal(seed: int = 3):
-    return NVCenterCoreGenerator(x_min=2.6e9, x_max=3.1e9, variant="lorentzian").generate(random.Random(seed))
+    return NVCenterCoreGenerator(drive_freq_min_phys=2.6e9, drive_freq_max_phys=3.1e9, variant="lorentzian").generate(
+        random.Random(seed)
+    )
 
 
 def _experiment(noise, seed: int = 3) -> CoreExperiment:
-    return CoreExperiment(true_signal=_signal(seed), noise=noise, x_min=2.6e9, x_max=3.1e9)
+    return CoreExperiment(true_signal=_signal(seed), noise=noise, drive_freq_min_phys=2.6e9, drive_freq_max_phys=3.1e9)
 
 
 def test_every_component_starts_at_zero():
@@ -78,10 +80,10 @@ def test_process_validation_rejects_nonphysical_parameters():
 
 def test_non_drifting_measure_is_unchanged():
     exp = _experiment(presets.gauss_with_drift(0.01, None))
-    x = 0.4
+    drive_freq_unit = 0.4
     rng_a, rng_b = random.Random(9), random.Random(9)
-    obs = exp.measure(x, rng_a, shot_index=123)
-    expected = exp.true_signal(2.6e9 + x * 0.5e9) + rng_b.gauss(0.0, 0.01)
+    obs = exp.measure(drive_freq_unit, rng_a, shot_index=123)
+    expected = exp.true_signal(2.6e9 + drive_freq_unit * 0.5e9) + rng_b.gauss(0.0, 0.01)
     assert obs.signal_value == expected
 
 
@@ -106,9 +108,9 @@ def test_drifting_measure_evaluates_the_truth_at_that_shot():
     base = exp.true_signal.typed_parameters
     for shot in (0, 50):
         truth = exp.drift.apply(base, shot)
-        x = (truth.center_freq - truth.zeeman_split - 2.6e9) / 0.5e9  # on the moving left dip
-        obs = exp.measure(x, random.Random(0), shot_index=shot)
-        assert obs.signal_value == pytest.approx(exp.true_signal.model.compute(2.6e9 + x * 0.5e9, truth))
+        drive_freq_unit = (truth.center_freq - truth.zeeman_split - 2.6e9) / 0.5e9  # on the moving left dip
+        obs = exp.measure(drive_freq_unit, random.Random(0), shot_index=shot)
+        assert obs.signal_value == pytest.approx(exp.true_signal.model.compute(2.6e9 + drive_freq_unit * 0.5e9, truth))
     moved = exp.drift.apply(base, 50)
     assert moved.center_freq == pytest.approx(base.center_freq + 20.0 * NV_D_TEMPERATURE_COEFF_HZ_PER_K, rel=1e-6)
     assert moved.zeeman_split == pytest.approx(base.zeeman_split + 300.0 * NV_GYROMAGNETIC_HZ_PER_MG, rel=1e-6)
@@ -118,10 +120,10 @@ def test_shots_in_a_batch_are_taken_at_successive_times():
     spec = DriftSpec(label="w", shot_duration_s=1.0, field_mg=DriftProcess(warmup_amplitude=500.0, warmup_tau_s=2.0))
     exp = attach_drift_for_repeat(_experiment(presets.gauss_with_drift(0.0, spec)), 1, "g", 0)
     base = exp.true_signal.typed_parameters
-    x_phys = base.center_freq - base.zeeman_split
-    x = (x_phys - 2.6e9) / 0.5e9
-    batch = exp.measure(x, random.Random(0), n_shots=3, shot_index=4)
-    singles = [exp.measure(x, random.Random(0), shot_index=4 + i).signal_value for i in range(3)]
+    drive_freq_phys = base.center_freq - base.zeeman_split
+    drive_freq_unit = (drive_freq_phys - 2.6e9) / 0.5e9
+    batch = exp.measure(drive_freq_unit, random.Random(0), n_shots=3, shot_index=4)
+    singles = [exp.measure(drive_freq_unit, random.Random(0), shot_index=4 + i).signal_value for i in range(3)]
     assert batch.signal_value == pytest.approx(np.mean(singles))
     assert batch.sample_var is not None
     assert batch.sample_var > 0
@@ -153,10 +155,15 @@ def test_truth_summary_reports_end_and_mean():
 
 def test_splitting_drift_on_a_single_dip_signal_fails_loudly():
     single = NVCenterCoreGenerator(
-        x_min=2.6e9, x_max=3.1e9, variant="lorentzian", with_zeeman_splitting=False
+        drive_freq_min_phys=2.6e9, drive_freq_max_phys=3.1e9, variant="lorentzian", with_zeeman_splitting=False
     ).generate(random.Random(0))
     spec = DriftSpec(label="f", shot_duration_s=1.0, field_mg=DriftProcess(warmup_amplitude=1.0))
-    exp = CoreExperiment(true_signal=single, noise=presets.gauss_with_drift(0.0, spec), x_min=2.6e9, x_max=3.1e9)
+    exp = CoreExperiment(
+        true_signal=single,
+        noise=presets.gauss_with_drift(0.0, spec),
+        drive_freq_min_phys=2.6e9,
+        drive_freq_max_phys=3.1e9,
+    )
     exp = attach_drift_for_repeat(exp, 1, "g", 0)
     assert not hasattr(exp.true_signal.typed_parameters, "zeeman_split")
     with pytest.raises(ValueError, match="zeeman_split"):

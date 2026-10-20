@@ -168,7 +168,7 @@ class TestInferFocusWindow:
         # Build a minimal ObservationHistory-like object
         class FakeHistory:
             def __init__(self, xs, ys):
-                self.xs = xs
+                self.drive_freqs_unit = xs
                 self.ys = ys
 
         history = FakeHistory(x, y)
@@ -187,7 +187,7 @@ class TestInferFocusWindow:
 
         class FakeHistory:
             def __init__(self, xs, ys):
-                self.xs = xs
+                self.drive_freqs_unit = xs
                 self.ys = ys
 
         history = FakeHistory(x, y)

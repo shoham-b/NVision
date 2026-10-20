@@ -206,7 +206,7 @@ def generate_attempt_metrics(  # noqa: C901
     if sobol_conv_diff is None and sobol_baseline_steps is not None and sobol_primary_steps is not None:
         sobol_conv_diff = sobol_baseline_steps - sobol_primary_steps
 
-    # Forward Sobol freq uncertainty/error to metrics (for UI fallback via metrics.*)
+    # Forward Sobol primary-param uncertainty/error to metrics (for UI fallback via metrics.*)
     if sobol_primary_uncert_at_conv is not None:
         metrics_serialized["sobol_primary_uncert_at_conv"] = sobol_primary_uncert_at_conv
     if sobol_primary_err_at_conv is not None:

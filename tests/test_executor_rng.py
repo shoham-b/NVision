@@ -61,7 +61,7 @@ def test_shared_core_experiment_same_true_signal_object():
     built: list[CoreExperiment] = []
 
     def build(rng: random.Random) -> CoreExperiment:
-        exp = CoreExperiment(true_signal=object(), noise=None, x_min=0.0, x_max=1.0)
+        exp = CoreExperiment(true_signal=object(), noise=None, drive_freq_min_phys=0.0, drive_freq_max_phys=1.0)
         built.append(exp)
         return exp
 
@@ -96,7 +96,7 @@ def test_shared_core_experiment_same_true_signal_across_noise_names():
     built: list[CoreExperiment] = []
 
     def build(rng: random.Random) -> CoreExperiment:
-        exp = CoreExperiment(true_signal=object(), noise=None, x_min=0.0, x_max=1.0)
+        exp = CoreExperiment(true_signal=object(), noise=None, drive_freq_min_phys=0.0, drive_freq_max_phys=1.0)
         built.append(exp)
         return exp
 
