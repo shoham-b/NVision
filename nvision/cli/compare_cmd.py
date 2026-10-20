@@ -43,7 +43,7 @@ def compare(
 ) -> None:
     """Compare every locator on the same footing: accuracy, and each search/focus/refine stage.
 
-    Stages are detected identically for every locator from its per-step belief (see docs/resonance_search.md).
+    Stages are detected identically for every locator from its per-step belief (see docs/locator_comparison.md).
     """
     path = next((p for p in (out / "locator_results.parquet", out / "locator_results.csv") if p.exists()), None)
     if path is None:

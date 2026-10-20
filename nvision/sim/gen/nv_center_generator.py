@@ -48,11 +48,6 @@ from .peak_spec import _true_signal_from_typed
 _VOIGT_SQRT2LOG2 = math.sqrt(2.0 * math.log(2.0))
 
 
-# Resonance-search scenario: the previously classified nuisance parameters keep a prior whose std is this
-# fraction of its usual width (the spectrum was characterised, the field only moved).
-RESONANCE_SEARCH_NUISANCE_STD_SCALE: float = 0.25
-
-
 def _widened_prior_mean(rng: random.Random, true_value: float, std: float) -> float:
     """Draw a parameter's prior mean, deliberately offset from ``true_value``.
 
@@ -98,11 +93,6 @@ class NVCenterCoreGenerator:
     # if set, fix inhomogeneous width, Hz (saturation_voigt; also voigt, converted to
     # lorentz_frac via linewidth -- ignored if lorentz_frac is also set)
     sigma_inhom: float | None = None
-    # Resonance search after a field change: every parameter except ``zeeman_split`` (the resonance
-    # position) was classified before, so its prior is tight (std scaled by RESONANCE_SEARCH_NUISANCE_STD_SCALE,
-    # mean offset from the truth by the usual PRIOR_MEAN_OFFSET_SIGMAS of that smaller std), while
-    # ``zeeman_split`` has no prior at all (flat over its bounds): the new resonance could be anywhere.
-    resonance_search: bool = False
     # c_max (saturated contrast scale) is not a per-generator field: it's a fixed
     # physical constant (NV_SATURATION_C_MAX in nv_center.py), not something that
     # varies between repeats or studies.
@@ -445,8 +435,6 @@ class NVCenterCoreGenerator:
                     "center_freq": ("sin^2", np.pi / (2.0 * MIN_LINEWIDTH)),
                 }
 
-        if self.resonance_search:
-            bounds["_priors"] = self._resonance_search_priors(rng, typed_params, bounds["_priors"])
         return _true_signal_from_typed(model=model, typed_params=typed_params, bounds=bounds)
 
     def _generate_drive_controlled(self, rng: random.Random, center_freq: float, zeeman_split: float):
@@ -542,17 +530,3 @@ class NVCenterCoreGenerator:
         return _true_signal_from_typed(
             model=model, typed_params=typed_params, bounds=bounds, baseline_drive=baseline_drive
         )
-
-    @staticmethod
-    def _resonance_search_priors(rng: random.Random, typed_params, priors: dict) -> dict:
-        """Tight priors on the known nuisance parameters, none on ``zeeman_split`` (see ``resonance_search``)."""
-        tight: dict = {}
-        for name, prior in priors.items():
-            if name == "zeeman_split":
-                continue  # the resonance moved: flat prior
-            if isinstance(prior[0], str):
-                tight[name] = prior  # ("sin^2", ...) center_freq prior: untouched
-                continue
-            std = prior[1] * RESONANCE_SEARCH_NUISANCE_STD_SCALE
-            tight[name] = (_widened_prior_mean(rng, float(getattr(typed_params, name)), std), std)
-        return tight
