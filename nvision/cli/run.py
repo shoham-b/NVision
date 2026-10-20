@@ -1063,9 +1063,7 @@ def run(  # noqa: C901
     if run_group is not None:
         sim_run_groups.clear_run_group_cache()  # defensive: pick up any env changes since last resolve
         group = sim_run_groups.get_run_group(run_group)
-        combination_names = [
-            (g, n, s) for g in group.generator_names for n in group.noise_names for s in group.strategy_names
-        ]
+        combination_names = group.combinations()
         # --filter-signal / --filter-strategy narrow a group the same way they narrow the plain grid:
         # a substring of the generator name, and comma-separated strategy patterns (regex or substring).
         if filter_signal is not None:
@@ -1079,7 +1077,7 @@ def run(  # noqa: C901
             raise typer.BadParameter(f"--filter-signal/--filter-strategy leave nothing to run in group {run_group!r}.")
         extra_generators = group.extra_generators
         log.info(
-            "Running group: %s (%s combinations: %s generators x %s noises x %s strategies)",
+            "Running group: %s (%s combinations: %s generators, %s noises, %s strategies)",
             run_group,
             len(combination_names),
             len(group.generator_names),

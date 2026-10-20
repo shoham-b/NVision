@@ -14,6 +14,7 @@ group                 generators                            noise               
 ``voigt-grid``        Voigt width x contrast x sigma_inhom  SBED noise grid     locator study (below)
 ``lorentzian-drift``  Lorentzian width x contrast           no-drift + drifts   locator study
 ``drive-control``     CW / pulsed drive-controlled NV       SBED noise grid     Bayesian-SBED, -SBED-Drive
+``all``               the three above                       the three above     each scenario's own set
 ====================  ====================================  ==================  ===========================
 
 The locator study is SimpleSweep-<k>perFWHM (k = 1..5), Smart-Sweep, Bayesian-SBED and Smart-SBED.
@@ -43,11 +44,20 @@ class RunGroup:
     # Generator objects for names not present in the default CombinationGrid
     # (e.g. the width x contrast study grid below), keyed by generator name.
     extra_generators: dict[str, object] | None = None
+    # A composite group (``all``) runs each member's own combinations; its generator/noise/strategy lists are the
+    # unions over the members and are not a Cartesian product.
+    members: tuple[RunGroup, ...] = ()
+
+    def combinations(self) -> list[tuple[str, str, str]]:
+        """Every (generator, noise, strategy) triple of this group, without duplicates."""
+        if self.members:
+            return list(dict.fromkeys(c for m in self.members for c in m.combinations()))
+        return [(g, n, s) for g in self.generator_names for n in self.noise_names for s in self.strategy_names]
 
     @property
     def task_count(self) -> int:
         """Number of (generator, noise, strategy) combinations."""
-        return len(self.generator_names) * len(self.noise_names) * len(self.strategy_names)
+        return len(self.combinations())
 
 
 _DEFAULT_SWEEP = sweep_strategy_name(SWEEP_POINTS_PER_FWHM)
@@ -143,6 +153,24 @@ def _group_drive_control() -> RunGroup:
     )
 
 
+def _group_all() -> RunGroup:
+    """Every scenario with every locator used in it."""
+    members = (_group_voigt_grid(), _group_lorentzian_drift(), _group_drive_control())
+
+    def union(lists):
+        return list(dict.fromkeys(x for xs in lists for x in xs))
+
+    return RunGroup(
+        name="all",
+        description="Every scenario above with all of its locators (voigt-grid + lorentzian-drift + drive-control).",
+        generator_names=union(m.generator_names for m in members),
+        noise_names=union(m.noise_names for m in members),
+        strategy_names=union(m.strategy_names for m in members),
+        extra_generators={k: v for m in members for k, v in (m.extra_generators or {}).items()},
+        members=members,
+    )
+
+
 # Former group names: a canonical group restricted to a subset of its strategies (what ``--filter-strategy``
 # does on the canonical group). They resolve through get_run_group but are not listed by run_groups().
 _ALIASES: dict[str, tuple[str, tuple[str, ...]]] = {
@@ -165,6 +193,7 @@ def _run_groups_tuple() -> tuple[RunGroup, ...]:
         _group_voigt_grid(),
         _group_lorentzian_drift(),
         _group_drive_control(),
+        _group_all(),
     )
 
 

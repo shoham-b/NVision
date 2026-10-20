@@ -35,7 +35,7 @@ def test_voigt_grid_group_uses_voigt_inhom_grid_and_all_locators():
 def test_former_group_names_are_strategy_subsets_of_their_scenario_group():
     sim_run_groups.clear_run_group_cache()
     listed = {g.name for g in sim_run_groups.run_groups()}
-    assert listed == {"voigt-grid", "lorentzian-drift", "drive-control"}
+    assert listed == {"voigt-grid", "lorentzian-drift", "drive-control", "all"}
     expected = {
         "both-sbed": ("voigt-grid", ["Bayesian-SBED", "SimpleSweep-3perFWHM"]),
         "both-sbed-only": ("voigt-grid", ["Bayesian-SBED"]),
@@ -50,6 +50,19 @@ def test_former_group_names_are_strategy_subsets_of_their_scenario_group():
         assert group.generator_names == base.generator_names
         assert group.noise_names == base.noise_names
         assert group.strategy_names == strategies
+
+
+def test_all_group_is_the_union_of_every_scenario_with_its_own_locators():
+    sim_run_groups.clear_run_group_cache()
+    scenarios = [sim_run_groups.get_run_group(n) for n in ("voigt-grid", "lorentzian-drift", "drive-control")]
+    everything = sim_run_groups.get_run_group("all")
+    assert everything.task_count == sum(g.task_count for g in scenarios)
+    combos = set(everything.combinations())
+    assert len(combos) == everything.task_count
+    # Drive-choosing SBED only runs on the drive-controlled generators, not on every generator.
+    drive_gens = set(scenarios[2].generator_names)
+    assert {g for g, _, s in combos if s == "Bayesian-SBED-Drive"} == drive_gens
+    assert set(everything.extra_generators) == {g for sc in scenarios for g in sc.generator_names}
 
 
 def test_default_run_group_is_voigt_grid():

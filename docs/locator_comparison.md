@@ -13,6 +13,7 @@ spectrum with tight nuisance priors; it still uses the prior's width, never the 
 | `voigt-grid` | Voigt width x contrast x sigma_inhom | SBED noise grid | the eight below |
 | `lorentzian-drift` | Lorentzian width x contrast | no-drift control + drift scenarios | the eight below |
 | `drive-control` | CW / pulsed drive-controlled NV | SBED noise grid | `Bayesian-SBED`, `Bayesian-SBED-Drive` |
+| `all` | the three above | the three above | each scenario's own set (`nv groups all`, 19224 tasks) |
 
 `nv groups list` shows every group with its task count. The former groups `both-sbed`, `both-sbed-only`,
 `both-sweep-only`, `lorentzian-plain-drift` and `lorentzian-plain-drift-sbed-only` still work as aliases of
