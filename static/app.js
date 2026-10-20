@@ -992,7 +992,7 @@ function main() {
             { key: 'min_dip_width', label: 'Dip width', tip: 'Width of the actual signal dip in physical frequency units.', fmt: formatHz },
             { key: 'total_signal_span', label: 'Signal span', tip: 'Total span from first dip start to last dip end in physical frequency units.', fmt: formatHz },
             { key: 'sweep_efficiency', label: 'Efficiency', tip: 'Expected uniform points / actual measurements. >1 means the locator was efficient.', fmt: formatMetricValue },
-            { key: 'focus_window', label: 'Focus window', tip: 'Inferred drive-frequency window the locator narrowed onto after detecting dips.', fmt: function (v) { return v; } },
+            { key: 'focus_window', label: 'Focus window', tip: 'Drive-frequency window the locator restricts EIG candidates to (the padded bounding interval of the significant dips detected in the measurements; absent while it is the full drive axis). Detected dips are drawn separately.', fmt: function (v) { return v; } },
         ];
         let any = false;
         for (const it of items) {

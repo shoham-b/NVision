@@ -1,15 +1,16 @@
-"""SBED reports the dips its observations show as focus windows.
+"""SBED reports the window it actually restricts acquisition to as the UI focus window.
 
-The windows come straight from the belief's deterministic dip detection
-(``SMCMarginalDistribution.dip_candidates``) and feed the UI timeline, which animates the
-candidates narrowing down to a single settled focus window
-(``StepSnapshot.focus_window_candidates``). The detector itself is covered by
-``test_dip_detection.py``.
+``bayesian_focus_window()`` / ``focus_window_candidates()`` expose the locator's ``_focus`` (the
+interval ``_acquire`` filters EIG candidates by; derived from the significant dips) and feed the UI timeline
+(``StepSnapshot.focus_window_candidates``). ``per_dip_windows()`` is separate, display-only evidence
+from the belief's deterministic dip detection (``SMCMarginalDistribution.dip_candidates``), covered
+by ``test_dip_detection.py``.
 """
 
 from __future__ import annotations
 
 from nvision.belief.dip_detection import DipCandidate
+from nvision.belief.focus_window import FocusWindow
 from nvision.belief.smc_marginal import SMCMarginalDistribution
 from nvision.sim.locs.bayesian.sbed_locator import SequentialBayesianExperimentDesignLocator
 from nvision.spectra.nv_center import NVCenterLorentzianModel
@@ -53,42 +54,47 @@ def _dip(left: float, right: float) -> DipCandidate:
     )
 
 
-class TestFocusWindowCandidateMethods:
-    def test_no_dips_yet_all_return_none(self):
-        locator = _make_locator()
-        assert locator.belief.dip_candidates == []
-        assert locator.bayesian_focus_window() is None
-        assert locator.per_dip_windows() is None
-        assert locator.focus_window_candidates() is None
+def _narrow(locator: SequentialBayesianExperimentDesignLocator, lo: float, hi: float) -> None:
+    full = locator._focus
+    locator._focus = FocusWindow(lo=lo, hi=hi, full_lo=full.full_lo, full_hi=full.full_hi)
 
-    def test_single_dominant_candidate_is_not_treated_as_multi_dip(self):
+
+class TestFocusWindowMethods:
+    def test_full_axis_focus_reports_no_window(self):
+        locator = _make_locator()
+        assert locator.bayesian_focus_window() is None
+        assert locator.focus_window_candidates() is None
+        assert locator.per_dip_windows() is None
+
+    def test_narrowed_focus_is_the_reported_window(self):
+        locator = _make_locator()
+        _narrow(locator, 2.865e9, 2.872e9)
+        assert locator.bayesian_focus_window() == (2.865e9, 2.872e9)
+        assert locator.focus_window_candidates() == [(2.865e9, 2.872e9)]
+        # The acquisition filter and the reported window are the same interval.
+        assert locator._acquisition_bounds() == locator.bayesian_focus_window()
+
+    def test_significant_dips_drive_the_focus_window(self, monkeypatch):
+        # This test axis is only 20 MHz wide: shrink the pad so the window can be narrower than the axis.
+        monkeypatch.setattr("nvision.sim.locs.bayesian.sbed_locator.NVISION_SMC_FOCUSING_COVER_FACTOR", 0.1)
         locator = _make_locator()
         locator.belief._dip_candidates = [_dip(2.869e9, 2.871e9)]
-        assert locator.bayesian_focus_window() == (2.869e9, 2.871e9)
-        # Gated to len >= 2 -- matches sweep locators' per_dip_windows convention.
-        assert locator.per_dip_windows() is None
-        # Never gated -- always reflects whatever is currently known, even len == 1.
-        assert locator.focus_window_candidates() == [(2.869e9, 2.871e9)]
+        # Dips alone change nothing until the locator re-decides the focus (after a resample)...
+        assert locator.bayesian_focus_window() is None
+        locator.belief._step_count = 20
+        locator._update_focus_window()
+        # ...then the reported window is the (padded) dip extent and equals the acquisition filter.
+        lo, hi = locator.bayesian_focus_window()
+        assert lo < 2.869e9
+        assert hi > 2.871e9
+        assert locator.focus_window_candidates() == [(lo, hi)]
+        assert locator._acquisition_bounds() == (lo, hi)
 
-    def test_multiple_competing_candidates_are_all_exposed(self):
+    def test_per_dip_windows_still_expose_competing_dips(self):
         locator = _make_locator()
         dominant = (2.869e9, 2.871e9)
         secondary = (2.875e9, 2.877e9)
-        locator.belief._dip_candidates = [_dip(*dominant), _dip(*secondary)]
-        assert locator.bayesian_focus_window() == dominant
-        assert locator.per_dip_windows() == [dominant, secondary]
-        assert locator.focus_window_candidates() == [dominant, secondary]
-
-    def test_candidates_collapse_to_one_as_run_settles(self):
-        """Simulates the timeline story: many candidates narrowing to one."""
-        locator = _make_locator()
-        dominant = (2.869e9, 2.871e9)
-        secondary = (2.875e9, 2.877e9)
-
-        locator.belief._dip_candidates = [_dip(*dominant), _dip(*secondary)]
-        assert len(locator.focus_window_candidates()) == 2
-
         locator.belief._dip_candidates = [_dip(*dominant)]
-        assert len(locator.focus_window_candidates()) == 1
         assert locator.per_dip_windows() is None
-        assert locator.bayesian_focus_window() == dominant
+        locator.belief._dip_candidates = [_dip(*dominant), _dip(*secondary)]
+        assert locator.per_dip_windows() == [dominant, secondary]

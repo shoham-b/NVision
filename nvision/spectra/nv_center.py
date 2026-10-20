@@ -240,6 +240,9 @@ def physics_config_fingerprint() -> str:
         # candidates inside a locator-owned focus): the dip-biased probe, last-pick re-injection and
         # belief-side window narrowing were removed and out-of-cube particles are reflected, not clipped.
         "sbed-single-path-v1",
+        # Bumped when the SBED focus window became the padded bounding interval of the significant
+        # find_dips extents (it was a particle-percentile window, inert with a fixed center_freq).
+        "sbed-dip-focus-v1",
         # Bumped when the dip-centre model parameter was renamed ``frequency`` -> ``center_freq``
         # (and the milestone/metric names fb/fc/splitting_converged -> primary/split/primary_converged):
         # every cached combination's stored params, bounds and metric columns carry the old names.
