@@ -32,7 +32,7 @@ def _run_batch(generator, repeats: int = 2, max_steps: int = 30) -> pl.DataFrame
             drive_freq_max_phys=drive_freq_max_phys,
         )
         steps = 0
-        for _ in run_loop(GenericSweepLocator, experiment, rng, max_steps=max_steps):
+        for _ in run_loop(GenericSweepLocator, experiment, rng, max_steps=max_steps, spacing_divisor=None):
             steps += 1
         rows.append({"repeat": i, "steps": steps})
     return pl.DataFrame(rows)

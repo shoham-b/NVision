@@ -5,8 +5,7 @@
 Locators use a `create()` classmethod for instantiation rather than a separate
 `LocatorFactory` class. This is simpler, more Pythonic, and eliminates the factory
 layer. This is still exactly how it works today — see `create()` on
-`SbedLocator`, `SequentialBayesianLocator`, `SobolBayesianLocator`,
-`GenericSweepLocator`, and `StagedSobolSweepLocator`.
+`SbedLocator`, `SequentialBayesianLocator`, and `GenericSweepLocator`.
 
 ---
 
@@ -89,10 +88,9 @@ class Locator(ABC):
         self.belief.update(obs)
 ```
 
-Some concrete sweep locators (`GenericSweepLocator`, `StagedSobolSweepLocator`) add a
+The concrete sweep locator (`GenericSweepLocator`) adds a
 `finalize()` hook — called once after the last observation, before `result()` — to
-flush deferred belief updates and run a batch model fit instead of paying a full
-Bayesian update on every step. It's an addition on top of this ABC, not a
+run a batch model fit over all measurements. It's an addition on top of this ABC, not a
 replacement for `done()`/`result()`; the runner calls it via `getattr(locator,
 "finalize", None)` since most locators don't define it (see
 `nvision/runner/executor.py`).

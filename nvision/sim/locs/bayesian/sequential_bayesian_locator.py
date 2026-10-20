@@ -375,85 +375,8 @@ class SequentialBayesianLocator(Locator):
         return overall_converged
 
     def result(self) -> dict[str, float]:
-        """Return posterior-mean estimates for all parameters, along with sweep metrics if available."""
-        res = dict(self.belief.estimates())
-        expected_uniform = self._compute_expected_uniform_points()
-        if expected_uniform > 0:
-            res["expected_uniform_points"] = expected_uniform
-        return res
-
-    def _compute_expected_uniform_points(self) -> float:
-        """Compute the expected points a simple Sobol sweep would require."""
-        true_signal = self._true_signal
-        if true_signal is None:
-            return 0.0
-
-        lo_phys, hi_phys = self._drive_freq_min_phys, self._drive_freq_max_phys
-        domain_width = hi_phys - lo_phys
-        if domain_width <= 0:
-            return 0.0
-
-        # 1. Evaluate ground-truth signal
-        n = 20000
-        drive_freqs_phys = np.linspace(lo_phys, hi_phys, n)
-        # A uniform sweep runs at the baseline drive (drive-controlled signals; None otherwise).
-        baseline_drive = getattr(true_signal, "baseline_drive", None)
-        if baseline_drive is None:
-            ys = np.array([true_signal(float(x)) for x in drive_freqs_phys], dtype=float)
-        else:
-            ys = np.array([true_signal(float(x), baseline_drive) for x in drive_freqs_phys], dtype=float)
-        drive_freqs_unit = (drive_freqs_phys - lo_phys) / domain_width
-
-        # 2. Find dip segments on the ground-truth signal using noise_std=1e-6
-        background = float(np.percentile(ys, 95))
-        dip_depth = background - float(np.min(ys))
-        if dip_depth <= 0:
-            return 0.0
-        threshold_drop = max(0.2 * dip_depth, 3.0 * 1e-6)
-        threshold = background - threshold_drop
-        below = ys < threshold
-        if not np.any(below):
-            return 0.0
-        changes = np.diff(below.astype(int))
-        starts = np.where(changes == 1)[0] + 1
-        ends = np.where(changes == -1)[0] + 1
-        if below[0]:
-            starts = np.concatenate([[0], starts])
-        if below[-1]:
-            ends = np.concatenate([ends, [len(below)]])
-
-        segments = []
-        for s, e in zip(starts, ends, strict=False):
-            if e > s and (e - s) >= 3:
-                segments.append((float(drive_freqs_unit[s]), float(drive_freqs_unit[e - 1])))
-
-        # Merge segments
-        if len(segments) > 1:
-            merged_segs = [segments[0]]
-            for lo, hi in segments[1:]:
-                if lo - merged_segs[-1][1] <= 0.02:
-                    merged_segs[-1] = (merged_segs[-1][0], hi)
-                else:
-                    merged_segs.append((lo, hi))
-            segments = merged_segs
-
-        if not segments:
-            return 0.0
-
-        # Check if dips are merged
-        if len(segments) == 1:
-            merged = True
-        else:
-            total_width = sum(hi - lo for lo, hi in segments)
-            total_span = segments[-1][1] - segments[0][0]
-            merged = bool(total_span <= total_width * 1.5)
-
-        true_total = float(sum(hi - lo for lo, hi in segments) * domain_width)
-        true_span = float((segments[-1][1] - segments[0][0]) * domain_width)
-
-        # Every segment spans >= 3 samples, so both widths are strictly positive.
-        effective_width = true_span if merged else true_total
-        return float(2.0 * domain_width / effective_width)
+        """Return posterior-mean estimates for all parameters."""
+        return dict(self.belief.estimates())
 
     def _resample_if_degenerate(self) -> bool:
         """Resample when the effective sample size has fallen below the belief's threshold; True if it did."""

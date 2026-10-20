@@ -29,9 +29,7 @@ class SweepingLocator(Locator):
     This class only owns the shared sweep mechanics: stepping through a
     predetermined grid, belief bookkeeping, and reading the model's declared
     span constants. Signal detection, windowing, and sweep-efficiency metrics
-    are the concrete locator's own responsibility (see ``GenericSweepLocator``
-    and ``StagedSobolSweepLocator``, which each implement these differently
-    and independently — there is no shared implementation to inherit).
+    are the concrete locator's own responsibility (see ``GenericSweepLocator``).
 
     Subclasses must implement:
     - `_generate_sweep_points(n)`: Generate n sweep points in [0, 1]

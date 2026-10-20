@@ -56,14 +56,14 @@ def test_simple_sweep_locator_is_core_locator():
 def test_simple_sweep_create_returns_instance():
     model = GaussianModel()
     belief = _dummy_belief(model)
-    loc = GenericSweepLocator.create(belief=belief, signal_model=model, max_steps=10)
+    loc = GenericSweepLocator.create(belief=belief, signal_model=model, max_steps=10, spacing_divisor=None)
     assert isinstance(loc, GenericSweepLocator)
 
 
 def test_locator_proposes_valid_positions():
     exp = _gaussian_experiment()
     rng = random.Random(1)
-    for locator in run_loop(GenericSweepLocator, exp, rng, max_steps=5):
+    for locator in run_loop(GenericSweepLocator, exp, rng, max_steps=5, spacing_divisor=None):
         assert locator.belief.last_obs is not None
         drive_freq_unit = locator.belief.last_obs.drive_freq_unit
         assert 0.0 <= drive_freq_unit <= 1.0
@@ -72,7 +72,7 @@ def test_locator_proposes_valid_positions():
 def test_runner_yields_exactly_max_steps():
     exp = _gaussian_experiment()
     rng = random.Random(2)
-    steps = list(run_loop(GenericSweepLocator, exp, rng, max_steps=10))
+    steps = list(run_loop(GenericSweepLocator, exp, rng, max_steps=10, spacing_divisor=None))
     assert len(steps) <= 10
     assert len(steps) > 0
 
@@ -81,7 +81,7 @@ def test_observer_records_snapshots():
     exp = _gaussian_experiment()
     rng = random.Random(3)
     observer = Observer(exp.true_signal, exp.drive_freq_min_phys, exp.drive_freq_max_phys)
-    result = observer.watch(run_loop(GenericSweepLocator, exp, rng, max_steps=15))
+    result = observer.watch(run_loop(GenericSweepLocator, exp, rng, max_steps=15, spacing_divisor=None))
     assert isinstance(result, RunResult)
     assert len(result.snapshots) > 0
 
@@ -90,7 +90,7 @@ def test_locator_estimates_are_finite():
     exp = _gaussian_experiment(center=0.6)
     rng = random.Random(42)
     last_locator = None
-    for loc in run_loop(GenericSweepLocator, exp, rng, max_steps=30):
+    for loc in run_loop(GenericSweepLocator, exp, rng, max_steps=30, spacing_divisor=None):
         last_locator = loc
     assert last_locator is not None
     estimates = last_locator.belief.estimates()
@@ -103,8 +103,8 @@ def test_locator_comparison_different_max_steps():
     rng_a = random.Random(99)
     rng_b = random.Random(99)
 
-    steps_a = list(run_loop(GenericSweepLocator, exp, rng_a, max_steps=5))
-    steps_b = list(run_loop(GenericSweepLocator, exp, rng_b, max_steps=20))
+    steps_a = list(run_loop(GenericSweepLocator, exp, rng_a, max_steps=5, spacing_divisor=None))
+    steps_b = list(run_loop(GenericSweepLocator, exp, rng_b, max_steps=20, spacing_divisor=None))
 
     # More steps means same or more measurements
     assert len(steps_b) >= len(steps_a)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -10,8 +11,10 @@ from numpy.typing import NDArray
 
 from nvision.belief.abstract_marginal import AbstractMarginalDistribution
 from nvision.models.fisher_information import lorentzian_center_freq_crlb
+from nvision.models.observation import ObservationHistory
 from nvision.sim.defaults import NVISION_SWEEP_FIT_EARLY_STOP_SIGMAS
 from nvision.sim.locs.coarse.sweep_locator import SweepingLocator
+from nvision.sim.locs.search_grid import SWEEP_POINTS_PER_FWHM, prior_fwhm_phys, uniform_grid_phys
 from nvision.spectra.signal import SignalModel
 from nvision.tools.renamed_env import reject_renamed_env_vars
 
@@ -19,12 +22,6 @@ reject_renamed_env_vars()
 
 if TYPE_CHECKING:
     pass
-
-# Deferred observations are flushed to belief.batch_update() in chunks of this
-# size at finalize().  batch_update evaluates the model once per chunk via the
-# vectorized _many kernel instead of once per observation, while still letting
-# the filter resample between chunks (same rationale as SOBOL_BATCH_CHUNK_SIZE).
-NVISION_SWEEP_BATCH_CHUNK_SIZE: int = int(os.getenv("NVISION_SWEEP_BATCH_CHUNK_SIZE", "200"))
 
 # Per-fit evaluation budget.  curve_fit's default tolerances (~1.5e-8) converge in
 # ~50-200 evaluations; a larger budget only matters if a start is far off.
@@ -74,20 +71,27 @@ _FIT_FLOAT32_DIFF_STEP: float = float(os.getenv("NVISION_SWEEP_FIT_FLOAT32_DIFF_
 
 
 class GenericSweepLocator(SweepingLocator):
-    """Uniform grid sweep locator with parabolic (r²) fit.
+    """Uniform grid sweep over the whole drive-frequency axis, then a least-squares model fit.
 
-    Sweeps the full domain uniformly, then fits a quadratic to the region
-    around the minimum to estimate the dip center. No refocusing or early
-    stopping — every allocated step is used.
+    The grid spacing is the prior FWHM divided by ``spacing_divisor`` (3 by default: three points inside the
+    dip, so a dip cannot be stepped over and ``find_dips`` has the cluster it needs), where the FWHM is
+    ``2 * effective_hwhm`` of the belief's *prior* estimate -- never the true signal's width. The number of
+    steps follows from that spacing and the axis width. No refocusing or early stopping -- every grid point is
+    measured -- but the belief is updated after each measurement, so its uncertainty can be followed step by
+    step like any other locator's. The reported estimate is the final fit (see :meth:`finalize`).
 
     Parameters
     ----------
     belief : AbstractMarginalDistribution
-        Belief distribution (required by Locator parent class).
+        Belief distribution (required by Locator parent class); its prior sets the dip width.
     signal_model : SignalModel
         Signal model for sweep detection.
     max_steps : int
-        Number of sweep steps (use all of them).
+        Upper bound on the step count (0 = none). The count itself is derived from the prior FWHM,
+        ``spacing_divisor`` and the axis width; exceeding the bound raises.
+    spacing_divisor : int | None, default 3
+        Grid points per FWHM (spacing = FWHM / spacing_divisor). ``None`` selects a fixed-count sweep of exactly
+        ``max_steps`` evenly spaced points instead (for models without a linewidth prior).
     noise_std : float, default 0.01
         Estimated measurement noise standard deviation.
     noise_max_dev : float | None, default None
@@ -107,40 +111,36 @@ class GenericSweepLocator(SweepingLocator):
     @classmethod
     def create(
         cls,
-        belief: AbstractMarginalDistribution,
-        signal_model: SignalModel,
-        max_steps: int,
+        belief: AbstractMarginalDistribution | None = None,
+        signal_model: SignalModel | None = None,
+        max_steps: int = 0,
         *,
+        builder: Callable[..., AbstractMarginalDistribution] | None = None,
         noise_std: float = 0.01,
         noise_max_dev: float | None = None,
         signal_min_span: float | None = None,
         signal_max_span: float | None = None,
         center_param: str | None = None,
         parameter_bounds: dict[str, tuple[float, float]] | None = None,
+        spacing_divisor: int | None = SWEEP_POINTS_PER_FWHM,
         **kwargs: Any,
     ) -> GenericSweepLocator:
-        domain_lo = kwargs.get("domain_lo")
-        domain_hi = kwargs.get("domain_hi")
+        domain_lo = kwargs.pop("domain_lo", None)
+        domain_hi = kwargs.pop("domain_hi", None)
+        if builder is not None:
+            # The belief is built exactly as the Bayesian locators build theirs (``kwargs`` are the
+            # builder's own options), so every locator infers with the same belief and prior.
+            if belief is not None or signal_model is not None:
+                raise ValueError("GenericSweepLocator.create: pass either a builder or a belief + signal_model.")
+            belief = builder(parameter_bounds, **kwargs)
+            signal_model = belief.model
+        elif belief is None or signal_model is None:
+            raise ValueError("GenericSweepLocator.create needs either a builder or both belief and signal_model.")
 
-        if (domain_lo is None or domain_hi is None) and parameter_bounds is not None:
-            # "center_freq" is always the drive-frequency axis for NV-center models even
-            # when fixed (not inferred) and therefore absent from
-            # signal_model.parameter_names() -- same landmine as
-            # SweepingLocator.__init__'s own center_param default.
-            if center_param:
-                param_name = center_param
-            elif "center_freq" in parameter_bounds:
-                param_name = "center_freq"
-            else:
-                param_name = signal_model.parameter_names()[0] if signal_model.parameter_names() else "peak_x"
-            if param_name in parameter_bounds:
-                if domain_lo is None:
-                    domain_lo = parameter_bounds[param_name][0]
-                if domain_hi is None:
-                    domain_hi = parameter_bounds[param_name][1]
-
-        domain_lo = domain_lo if domain_lo is not None else 0.0
-        domain_hi = domain_hi if domain_hi is not None else 1.0
+        # The scan axis is the belief's own drive-frequency axis: observations are unit coordinates of it.
+        belief_lo, belief_hi = belief.drive_freq_bounds_phys
+        domain_lo = belief_lo if domain_lo is None else domain_lo
+        domain_hi = belief_hi if domain_hi is None else domain_hi
 
         inst = cls(
             belief=belief,
@@ -153,6 +153,7 @@ class GenericSweepLocator(SweepingLocator):
             center_param=center_param,
             domain_lo=domain_lo,
             domain_hi=domain_hi,
+            spacing_divisor=spacing_divisor,
         )
         if parameter_bounds is not None:
             inst._parameter_bounds = dict(parameter_bounds)
@@ -171,7 +172,12 @@ class GenericSweepLocator(SweepingLocator):
         center_param: str | None = None,
         domain_lo: float = 0.0,
         domain_hi: float = 1.0,
+        spacing_divisor: int | None = SWEEP_POINTS_PER_FWHM,
     ):
+        if spacing_divisor is not None and spacing_divisor < 1:
+            raise ValueError(f"spacing_divisor must be >= 1 (or None), got {spacing_divisor!r}")
+        if spacing_divisor is None and max_steps < 2:
+            raise ValueError("A fixed-count sweep (spacing_divisor=None) needs max_steps >= 2.")
         super().__init__(
             belief=belief,
             signal_model=signal_model,
@@ -194,16 +200,33 @@ class GenericSweepLocator(SweepingLocator):
         # instead of the SMC belief marginal mode.
         self._fit_params_phys: dict[str, float] | None = None
 
-        # Buffer observations so we can batch-update the belief once at finalize()
-        # instead of paying a full Bayesian update on every step.
-        self._pending_obs: list = []
-
         # Parameter bounds stored by create() when provided as an argument.
         # Used by _fit_model() when signal_model has no param_bounds_phys.
         self._parameter_bounds: dict[str, tuple[float, float]] | None = None
 
-        # Generate sweep points across the full domain.
-        self._sweep_points = self._generate_sweep_points(max_steps)
+        if not np.allclose(belief.drive_freq_bounds_phys, (domain_lo, domain_hi), rtol=1e-9, atol=0.0):
+            raise ValueError(
+                f"belief drive_freq_bounds_phys {belief.drive_freq_bounds_phys} do not match this locator's "
+                f"domain ({domain_lo}, {domain_hi}); observations are unit coordinates of one range."
+            )
+        self.spacing_divisor = spacing_divisor
+        if spacing_divisor is None:
+            # Explicit fixed-count mode: exactly max_steps evenly spaced points, no width needed.
+            self._fwhm_prior_phys = None
+            n_points = max_steps
+        else:
+            # The grid follows from the prior FWHM: spacing = FWHM / spacing_divisor, endpoints included.
+            self._fwhm_prior_phys = prior_fwhm_phys(belief)
+            n_points = uniform_grid_phys(domain_lo, domain_hi, self._fwhm_prior_phys / spacing_divisor).size
+            if max_steps > 0 and n_points > max_steps:
+                raise ValueError(
+                    f"GenericSweepLocator: a spacing of FWHM/{spacing_divisor} = "
+                    f"{self._fwhm_prior_phys / spacing_divisor:g} Hz needs {n_points} points, over the budget of "
+                    f"{max_steps} steps."
+                )
+        self.max_steps = n_points
+        self.history = ObservationHistory(n_points)
+        self._sweep_points = self._generate_sweep_points(n_points)
 
     def _generate_sweep_points(self, n: int) -> NDArray[np.float64]:
         if n <= 0:
@@ -217,45 +240,6 @@ class GenericSweepLocator(SweepingLocator):
         own structure (1, 2, 3, or 6 dips based on physics).
         """
         return self._inner_model().expected_dip_count()
-
-    def observe(self, obs) -> None:
-        """Record observation without updating the belief on every step.
-
-        The belief is only used for visualization, not for choosing the next
-        point (all sweep positions are predetermined). We buffer all observations
-        and do a single belief update in finalize() to avoid paying the full
-        Bayesian posterior cost N times.
-        """
-        if self.step_count <= self.max_steps:
-            self.history.append(obs)
-            self.belief.last_obs = obs
-            self._pending_obs.append(obs)
-
-    def _flush_pending_obs(self) -> None:
-        """Flush deferred belief updates in vectorized chunks.
-
-        One batched posterior update per chunk instead of a full
-        per-observation update N times (the belief is not used for
-        acquisition decisions during the sweep).
-        """
-        if not self._pending_obs:
-            return
-
-        if not np.allclose(self.belief.drive_freq_bounds_phys, (self._domain_lo, self._domain_hi), rtol=1e-9, atol=0.0):
-            raise ValueError(
-                f"belief drive_freq_bounds_phys {self.belief.drive_freq_bounds_phys} do not match this locator's "
-                f"domain ({self._domain_lo}, {self._domain_hi}); observations are unit coordinates of one range."
-            )
-        mapped_obs = self._pending_obs
-
-        if hasattr(self.belief, "batch_update"):
-            chunk = NVISION_SWEEP_BATCH_CHUNK_SIZE
-            for i in range(0, len(mapped_obs), chunk):
-                self.belief.batch_update(mapped_obs[i : i + chunk])
-        else:
-            for obs in mapped_obs:
-                self.belief.update(obs)
-        self._pending_obs.clear()
 
     def _fit_model(self, drive_freqs_unit: np.ndarray, ys: np.ndarray) -> tuple[float, float]:
         """Fit the physical model to sweep data via least squares.
@@ -1071,25 +1055,20 @@ class GenericSweepLocator(SweepingLocator):
     def finalize(self) -> None:
         """Fit the physical model to the sweep and report the ``center_freq``.
 
-        Order matters: the fit runs BEFORE the belief flush so it never depends on the
-        (collapsed, batch-updated) belief; the flush only exists so visualizations can show
-        a belief. (The belief no longer rewrites any parameter bounds, so the fit's bounds
-        are the original physical ones either way.)
+        The fit uses only the recorded measurements, never the belief (which was updated step by step
+        and is what the stage metrics read); it supplies the reported estimate.
 
         Raises if the fit fails — see ``_fit_model``.
 
         No-ops if no measurements were taken (e.g. the run was skipped
         outright by the pre-run CRLB feasibility gate in ``executor.py``,
         which still calls ``finalize()`` on a freshly-created, unobserved
-        locator instance) — mirrors ``SimpleSobolBayesianLocator.finalize()``'s
-        own ``history.count > 0`` guard for the same "never ran" state.
+        locator instance).
         """
         if self.history.count == 0:
             return
         domain_width = self._domain_hi - self._domain_lo
         center_freq_phys, uncert_phys = self._fit_model(self.history.drive_freqs_unit, self.history.ys)
-
-        self._flush_pending_obs()
 
         self._center_freq_estimate_phys = center_freq_phys
         self._center_freq_uncert_phys = uncert_phys
@@ -1116,8 +1095,7 @@ class GenericSweepLocator(SweepingLocator):
 
         ``finalize()`` always produces a full least-squares fit (or raises),
         so the dip count and width are known exactly from the model and the
-        fit — no need to re-detect dips from noisy sweep y-values the way a
-        locator without a fit (e.g. ``StagedSobolSweepLocator``) has to.
+        fit — no need to re-detect dips from noisy sweep y-values.
         """
         domain_width = self._domain_hi - self._domain_lo
         expected_dips = self._expected_dip_count_from_model()

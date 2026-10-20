@@ -27,7 +27,6 @@ from nvision.sim.locs.bayesian.belief_builders import nv_center_smc_belief
 from nvision.sim.locs.bayesian.sbed_locator import SequentialBayesianExperimentDesignLocator as SbedLocator
 from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBayesianLocator
 from nvision.sim.locs.coarse import GenericSweepLocator
-from nvision.sim.locs.coarse.sobol_locator import StagedSobolSweepLocator
 from tests.noise import gaussian_noise
 
 
@@ -112,19 +111,7 @@ class TestOverallNVCenter:
             GenericSweepLocator,
             exp,
             max_steps=20,
-            domain_lo=exp.drive_freq_min_phys,
-            domain_hi=exp.drive_freq_max_phys,
-        )
-
-    def test_staged_sobol(self, benchmark):
-        exp = _nv_center_experiment()
-        _overall_run_ms(
-            benchmark,
-            StagedSobolSweepLocator,
-            exp,
-            max_steps=20,
-            domain_lo=exp.drive_freq_min_phys,
-            domain_hi=exp.drive_freq_max_phys,
+            spacing_divisor=None,
         )
 
     @pytest.mark.skip(reason="SBEDLocator is slow")

@@ -8,7 +8,7 @@ NVision implements various algorithms for signal generation, noise simulation, a
 
 ### Locators (Search Strategies)
 Locators are strategies used to find signal peaks. They implement the `Locator` protocol.
-- **Coarse Locators**: E.g., `SobolLocator` and `SweepLocator` for initial wide-area scanning.
+- **Coarse Locators**: E.g., `GenericSweepLocator` (uniform sweep sized from the resonance FWHM).
 - **Bayesian Locators**: Use probabilistic models to guide the search.
   - `SequentialBayesianLocator`: Main sequential search.
   - `MaximumLikelihoodLocator`: Chooses points maximizing current likelihood.

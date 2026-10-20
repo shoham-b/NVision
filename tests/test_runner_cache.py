@@ -2,14 +2,28 @@ import logging
 from pathlib import Path
 
 from nvision.runner.cache import _decompress_text, embed_graph_content
-from nvision.sim.defaults import NVISION_SIMPLESWEEP_MAX_STEPS
-from nvision.sim.locs.dyadic import round_to_dyadic_points
+from nvision.sim.locs.bayesian.belief_builders import nv_center_smc_belief
+from nvision.sim.locs.search_grid import SWEEP_POINTS_PER_FWHM, max_sweep_points
+from nvision.spectra.nv_center import MIN_LINEWIDTH
 
-# The executor rounds SimpleSweep's step count to a dyadic (2**k + 1) grid so
-# SimpleSobol can reuse its measurements (see nvision/sim/locs/dyadic.py) --
-# tests that pre-seed a cache entry keyed by SimpleSweep's max_steps must use
-# the same rounded value the runner actually resolves, not the raw constant.
-SIMPLESWEEP_EFFECTIVE_MAX_STEPS = round_to_dyadic_points(NVISION_SIMPLESWEEP_MAX_STEPS)
+# The step budget (cache-key component) the runner resolves for a plain sweep over the 2.6-3.1 GHz test axis:
+# the grid size at the narrowest dip the linewidth prior allows.
+SIMPLESWEEP_EFFECTIVE_MAX_STEPS = max_sweep_points(2.6e9, 3.1e9, MIN_LINEWIDTH, SWEEP_POINTS_PER_FWHM)
+
+
+def _sweep_strategy():
+    """A plain-sweep strategy as the combination grid builds it: a locator class plus its belief builder."""
+    from nvision import GenericSweepLocator
+
+    return {
+        "class": GenericSweepLocator,
+        "config": {
+            "builder": nv_center_smc_belief,
+            "num_particles": 200,
+            "with_zeeman_splitting": False,
+            "spacing_divisor": SWEEP_POINTS_PER_FWHM,
+        },
+    }
 
 
 def test_embed_graph_content_happy_path(tmp_path: Path):
@@ -103,14 +117,14 @@ def test_harvest_partial_results_from_cache(tmp_path: Path):
     from nvision.noises.over_frequency.gaussian_noise import OverFrequencyGaussianNoise
     from nvision.sim.combinations import Combination
     from nvision.sim.gen.nv_center_generator import NVCenterCoreGenerator
-    from nvision.sim.locs.bayesian.sobol_bayesian_locator import SimpleSobolBayesianLocator
+    from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBayesianLocator
 
     sig = NVCenterCoreGenerator(variant="lorentzian")
     noise = CompositeNoise(over_frequency_noise=CompositeOverFrequencyNoise([OverFrequencyGaussianNoise(0.01)]))
     combo = Combination(
         generator=sig,
         noise=noise,
-        strategy=SimpleSobolBayesianLocator,
+        strategy=SequentialBayesianLocator,
         generator_name="NVCenter-lorentzian",
         noise_name="Gauss(0.01)",
         strategy_name="Bayesian-SBED",
@@ -191,14 +205,14 @@ def test_maybe_archive_combo_moves_finished_combination(tmp_path: Path):
     from nvision.noises.over_frequency.gaussian_noise import OverFrequencyGaussianNoise
     from nvision.sim.combinations import Combination
     from nvision.sim.gen.nv_center_generator import NVCenterCoreGenerator
-    from nvision.sim.locs.bayesian.sobol_bayesian_locator import SimpleSobolBayesianLocator
+    from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBayesianLocator
 
     sig = NVCenterCoreGenerator(variant="lorentzian")
     noise = CompositeNoise(over_frequency_noise=CompositeOverFrequencyNoise([OverFrequencyGaussianNoise(0.01)]))
     combo = Combination(
         generator=sig,
         noise=noise,
-        strategy=SimpleSobolBayesianLocator,
+        strategy=SequentialBayesianLocator,
         generator_name="NVCenter-lorentzian",
         noise_name="Gauss(0.01)",
         strategy_name="Bayesian-SBED",
@@ -289,14 +303,14 @@ def test_maybe_archive_combo_below_target_is_noop(tmp_path: Path):
     from nvision.noises.over_frequency.gaussian_noise import OverFrequencyGaussianNoise
     from nvision.sim.combinations import Combination
     from nvision.sim.gen.nv_center_generator import NVCenterCoreGenerator
-    from nvision.sim.locs.bayesian.sobol_bayesian_locator import SimpleSobolBayesianLocator
+    from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBayesianLocator
 
     sig = NVCenterCoreGenerator(variant="lorentzian")
     noise = CompositeNoise(over_frequency_noise=CompositeOverFrequencyNoise([OverFrequencyGaussianNoise(0.01)]))
     combo = Combination(
         generator=sig,
         noise=noise,
-        strategy=SimpleSobolBayesianLocator,
+        strategy=SequentialBayesianLocator,
         generator_name="NVCenter-lorentzian",
         noise_name="Gauss(0.01)",
         strategy_name="Bayesian-SBED",
@@ -364,22 +378,9 @@ def test_maybe_archive_combo_below_target_is_noop(tmp_path: Path):
 
 def test_task_runner_resume_and_override(tmp_path: Path, monkeypatch):
     monkeypatch.setattr("nvision.runner.executor.generate_attempt_plots", lambda *args, **kwargs: [])
-    monkeypatch.setattr(
-        "nvision.runner.executor._TaskRunner._run_sobol_baseline",
-        lambda *args, **kwargs: {
-            "sobol_baseline_steps": 1,
-            "sobol_primary_steps": 1,
-            "sobol_primary_uncert_at_conv": 0.0,
-            "sobol_primary_err_at_conv": 0.0,
-            "sobol_xs": [],
-            "sobol_ys": [],
-            "sobol_mode_estimates": {},
-        },
-    )
 
     import logging
 
-    from nvision import GenericSweepLocator
     from nvision.cache import CacheBridge
     from nvision.models.noise import CompositeNoise, CompositeOverFrequencyNoise
     from nvision.models.task import LocatorTask
@@ -395,7 +396,7 @@ def test_task_runner_resume_and_override(tmp_path: Path, monkeypatch):
     combo = Combination(
         generator=sig,
         noise=noise,
-        strategy=GenericSweepLocator,
+        strategy=_sweep_strategy(),
         generator_name="NVCenter-lorentzian",
         noise_name="Gauss(0.01)",
         strategy_name="SimpleSweep",
@@ -553,14 +554,14 @@ def test_harvest_partial_results_with_gaps_and_attempt_keys(tmp_path: Path):
     from nvision.noises.over_frequency.gaussian_noise import OverFrequencyGaussianNoise
     from nvision.sim.combinations import Combination
     from nvision.sim.gen.nv_center_generator import NVCenterCoreGenerator
-    from nvision.sim.locs.bayesian.sobol_bayesian_locator import SimpleSobolBayesianLocator
+    from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBayesianLocator
 
     sig = NVCenterCoreGenerator(variant="lorentzian")
     noise = CompositeNoise(over_frequency_noise=CompositeOverFrequencyNoise([OverFrequencyGaussianNoise(0.01)]))
     combo = Combination(
         generator=sig,
         noise=noise,
-        strategy=SimpleSobolBayesianLocator,
+        strategy=SequentialBayesianLocator,
         generator_name="NVCenter-lorentzian",
         noise_name="Gauss(0.01)",
         strategy_name="Bayesian-SBED",
@@ -679,7 +680,6 @@ def test_harvest_partial_results_with_gaps_and_attempt_keys(tmp_path: Path):
 def test_cache_miss_explanations(tmp_path: Path, caplog):
     import logging
 
-    from nvision import GenericSweepLocator
     from nvision.models.noise import CompositeNoise, CompositeOverFrequencyNoise
     from nvision.models.task import LocatorTask
     from nvision.noises import OverFrequencyGaussianNoise
@@ -694,7 +694,7 @@ def test_cache_miss_explanations(tmp_path: Path, caplog):
     combo = Combination(
         generator=sig,
         noise=noise,
-        strategy=GenericSweepLocator,
+        strategy=_sweep_strategy(),
         generator_name="NVCenter-lorentzian",
         noise_name="Gauss(0.01)",
         strategy_name="SimpleSweep",
@@ -835,7 +835,6 @@ def test_cache_miss_explanations(tmp_path: Path, caplog):
 def test_schema_version_8_fallback(tmp_path: Path, caplog):
     import logging
 
-    from nvision import GenericSweepLocator
     from nvision.models.noise import CompositeNoise, CompositeOverFrequencyNoise
     from nvision.models.task import LocatorTask
     from nvision.noises import OverFrequencyGaussianNoise
@@ -850,7 +849,7 @@ def test_schema_version_8_fallback(tmp_path: Path, caplog):
     combo = Combination(
         generator=sig,
         noise=noise,
-        strategy=GenericSweepLocator,
+        strategy=_sweep_strategy(),
         generator_name="NVCenter-lorentzian",
         noise_name="Gauss(0.01)",
         strategy_name="SimpleSweep",
@@ -942,7 +941,6 @@ def test_restore_cached_results_does_not_materialize_graphs_to_disk(tmp_path: Pa
     """
     import base64
 
-    from nvision import GenericSweepLocator
     from nvision.cache import CacheBridge
     from nvision.models.noise import CompositeNoise, CompositeOverFrequencyNoise
     from nvision.models.task import LocatorTask
@@ -958,7 +956,7 @@ def test_restore_cached_results_does_not_materialize_graphs_to_disk(tmp_path: Pa
     combo = Combination(
         generator=sig,
         noise=noise,
-        strategy=GenericSweepLocator,
+        strategy=_sweep_strategy(),
         generator_name="NVCenter-lorentzian",
         noise_name="Gauss(0.01)",
         strategy_name="SimpleSweep",
@@ -1031,22 +1029,9 @@ def test_restore_cached_results_does_not_materialize_graphs_to_disk(tmp_path: Pa
 
 def test_task_runner_dry_run(tmp_path: Path, monkeypatch):
     monkeypatch.setattr("nvision.runner.executor.generate_attempt_plots", lambda *args, **kwargs: [])
-    monkeypatch.setattr(
-        "nvision.runner.executor._TaskRunner._run_sobol_baseline",
-        lambda *args, **kwargs: {
-            "sobol_baseline_steps": 1,
-            "sobol_primary_steps": 1,
-            "sobol_primary_uncert_at_conv": 0.0,
-            "sobol_primary_err_at_conv": 0.0,
-            "sobol_xs": [],
-            "sobol_ys": [],
-            "sobol_mode_estimates": {},
-        },
-    )
 
     import logging
 
-    from nvision import GenericSweepLocator
     from nvision.cache import CacheBridge
     from nvision.models.noise import CompositeNoise, CompositeOverFrequencyNoise
     from nvision.models.task import LocatorTask
@@ -1062,7 +1047,7 @@ def test_task_runner_dry_run(tmp_path: Path, monkeypatch):
     combo = Combination(
         generator=sig,
         noise=noise,
-        strategy=GenericSweepLocator,
+        strategy=_sweep_strategy(),
         generator_name="NVCenter-lorentzian",
         noise_name="Gauss(0.01)",
         strategy_name="SimpleSweep",

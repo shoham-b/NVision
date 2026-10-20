@@ -19,7 +19,7 @@ def test_both_sbed_group_uses_voigt_inhom_grid():
     assert len(set(group.generator_names)) == len(group.generator_names)
     assert group.extra_generators is not None
     assert set(group.extra_generators.keys()) == set(group.generator_names)
-    assert group.strategy_names == ["Bayesian-SBED", "SimpleSobol", "SimpleSweep"]
+    assert group.strategy_names == ["Bayesian-SBED", "SimpleSweep"]
 
 
 def test_both_variant_groups_share_the_same_param_grid():

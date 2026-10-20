@@ -79,6 +79,7 @@ def test_simplesweep_zero_noise_fit_beats_prior():
             exp,
             rng,
             max_steps=1000,
+            spacing_divisor=None,
             parameter_bounds=parameter_bounds,
         )
     )

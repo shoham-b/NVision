@@ -81,35 +81,3 @@ class MetricsVizMixin:
             "path": out_path.as_posix(),
             "title": f"Convergence Steps: {param_name}",
         }
-
-    def plot_sobol_difference(self, metrics: StrategyMetrics, gen_name: str, noise_name: str) -> dict[str, Any]:
-        """Serialize histogram data (definition lives in static/graphs/histogram.json)."""
-        diffs = getattr(metrics, "sobol_differences", [])
-        if not diffs:
-            return {}
-
-        data: dict[str, Any] = {
-            "_graph_type": "histogram",
-            "title": (
-                f"Sobol Sweep Measurement Savings<br>"
-                f"Strategy: {metrics.strategy_name} | Generator: {gen_name} | Noise: {noise_name}"
-            ),
-            "xaxis_title": "Measurements Saved",
-            "yaxis_title": "Count",
-            "color": "orange",
-            "name": "Sweep Savings",
-            "values": [v for v in diffs if v is not None],
-        }
-
-        filename = f"sobol_diff_{metrics.strategy_name}.json.gz"
-        safe_filename = filename.replace(" ", "_").replace("/", "-").replace(":", "")
-        out_path = self.out_dir / safe_filename
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        dump_gz(data, out_path)
-
-        return {
-            "type": "sobol_difference",
-            "strategy": metrics.strategy_name,
-            "path": out_path.as_posix(),
-            "title": "Sobol Sweep Measurement Savings",
-        }

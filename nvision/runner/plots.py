@@ -30,15 +30,12 @@ from nvision.sim.defaults import (
     param_converged,
     param_convergence_bound_width,
 )
+from nvision.sim.grid_enums import is_plain_sweep
 from nvision.spectra.nv_center import PHYSICS_CONFIG_FINGERPRINT
 from nvision.spectra.unit_cube import UnitCubeSignalModel
 from nvision.viz import Viz
 
 log = logging.getLogger(__name__)
-
-# Strategies whose figures are skipped unless NVISION_PLOT_SWEEP_STRATEGIES is set. Their
-# manifest entry, per-step series and metrics are still produced.
-_SWEEP_STRATEGY_NAMES = frozenset({"SimpleSweep", "SimpleSobol"})
 
 
 def plots_wanted(strat_name: str, attempt_idx_in_combo: int) -> bool:
@@ -47,13 +44,13 @@ def plots_wanted(strat_name: str, attempt_idx_in_combo: int) -> bool:
     False for the sweep strategies unless ``NVISION_PLOT_SWEEP_STRATEGIES`` is set, and for
     repeats at or beyond ``NVISION_GRAPH_REPEATS`` (when that limit is positive).
     """
-    if strat_name in _SWEEP_STRATEGY_NAMES and not NVISION_PLOT_SWEEP_STRATEGIES:
+    if is_plain_sweep(strat_name) and not NVISION_PLOT_SWEEP_STRATEGIES:
         return False
     return not (NVISION_GRAPH_REPEATS > 0 and attempt_idx_in_combo >= NVISION_GRAPH_REPEATS)
 
 
 # Maximum number of snapshots fed into visualization loops.
-# SimpleSobol and other convergence-driven locators can accumulate thousands of
+# Convergence-driven locators can accumulate thousands of
 # steps; iterating all of them for Fisher info, covariance ellipses, and
 # posterior animations is the dominant post-run cost.  Subsampling to this cap
 # keeps plots informative while cutting render time proportionally.
@@ -343,7 +340,7 @@ def _bayesian_auxiliary_entries(
             true_params["noise_sigma"] = float(experiment.noise.estimated_noise_std())
     posterior_path = bayes_dir / f"{attempt_slug}_posterior.json.gz"
 
-    # Subsample snapshots for all visualization loops.  Locators like SimpleSobol
+    # Subsample snapshots for all visualization loops.  Convergence-driven locators
     # can produce thousands of steps; iterating all of them for Fisher info,
     # covariance ellipses, and posterior animations is the dominant post-run cost.
     # We build a subsampled RunResult used only for viz — the original is untouched.
@@ -380,7 +377,7 @@ def _bayesian_auxiliary_entries(
     smc_num_particles = getattr(bayesian_snapshots[0].belief, "num_particles", None) if bayesian_snapshots else None
 
     # Calculate parameter uncertainties history.
-    # Snapshots from buffered locators (SimpleSobol/SimpleSweep) share belief
+    # Snapshots from buffered locators (SimpleSweep) share belief
     # objects between batch flushes (observer dedup), so memoize the
     # O(particles x params) uncertainty/estimates passes per unique belief
     # instead of per step.
@@ -706,136 +703,6 @@ def _bayesian_auxiliary_entries(
     return extra
 
 
-def get_or_run_sobol_baseline(
-    experiment: Any,
-    seed: int,
-    generator_name: str,
-    noise_name: str,
-    repeat_idx: int,
-) -> dict[str, Any] | None:
-    """Retrieve Sobol baseline data from cache, or run the simulation if not cached or missing detailed data."""
-    from nvision.runner.sweep_cache import get_cached_sobol_baseline, put_cached_sobol_baseline
-
-    sobol_data = get_cached_sobol_baseline(
-        experiment,
-        seed,
-        generator_name,
-        noise_name,
-        repeat_idx,
-    )
-
-    if sobol_data is not None and "sobol_drive_freqs_unit" in sobol_data:
-        return sobol_data
-
-    # Otherwise, simulate it dynamically!
-    import math
-    import random
-
-    from nvision.noises.drift import attach_drift_for_repeat
-    from nvision.runner.convert import belief_mode_estimates
-    from nvision.runner.repeat_keys import measurement_repeat_key, repeat_seed_int
-    from nvision.sim.locs.bayesian.belief_builders import nv_center_smc_belief, nv_lineshape_for_model
-    from nvision.sim.locs.bayesian.sobol_bayesian_locator import SimpleSobolBayesianLocator
-
-    experiment = attach_drift_for_repeat(experiment, seed, generator_name, repeat_idx)
-
-    # 1. Setup locator noise/bounds
-    noise_std = 0.05
-    if experiment.noise is not None:
-        noise_std = float(experiment.noise.estimated_noise_std())
-
-    model = experiment.true_signal.model
-
-    # Inject bounds (replicating Executor._injected_parameter_bounds(experiment))
-    bounds: dict[str, tuple[float, float]] = {}
-    for name, bounds_val in experiment.true_signal.bounds.items():
-        if name == "_priors":
-            bounds[name] = bounds_val
-            continue
-        if name.startswith("_"):
-            continue
-        lo_raw, hi_raw = bounds_val
-        lo, hi = float(lo_raw), float(hi_raw)
-        if hi > lo:
-            name_lc = name.lower()
-            if ("amplitude" in name_lc or "depth" in name_lc) and hi > noise_std:
-                lo = max(lo, noise_std)
-                if lo >= hi:
-                    lo = float(lo_raw)
-        bounds[name] = (lo, hi)
-
-    if experiment.true_signal.noise_bounds:
-        bounds.update(experiment.true_signal.noise_bounds)
-
-    belief = nv_center_smc_belief(
-        bounds,
-        noise_model=experiment.true_signal.noise_model,
-        lineshape=nv_lineshape_for_model(model),
-        fixed_drive=experiment.true_signal.baseline_drive,
-    )
-
-    locator = SimpleSobolBayesianLocator(
-        belief=belief,
-        max_steps=10000,
-    )
-    # See nvision/runner/executor.py's identical Sobol-baseline block: tracked
-    # parameter is the locator's primary param (sobol_primary_* fields).
-    primary_param = locator._primary_param or "center_freq"
-
-    key = measurement_repeat_key(seed, generator_name, "sobol_baseline", noise_name, repeat_idx)
-    sobol_rng = random.Random(repeat_seed_int(key))
-
-    sobol_drive_freqs_unit = []
-    sobol_ys = []
-    sobol_primary_steps = None
-    sobol_primary_uncert_at_conv = None
-    sobol_primary_err_at_conv = None
-    true_primary = experiment.true_signal.get_param_value(primary_param)
-
-    while not locator.done():
-        drive_freq_unit = locator.next_drive_freq_unit()
-        obs = experiment.measure(drive_freq_unit, sobol_rng, shot_index=len(sobol_drive_freqs_unit))
-        locator.observe(obs)
-        sobol_drive_freqs_unit.append(float(obs.drive_freq_unit))
-        sobol_ys.append(float(obs.signal_value))
-
-        # Record metrics at the exact moment of primary-parameter convergence
-        if sobol_primary_steps is None and locator.primary_converged_step is not None:
-            sobol_primary_steps = locator.primary_converged_step
-            sobol_primary_uncert_at_conv = float(locator.belief.reported_uncertainty().get(primary_param, math.nan))
-            est_f = float(locator.belief.estimates().get(primary_param, math.nan))
-            sobol_primary_err_at_conv = abs(est_f - true_primary) if not math.isnan(est_f) else math.nan
-
-    sobol_mode_estimates = belief_mode_estimates(locator.belief)
-
-    sobol_final_uncert = float(locator.belief.reported_uncertainty().get(primary_param, math.nan))
-    est_f_final = float(locator.belief.estimates().get(primary_param, math.nan))
-    sobol_final_err = abs(est_f_final - true_primary) if not math.isnan(est_f_final) else math.nan
-
-    new_sobol_data = {
-        "sobol_baseline_steps": locator.step_count,
-        "sobol_primary_steps": sobol_primary_steps,
-        "sobol_primary_uncert_at_conv": sobol_primary_uncert_at_conv,
-        "sobol_primary_err_at_conv": sobol_primary_err_at_conv,
-        "sobol_baseline_uncert": sobol_final_uncert,
-        "sobol_baseline_err": sobol_final_err,
-        "sobol_drive_freqs_unit": sobol_drive_freqs_unit,
-        "sobol_ys": sobol_ys,
-        "sobol_mode_estimates": sobol_mode_estimates,
-    }
-
-    put_cached_sobol_baseline(
-        experiment,
-        seed,
-        generator_name,
-        noise_name,
-        repeat_idx,
-        new_sobol_data,
-    )
-
-    return new_sobol_data
-
-
 def get_or_run_simplesweep_baseline(
     experiment: Any,
     seed: int,
@@ -845,12 +712,12 @@ def get_or_run_simplesweep_baseline(
 ) -> dict[str, Any] | None:
     """Retrieve SimpleSweep baseline data from cache, or run the simulation if not cached."""
     from nvision.runner.sweep_cache import get_cached_simplesweep_baseline, put_cached_simplesweep_baseline
+    from nvision.sim.locs.search_grid import SWEEP_POINTS_PER_FWHM, max_sweep_points
 
     data = get_cached_simplesweep_baseline(experiment, seed, generator_name, noise_name, repeat_idx)
     if data is not None and "sweep_drive_freqs_unit" in data:
         return data
 
-    import math
     import random
 
     from nvision.noises.drift import attach_drift_for_repeat
@@ -897,11 +764,13 @@ def get_or_run_simplesweep_baseline(
         fixed_drive=experiment.true_signal.baseline_drive,
     )
 
-    f_domain_width = float(
-        experiment.drive_freq_max_phys - experiment.drive_freq_min_phys
-    )  # full drive-frequency axis width, Hz
     min_linewidth = min_linewidth_hz(bounds)
-    max_steps = max(30, math.ceil(f_domain_width / min_linewidth))
+    max_steps = max_sweep_points(
+        float(experiment.drive_freq_min_phys),
+        float(experiment.drive_freq_max_phys),
+        min_linewidth,
+        SWEEP_POINTS_PER_FWHM,
+    )
 
     locator = GenericSweepLocator(
         belief=belief,
@@ -1040,36 +909,16 @@ def generate_attempt_plots(
         if isinstance(m, UnitCubeSignalModel):
             belief_unit_cube = m
 
-    # Retrieve Sobol and SimpleSweep baseline measurements & estimates
-    sobol_drive_freqs_unit: list[float] | None = None
-    sobol_ys: list[float] | None = None
-    sobol_mode_estimates: dict[str, float] | None = None
+    # Retrieve SimpleSweep baseline measurements & estimates
     sweep_drive_freqs_unit: list[float] | None = None
     sweep_ys: list[float] | None = None
     sweep_mode_estimates: dict[str, float] | None = None
     wants_baselines = plots_wanted(strat_name, attempt_idx_in_combo) and not defer
-    if strat_name not in ("SimpleSobol", "SimpleSweep") and wants_baselines:
+    if not is_plain_sweep(strat_name) and wants_baselines:
         try:
             # entry_base["seed"] is explicitly None (not missing) for MATLAB real-data
             # runs, which have no synthetic generator seed -- `.get(..., 0)` only
             # covers a missing key, so None must be coalesced separately.
-            seed = int(entry_base.get("seed") or 0)
-            generator_name = str(entry_base.get("generator", ""))
-            noise_name = str(entry_base.get("noise", ""))
-            sobol_data = get_or_run_sobol_baseline(
-                current_scan,
-                seed,
-                generator_name,
-                noise_name,
-                attempt_idx_in_combo,
-            )
-            if sobol_data:
-                sobol_drive_freqs_unit = sobol_data.get("sobol_drive_freqs_unit")
-                sobol_ys = sobol_data.get("sobol_ys")
-                sobol_mode_estimates = sobol_data.get("sobol_mode_estimates")
-        except Exception as exc:
-            log.warning("Failed to retrieve or simulate Sobol baseline for plotting: %s", exc)
-        try:
             seed = int(entry_base.get("seed") or 0)
             generator_name = str(entry_base.get("generator", ""))
             noise_name = str(entry_base.get("noise", ""))
@@ -1143,9 +992,6 @@ def generate_attempt_plots(
             per_dip_windows=per_dip_windows,
             belief_unit_cube=belief_unit_cube,
             narrowed_param_bounds=run_result.narrowed_param_bounds if run_result is not None else None,
-            sobol_drive_freqs_unit=sobol_drive_freqs_unit,
-            sobol_ys=sobol_ys,
-            sobol_mode_estimates=sobol_mode_estimates,
             sweep_drive_freqs_unit=sweep_drive_freqs_unit,
             sweep_ys=sweep_ys,
             sweep_mode_estimates=sweep_mode_estimates,
@@ -1166,7 +1012,7 @@ def generate_attempt_plots(
         locator_steps = scan_entry.get("locator_steps") or 0
         if sweep_steps and locator_steps:
             scan_entry["coarse"] = {
-                "label": "Preliminary (Sobol)",
+                "label": "Preliminary sweep",
                 "measurements": sweep_steps,
                 "sweep_steps": sweep_steps,
                 "locator_steps": 0,
@@ -1182,10 +1028,6 @@ def generate_attempt_plots(
                 "duration_ms": scan_entry.get("duration_ms"),
                 "last_run": scan_entry.get("last_run"),
                 "steps_to_primary": scan_entry.get("steps_to_primary"),
-                "sobol_primary_steps": scan_entry.get("sobol_primary_steps"),
-                "sobol_baseline_steps": scan_entry.get("sobol_baseline_steps"),
-                "sobol_primary_uncert_at_conv": scan_entry.get("sobol_primary_uncert_at_conv"),
-                "sobol_primary_err_at_conv": scan_entry.get("sobol_primary_err_at_conv"),
                 "uncert_primary_at_milestone": scan_entry.get("uncert_primary_at_milestone"),
                 "err_primary_at_milestone": scan_entry.get("err_primary_at_milestone"),
                 "err_split_at_milestone": scan_entry.get("err_split_at_milestone"),

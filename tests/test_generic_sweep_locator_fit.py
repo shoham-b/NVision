@@ -48,6 +48,7 @@ def _build_locator(domain_lo=2.82, domain_hi=2.92, n_steps=100) -> GenericSweepL
     )
     return GenericSweepLocator(
         belief=belief,
+        spacing_divisor=None,
         signal_model=unit_model,
         max_steps=n_steps,
         noise_std=0.005,
@@ -89,7 +90,6 @@ def _inject_sweep_data(
         y_obs = y_true + rng.normal(0, noise_std)
         obs = Observation(drive_freq_unit=drive_freq_unit, signal_value=y_obs, noise_std=noise_std)
         locator.history.append(obs)
-        locator._pending_obs.append(obs)
     # step_count drives effective_step_count(); set it so metrics are computed correctly.
     locator.step_count = n
 
@@ -106,6 +106,7 @@ def _build_locator_for(model, bounds, domain_lo, domain_hi, n_steps=100, noise_s
     )
     return GenericSweepLocator(
         belief=belief,
+        spacing_divisor=None,
         signal_model=unit_model,
         max_steps=n_steps,
         noise_std=noise_std,
@@ -126,7 +127,6 @@ def _inject_sweep_data_for(locator, model, true_params, noise_std, seed=1) -> No
         y_obs = y_true + rng.normal(0, noise_std)
         obs = Observation(drive_freq_unit=drive_freq_unit, signal_value=y_obs, noise_std=noise_std)
         locator.history.append(obs)
-        locator._pending_obs.append(obs)
     locator.step_count = n
 
 
@@ -150,7 +150,6 @@ def test_sweep_fit_frequency_accuracy(k_np, desc):
     _inject_sweep_data(locator, true_freq, true_k_np=k_np)
 
     # Skip belief update (not testing belief, just the fit) by clearing pending obs
-    locator._pending_obs.clear()
     locator.finalize()
 
     res = locator.result()
@@ -171,7 +170,6 @@ def test_sweep_fit_narrow_dip():
 
     locator = _build_locator(domain_lo, domain_hi, n_steps=100)
     _inject_sweep_data(locator, true_freq, true_lw=0.0015, true_split=0.002)
-    locator._pending_obs.clear()
     locator.finalize()
 
     res = locator.result()
@@ -186,7 +184,6 @@ def test_sweep_fit_acquisition_window_contains_true_freq():
 
     locator = _build_locator(domain_lo, domain_hi)
     _inject_sweep_data(locator, true_freq, true_k_np=3.0)
-    locator._pending_obs.clear()
     locator.finalize()
 
     res = locator.result()
@@ -238,6 +235,7 @@ def test_sweep_fit_via_run_loop():
         exp,
         rng,
         max_steps=150,
+        spacing_divisor=None,
         domain_lo=exp.drive_freq_min_phys,
         domain_hi=exp.drive_freq_max_phys,
         parameter_bounds=bounds,
@@ -261,7 +259,6 @@ def test_sweep_fit_full_parameter_recovery():
 
     locator = _build_locator(domain_lo, domain_hi, n_steps=100)
     _inject_sweep_data(locator, true_freq, true_lw, true_split, true_k_np, true_c_total)
-    locator._pending_obs.clear()
     locator.finalize()
 
     fit = locator.fit_mode_estimates()
@@ -287,7 +284,6 @@ def test_sweep_fit_zeeman_only():
 
     locator = _build_locator_for(model, bounds, domain_lo, domain_hi, n_steps=500, noise_std=0.003)
     _inject_sweep_data_for(locator, model, true_params, noise_std=0.003)
-    locator._pending_obs.clear()
     locator.finalize()
 
     fit = locator.fit_mode_estimates()
@@ -334,7 +330,6 @@ def test_sweep_fit_zeeman_only_narrow_linewidth_resolves_fixed_hyperfine():
     # real run hit the bug in.
     locator = _build_locator_for(model, bounds, domain_lo, domain_hi, n_steps=400, noise_std=noise_std)
     _inject_sweep_data_for(locator, model, true_params, noise_std=noise_std)
-    locator._pending_obs.clear()
     locator.finalize()
 
     fit = locator.fit_mode_estimates()
@@ -368,7 +363,6 @@ def test_sweep_fit_zeeman_and_hyperfine_six_dip():
 
     locator = _build_locator_for(model, bounds, domain_lo, domain_hi, n_steps=600, noise_std=0.003)
     _inject_sweep_data_for(locator, model, true_params, noise_std=0.003)
-    locator._pending_obs.clear()
     locator.finalize()
 
     fit = locator.fit_mode_estimates()
@@ -421,7 +415,6 @@ def test_sweep_fit_asymmetric_triplet_shallow_line_hidden():
 
     locator = _build_locator_for(model, bounds, domain_lo, domain_hi, n_steps=500, noise_std=0.01)
     _inject_sweep_data_for(locator, model, true_params, noise_std=0.01)
-    locator._pending_obs.clear()
     locator.finalize()
 
     fit = locator.fit_mode_estimates()
@@ -469,6 +462,7 @@ def test_sweep_fit_raises_when_bounds_incomplete():
         exp,
         rng,
         max_steps=50,
+        spacing_divisor=None,
         domain_lo=exp.drive_freq_min_phys,
         domain_hi=exp.drive_freq_max_phys,
         parameter_bounds={"center_freq": (exp.drive_freq_min_phys, exp.drive_freq_max_phys)},
@@ -590,7 +584,6 @@ def test_sweep_fit_zeeman_hyperfine_no_spurious_dips():
 
     locator = _build_locator_for(model, bounds, domain_lo, domain_hi, n_steps=600, noise_std=noise_std)
     _inject_sweep_data_for(locator, model, true_params, noise_std=noise_std)
-    locator._pending_obs.clear()
     locator.finalize()
 
     fit = locator.fit_mode_estimates()
@@ -662,7 +655,6 @@ def test_sweep_fit_linewidth_not_blind_seeded():
 
     locator = _build_locator_for(model, bounds, domain_lo, domain_hi, n_steps=400, noise_std=0.01)
     _inject_sweep_data_for(locator, model, true_params, noise_std=0.01, seed=0)
-    locator._pending_obs.clear()
     locator.finalize()
 
     fit = locator.fit_mode_estimates()

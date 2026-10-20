@@ -10,8 +10,10 @@ from typing import Any
 
 import polars as pl
 
+from nvision.metrics.stages import STAGE_METRIC_KEYS, compute_stage_metrics
 from nvision.models.experiment import CoreExperiment
 from nvision.models.observer import RunResult
+from nvision.sim.grid_enums import is_plain_sweep
 from nvision.tools.math import _first_finite, _maybe_finite, _promote_uncert
 
 log = logging.getLogger(__name__)
@@ -23,7 +25,7 @@ def _truth_positions(experiment: CoreExperiment) -> list[float]:
     return [value for name, value in values.items() if "center_freq" in name or "position" in name]
 
 
-def generate_attempt_metrics(  # noqa: C901
+def generate_attempt_metrics(
     n_repeats: int,
     attempt_idx_in_combo: int,
     gen_name: str,
@@ -96,17 +98,9 @@ def generate_attempt_metrics(  # noqa: C901
         "measurements_done",
         "acquisition_lo",
         "acquisition_hi",
-        "sobol_baseline_steps",
-        "sobol_primary_steps",
-        "sobol_conv_diff",
     ):
         if _sweep_key in estimate:
             metrics_serialized[_sweep_key] = _maybe_finite(estimate[_sweep_key])
-
-    exp_uniform = metrics_serialized.get("expected_uniform_points")
-    meas = metrics_serialized.get("measurements")
-    if exp_uniform is not None and meas is not None:
-        metrics_serialized["sobol_difference"] = _maybe_finite(exp_uniform - meas)
 
     # Milestone metrics
     if run_result:
@@ -114,16 +108,12 @@ def generate_attempt_metrics(  # noqa: C901
         milestone_data = calculate_zeeman_metrics(run_result, primary_param=primary_param)
         for k, v in milestone_data.items():
             metrics_serialized[k] = _maybe_finite(v)
-
-    # Initialise Sobol convergence variables before they are populated from finalize_row
-    sobol_primary_uncert_at_conv: float | None = None
-    sobol_primary_err_at_conv: float | None = None
+        # Search / focus / refine stages, detected the same way for every locator (see metrics/stages.py).
+        for k, v in compute_stage_metrics(run_result).items():
+            metrics_serialized[k] = v if isinstance(v, str) else _maybe_finite(v)
 
     sweep_steps: int | None = None
     locator_steps: int | None = None
-    sobol_baseline_steps: int | None = None
-    sobol_primary_steps: int | None = None
-    sobol_conv_diff: int | None = None
     if not finalize_row.is_empty():
         if "sweep_steps" in finalize_row.columns:
             val = finalize_row.get_column("sweep_steps")[0]
@@ -133,26 +123,6 @@ def generate_attempt_metrics(  # noqa: C901
             val = finalize_row.get_column("locator_steps")[0]
             if val is not None:
                 locator_steps = int(val)
-        if "sobol_baseline_steps" in finalize_row.columns:
-            val = finalize_row.get_column("sobol_baseline_steps")[0]
-            if val is not None:
-                sobol_baseline_steps = int(val)
-        if "sobol_primary_steps" in finalize_row.columns:
-            val = finalize_row.get_column("sobol_primary_steps")[0]
-            if val is not None:
-                sobol_primary_steps = int(val)
-        if "sobol_conv_diff" in finalize_row.columns:
-            val = finalize_row.get_column("sobol_conv_diff")[0]
-            if val is not None:
-                sobol_conv_diff = int(val)
-        if "sobol_primary_uncert_at_conv" in finalize_row.columns:
-            val = finalize_row.get_column("sobol_primary_uncert_at_conv")[0]
-            if val is not None:
-                sobol_primary_uncert_at_conv = float(val)
-        if "sobol_primary_err_at_conv" in finalize_row.columns:
-            val = finalize_row.get_column("sobol_primary_err_at_conv")[0]
-            if val is not None:
-                sobol_primary_err_at_conv = float(val)
 
     primary_converged_step: int | None = None
     all_converged_step: int | None = None
@@ -186,31 +156,17 @@ def generate_attempt_metrics(  # noqa: C901
     _stop_reason = repeat_stop_reasons[attempt_idx_in_combo]
     if primary_converged_step is not None or is_converged:
         failure_reason: str | None = None
-    elif strat_name in (
-        "SimpleSweep",
-        "SimpleSobol",
-        "StagedSobolSweep",
-        "StagedSobolSweepLocator",
-        "GenericSweepLocator",
-    ):
-        failure_reason = None
     elif _stop_reason == "infeasible_crlb":
+        # Gated before any measurement: no data for any strategy, sweeps included.
         failure_reason = "infeasible_crlb"
     elif _stop_reason == "repeat_timeout":
         failure_reason = "timeout"
+    elif is_plain_sweep(strat_name) or strat_name == "GenericSweepLocator":
+        failure_reason = None  # a sweep has no convergence gate: it always runs its whole grid
     elif locator_steps is not None and max_steps is not None and locator_steps < max_steps:
         failure_reason = None
     else:
         failure_reason = "max_steps"
-
-    if sobol_conv_diff is None and sobol_baseline_steps is not None and sobol_primary_steps is not None:
-        sobol_conv_diff = sobol_baseline_steps - sobol_primary_steps
-
-    # Forward Sobol primary-param uncertainty/error to metrics (for UI fallback via metrics.*)
-    if sobol_primary_uncert_at_conv is not None:
-        metrics_serialized["sobol_primary_uncert_at_conv"] = sobol_primary_uncert_at_conv
-    if sobol_primary_err_at_conv is not None:
-        metrics_serialized["sobol_primary_err_at_conv"] = sobol_primary_err_at_conv
 
     # Copy final estimates for parameters
     for param_name in (
@@ -321,11 +277,6 @@ def generate_attempt_metrics(  # noqa: C901
         "last_run": repeat_timestamps[attempt_idx_in_combo] if attempt_idx_in_combo < len(repeat_timestamps) else None,
         "sweep_steps": sweep_steps,
         "locator_steps": locator_steps,
-        "sobol_baseline_steps": sobol_baseline_steps,
-        "sobol_primary_steps": sobol_primary_steps,
-        "sobol_conv_diff": sobol_conv_diff,
-        "sobol_primary_uncert_at_conv": _maybe_finite(sobol_primary_uncert_at_conv),
-        "sobol_primary_err_at_conv": _maybe_finite(sobol_primary_err_at_conv),
         "steps_to_primary": metrics_serialized.get("steps_to_primary"),
         "err_primary_at_milestone": metrics_serialized.get("err_primary_at_milestone"),
         "uncert_primary_at_milestone": metrics_serialized.get("uncert_primary_at_milestone"),
@@ -333,6 +284,7 @@ def generate_attempt_metrics(  # noqa: C901
         "uncert_primary_at_all_converged": metrics_serialized.get("uncert_primary_at_all_converged"),
         "primary_converged_step": primary_converged_step,
         "all_converged_step": all_converged_step,
+        **{key: metrics_serialized.get(key) for key in STAGE_METRIC_KEYS},
         "failure_reason": failure_reason,
         "metrics": metrics_serialized,
     }

@@ -22,21 +22,20 @@ reject_renamed_env_vars()
 
 NVISION_DEFAULT_LOC_MAX_STEPS: int = int(os.getenv("NVISION_DEFAULT_LOC_MAX_STEPS", "1500"))
 
-# Fraction of SimpleSweep max_steps allocated to SBED and Sobol baseline locators.
+# Fraction of SimpleSweep max_steps allocated to the SBED locator.
 # SBED's effective budget is ceil(domain_width / min_linewidth) * this fraction. Raised
 # 0.5 -> 1.0 (0.32 before that): at 0.5 (450 steps) a large share of wide-linewidth, noisy
 # Voigt repeats ran the whole budget without meeting the stop gate even though their
 # estimates were accurate (median |err| ~0.3 sigma), i.e. budget-limited rather than wrong.
 NVISION_SBED_STEPS_FRACTION: float = float(os.getenv("NVISION_SBED_STEPS_FRACTION", "1.0"))
-NVISION_SOBOL_STEPS_FRACTION: float = float(os.getenv("NVISION_SOBOL_STEPS_FRACTION", "0.5"))
 
 # Actual step count SimpleSweep itself runs with. Kept independent of the
-# domain/min_linewidth figure (e.g. ~2500) that SBED/Sobol fractions are still
+# domain/min_linewidth figure (e.g. ~2500) that the SBED fraction is still
 # computed against — only SimpleSweep's own budget is capped here.
 NVISION_SIMPLESWEEP_MAX_STEPS: int = int(os.getenv("NVISION_SIMPLESWEEP_MAX_STEPS", "400"))
 
 # Build the per-repeat plots (scan figure, posterior/Fisher/convergence extras) for the
-# SimpleSweep / SimpleSobol strategies. Off by default: these tasks still run and keep
+# SimpleSweep strategies. Off by default: these tasks still run and keep
 # their data and metrics (results rows, per-step `series`, and the baselines Bayesian-SBED
 # compares against), but the figures cost more than the locator run itself and are rarely
 # opened. Bayesian-SBED plots are unaffected. Set to 1 to build them again.
@@ -62,29 +61,6 @@ NVISION_SWEEP_FIT_EARLY_STOP_SIGMAS: float = float(os.getenv("NVISION_SWEEP_FIT_
 # tested), see nvision.belief.dip_detection.find_dips.
 NVISION_DIP_P_FA: float = float(os.getenv("NVISION_DIP_P_FA", "0.01"))
 
-
-# --- Sobol Sweep Defaults (sobol_locator.py) ---------------------------------
-
-NVISION_SOBOL_MIN_POINTS: int = int(os.getenv("NVISION_SOBOL_MIN_POINTS", "255"))
-NVISION_SOBOL_MAX_POINTS: int = int(os.getenv("NVISION_SOBOL_MAX_POINTS", "511"))
-NVISION_SOBOL_CHECK_INTERVAL: int = int(os.getenv("NVISION_SOBOL_CHECK_INTERVAL", "32"))
-NVISION_SOBOL_MIN_DEPTH_SIGMA: float = float(os.getenv("NVISION_SOBOL_MIN_DEPTH_SIGMA", "2.5"))
-NVISION_SOBOL_DEPTH_FRACTION: float = float(os.getenv("NVISION_SOBOL_DEPTH_FRACTION", "0.5"))
-NVISION_SOBOL_PAD_FRACTION: float = float(os.getenv("NVISION_SOBOL_PAD_FRACTION", "0.005"))
-
-# Observations are buffered and flushed to belief.batch_update() every this-many
-# steps (StagedSobolSweepLocator.observe), instead of a full SMC posterior
-# update per single observation. Stage transitions/stopping only read raw
-# history (never the belief -- see _check_for_dips/_noise_estimate_stable), so
-# deferring the belief by up to this many steps changes nothing about what the
-# locator measures next. Still bounded (never "buffer everything with no cap"),
-# but 512 sits above the SimpleSobol max_steps ceiling itself
-# (compute_sweep_max_steps's NVISION_SWEEP_MAX_STEPS=500 -- see sweep_steps.py),
-# so in practice most repeats now do a single flush at done()/finalize() rather
-# than multiple periodic ones. That's fine: peak memory is still trivial (a few
-# hundred Observation objects) at this size, and the periodic mid-run flush was
-# only ever a visualization-freshness nicety, never a correctness requirement.
-NVISION_SOBOL_BATCH_CHUNK_SIZE: int = int(os.getenv("NVISION_SOBOL_BATCH_CHUNK_SIZE", "512"))
 
 # --- Sweep Steps Defaults (sweep_steps.py) -----------------------------------
 

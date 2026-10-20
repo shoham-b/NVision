@@ -46,7 +46,7 @@ def _dummy_belief(model):
 def test_simple_sweep_create_classmethod():
     model = GaussianModel()
     belief = _dummy_belief(model)
-    loc = GenericSweepLocator.create(belief=belief, signal_model=model, max_steps=10)
+    loc = GenericSweepLocator.create(belief=belief, signal_model=model, max_steps=10, spacing_divisor=None)
     assert isinstance(loc, GenericSweepLocator)
 
 
@@ -54,5 +54,5 @@ def test_locator_runs_on_nv_center():
     rng = random.Random(99)
     gen = NVCenterCoreGenerator(drive_freq_min_phys=2.6e9, drive_freq_max_phys=3.1e9, variant="lorentzian")
     exp = _make_experiment(gen, rng)
-    steps = list(run_loop(GenericSweepLocator, exp, rng, max_steps=30))
+    steps = list(run_loop(GenericSweepLocator, exp, rng, max_steps=30, spacing_divisor=None))
     assert len(steps) > 0

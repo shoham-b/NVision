@@ -1,4 +1,4 @@
-"""SimpleSweep / SimpleSobol figures are skipped by default; their entry, series and metrics are kept."""
+"""SimpleSweep figures are skipped by default; their entry, series and metrics are kept."""
 
 import queue
 
@@ -52,7 +52,7 @@ def _run_one_repeat(tmp_path, strategy: str):
     return entries, main_row
 
 
-@pytest.mark.parametrize("strategy", ["SimpleSweep", "SimpleSobol"])
+@pytest.mark.parametrize("strategy", ["SimpleSweep"])
 def test_sweep_plots_skipped_by_default_but_data_kept(tmp_path, monkeypatch, strategy):
     monkeypatch.setattr(plots_module, "NVISION_PLOT_SWEEP_STRATEGIES", False)
     entries, main_row = _run_one_repeat(tmp_path, strategy)

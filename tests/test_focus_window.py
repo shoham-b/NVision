@@ -1,11 +1,9 @@
 """Tests ensuring focus-window narrowing never falls back to the full domain.
 
-These tests exercise the two critical code paths that compute the focus window
+This test exercises the critical code path that computes the focus window
 shown in the UI:
 
-1.  ``StagedSobolSweepLocator.acquisition_window()`` – used by the staged sobol
-    initial sweep inside the Bayesian locator.
-2.  ``SequentialBayesianLocator.bayesian_focus_window()`` – used for the
+1.  ``SequentialBayesianLocator.bayesian_focus_window()`` – used for the
     post-sweep focus band drawn on Bayesian plots.
 
 (``GenericSweepLocator`` has no such path: its acquisition window comes

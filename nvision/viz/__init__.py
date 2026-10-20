@@ -54,10 +54,6 @@ class Viz(
                 entry = self.plot_convergence_steps(metrics_obj, param, gen, noise)
                 if entry:
                     entries.append(entry)
-            # Plot Sobol difference (single per strategy)
-            entry = self.plot_sobol_difference(metrics_obj, gen, noise)
-            if entry:
-                entries.append(entry)
         return entries
 
     pass
