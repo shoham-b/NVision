@@ -107,6 +107,14 @@ def test_empty_run_yields_no_stages():
     assert all(v is None for v in m.values())
 
 
+def test_model_without_primary_param_yields_no_stages():
+    # Fixed center_freq, no Zeeman splitting: neither a split nor center_freq is a parameter.
+    run = _run([1e6] * 3, dip_from=1)
+    run.true_signal = SimpleNamespace(parameter_values=lambda: {"linewidth": 1.0, "c_total": 1.0})
+    m = compute_stage_metrics(run)
+    assert all(v is None for v in m.values())
+
+
 class _GaussDipModel:
     """signal(x) = 1 - exp(-(x - c)^2 / 2) with one parameter ``c``; sensitivity peaks on the slopes, 0 at c."""
 

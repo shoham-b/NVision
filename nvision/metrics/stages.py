@@ -168,7 +168,8 @@ def compute_stage_metrics(run_result: RunResult) -> dict[str, Any]:
 
     Returns a flat dict (all values JSON-serialisable scalars or ``None``):
 
-    * ``stage_primary_param``: the parameter whose sensitivity defines stage 3.
+    * ``stage_primary_param``: the parameter whose sensitivity defines stage 3 (``None``, and every other
+      field ``None`` too, when the model has no primary parameter -- see ``resolve_primary_param``).
     * ``focus_found_step`` / ``max_info_step``: 1-indexed boundaries (``None`` if not reached).
     * ``stage{1,2,3}_steps``: measurements spent in the stage (``None`` if the stage was not reached).
     * ``stage{1,2,3}_unc_start`` / ``_unc_end`` / ``_unc_ratio``: primary-parameter uncertainty (Hz) at the
@@ -187,7 +188,11 @@ def compute_stage_metrics(run_result: RunResult) -> dict[str, Any]:
     if n_steps == 0:
         return out
 
-    primary = resolve_primary_param(run_result.true_signal.parameter_values().keys()) or "center_freq"
+    primary = resolve_primary_param(run_result.true_signal.parameter_values().keys())
+    if primary is None:
+        # No split and no free center_freq (e.g. a fixed-center, no-Zeeman model): the stages are undefined,
+        # same convention as the primary milestone (see resolve_primary_param).
+        return out
     out["stage_primary_param"] = primary
     eta = sensitivity_efficiency_trace(run_result, primary)
     shots = np.array([float(s.obs.n_shots) for s in snapshots])
