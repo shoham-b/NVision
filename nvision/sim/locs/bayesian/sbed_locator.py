@@ -554,19 +554,138 @@ class SmartSBEDLocator(_SearchThenFocusMixin, SequentialBayesianExperimentDesign
         return self._eig_acquire()
 
 
-class SmartSweepLocator(_SearchThenFocusMixin, SequentialBayesianExperimentDesignLocator):
-    """A sweep at FWHM/3 spacing over the axis, then a sweep (with halving spacing) inside the focus.
+# Smart-Sweep stops re-sweeping and measures only at the estimated max-information points once the posterior
+# expects those points to carry at least (1 - this) of the information the true optimum would. Same delta as the
+# stage-3 ("refine") rule's REFINE_INFO_LOSS in nvision.metrics.stages, deliberately a separate constant so that
+# editing the metric never silently changes the acquisition.
+SMART_SWEEP_REFINE_INFO_LOSS: float = 0.1
+# Spacing of the drive-frequency grid the sensitivity argmax is taken over, as a fraction of the estimated HWHM.
+# eta loses only second order in the grid offset (Lorentzian: 4.5 (eps/HWHM)^2), so HWHM/50 costs < 0.1%.
+_REFINE_GRID_HWHM_FRACTION: float = 1.0 / 50.0
+# Central-difference step on the primary parameter, as a fraction of the estimated HWHM (the primary in Hz).
+_REFINE_GRAD_STEP_HWHM_FRACTION: float = 0.01
+# Particles (deterministic weight-systematic subsample) the posterior-expected efficiency is averaged over.
+_REFINE_EXPECTATION_PARTICLES: int = 256
 
-    Each step measures the lowest-frequency grid point not yet measured inside the current focus. With the
-    focus still the whole axis that is a plain FWHM/3 sweep, so a dip cannot be stepped over. Once the data
-    show one, the focus narrows to it and the sweep stays there -- finishing the FWHM/3 grid across the dip,
-    then halving the spacing -- until the (SBED) convergence rule stops the run. No information-gain
-    criterion is involved: the point of this locator is the sweep it compares against SBED.
+
+class SmartSweepLocator(_SearchThenFocusMixin, SequentialBayesianExperimentDesignLocator):
+    """A FWHM/3 sweep over the axis, a sweep inside the focus, then measurements at the max-information points.
+
+    **Search / focus.** Each step measures the lowest-frequency grid point not yet measured inside the current
+    focus. With the focus still the whole axis that is a plain FWHM/3 sweep, so a dip cannot be stepped over.
+    Once the data show one, the focus narrows to it and the sweep continues there (finishing the FWHM/3 grid
+    across the dip, then halving the spacing).
+
+    **Refine.** A sweep keeps spending measurements across the whole dip, most of them far from where the
+    signal is sensitive to the primary parameter ``theta`` (``zeeman_split``). Once the dip is located the
+    Fisher-optimal points follow from the model itself: the argmax over drive frequency of the sensitivity
+    ``g(x)^2 = (d signal / d theta)^2`` at the current posterior-mean estimate (for a Lorentzian the two
+    steepest-slope points ``x0 +- HWHM / sqrt(3)``; computed numerically, so Voigt etc. work too). In refine
+    mode every measurement goes to one of those maxima -- each local maximum of ``g^2`` within ``1 - delta`` of
+    the global one, i.e. both slopes of a single dip -- cycling through them, and the maxima are recomputed from
+    the updated estimate at every step. No information-gain (EIG) criterion is involved.
+
+    **Switch rule.** Measuring at the estimated optimum ``x*`` only pays if ``x*`` is known well enough. For a
+    posterior particle ``p`` taken as the truth, a measurement at ``x*`` would carry the fraction
+    ``eta_p = g_p(x*)^2 / max_x g_p(x)^2`` of the information the true optimum gives. Refine mode is used on a
+    step when, inside a focus, every chosen point has posterior-expected efficiency ``E_post[eta] >= 1 - delta``
+    with ``delta = SMART_SWEEP_REFINE_INFO_LOSS``: the stage-3 criterion of ``nvision.metrics.stages`` (refine
+    CRLB within ``1 / (1 - delta)`` of the oracle's), evaluated under the posterior instead of the unknown truth.
+    Because the loss is second order in the position error (Lorentzian ``eta ~ 1 - 4.5 (eps / HWHM)^2``) this is
+    "``x*`` known to about 0.15 HWHM", but taken from the model, not a Lorentzian formula, and it accounts for
+    the nuisance-parameter (width) uncertainty too. The rule is re-evaluated every step, not latched: if the
+    posterior broadens again (a new dip, a resample) the focus sweep resumes. The belief is known to be somewhat
+    overconfident, so the switch may come slightly early; measuring near ``x*`` then tightens the estimate.
     """
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self._init_search_grid(SWEEP_POINTS_PER_FWHM)
+        if self._primary_param is None:
+            raise ValueError("SmartSweepLocator needs a primary parameter for its max-information refine mode.")
+        if self.belief.model.controls_drive:
+            raise ValueError("SmartSweepLocator measures at one fixed drive; got a drive-controlled model.")
+        self._refine_count: int = 0
+        # 0-based index of each measurement refine mode chose (`next` has already counted it when `_pick` runs).
+        self.refine_steps: list[int] = []
 
     def _pick(self, *, focus_changed: bool) -> float:
+        if not self._focus.is_full_domain():
+            points_phys = self._refine_points_phys()
+            if points_phys is not None:
+                self.refine_steps.append(self.inference_step_count - 1)
+                pick_phys = float(points_phys[self._refine_count % points_phys.size])
+                self._refine_count += 1
+                return pick_phys
         return float(self._grid.next_unmeasured(self._focus)[0])
+
+    def _primary_sensitivity_sq(self, xs_unit: np.ndarray, part_cols: list[np.ndarray]) -> np.ndarray:
+        """``(d signal / d theta_unit)^2`` at ``xs_unit`` for each particle, by central differences.
+
+        ``xs_unit``: drive frequencies on the full-axis unit coordinate, shape: (n_points,).
+        ``part_cols``: unit-cube parameter columns in belief order, each shape: (n_particles,).
+        Returns shape: (n_points, n_particles). The derivative is w.r.t. the *unit* primary coordinate, which
+        differs from the physical one by the constant bound width -- irrelevant to argmaxes and ratios.
+        """
+        belief = self.belief
+        j = belief._param_names.index(self._primary_param)
+        lo_phys, hi_phys = belief.physical_param_bounds[self._primary_param]
+        hwhm_phys = float(effective_hwhm(belief.estimates()))
+        h_unit = _REFINE_GRAD_STEP_HWHM_FRACTION * hwhm_phys / (hi_phys - lo_phys)
+        theta_unit = part_cols[j]
+        up_unit = np.minimum(theta_unit + h_unit, 1.0).astype(theta_unit.dtype)
+        dn_unit = np.maximum(theta_unit - h_unit, 0.0).astype(theta_unit.dtype)
+        denom_unit = up_unit.astype(np.float64) - dn_unit.astype(np.float64)
+        if not np.all(denom_unit > 0.0):
+            raise ValueError(f"Degenerate finite-difference step for {self._primary_param!r} (h_unit={h_unit!r}).")
+        drives = [belief.model.fixed_drive] * xs_unit.size
+        cols_up = [up_unit if k == j else c for k, c in enumerate(part_cols)]
+        cols_dn = [dn_unit if k == j else c for k, c in enumerate(part_cols)]
+        y_up = np.asarray(belief._predict_at_drives(xs_unit, cols_up, drives), dtype=np.float64)
+        y_dn = np.asarray(belief._predict_at_drives(xs_unit, cols_dn, drives), dtype=np.float64)
+        return ((y_up - y_dn) / denom_unit[None, :]) ** 2
+
+    def _refine_points_phys(self) -> np.ndarray | None:
+        """The max-information drive frequencies (Hz, ascending, shape: (n_points,)) if the switch rule holds.
+
+        None while the rule fails (see the class docstring). The argmax is taken over the focus sections at a
+        spacing of ``_REFINE_GRID_HWHM_FRACTION`` x the estimated HWHM.
+        """
+        belief = self.belief
+        hwhm_phys = float(effective_hwhm(belief.estimates()))
+        if not (hwhm_phys > 0.0) or not math.isfinite(hwhm_phys):
+            raise ValueError(f"Estimated HWHM is not positive and finite: {hwhm_phys!r} Hz.")
+        grid_phys = np.concatenate(
+            [
+                np.linspace(lo, hi, max(3, math.ceil((hi - lo) / (_REFINE_GRID_HWHM_FRACTION * hwhm_phys)) + 1))
+                for lo, hi in self._focus.sections
+            ]
+        )
+        x_lo_phys, x_hi_phys = belief.drive_freq_bounds_phys
+        grid_unit = (grid_phys - x_lo_phys) / (x_hi_phys - x_lo_phys)
+
+        # The sensitivity maxima at the posterior-mean estimate.
+        est_unit = belief._estimates_unit()
+        mean_cols = [np.array([est_unit[name]], dtype=belief._particles.dtype) for name in belief._param_names]
+        g2_mean = self._primary_sensitivity_sq(grid_unit, mean_cols)[:, 0]
+        g2_best = float(np.max(g2_mean))
+        if not g2_best > 0.0:
+            return None  # the estimated dip lies outside the focus: no optimum to measure at
+        peaks = np.flatnonzero((g2_mean[1:-1] >= g2_mean[:-2]) & (g2_mean[1:-1] > g2_mean[2:])) + 1
+        peaks = peaks[g2_mean[peaks] >= (1.0 - SMART_SWEEP_REFINE_INFO_LOSS) * g2_best]
+        if peaks.size == 0:
+            return None  # the global maximum is on a section edge (the focus cuts the dip): no interior optimum yet
+
+        # Posterior-expected efficiency at those points over a deterministic weight-systematic particle subsample.
+        w = belief._weights / belief._weights.sum()
+        n_sub = min(_REFINE_EXPECTATION_PARTICLES, w.size)
+        sub_idx = np.minimum(np.searchsorted(np.cumsum(w), (np.arange(n_sub) + 0.5) / n_sub), w.size - 1)
+        sub_cols = [belief._particles[sub_idx, k] for k in range(len(belief._param_names))]
+        g2_sub = self._primary_sensitivity_sq(grid_unit, sub_cols)  # (n_grid, n_sub)
+        g2_sub_best = np.max(g2_sub, axis=0)
+        # A particle with no sensitivity anywhere in the focus gains nothing at x* either: its eta is 0.
+        has_info = g2_sub_best > 0.0
+        eta_sub = np.where(has_info, g2_sub[peaks, :] / np.where(has_info, g2_sub_best, 1.0), 0.0)
+        if float(np.min(eta_sub.mean(axis=1))) < 1.0 - SMART_SWEEP_REFINE_INFO_LOSS:
+            return None
+        return grid_phys[peaks]
