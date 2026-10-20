@@ -218,6 +218,17 @@ def _find_repeat(bridge: CacheBridge, combo_key: str, repeat_idx: int) -> tuple[
     return None
 
 
+# Per-run fields behind the Speed tab's locator comparison (the `nv compare` tables); read from the locator
+# results row, falling back to the scan entry's metrics.
+_COMPARE_FIELDS = (
+    "final_err_primary",
+    "uncert",
+    "focus_found_step",
+    "max_info_step",
+    *(f"stage{k}_{m}" for k in (1, 2, 3) for m in ("steps", "unc_ratio")),
+)
+
+
 def _scan_field_row(combo: dict, repeat_entries: list[dict] | None, main_row: dict) -> dict | None:
     """One repeat's Highlights-view row (generator/noise/strategy plus its scan
     entry's series/true_params), or None if this repeat has no scan entry.
@@ -229,11 +240,14 @@ def _scan_field_row(combo: dict, repeat_entries: list[dict] | None, main_row: di
     )
     if scan_entry is None:
         return None
+    scan_metrics = scan_entry.get("metrics") or {}
+    compare = {k: main_row[k] if main_row.get(k) is not None else scan_metrics.get(k) for k in _COMPARE_FIELDS}
     return {
         "generator": combo["generator"],
         "noise": combo["noise"],
         "strategy": combo["strategy"],
         "repeat": main_row.get("attempt"),
+        "compare": compare,
         "failure_reason": main_row.get("failure_reason"),
         "measurements": main_row.get("measurements"),
         "primary_converged_step": main_row.get("primary_converged_step"),
