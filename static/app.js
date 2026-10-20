@@ -7027,6 +7027,7 @@ function main() {
         pct: (v) => (v == null ? '–' : `${Math.round(100 * v)}%`),
         khz: (v) => (v == null ? '–' : `${Math.round(v / 1e3)} kHz`),
         ratio: (v) => (v == null ? '–' : v.toFixed(3)),
+        num: (v) => (v == null ? '–' : (Math.abs(v) >= 100 ? Math.round(v) : Number(v.toPrecision(3))).toString()),
     };
 
     function hlStageBarTraces(byStrategy, strategies, field, hoverLabel) {
@@ -7049,6 +7050,55 @@ function main() {
                 error_y: { type: 'data', symmetric: false, array: up, arrayminus: down, color: '#475569', thickness: 1 },
                 hovertemplate: `%{x}: %{y:.3g} ${hoverLabel}<br>%{text}<extra>%{fullData.name}</extra>`,
             };
+        });
+    }
+
+    let hlCmpStage = 2;
+
+    // Locators side by side within ONE stage: reached share, measurements spent, uncertainty change, and the
+    // uncertainty shrink per measurement (ratio^(1/steps), per run) as a speed-independent-of-start rate.
+    function renderHlStageCompare(byStrategy, strategies) {
+        const box = document.getElementById('hl-stage-compare');
+        if (!box) return;
+        const n = hlCmpStage;
+        const iqr = (vals) => {
+            const v = hlSorted(vals);
+            if (!v.length) return '–';
+            return `${HL_CMP_FMT.num(hlQuantileSorted(v, 0.5))} <span style="color:#94a3b8">(${HL_CMP_FMT.num(hlQuantileSorted(v, 0.25))}–${HL_CMP_FMT.num(hlQuantileSorted(v, 0.75))})</span>`;
+        };
+        const rows = strategies.map(strat => {
+            const runs = byStrategy.get(strat);
+            const steps = runs.map(p => _mv(p, `stage${n}_steps`));
+            const ratios = runs.map(p => _mv(p, `stage${n}_unc_ratio`));
+            const shrink = runs.map(p => {
+                const st = _mv(p, `stage${n}_steps`), r = _mv(p, `stage${n}_unc_ratio`);
+                return st > 0 && r > 0 ? Math.pow(r, 1 / st) : null;
+            });
+            return {
+                strat, reached: steps.filter(v => v != null).length, total: runs.length,
+                stepsMed: hlMedian(steps), shrinkMed: hlMedian(shrink),
+                stepsHtml: iqr(steps), ratioHtml: iqr(ratios), shrinkHtml: iqr(shrink),
+            };
+        });
+        const best = (key) => Math.min(...rows.map(r => r[key]).filter(v => v != null));
+        const bestSteps = best('stepsMed'), bestShrink = best('shrinkMed');
+        rows.sort((a, b) => (a.stepsMed ?? Infinity) - (b.stepsMed ?? Infinity));
+        const td = (v, bold) => `<td style="padding:2px 8px;text-align:right;${bold ? 'font-weight:700;color:#047857' : ''}">${v}</td>`;
+        const opts = HL_STAGES.map(st => `<option value="${st.n}"${st.n === n ? ' selected' : ''}>${st.n}. ${st.label}</option>`).join('');
+        box.innerHTML =
+            '<h4 style="margin:0.8em 0 0.2em;font-size:0.85em;color:#475569;">Compare locators within one stage ' +
+            `<select id="hl-stage-compare-pick" class="control-select">${opts}</select>` +
+            '<span tabindex="0" class="help-icon-visible" title="Only runs that reached this stage count. Cells show median (interquartile range). Shrink per measurement = (uncertainty end / start)^(1 / steps) per run: lower = the stage cut the uncertainty faster. Best (lowest) values in green; rows sorted by measurements spent.">?</span></h4>' +
+            '<table class="metric-table" style="border-collapse:collapse;font-size:0.85em;"><thead><tr>' +
+            '<th style="text-align:left;padding:2px 12px 2px 0">Strategy</th>' +
+            ['Reached', 'Measurements', 'Uncertainty end / start', 'Shrink per measurement']
+                .map(h => `<th style="padding:2px 8px;text-align:right">${h}</th>`).join('') +
+            `</tr></thead><tbody>${rows.map(r => `<tr><td style="padding:2px 12px 2px 0">${_shortStratLabel(r.strat)}</td>` +
+                td(`${r.reached}/${r.total}`) + td(r.stepsHtml, r.stepsMed != null && r.stepsMed === bestSteps) +
+                td(r.ratioHtml) + td(r.shrinkHtml, r.shrinkMed != null && r.shrinkMed === bestShrink) + '</tr>').join('')}</tbody></table>`;
+        document.getElementById('hl-stage-compare-pick').addEventListener('change', (e) => {
+            hlCmpStage = Number(e.target.value);
+            renderHlStageCompare(byStrategy, strategies);
         });
     }
 
@@ -7087,6 +7137,8 @@ function main() {
             section('Per stage (reached runs only): median measurements, median uncertainty ratio end / start',
                 HL_STAGES.flatMap(st => [`${st.label} steps`, `${st.label} ratio`]),
                 r => HL_STAGES.flatMap(st => [f.count(r.stageSteps[st.n]), f.ratio(r.stageRatio[st.n])]));
+
+        renderHlStageCompare(byStrategy, strategies);
 
         const stepsLayout = hlBaseLayout();
         stepsLayout.barmode = 'group';
