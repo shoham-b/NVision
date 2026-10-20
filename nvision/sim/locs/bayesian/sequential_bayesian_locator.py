@@ -35,8 +35,8 @@ def saturation_voigt_derived_sigmas(
     Maps ``sigmas`` entries (posterior uncertainties or CRLBs — both propagate the same
     way through the local linear Jacobian at *estimates*) for
     (``saturation``, ``sigma_inhom``) onto the derived effective-HWHM
-    (keyed ``"linewidth"``) and realized-contrast (keyed ``"c_total"``) sigmas, so
-    convergence semantics match the Lorentzian model's linewidth/c_total thresholds
+    (keyed ``"hwhm"``) and realized-contrast (keyed ``"contrast_total"``) sigmas, so
+    convergence semantics match the Lorentzian model's hwhm/contrast_total thresholds
     across lineshapes. The raw relative thresholds are physically inconsistent along
     the saturation axis (width scales as sqrt(1+s)), which is why derived gating is
     used instead. ``c_max`` is a fixed constant (:data:`~nvision.spectra.nv_center.
@@ -60,7 +60,7 @@ def saturation_voigt_derived_sigmas(
         s, sigma_inhom, float(sigmas["saturation"]), float(sigmas["sigma_inhom"])
     )
     _, sigma_c = saturation_voigt_realized_contrast_and_unc(s, NV_SATURATION_C_MAX, float(sigmas["saturation"]), 0.0)
-    return {"linewidth": sigma_omega, "c_total": sigma_c}
+    return {"hwhm": sigma_omega, "contrast_total": sigma_c}
 
 
 def saturation_voigt_derived_bounds(
@@ -86,7 +86,7 @@ def saturation_voigt_derived_bounds(
     omega_hi, _ = saturation_voigt_effective_hwhm_and_unc(s_hi, si_hi)
     c_lo, _ = saturation_voigt_realized_contrast_and_unc(s_lo, NV_SATURATION_C_MAX)
     c_hi, _ = saturation_voigt_realized_contrast_and_unc(s_hi, NV_SATURATION_C_MAX)
-    return {"linewidth": (omega_lo, omega_hi), "c_total": (c_lo, c_hi)}
+    return {"hwhm": (omega_lo, omega_hi), "contrast_total": (c_lo, c_hi)}
 
 
 class SequentialBayesianLocator(Locator):
@@ -136,17 +136,19 @@ class SequentialBayesianLocator(Locator):
         self.step_count: int = 0
         # Bayesian acquisition count
         self.inference_step_count: int = 0
-        # "center_freq" is always the drive-frequency axis even when it's a fixed (not
+        # "zero_field_freq" is always the drive-frequency axis even when it's a fixed (not
         # inferred) model parameter and therefore absent from parameter_names().
         self._center_param = center_param or (
-            "center_freq" if "center_freq" in belief.physical_param_bounds else belief.model.parameter_names()[0]
+            "zero_field_freq"
+            if "zero_field_freq" in belief.physical_param_bounds
+            else belief.model.parameter_names()[0]
         )
         self._convergence_patience_steps = max(1, int(convergence_patience_steps))
         self._convergence_streak = 0
         # The parameter whose convergence defines the "primary milestone"
-        # (primary_converged_step) -- zeeman_split/split when the model has
-        # one (the actual free/scientific-interest quantity once center_freq is
-        # fixed by default), else center_freq itself for legacy free-center_freq
+        # (primary_converged_step) -- zeeman_shift/hyperfine_shift when the model has
+        # one (the actual free/scientific-interest quantity once zero_field_freq is
+        # fixed by default), else zero_field_freq itself for legacy free-zero_field_freq
         # configs. See resolve_primary_param.
         self._primary_param: str | None = resolve_primary_param(self.belief.model.parameter_names())
         self.primary_converged_step: int | None = None
@@ -243,20 +245,20 @@ class SequentialBayesianLocator(Locator):
         2. The absolute ``max_steps`` budget is exhausted.
 
         This used to also stop early whenever a dynamic budget estimate
-        (``n_req = step_count * (crlb_center_freq()/threshold)**2``, scaled by
-        ``NVISION_CENTER_FREQ_CRLB_SAFETY_FACTOR``) said the target precision was
+        (``n_req = step_count * (crlb_zero_field_freq()/threshold)**2``, scaled by
+        ``NVISION_ZERO_FIELD_FREQ_CRLB_SAFETY_FACTOR``) said the target precision was
         unreachable, or already reached, within budget. Both the "unreachable"
         and "reached early" branches trusted a single-step snapshot of
-        ``crlb_center_freq()`` -- which is derived from the belief's *current*
+        ``crlb_zero_field_freq()`` -- which is derived from the belief's *current*
         (possibly still-wrong, possibly still-degenerate) parameter estimates,
         not the true signal. Verified two concrete failure modes against a
-        width-degenerate Voigt signal (homogeneous_linewidth/sigma_inhom don't
+        width-degenerate Voigt signal (hwhm_lorentz/sigma_inhom don't
         converge on their own): (a) a pessimistic snapshot early on quit after a
-        single measurement even though center_freq kept improving for the entire
+        single measurement even though zero_field_freq kept improving for the entire
         step budget when forced to keep running; (b) the belief locked onto a
         wrong mode whose *own* narrow-looking CRLB snapshot satisfied the
         "budget reached" branch at a fraction of max_steps, reporting a
-        confidently wrong center_freq tens of MHz off. Both are the same
+        confidently wrong zero_field_freq tens of MHz off. Both are the same
         underlying risk the convergence-patience streak and
         `_check_crlb_early_stop` already guard against for the "declare
         converged" path -- removing this second, snapshot-only stopping path
@@ -284,29 +286,31 @@ class SequentialBayesianLocator(Locator):
         """Stop when converged or step budget is exhausted."""
         return self._acquisition_done()
 
-    def _effective_center_freq_threshold(self) -> float:
-        """Absolute center_freq-uncertainty ceiling for convergence (physical Hz)."""
-        from nvision.sim.defaults import NVISION_CENTER_FREQ_CONVERGENCE_THRESHOLD
+    def _effective_zero_field_freq_threshold(self) -> float:
+        """Absolute zero_field_freq-uncertainty ceiling for convergence (physical Hz)."""
+        from nvision.sim.defaults import NVISION_ZERO_FIELD_FREQ_CONVERGENCE_THRESHOLD
 
-        return NVISION_CENTER_FREQ_CONVERGENCE_THRESHOLD
+        return NVISION_ZERO_FIELD_FREQ_CONVERGENCE_THRESHOLD
 
     def _effective_primary_threshold(self) -> float:
         """Absolute uncertainty ceiling for ``self._primary_param`` (physical units).
 
         Resolves via PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS, which naturally lands on
-        NVISION_ZEEMAN_SPLIT_CONVERGENCE_THRESHOLD when the primary param is
-        zeeman_split (already tuned to actually bind, unlike the generic bound-width
-        fallback -- see nvision/sim/defaults.py), or the center_freq threshold
-        unchanged for legacy free-center_freq configs.
+        NVISION_ZEEMAN_SHIFT_CONVERGENCE_THRESHOLD when the primary param is
+        zeeman_shift (already tuned to actually bind, unlike the generic bound-width
+        fallback -- see nvision/sim/defaults.py), or the zero_field_freq threshold
+        unchanged for legacy free-zero_field_freq configs.
         """
         from nvision.sim.defaults import (
-            NVISION_CENTER_FREQ_CONVERGENCE_THRESHOLD,
+            NVISION_ZERO_FIELD_FREQ_CONVERGENCE_THRESHOLD,
             PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS,
         )
 
         if self._primary_param is None:
-            return NVISION_CENTER_FREQ_CONVERGENCE_THRESHOLD
-        return PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS.get(self._primary_param, NVISION_CENTER_FREQ_CONVERGENCE_THRESHOLD)
+            return NVISION_ZERO_FIELD_FREQ_CONVERGENCE_THRESHOLD
+        return PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS.get(
+            self._primary_param, NVISION_ZERO_FIELD_FREQ_CONVERGENCE_THRESHOLD
+        )
 
     def _target_params_converged(self, physical_uncertainties=None) -> bool:
         """Check convergence on configured target parameters.
@@ -315,7 +319,7 @@ class SequentialBayesianLocator(Locator):
         below ``convergence_threshold`` as a fraction of its physical bound
         width (e.g. ``0.01`` = 1 %).  Parameters listed in
         ``PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS`` (from env, e.g.
-        ``NVISION_CENTER_FREQ_CONVERGENCE_THRESHOLD``) use an absolute uncertainty
+        ``NVISION_ZERO_FIELD_FREQ_CONVERGENCE_THRESHOLD``) use an absolute uncertainty
         ceiling instead.  The overall (RMS) relative uncertainty across all
         target parameters must also be below the same threshold.
 
@@ -349,10 +353,10 @@ class SequentialBayesianLocator(Locator):
 
         relative_uncertainties: dict[str, float] = {}
         for name, unc in check_items:
-            if name == "center_freq":
+            if name == "zero_field_freq":
                 # CRLB-aware ceiling: bound_width chosen so that
-                # unc / bound_width < threshold  ⟺  unc < effective_center_freq_threshold.
-                bound_width = self._effective_center_freq_threshold() / self.convergence_threshold
+                # unc / bound_width < threshold  ⟺  unc < effective_zero_field_freq_threshold.
+                bound_width = self._effective_zero_field_freq_threshold() / self.convergence_threshold
             else:
                 bound_width = param_convergence_bound_width(name, self.convergence_threshold, bounds)
             if bound_width <= 0:

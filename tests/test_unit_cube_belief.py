@@ -25,7 +25,7 @@ def test_bayesian_sbed_nv_updates_with_normalized_probe_and_physical_signal():
     rng = random.Random(11)
     gen = NVCenterCoreGenerator(drive_freq_min_phys=2.6e9, drive_freq_max_phys=3.1e9, variant="lorentzian")
     true_signal = gen.generate(rng)
-    drive_freq_min_phys, drive_freq_max_phys = true_signal.get_param_bounds("center_freq")
+    drive_freq_min_phys, drive_freq_max_phys = true_signal.get_param_bounds("zero_field_freq")
     assert drive_freq_min_phys is not None
     exp = CoreExperiment(
         true_signal=true_signal,
@@ -45,15 +45,15 @@ def test_bayesian_sbed_nv_updates_with_normalized_probe_and_physical_signal():
         run_loop(SequentialBayesianExperimentDesignLocator, exp, rng, **cfg)
     )
     assert final.snapshots
-    # center_freq is fixed (a known instrument constant, not inferred -- see
-    # NVCenterCoreGenerator's docstring) under the default with_fixed_center_freq=True
+    # zero_field_freq is fixed (a known instrument constant, not inferred -- see
+    # NVCenterCoreGenerator's docstring) under the default with_fixed_zero_field_freq=True
     # used by both the generator and nv_center_smc_belief, so it's not a particle
-    # dimension / belief.estimates() key here. zeeman_split is the actual free,
+    # dimension / belief.estimates() key here. zeeman_shift is the actual free,
     # randomized "location" parameter in this default config, so check convergence
     # on that instead (this test's purpose is verifying the normalized-probe /
-    # physical-signal pipeline updates the belief correctly, not center_freq specifically).
-    zeeman_est = final.snapshots[-1].belief.estimates()["zeeman_split"]
-    zeeman_true = true_signal.get_param_value("zeeman_split")
+    # physical-signal pipeline updates the belief correctly, not zero_field_freq specifically).
+    zeeman_est = final.snapshots[-1].belief.estimates()["zeeman_shift"]
+    zeeman_true = true_signal.get_param_value("zeeman_shift")
     assert abs(zeeman_est - zeeman_true) < 24e6
 
 
@@ -65,18 +65,18 @@ def test_bayesian_sbed_nv_updates_with_normalized_probe_and_physical_signal():
 def _make_unit_cube_nv_model():
     from nvision.spectra.nv_center import NVCenterLorentzianModel
 
-    # phys_bounds below carries split/k_np, so the model must actually have them
+    # phys_bounds below carries hyperfine_shift/k_np, so the model must actually have them
     # as free parameters -- i.e. a resolved N-14 triplet, which used to be this
     # model's default before hyperfine="unresolved" became it.
-    model = NVCenterLorentzianModel(hyperfine="n14", infer_hyperfine=True, with_fixed_center_freq=False)
+    model = NVCenterLorentzianModel(hyperfine="n14", infer_hyperfine=True, with_fixed_zero_field_freq=False)
     phys_bounds = {
-        "center_freq": (2.86e9, 2.88e9),
-        "linewidth": (5e6, 15e6),
-        "split": (1e6, 5e6),
+        "zero_field_freq": (2.86e9, 2.88e9),
+        "hwhm": (5e6, 15e6),
+        "hyperfine_shift": (1e6, 5e6),
         "k_np": (0.5, 1.5),
-        "c_total": (0.05, 0.2),
+        "contrast_total": (0.05, 0.2),
     }
-    wrapped = UnitCubeSignalModel(model, phys_bounds, phys_bounds["center_freq"])
+    wrapped = UnitCubeSignalModel(model, phys_bounds, phys_bounds["zero_field_freq"])
     return wrapped, model
 
 

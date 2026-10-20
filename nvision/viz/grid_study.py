@@ -2,12 +2,12 @@
 
 Activated when ``locator_results`` rows carry grid-coordinate columns
 (``grid_saturation``/``grid_sigma_inhom`` for the saturation-Voigt study, or
-``grid_linewidth``/``grid_c_total`` for the Lorentzian study). Each generator is a
+``grid_hwhm``/``grid_contrast_total`` for the Lorentzian study). Each generator is a
 fixed grid point, so aggregation is per grid cell across repeats.
 
 Censoring convention: step metrics are reported as median (+ IQR) **over converged
 repeats only**, always paired with ``convergence_rate`` (fraction of repeats that
-reached center_freq convergence). Cells that never converge are reported with the
+reached zero_field_freq convergence). Cells that never converge are reported with the
 failure breakdown (``infeasible_crlb`` vs other) instead of a step value.
 """
 
@@ -20,7 +20,7 @@ import polars as pl
 # (x_col, y_col, x_label, y_label) — checked in order; first pair with data wins.
 _GRID_AXIS_CANDIDATES: tuple[tuple[str, str, str, str], ...] = (
     ("grid_saturation", "grid_sigma_inhom", "Saturation s", "sigma_inhom (Hz)"),
-    ("grid_linewidth", "grid_c_total", "Linewidth (Hz)", "Contrast c_total"),
+    ("grid_hwhm", "grid_contrast_total", "HWHM (Hz)", "Total contrast"),
 )
 
 _METRIC = "primary_converged_step"

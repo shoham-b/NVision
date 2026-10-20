@@ -23,7 +23,7 @@ log = logging.getLogger(__name__)
 def _truth_positions(experiment: CoreExperiment) -> list[float]:
     """Extract ground truth peak positions from a CoreExperiment."""
     values = experiment.true_signal.parameter_values()
-    return [value for name, value in values.items() if "center_freq" in name or "position" in name]
+    return [value for name, value in values.items() if "zero_field_freq" in name or "position" in name]
 
 
 def generate_attempt_metrics(
@@ -108,7 +108,7 @@ def generate_attempt_metrics(
 
     # Milestone metrics
     if run_result:
-        primary_param = resolve_primary_param(run_result.true_signal.parameter_values().keys()) or "center_freq"
+        primary_param = resolve_primary_param(run_result.true_signal.parameter_values().keys()) or "zero_field_freq"
         milestone_data = calculate_zeeman_metrics(run_result, primary_param=primary_param)
         for k, v in milestone_data.items():
             metrics_serialized[k] = _maybe_finite(v)
@@ -140,7 +140,7 @@ def generate_attempt_metrics(
             if val is not None:
                 all_converged_step = int(val)
 
-    # All-converged milestone metrics -- error/uncertainty of the primary (split)
+    # All-converged milestone metrics -- error/uncertainty of the primary (shift)
     # parameter at all_converged_step, mirroring the primary-milestone fields above but
     # keyed off the externally tracked step instead of re-detecting it (see
     # calculate_all_converged_metrics docstring).
@@ -174,23 +174,23 @@ def generate_attempt_metrics(
 
     # Copy final estimates for parameters
     for param_name in (
-        "center_freq",
-        "linewidth",
-        "homogeneous_linewidth",
-        "split",
-        "dip_depth",
-        "c_total",
+        "zero_field_freq",
+        "hwhm",
+        "hwhm_lorentz",
+        "hyperfine_shift",
+        "contrast",
+        "contrast_total",
         "k_np",
         "saturation",
         "sigma_inhom",
-        "zeeman_split",
+        "zeeman_shift",
     ):
         if param_name in estimate:
             metrics_serialized[f"final_est_{param_name}"] = _maybe_finite(estimate[param_name])
 
     # Lineshape-agnostic derived estimates — the preferred axes for cross-lineshape
     # comparison (effective HWHM and realized contrast mean the same thing whether the
-    # model parameterizes width as linewidth, homogeneous_linewidth, or saturation+sigma_inhom).
+    # model parameterizes width as hwhm, hwhm_lorentz, or saturation+sigma_inhom).
     if "saturation" in estimate and "sigma_inhom" in estimate:
         from nvision.spectra.nv_center import (
             NV_SATURATION_C_MAX,
@@ -204,19 +204,19 @@ def generate_attempt_metrics(
         # always computable here rather than gated on an "if c_max estimated" check.
         c_derived, _ = saturation_voigt_realized_contrast_and_unc(estimate["saturation"], NV_SATURATION_C_MAX)
         metrics_serialized["final_est_realized_contrast"] = _maybe_finite(c_derived)
-    elif "linewidth" in estimate or "homogeneous_linewidth" in estimate:
+    elif "hwhm" in estimate or "hwhm_lorentz" in estimate:
         # Both are already HWHM-scale (unlike the old kernel-native fwhm_total, a
         # full width, which this branch used to also have to halve).
-        hwhm = estimate.get("linewidth", estimate.get("homogeneous_linewidth"))
+        hwhm = estimate.get("hwhm", estimate.get("hwhm_lorentz"))
         metrics_serialized["final_est_effective_hwhm"] = _maybe_finite(hwhm)
-        if "c_total" in estimate:
-            metrics_serialized["final_est_realized_contrast"] = _maybe_finite(estimate["c_total"])
+        if "contrast_total" in estimate:
+            metrics_serialized["final_est_realized_contrast"] = _maybe_finite(estimate["contrast_total"])
 
     # Grid-study coordinates: signal params held fixed by the generator (null = randomized
     # per repeat). Gives summary plots numeric axes instead of opaque generator names, and
     # lets the UI build its width/contrast/sigma_inhom/... facet selectors from these
     # structured values instead of parsing them back out of the generator name string.
-    for grid_field in ("saturation", "sigma_inhom", "linewidth", "c_total", "hyperfine"):
+    for grid_field in ("saturation", "sigma_inhom", "hwhm", "contrast_total", "hyperfine"):
         val = getattr(generator_obj, grid_field, None)
         metrics_serialized[f"grid_{grid_field}"] = (
             _maybe_finite(val) if val is not None and not isinstance(val, str) else val
@@ -230,7 +230,7 @@ def generate_attempt_metrics(
 
     metrics_serialized["noise_sigma"] = parse_gauss_sigma(noise_name)
 
-    # Ground-truth signal parameters for this repeat. center_freq/zeeman_split vary per
+    # Ground-truth signal parameters for this repeat. zero_field_freq/zeeman_shift vary per
     # repeat (fixed params equal their grid_ columns) — recording them lets analysis
     # de-confound repeat variance by the randomized parameters.
     try:
@@ -303,7 +303,7 @@ def _scan_attempt_metrics(
     truth = [float(pos) for pos in truth_positions]
 
     if len(truth) == 1:
-        x_hat = _first_finite(estimate, ("x1_hat", "x_hat", "peak_x", "center_freq"))
+        x_hat = _first_finite(estimate, ("x1_hat", "x_hat", "peak_x", "zero_field_freq"))
         if x_hat is not None:
             metrics["abs_err_x"] = abs(x_hat - truth[0])
     elif len(truth) == 2:

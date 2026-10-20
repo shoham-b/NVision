@@ -43,10 +43,10 @@ def test_cw_drive_matches_saturation_voigt_at_equivalent_saturation():
     """At amplitude a, the CW model equals saturation-Voigt with s = (a / drive_amp_sat)**2."""
     cw = NVCenterCWDriveModel()
     sv = NVCenterSaturationVoigtModel(with_zeeman_splitting=True)
-    params = NVCenterCWDriveZeemanSpectrum(center_freq=D, drive_amp_sat=0.2, sigma_inhom=1e5, zeeman_split=30e6)
+    params = NVCenterCWDriveZeemanSpectrum(zero_field_freq=D, drive_amp_sat=0.2, sigma_inhom=1e5, zeeman_shift=30e6)
     a = 0.4
     sv_params = NVCenterSaturationVoigtZeemanSpectrum(
-        center_freq=D, saturation=(a / 0.2) ** 2, sigma_inhom=1e5, zeeman_split=30e6
+        zero_field_freq=D, saturation=(a / 0.2) ** 2, sigma_inhom=1e5, zeeman_shift=30e6
     )
     view = cw.at_drive(DriveSetting(a))
     for x in (D + 29e6, D + 30e6, D + 31e6, D + 50e6):
@@ -56,7 +56,7 @@ def test_cw_drive_matches_saturation_voigt_at_equivalent_saturation():
 def test_cw_higher_drive_is_wider_and_deeper():
     """The search lever: more amplitude power-broadens and deepens the dip."""
     cw = NVCenterCWDriveModel()
-    params = NVCenterCWDriveZeemanSpectrum(center_freq=D, drive_amp_sat=0.1, sigma_inhom=0.0, zeeman_split=30e6)
+    params = NVCenterCWDriveZeemanSpectrum(zero_field_freq=D, drive_amp_sat=0.1, sigma_inhom=0.0, zeeman_shift=30e6)
     xs = np.linspace(D + 25e6, D + 35e6, 2001)
     weak = cw.at_drive(DriveSetting(0.05)).compute_many_float64(xs, params)
     strong = cw.at_drive(DriveSetting(1.0)).compute_many_float64(xs, params)
@@ -97,7 +97,7 @@ def test_pulsed_vectorized_matches_scalar():
     drive = DriveSetting(0.5, pi_pulse_duration_s(3e6 * 0.5))
     view = model.at_drive(drive)
     params = NVCenterPulsedZeemanSpectrum(
-        center_freq=D, rabi_per_amp=3e6, c_total=0.2, sigma_inhom=2e5, zeeman_split=30e6
+        zero_field_freq=D, rabi_per_amp=3e6, contrast_total=0.2, sigma_inhom=2e5, zeeman_shift=30e6
     )
     xs = np.linspace(D + 25e6, D + 35e6, 11)
     samples = [np.full(3, v, dtype=np.float32) for v in (3e6, 0.2, 2e5, 30e6)]
@@ -105,13 +105,13 @@ def test_pulsed_vectorized_matches_scalar():
     assert many.shape == (11, 3)
     scalar = [view.compute(float(x), params) for x in xs]
     np.testing.assert_allclose(many[:, 0], scalar, rtol=1e-5)
-    # Each Zeeman group carries half of c_total (same convention as the CW kernels): depth 0.1 here.
+    # Each Zeeman group carries half of contrast_total (same convention as the CW kernels): depth 0.1 here.
     assert min(scalar) < 1.0 - 0.09
 
 
 def test_drive_controlled_model_refuses_direct_evaluation():
     model = NVCenterCWDriveModel()
-    params = NVCenterCWDriveZeemanSpectrum(center_freq=D, drive_amp_sat=0.2, sigma_inhom=0.0, zeeman_split=30e6)
+    params = NVCenterCWDriveZeemanSpectrum(zero_field_freq=D, drive_amp_sat=0.2, sigma_inhom=0.0, zeeman_shift=30e6)
     with pytest.raises(ValueError, match="drive-controlled"):
         model.compute(D + 30e6, params)
     with pytest.raises(ValueError, match="pulse_duration_s"):
@@ -276,7 +276,7 @@ def test_drive_locator_runs_and_chooses_varied_in_range_drives(gen_name):
     if "pulsed" in gen_name:
         assert all(d.pulse_duration_s is not None for d in drives)
         assert loc.rabi_per_amp_calibration is not None
-    assert "zeeman_split" in loc.result()
+    assert "zeeman_shift" in loc.result()
 
 
 def test_fixed_drive_sbed_measures_only_at_baseline():

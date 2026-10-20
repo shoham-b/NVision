@@ -42,7 +42,7 @@ def _fmt_contrast(c: float) -> str:
 def generators_basic() -> list[tuple[str, object]]:
     from nvision.sim.defaults import (
         NVISION_SIGNAL_CONTRAST,
-        NVISION_SIGNAL_LINEWIDTH,
+        NVISION_SIGNAL_HWHM,
         NVISION_SIGNAL_SWEEP_MAX,
         NVISION_SIGNAL_SWEEP_MIN,
         NVISION_SIGNAL_SWEEP_PARAM,
@@ -63,14 +63,14 @@ def generators_basic() -> list[tuple[str, object]]:
         for value in sweep_values:
             value = float(value)
             if NVISION_SIGNAL_SWEEP_PARAM == "width":
-                linewidth, c_total = value, NVISION_SIGNAL_CONTRAST
+                hwhm, contrast_total = value, NVISION_SIGNAL_CONTRAST
             else:
-                linewidth, c_total = NVISION_SIGNAL_LINEWIDTH, value
+                hwhm, contrast_total = NVISION_SIGNAL_HWHM, value
             name = "NVCenter-lorentzian"
-            if linewidth is not None:
-                name += f"-{_fmt_width(linewidth)}"
-            if c_total is not None:
-                name += f"-{_fmt_contrast(c_total)}"
+            if hwhm is not None:
+                name += f"-{_fmt_width(hwhm)}"
+            if contrast_total is not None:
+                name += f"-{_fmt_contrast(contrast_total)}"
             generators.append(
                 (
                     name,
@@ -78,17 +78,17 @@ def generators_basic() -> list[tuple[str, object]]:
                         drive_freq_min_phys=DEFAULT_NV_DRIVE_FREQ_MIN_PHYS,
                         drive_freq_max_phys=DEFAULT_NV_DRIVE_FREQ_MAX_PHYS,
                         variant="lorentzian",
-                        linewidth=linewidth,
-                        c_total=c_total,
+                        hwhm=hwhm,
+                        contrast_total=contrast_total,
                     ),
                 )
             )
         return generators
 
-    if NVISION_SIGNAL_LINEWIDTH is not None or NVISION_SIGNAL_CONTRAST is not None:
+    if NVISION_SIGNAL_HWHM is not None or NVISION_SIGNAL_CONTRAST is not None:
         name = "NVCenter-lorentzian"
-        if NVISION_SIGNAL_LINEWIDTH is not None:
-            name += f"-{_fmt_width(NVISION_SIGNAL_LINEWIDTH)}"
+        if NVISION_SIGNAL_HWHM is not None:
+            name += f"-{_fmt_width(NVISION_SIGNAL_HWHM)}"
         if NVISION_SIGNAL_CONTRAST is not None:
             name += f"-{_fmt_contrast(NVISION_SIGNAL_CONTRAST)}"
         return [
@@ -98,8 +98,8 @@ def generators_basic() -> list[tuple[str, object]]:
                     drive_freq_min_phys=DEFAULT_NV_DRIVE_FREQ_MIN_PHYS,
                     drive_freq_max_phys=DEFAULT_NV_DRIVE_FREQ_MAX_PHYS,
                     variant="lorentzian",
-                    linewidth=NVISION_SIGNAL_LINEWIDTH,
-                    c_total=NVISION_SIGNAL_CONTRAST,
+                    hwhm=NVISION_SIGNAL_HWHM,
+                    contrast_total=NVISION_SIGNAL_CONTRAST,
                 ),
             )
         ]
@@ -191,10 +191,10 @@ def param_grid_generators(variant: str = "lorentzian") -> list[tuple[str, object
                         drive_freq_min_phys=DEFAULT_NV_DRIVE_FREQ_MIN_PHYS,
                         drive_freq_max_phys=DEFAULT_NV_DRIVE_FREQ_MAX_PHYS,
                         variant=variant,
-                        linewidth=width,
-                        c_total=contrast,
+                        hwhm=width,
+                        contrast_total=contrast,
                         # Preserve this grid's historical 6-dip Voigt behavior: a ¹⁴N
-                        # hyperfine triplet resolved per Zeeman group, with split/k_np
+                        # hyperfine triplet resolved per Zeeman group, with hyperfine_shift/k_np
                         # drawn per repeat and inferred. Every other generator now
                         # defaults to hyperfine="unresolved" (the lines merge into one
                         # dip), so this grid has to ask for the triplet explicitly --
@@ -211,9 +211,9 @@ def param_grid_generators(variant: str = "lorentzian") -> list[tuple[str, object
 def resonance_search_generators() -> list[tuple[str, object]]:
     """Width x contrast grid of Lorentzian signals whose resonance must be found again after a field change.
 
-    The scenario: a spectrum was classified (linewidth, contrast known), then the magnetic field changed,
-    so the resonance moved (``zeeman_split`` is the unknown). Each generator carries a tight prior on the
-    nuisance parameters and none on ``zeeman_split`` (see ``NVCenterCoreGenerator.resonance_search``); the
+    The scenario: a spectrum was classified (hwhm, contrast known), then the magnetic field changed,
+    so the resonance moved (``zeeman_shift`` is the unknown). Each generator carries a tight prior on the
+    nuisance parameters and none on ``zeeman_shift`` (see ``NVCenterCoreGenerator.resonance_search``); the
     belief's prior width is what sets the sweep spacing and SBED's coarse grid. Names end in ``-rs``.
     """
     import numpy as np
@@ -236,8 +236,8 @@ def resonance_search_generators() -> list[tuple[str, object]]:
                 drive_freq_min_phys=DEFAULT_NV_DRIVE_FREQ_MIN_PHYS,
                 drive_freq_max_phys=DEFAULT_NV_DRIVE_FREQ_MAX_PHYS,
                 variant="lorentzian",
-                linewidth=float(width),
-                c_total=float(contrast),
+                hwhm=float(width),
+                contrast_total=float(contrast),
                 resonance_search=True,
             ),
         )
@@ -319,8 +319,8 @@ def voigt_sigma_inhom_param_grid_generators() -> list[tuple[str, object]]:
                                 drive_freq_min_phys=DEFAULT_NV_DRIVE_FREQ_MIN_PHYS,
                                 drive_freq_max_phys=DEFAULT_NV_DRIVE_FREQ_MAX_PHYS,
                                 variant="voigt",
-                                linewidth=width,
-                                c_total=contrast,
+                                hwhm=width,
+                                contrast_total=contrast,
                                 sigma_inhom=sigma_inhom,
                                 hyperfine=hyperfine,
                             ),

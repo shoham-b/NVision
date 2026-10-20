@@ -73,7 +73,7 @@ def nv_center_smc_belief(
     hyperfine: str = "unresolved",
     infer_hyperfine: bool = False,
     with_zeeman_splitting: bool = True,
-    with_fixed_center_freq: bool = True,
+    with_fixed_zero_field_freq: bool = True,
     lineshape: str = "lorentzian",
     seed: int | None = None,
     fixed_drive: DriveSetting | None = None,
@@ -82,26 +82,26 @@ def nv_center_smc_belief(
 
     By default uses Zeeman splitting (two dips) with the hyperfine structure
     *unresolved* -- one merged dip per group, which is what a typical NV
-    linewidth gives. The belief's ``hyperfine``/``infer_hyperfine`` must match
+    hwhm gives. The belief's ``hyperfine``/``infer_hyperfine`` must match
     how the true signal was generated: modelling a resolved ¹⁴N triplet against
     a signal whose lines are merged (or vice versa) makes the locator hunt for
     peaks the data never showed. Set ``hyperfine="n14"``/``"n15"`` when the lines
     really are resolved, and ``infer_hyperfine=True`` to additionally infer
-    ``split`` and ``k_np`` rather than fixing them to the isotope's coupling.
-    ``with_fixed_center_freq`` (default ``True``, matching every ``NVCenter*Model``'s own
-    default) treats the zero-field ``center_freq`` as a known instrument constant
+    ``hyperfine_shift`` and ``k_np`` rather than fixing them to the isotope's coupling.
+    ``with_fixed_zero_field_freq`` (default ``True``, matching every ``NVCenter*Model``'s own
+    default) treats the zero-field ``zero_field_freq`` as a known instrument constant
     rather than a free particle dimension -- pass ``False`` to infer it instead (e.g.
-    for tests/locators that specifically exercise center_freq estimation).
+    for tests/locators that specifically exercise zero_field_freq estimation).
 
     ``lineshape`` selects the signal model:
 
     * ``"lorentzian"`` (default) — :class:`~nvision.spectra.nv_center.NVCenterLorentzianModel`.
     * ``"voigt"`` — :class:`~nvision.spectra.nv_center.NVCenterVoigtModel`, inferring
-      physically-decomposed ``homogeneous_linewidth``/``sigma_inhom`` (reparameterized to
+      physically-decomposed ``hwhm_lorentz``/``sigma_inhom`` (reparameterized to
       the kernel-native ``fwhm_total``/``lorentz_frac`` internally) and population-normalized
-      ``c_total``. Respects ``hyperfine``/``infer_hyperfine``/``with_zeeman_splitting``.
+      ``contrast_total``. Respects ``hyperfine``/``infer_hyperfine``/``with_zeeman_splitting``.
     * ``"saturation_voigt"`` — :class:`~nvision.spectra.nv_center.NVCenterSaturationVoigtModel`,
-      which replaces the lumped linewidth with two physically distinct, separately
+      which replaces the lumped hwhm with two physically distinct, separately
       inferred broadening parameters: ``saturation`` (drive power, sets the
       homogeneous/power-broadened width *and* the realized contrast together via
       the saturation law) and ``sigma_inhom`` (independent inhomogeneous/Gaussian
@@ -142,7 +142,7 @@ def nv_center_smc_belief(
         model = drive_model_cls(
             hyperfine=hyperfine,
             with_zeeman_splitting=with_zeeman_splitting,
-            with_fixed_center_freq=with_fixed_center_freq,
+            with_fixed_zero_field_freq=with_fixed_zero_field_freq,
         )
         merged_bounds = nv_center_drive_bounds_for_domain(
             "cw" if lineshape == "cw_drive" else "pulsed",
@@ -160,7 +160,7 @@ def nv_center_smc_belief(
             hyperfine=hyperfine,
             infer_hyperfine=infer_hyperfine,
             with_zeeman_splitting=with_zeeman_splitting,
-            with_fixed_center_freq=with_fixed_center_freq,
+            with_fixed_zero_field_freq=with_fixed_zero_field_freq,
         )
         merged_bounds = nv_center_saturation_voigt_bounds_for_domain(
             DEFAULT_NV_DRIVE_FREQ_MIN_PHYS,
@@ -174,7 +174,7 @@ def nv_center_smc_belief(
             hyperfine=hyperfine,
             infer_hyperfine=infer_hyperfine,
             with_zeeman_splitting=with_zeeman_splitting,
-            with_fixed_center_freq=with_fixed_center_freq,
+            with_fixed_zero_field_freq=with_fixed_zero_field_freq,
         )
         merged_bounds = nv_center_voigt_bounds_for_domain(
             DEFAULT_NV_DRIVE_FREQ_MIN_PHYS,
@@ -188,7 +188,7 @@ def nv_center_smc_belief(
             hyperfine=hyperfine,
             infer_hyperfine=infer_hyperfine,
             with_zeeman_splitting=with_zeeman_splitting,
-            with_fixed_center_freq=with_fixed_center_freq,
+            with_fixed_zero_field_freq=with_fixed_zero_field_freq,
         )
         merged_bounds = nv_center_lorentzian_bounds_for_domain(
             DEFAULT_NV_DRIVE_FREQ_MIN_PHYS,
@@ -230,8 +230,8 @@ def nv_center_smc_belief(
                     unit_std = std / (hi - lo)
                     unit_priors[name] = (float(unit_mu), float(unit_std))
 
-    # The NV bound builders make the center_freq prior range span exactly the drive-frequency axis.
-    drive_freq_bounds_phys = merged_bounds["center_freq"]
+    # The NV bound builders make the zero_field_freq prior range span exactly the drive-frequency axis.
+    drive_freq_bounds_phys = merged_bounds["zero_field_freq"]
     wrapped = UnitCubeSignalModel(model, merged_bounds, drive_freq_bounds_phys)
 
     return SMCMarginalDistribution(

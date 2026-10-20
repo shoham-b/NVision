@@ -11,7 +11,7 @@ from typing import Any
 import numpy as np
 import polars as pl
 
-from nvision.belief.dip_detection import min_linewidth_hz
+from nvision.belief.dip_detection import min_hwhm_hz
 from nvision.models.experiment import CoreExperiment
 from nvision.models.observer import RunResult
 from nvision.runner.convert import belief_mode_estimates
@@ -108,7 +108,7 @@ def _resolve_center_param(strat_obj: Any, run_result: RunResult) -> str:
         names = run_result.snapshots[0].belief.model.parameter_names()
         if names:
             return names[0]
-    return "center_freq"
+    return "zero_field_freq"
 
 
 def _posterior_animation_inputs(
@@ -488,17 +488,17 @@ def _bayesian_auxiliary_entries(
         pairs = []
         try:
             priority_pairs = [
-                ("center_freq", "split"),
-                ("center_freq", "linewidth"),
-                ("split", "linewidth"),
-                ("center_freq", "dip_depth"),
-                ("dip_depth", "linewidth"),
-                ("center_freq", "c_total"),
-                ("c_total", "linewidth"),
-                ("center_freq", "homogeneous_linewidth"),
-                ("center_freq", "sigma_inhom"),
-                ("homogeneous_linewidth", "sigma_inhom"),
-                ("c_total", "homogeneous_linewidth"),
+                ("zero_field_freq", "hyperfine_shift"),
+                ("zero_field_freq", "hwhm"),
+                ("hyperfine_shift", "hwhm"),
+                ("zero_field_freq", "contrast"),
+                ("contrast", "hwhm"),
+                ("zero_field_freq", "contrast_total"),
+                ("contrast_total", "hwhm"),
+                ("zero_field_freq", "hwhm_lorentz"),
+                ("zero_field_freq", "sigma_inhom"),
+                ("hwhm_lorentz", "sigma_inhom"),
+                ("contrast_total", "hwhm_lorentz"),
             ]
             for p1, p2 in priority_pairs:
                 if p1 in param_names and p2 in param_names:
@@ -764,11 +764,11 @@ def get_or_run_simplesweep_baseline(
         fixed_drive=experiment.true_signal.baseline_drive,
     )
 
-    min_linewidth = min_linewidth_hz(bounds)
+    min_hwhm = min_hwhm_hz(bounds)
     max_steps = max_sweep_points(
         float(experiment.drive_freq_min_phys),
         float(experiment.drive_freq_max_phys),
-        min_linewidth,
+        min_hwhm,
         SWEEP_POINTS_PER_FWHM,
     )
 
@@ -879,7 +879,7 @@ def generate_attempt_plots(
         nb = run_result.narrowed_param_bounds
         center_param_name = None
         for name in nb:
-            if "freq" in name.lower() or name in ("x", "center_freq"):
+            if "freq" in name.lower() or name in ("x", "zero_field_freq"):
                 center_param_name = name
                 break
         if center_param_name is None:
@@ -1030,8 +1030,8 @@ def generate_attempt_plots(
                 "steps_to_primary": scan_entry.get("steps_to_primary"),
                 "uncert_primary_at_milestone": scan_entry.get("uncert_primary_at_milestone"),
                 "err_primary_at_milestone": scan_entry.get("err_primary_at_milestone"),
-                "err_split_at_milestone": scan_entry.get("err_split_at_milestone"),
-                "err_split_diff": scan_entry.get("err_split_diff"),
+                "err_shift_at_milestone": scan_entry.get("err_shift_at_milestone"),
+                "err_shift_diff": scan_entry.get("err_shift_diff"),
                 "err_primary_at_all_converged": scan_entry.get("err_primary_at_all_converged"),
                 "uncert_primary_at_all_converged": scan_entry.get("uncert_primary_at_all_converged"),
             }

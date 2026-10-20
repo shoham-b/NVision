@@ -94,7 +94,7 @@ def _make_rb_belief(seed: int = 0):
     from tests.unit_cube_belief_factory import make_smc
 
     class _NoCandidateSMC(SMCMarginalDistribution):
-        # The base epoch-grid needs a 'linewidth' estimate the GaussianModel
+        # The base epoch-grid needs a 'hwhm' estimate the GaussianModel
         # doesn't expose; a no-op keeps construction cheap for the update test.
         def _generate_epoch_candidate_drive_freq(self) -> None:
             self._candidate_drive_freq_unit = np.linspace(0.0, 1.0, 10).astype(np.float32)
@@ -103,9 +103,9 @@ def _make_rb_belief(seed: int = 0):
     model.signal_min_span = lambda w: 1e5
     noise_model = GaussianNoiseSignalModel({"noise_sigma": (0.01, 0.2)})
     bounds = {
-        "center_freq": (2.7e9, 2.8e9),
+        "zero_field_freq": (2.7e9, 2.8e9),
         "sigma": (1e6, 10e6),
-        "dip_depth": (0.0, 1.0),
+        "contrast": (0.0, 1.0),
         "background": (0.0, 1.0),
     }
     np.random.seed(seed)

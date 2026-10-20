@@ -23,14 +23,14 @@ reject_renamed_env_vars()
 NVISION_DEFAULT_LOC_MAX_STEPS: int = int(os.getenv("NVISION_DEFAULT_LOC_MAX_STEPS", "1500"))
 
 # Fraction of SimpleSweep max_steps allocated to the SBED locator.
-# SBED's effective budget is ceil(domain_width / min_linewidth) * this fraction. Raised
-# 0.5 -> 1.0 (0.32 before that): at 0.5 (450 steps) a large share of wide-linewidth, noisy
+# SBED's effective budget is ceil(domain_width / min_hwhm) * this fraction. Raised
+# 0.5 -> 1.0 (0.32 before that): at 0.5 (450 steps) a large share of wide-hwhm, noisy
 # Voigt repeats ran the whole budget without meeting the stop gate even though their
 # estimates were accurate (median |err| ~0.3 sigma), i.e. budget-limited rather than wrong.
 NVISION_SBED_STEPS_FRACTION: float = float(os.getenv("NVISION_SBED_STEPS_FRACTION", "1.0"))
 
 # Actual step count SimpleSweep itself runs with. Kept independent of the
-# domain/min_linewidth figure (e.g. ~2500) that the SBED fraction is still
+# domain/min_hwhm figure (e.g. ~2500) that the SBED fraction is still
 # computed against — only SimpleSweep's own budget is capped here.
 NVISION_SIMPLESWEEP_MAX_STEPS: int = int(os.getenv("NVISION_SIMPLESWEEP_MAX_STEPS", "400"))
 
@@ -89,10 +89,10 @@ NVISION_WINDOW_MIN_PADDING_FRAC: float = float(os.getenv("NVISION_WINDOW_MIN_PAD
 
 NVISION_MIN_K_NP: float = float(os.getenv("NVISION_MIN_K_NP", "1.0"))
 NVISION_MAX_K_NP: float = float(os.getenv("NVISION_MAX_K_NP", "5.0"))
-NVISION_MIN_LINEWIDTH: float = float(os.getenv("NVISION_MIN_LINEWIDTH", "200e3"))
-NVISION_MAX_LINEWIDTH: float = float(os.getenv("NVISION_MAX_LINEWIDTH", "5.0e6"))
-NVISION_MIN_SPLIT: float = float(os.getenv("NVISION_MIN_SPLIT", "2.0e6"))
-NVISION_MAX_SPLIT: float = float(os.getenv("NVISION_MAX_SPLIT", "8.5e6"))
+NVISION_MIN_HWHM: float = float(os.getenv("NVISION_MIN_HWHM", "200e3"))
+NVISION_MAX_HWHM: float = float(os.getenv("NVISION_MAX_HWHM", "5.0e6"))
+NVISION_MIN_HYPERFINE_SHIFT: float = float(os.getenv("NVISION_MIN_HYPERFINE_SHIFT", "2.0e6"))
+NVISION_MAX_HYPERFINE_SHIFT: float = float(os.getenv("NVISION_MAX_HYPERFINE_SHIFT", "8.5e6"))
 # NV center drive-frequency domain is configured via NVISION_NV_ZERO_FIELD_SPLITTING_HZ /
 # NVISION_NV_DRIVE_FREQ_DELTA_HZ, read directly in nvision/spectra/nv_center.py
 # (DEFAULT_NV_DRIVE_FREQ_MIN_PHYS/MAX): the window is the upper half [D, D + delta] of the
@@ -104,23 +104,25 @@ NVISION_CONVERGENCE_THRESHOLD: float = float(os.getenv("NVISION_CONVERGENCE_THRE
 
 # Absolute convergence ceilings for specific parameters (physical units).
 # Unset optional vars fall back to relative NVISION_CONVERGENCE_THRESHOLD × bound width.
-NVISION_CENTER_FREQ_CONVERGENCE_THRESHOLD: float = float(
-    os.getenv("NVISION_CENTER_FREQ_CONVERGENCE_THRESHOLD", "100000.0")
+NVISION_ZERO_FIELD_FREQ_CONVERGENCE_THRESHOLD: float = float(
+    os.getenv("NVISION_ZERO_FIELD_FREQ_CONVERGENCE_THRESHOLD", "100000.0")
 )
 
 # Safety factor K applied as a measurement budget multiplier.
 # If the Cramér–Rao Lower Bound (CRLB) dictates that N measurements are
-# theoretically required to reach the center_freq convergence threshold, the locator
+# theoretically required to reach the zero_field_freq convergence threshold, the locator
 # allocates a maximum budget of K × N measurements to account for non-ideal
 # sampling and SMC inefficiencies before failing fast.
-NVISION_CENTER_FREQ_CRLB_SAFETY_FACTOR: float = float(os.getenv("NVISION_CENTER_FREQ_CRLB_SAFETY_FACTOR", "4.0"))
+NVISION_ZERO_FIELD_FREQ_CRLB_SAFETY_FACTOR: float = float(
+    os.getenv("NVISION_ZERO_FIELD_FREQ_CRLB_SAFETY_FACTOR", "4.0")
+)
 
 # Minimum physical step (Hz) between consecutive EIG-evaluated candidates.
 # Candidate count from the epoch grid ≈ 6·σ_f / NVISION_SMC_CANDIDATE_STEP_HZ,
 # so the budget shrinks automatically as the posterior tightens.
-# Defaults to NVISION_CENTER_FREQ_CONVERGENCE_THRESHOLD (100 kHz).
+# Defaults to NVISION_ZERO_FIELD_FREQ_CONVERGENCE_THRESHOLD (100 kHz).
 NVISION_SMC_CANDIDATE_STEP_HZ: float = float(
-    os.getenv("NVISION_SMC_CANDIDATE_STEP_HZ", str(NVISION_CENTER_FREQ_CONVERGENCE_THRESHOLD))
+    os.getenv("NVISION_SMC_CANDIDATE_STEP_HZ", str(NVISION_ZERO_FIELD_FREQ_CONVERGENCE_THRESHOLD))
 )
 
 
@@ -136,8 +138,8 @@ def _optional_env_float(name: str) -> float | None:
 
 # --- Signal Parameter Fixing / Sweeping (nv_center_generator.py, presets.py) --
 
-# Fixed linewidth (HWHM, Hz) / contrast (c_total). None = randomize as before.
-NVISION_SIGNAL_LINEWIDTH: float | None = _optional_env_float("NVISION_SIGNAL_LINEWIDTH")
+# Fixed hwhm (HWHM, Hz) / contrast (contrast_total). None = randomize as before.
+NVISION_SIGNAL_HWHM: float | None = _optional_env_float("NVISION_SIGNAL_HWHM")
 NVISION_SIGNAL_CONTRAST: float | None = _optional_env_float("NVISION_SIGNAL_CONTRAST")
 
 # When set to "width" or "contrast", generators_basic() sweeps that parameter over
@@ -225,44 +227,46 @@ NVISION_DRIFT_GAUSS_SIGMA: float = float(os.getenv("NVISION_DRIFT_GAUSS_SIGMA", 
 # (64 runs, median final uncertainty vs the threshold it had to clear):
 #
 #   param                  old target   achieved unc   blocked convergence in
-#   zeeman_split             600 kHz       26 kHz        0% of runs  <- never bound
-#   homogeneous_linewidth    148 kHz      184 kHz       65% of runs
+#   zeeman_shift             600 kHz       26 kHz        0% of runs  <- never bound
+#   hwhm_lorentz    148 kHz      184 kHz       65% of runs
 #   sigma_inhom               60 kHz      175 kHz       85% of runs  <- main blocker
-#   c_total                    0.003       0.0029       45% of runs
+#   contrast_total                    0.003       0.0029       45% of runs
 #
 # So the run length was set by `sigma_inhom`'s 60 kHz target -- a number that comes from
 # its 6 MHz bound range, is below the noise floor for these signals, and is asking for
-# something physically unavailable: `homogeneous_linewidth` and `sigma_inhom` are the
+# something physically unavailable: `hwhm_lorentz` and `sigma_inhom` are the
 # degenerate width pair, individually unidentifiable below the dip-resolution threshold
-# (only their combined width is determined). Meanwhile `zeeman_split` -- the parameter
+# (only their combined width is determined). Meanwhile `zeeman_shift` -- the parameter
 # the study actually cares about -- had a target 23x looser than its own achieved
 # uncertainty and never gated anything.
 #
 # The widths and contrast are therefore loosened to values they can actually reach, and
-# `zeeman_split` is made the binding constraint at the same 100 kHz used for center_freq.
+# `zeeman_shift` is made the binding constraint at the same 100 kHz used for zero_field_freq.
 # `max_steps` remains the backstop for signals where even that is unreachable (the
 # genuinely degenerate ones), which is the correct outcome rather than a convergence claim.
-NVISION_ZEEMAN_SPLIT_CONVERGENCE_THRESHOLD: float = float(
-    os.getenv("NVISION_ZEEMAN_SPLIT_CONVERGENCE_THRESHOLD", "100000.0")
+NVISION_ZEEMAN_SHIFT_CONVERGENCE_THRESHOLD: float = float(
+    os.getenv("NVISION_ZEEMAN_SHIFT_CONVERGENCE_THRESHOLD", "100000.0")
 )
 NVISION_WIDTH_CONVERGENCE_THRESHOLD: float = float(os.getenv("NVISION_WIDTH_CONVERGENCE_THRESHOLD", "500000.0"))
-NVISION_C_TOTAL_CONVERGENCE_THRESHOLD: float = float(os.getenv("NVISION_C_TOTAL_CONVERGENCE_THRESHOLD", "0.01"))
+NVISION_CONTRAST_TOTAL_CONVERGENCE_THRESHOLD: float = float(
+    os.getenv("NVISION_CONTRAST_TOTAL_CONVERGENCE_THRESHOLD", "0.01")
+)
 
 
 def _param_absolute_convergence_thresholds() -> dict[str, float]:
     thresholds: dict[str, float] = {
-        "center_freq": NVISION_CENTER_FREQ_CONVERGENCE_THRESHOLD,
-        "zeeman_split": NVISION_ZEEMAN_SPLIT_CONVERGENCE_THRESHOLD,
-        "homogeneous_linewidth": NVISION_WIDTH_CONVERGENCE_THRESHOLD,
+        "zero_field_freq": NVISION_ZERO_FIELD_FREQ_CONVERGENCE_THRESHOLD,
+        "zeeman_shift": NVISION_ZEEMAN_SHIFT_CONVERGENCE_THRESHOLD,
+        "hwhm_lorentz": NVISION_WIDTH_CONVERGENCE_THRESHOLD,
         "sigma_inhom": NVISION_WIDTH_CONVERGENCE_THRESHOLD,
-        "c_total": NVISION_C_TOTAL_CONVERGENCE_THRESHOLD,
+        "contrast_total": NVISION_CONTRAST_TOTAL_CONVERGENCE_THRESHOLD,
     }
     for param_name, env_name in (
         ("k_np", "NVISION_K_NP_CONVERGENCE_THRESHOLD"),
-        ("linewidth", "NVISION_LINEWIDTH_CONVERGENCE_THRESHOLD"),
-        ("split", "NVISION_SPLIT_CONVERGENCE_THRESHOLD"),
-        ("dip_depth", "NVISION_DIP_DEPTH_CONVERGENCE_THRESHOLD"),
-        ("homogeneous_linewidth", "NVISION_HOMOGENEOUS_LINEWIDTH_CONVERGENCE_THRESHOLD"),
+        ("hwhm", "NVISION_HWHM_CONVERGENCE_THRESHOLD"),
+        ("hyperfine_shift", "NVISION_SPLIT_CONVERGENCE_THRESHOLD"),
+        ("contrast", "NVISION_CONTRAST_CONVERGENCE_THRESHOLD"),
+        ("hwhm_lorentz", "NVISION_HWHM_LORENTZ_CONVERGENCE_THRESHOLD"),
         ("sigma_inhom", "NVISION_SIGMA_INHOM_CONVERGENCE_THRESHOLD"),
     ):
         value = _optional_env_float(env_name)

@@ -80,12 +80,12 @@ def _pairing_error(truth: list[float], est: dict[str, float]) -> dict[str, float
                 "triple_rmse": rmse,
             }
 
-            # Add split error if available in estimates
+            # Add hyperfine_shift error if available in estimates
             # Split represents the distance from center to outer peaks
-            split_hat = est.get("split")
+            split_hat = est.get("hyperfine_shift")
             if split_hat is not None and isinstance(split_hat, int | float) and math.isfinite(split_hat):
-                # For 3-peak symmetric distribution, split is the distance from center to outer peaks
-                # True split = (t[2] - t[1]) or (t[1] - t[0]), assuming symmetric
+                # For 3-peak symmetric distribution, hyperfine_shift is the distance from center to outer peaks
+                # True hyperfine_shift = (t[2] - t[1]) or (t[1] - t[0]), assuming symmetric
                 split_true = (t[2] - t[1] + t[1] - t[0]) / 2.0
                 result["split_err"] = abs(float(split_hat) - split_true)
 
@@ -118,7 +118,7 @@ def test_3_peak_metrics():
         "x1_hat": 2.8e9,
         "x2_hat": 2.87e9,
         "x3_hat": 2.94e9,
-        "split": 0.07e9,
+        "hyperfine_shift": 0.07e9,
     }
 
     metrics = _pairing_error(truth, estimates)
@@ -146,7 +146,7 @@ def test_3_peak_metrics():
         "x1_hat": 2.8e9,  # Perfect
         "x2_hat": 2.875e9,  # +5 MHz error (doesn't affect outer distance)
         "x3_hat": 2.945e9,  # +5 MHz error
-        "split": 0.0725e9,  # +2.5 MHz error
+        "hyperfine_shift": 0.0725e9,  # +2.5 MHz error
     }
 
     metrics = _pairing_error(truth, estimates)
@@ -171,12 +171,12 @@ def test_3_peak_metrics():
         "x1_hat": 2.8e9,
         "x2_hat": 2.87e9,
         "x3_hat": 2.94e9,
-        "split": 0.075e9,  # 75 MHz instead of 70 MHz -> 5 MHz error
+        "hyperfine_shift": 0.075e9,  # 75 MHz instead of 70 MHz -> 5 MHz error
     }
 
     metrics = _pairing_error(truth, estimates)
-    print(f"True split: {((truth[2] - truth[1] + truth[1] - truth[0]) / 2.0) / 1e6:.1f} MHz")
-    print(f"Estimated split: {estimates['split'] / 1e6:.1f} MHz")
+    print(f"True hyperfine_shift: {((truth[2] - truth[1] + truth[1] - truth[0]) / 2.0) / 1e6:.1f} MHz")
+    print(f"Estimated hyperfine_shift: {estimates['hyperfine_shift'] / 1e6:.1f} MHz")
     print("\nMetrics:")
     for key, value in sorted(metrics.items()):
         if "err" in key or "rmse" in key:
@@ -208,7 +208,7 @@ def test_3_peak_metrics():
     print("\nKey metrics for 3-peak NV center distributions:")
     print("  • abs_err_x1, abs_err_x2, abs_err_x3: Position errors")
     print("  • dist_13_err: Distance between outer peaks (most relevant)")
-    print("  • split_err: Error in split parameter")
+    print("  • split_err: Error in hyperfine_shift parameter")
     print("  • triple_rmse: Overall RMSE across all peaks")
 
 

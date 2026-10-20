@@ -281,60 +281,64 @@ class ExperimentsMixin:
         width_candidates: list[pl.Expr] = []
         if "final_est_effective_hwhm" in sub.columns:
             width_candidates.append(pl.col("final_est_effective_hwhm"))
-        if "final_est_linewidth" in sub.columns:
-            width_candidates.append(pl.col("final_est_linewidth"))
-        if "final_est_homogeneous_linewidth" in sub.columns:
-            width_candidates.append(pl.col("final_est_homogeneous_linewidth"))
+        if "final_est_hwhm" in sub.columns:
+            width_candidates.append(pl.col("final_est_hwhm"))
+        if "final_est_hwhm_lorentz" in sub.columns:
+            width_candidates.append(pl.col("final_est_hwhm_lorentz"))
         if "final_est_fwhm_total" in sub.columns:
             width_candidates.append(pl.col("final_est_fwhm_total") / 2.0)
         width_expr = pl.coalesce(width_candidates) if width_candidates else pl.lit(None, dtype=pl.Float64)
 
-        # Total splitting extent: two Zeeman groups at +/- zeeman_split, plus hyperfine split.
+        # Total splitting extent: two Zeeman groups at +/- zeeman_shift, plus hyperfine shift.
         zee_expr = (
-            pl.col("final_est_zeeman_split").fill_null(0.0) * 2.0
-            if "final_est_zeeman_split" in sub.columns
+            pl.col("final_est_zeeman_shift").fill_null(0.0) * 2.0
+            if "final_est_zeeman_shift" in sub.columns
             else pl.lit(0.0)
         )
-        hf_expr = pl.col("final_est_split").fill_null(0.0) if "final_est_split" in sub.columns else pl.lit(0.0)
+        hf_expr = (
+            pl.col("final_est_hyperfine_shift").fill_null(0.0)
+            if "final_est_hyperfine_shift" in sub.columns
+            else pl.lit(0.0)
+        )
 
-        sub = sub.with_columns(width_expr.alias("_width_src"), (zee_expr + hf_expr).alias("_split_src"))
+        sub = sub.with_columns(width_expr.alias("_width_src"), (zee_expr + hf_expr).alias("_hyperfine_shift_src"))
 
         best_est = (
             sub.filter(~pl.col("strategy").str.contains("Sweep"))
             .group_by(["noise", "attempt"])
             .agg(
                 [
-                    pl.col("_width_src").mean().alias("ref_linewidth"),
-                    pl.col("_split_src").mean().alias("ref_split"),
+                    pl.col("_width_src").mean().alias("ref_hwhm"),
+                    pl.col("_hyperfine_shift_src").mean().alias("ref_hyperfine_shift"),
                 ]
             )
         )
 
         # Always join (even when best_est is empty -- a left join against an empty
-        # table just yields null ref_linewidth/ref_split) rather than branching on
+        # table just yields null ref_hwhm/ref_hyperfine_shift) rather than branching on
         # emptiness: the two branches previously added different column counts,
         # which crashed the pl.concat() below whenever some generators had only
         # Sweep-strategy rows (best_est empty) and others didn't (best_est non-empty)
         # in the same summary pass.
         sub = sub.join(best_est, on=["noise", "attempt"], how="left")
         sub = sub.with_columns(
-            pl.col("ref_linewidth").fill_null(pl.col("_width_src")).alias("effective_lw"),
-            pl.col("ref_split").fill_null(pl.col("_split_src")).alias("effective_split"),
+            pl.col("ref_hwhm").fill_null(pl.col("_width_src")).alias("effective_lw"),
+            pl.col("ref_hyperfine_shift").fill_null(pl.col("_hyperfine_shift_src")).alias("effective_hyperfine_shift"),
         )
 
         def calc_row_f_span(row):
             lw = row["effective_lw"]
-            split = row["effective_split"]
+            hyperfine_shift = row["effective_hyperfine_shift"]
             exp_pts = row["expected_uniform_points"]
             if lw is not None and lw > 0:
-                split_val = split if split is not None else 0.0
-                return max(2.0 * lw, split_val + lw) / domain_width
+                hyperfine_shift_val = hyperfine_shift if hyperfine_shift is not None else 0.0
+                return max(2.0 * lw, hyperfine_shift_val + lw) / domain_width
             elif exp_pts is not None and exp_pts > 0:
                 return 1.0 / exp_pts
             return None
 
         return sub.with_columns(
-            pl.struct(["effective_lw", "effective_split", "expected_uniform_points"])
+            pl.struct(["effective_lw", "effective_hyperfine_shift", "expected_uniform_points"])
             .map_elements(calc_row_f_span, return_dtype=pl.Float64)
             .alias("row_f_span")
         )
@@ -348,11 +352,11 @@ class ExperimentsMixin:
         df_list = []
         for _gen_tuple, sub in df.partition_by("generator", as_dict=True).items():
             for _c in [
-                "final_est_linewidth",
-                "final_est_homogeneous_linewidth",
-                "final_est_split",
+                "final_est_hwhm",
+                "final_est_hwhm_lorentz",
+                "final_est_hyperfine_shift",
                 "final_est_effective_hwhm",
-                "final_est_zeeman_split",
+                "final_est_zeeman_shift",
                 "final_est_fwhm_total",
                 "acquisition_hi",
                 "acquisition_lo",
@@ -437,10 +441,10 @@ class ExperimentsMixin:
             gen = gen_tuple[0]
 
             _numeric_cols = [
-                "final_est_linewidth",
-                "final_est_split",
+                "final_est_hwhm",
+                "final_est_hyperfine_shift",
                 "final_est_effective_hwhm",
-                "final_est_zeeman_split",
+                "final_est_zeeman_shift",
                 "final_est_fwhm_total",
                 "acquisition_hi",
                 "acquisition_lo",
@@ -538,11 +542,11 @@ class ExperimentsMixin:
         milestone_cols = [
             "steps_to_primary",
             "err_primary_at_milestone",
-            "err_split_at_milestone",
+            "err_shift_at_milestone",
             "final_err_primary",
-            "final_err_split",
+            "final_err_shift",
             "err_primary_diff",
-            "err_split_diff",
+            "err_shift_diff",
         ]
 
         # Check if any milestone metrics exist
@@ -572,11 +576,11 @@ class ExperimentsMixin:
             entries.append({"type": "milestone", "path": out_path.as_posix(), "title": "Steps to Primary Convergence"})
 
         # 2. Error comparison (Milestone vs Final)
-        if "err_split_at_milestone" in df.columns and "final_err_split" in df.columns:
+        if "err_shift_at_milestone" in df.columns and "final_err_shift" in df.columns:
             fig = go.Figure()
             for (strat,), sub in partitions.items():
-                m_err = sub.get_column("err_split_at_milestone").drop_nans().drop_nulls()
-                f_err = sub.get_column("final_err_split").drop_nans().drop_nulls()
+                m_err = sub.get_column("err_shift_at_milestone").drop_nans().drop_nulls()
+                f_err = sub.get_column("final_err_shift").drop_nans().drop_nulls()
 
                 if not m_err.is_empty():
                     fig.add_trace(go.Box(y=m_err.to_list(), name=f"{strat} (Milestone)"))
@@ -588,23 +592,23 @@ class ExperimentsMixin:
                 yaxis_title="Absolute Error (Hz)",
                 template="plotly_white",
             )
-            out_path = self._emit(fig, "milestone_error_comparison_split.json.gz", is_figure=True)
+            out_path = self._emit(fig, "milestone_error_comparison_shift.json.gz", is_figure=True)
             entries.append({"type": "milestone", "path": out_path.as_posix(), "title": "Splitting Error Comparison"})
 
         # 3. Zeeman resolution sufficiency (Error Delta)
-        if "err_split_diff" in df.columns:
+        if "err_shift_diff" in df.columns:
             fig = go.Figure()
             for (strat,), sub in partitions.items():
-                err_diff = sub.get_column("err_split_diff").drop_nans().drop_nulls()
+                err_diff = sub.get_column("err_shift_diff").drop_nans().drop_nulls()
                 if not err_diff.is_empty():
                     fig.add_trace(go.Box(y=err_diff.to_list(), name=strat))
 
             fig.update_layout(
-                title="Error Reduction after Primary Convergence (split)",
+                title="Error Reduction after Primary Convergence (hyperfine_shift)",
                 yaxis_title="Error Reduction (Hz)",
                 template="plotly_white",
             )
-            out_path = self._emit(fig, "milestone_error_delta_split.json.gz", is_figure=True)
+            out_path = self._emit(fig, "milestone_error_delta_shift.json.gz", is_figure=True)
             entries.append({"type": "milestone", "path": out_path.as_posix(), "title": "Zeeman Resolution Gain"})
 
         return entries

@@ -16,11 +16,11 @@ def test_smc_stable_update_prevents_uniform_reset():
 
     model = NVCenterLorentzianModel()
     bounds = {
-        "center_freq": (2.8e9, 2.95e9),
-        "linewidth": (1e6, 3e6),
-        "split": (4e6, 6e6),
+        "zero_field_freq": (2.8e9, 2.95e9),
+        "hwhm": (1e6, 3e6),
+        "hyperfine_shift": (4e6, 6e6),
         "k_np": (1.0, 5.0),
-        "c_total": (0.1, 0.9),
+        "contrast_total": (0.1, 0.9),
     }
 
     # Initialize SMC

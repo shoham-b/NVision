@@ -203,7 +203,7 @@ class CoreExperiment:
     def truth_positions(self) -> list[float]:
         """Ground truth peak positions extracted from TrueSignal parameters."""
         values = self.true_signal.parameter_values()
-        return [value for name, value in values.items() if "center_freq" in name or "position" in name]
+        return [value for name, value in values.items() if "zero_field_freq" in name or "position" in name]
 
     def denormalize_drive_freq(self, drive_freq_unit: float) -> float:
         """Convert normalized x to physical domain."""

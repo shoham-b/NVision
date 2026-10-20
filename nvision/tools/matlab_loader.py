@@ -185,7 +185,7 @@ class MatlabDataFile:
         # Computed as baseline / with_freq, not with_freq / baseline: every recorded file
         # shows the driven-shot channel rising above baseline at resonance, the reverse of
         # the textbook NV dip. Inverting here, once and the same way for every file, turns
-        # every resonance back into a dip so the regular positive-only c_total fit
+        # every resonance back into a dip so the regular positive-only contrast_total fit
         # (nv_center_lorentzian_bounds_for_domain's default (0.1, 0.4)) applies uniformly —
         # see matlab_cmd.py's locator_bounds, which no longer needs to special-case this.
         shot_ratios = np.where(good, baseline / np.where(with_freq > 0, with_freq, np.nan), np.nan)

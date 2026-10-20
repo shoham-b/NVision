@@ -4,11 +4,11 @@ from pathlib import Path
 from nvision.runner.cache import _decompress_text, embed_graph_content
 from nvision.sim.locs.bayesian.belief_builders import nv_center_smc_belief
 from nvision.sim.locs.search_grid import SWEEP_POINTS_PER_FWHM, max_sweep_points
-from nvision.spectra.nv_center import MIN_LINEWIDTH
+from nvision.spectra.nv_center import MIN_HWHM
 
 # The step budget (cache-key component) the runner resolves for a plain sweep over the 2.6-3.1 GHz test axis:
-# the grid size at the narrowest dip the linewidth prior allows.
-SIMPLESWEEP_EFFECTIVE_MAX_STEPS = max_sweep_points(2.6e9, 3.1e9, MIN_LINEWIDTH, SWEEP_POINTS_PER_FWHM)
+# the grid size at the narrowest dip the hwhm prior allows.
+SIMPLESWEEP_EFFECTIVE_MAX_STEPS = max_sweep_points(2.6e9, 3.1e9, MIN_HWHM, SWEEP_POINTS_PER_FWHM)
 
 
 def _sweep_strategy():
@@ -394,7 +394,7 @@ def test_task_runner_resume_and_override(tmp_path: Path, monkeypatch):
         drive_freq_max_phys=3.1e9,
         variant="lorentzian",
         with_zeeman_splitting=False,
-        linewidth=5e6,
+        hwhm=5e6,
     )
     noise = CompositeNoise(over_frequency_noise=CompositeOverFrequencyNoise([OverFrequencyGaussianNoise(0.01)]))
     combo = Combination(
@@ -696,7 +696,7 @@ def test_cache_miss_explanations(tmp_path: Path, caplog):
         drive_freq_max_phys=3.1e9,
         variant="lorentzian",
         with_zeeman_splitting=False,
-        linewidth=5e6,
+        hwhm=5e6,
     )
     noise = CompositeNoise(over_frequency_noise=CompositeOverFrequencyNoise([OverFrequencyGaussianNoise(0.01)]))
     combo = Combination(
@@ -855,7 +855,7 @@ def test_schema_version_8_fallback(tmp_path: Path, caplog):
         drive_freq_max_phys=3.1e9,
         variant="lorentzian",
         with_zeeman_splitting=False,
-        linewidth=5e6,
+        hwhm=5e6,
     )
     noise = CompositeNoise(over_frequency_noise=CompositeOverFrequencyNoise([OverFrequencyGaussianNoise(0.01)]))
     combo = Combination(
@@ -966,7 +966,7 @@ def test_restore_cached_results_does_not_materialize_graphs_to_disk(tmp_path: Pa
         drive_freq_max_phys=3.1e9,
         variant="lorentzian",
         with_zeeman_splitting=False,
-        linewidth=5e6,
+        hwhm=5e6,
     )
     noise = CompositeNoise(over_frequency_noise=CompositeOverFrequencyNoise([OverFrequencyGaussianNoise(0.01)]))
     combo = Combination(
@@ -1061,7 +1061,7 @@ def test_task_runner_dry_run(tmp_path: Path, monkeypatch):
         drive_freq_max_phys=3.1e9,
         variant="lorentzian",
         with_zeeman_splitting=False,
-        linewidth=5e6,
+        hwhm=5e6,
     )
     noise = CompositeNoise(over_frequency_noise=CompositeOverFrequencyNoise([OverFrequencyGaussianNoise(0.01)]))
     combo = Combination(

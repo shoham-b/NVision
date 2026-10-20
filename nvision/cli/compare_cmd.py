@@ -37,7 +37,7 @@ def compare(
     filter_noise: Annotated[str | None, typer.Option("--filter-noise", help="Noise-name prefix")] = None,
     by: Annotated[
         str | None,
-        typer.Option("--by", help="Also split by 'generator' and/or 'noise' (comma-separated)"),
+        typer.Option("--by", help="Also hyperfine_shift by 'generator' and/or 'noise' (comma-separated)"),
     ] = None,
     csv: Annotated[Path | None, typer.Option("--csv", help="Also write the table to this CSV file")] = None,
 ) -> None:

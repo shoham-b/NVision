@@ -184,7 +184,7 @@ class CombinationGrid:
             # voigt_sigma_inhom_param_grid_generators() grid (names WITH a "-si"
             # suffix) leaves the generator at hyperfine="unresolved" (a plain Zeeman-only
             # 2-dip signal) -- forcing the triplet here for it as well was a real
-            # belief/generator mismatch (the belief hunting for a split/k_np hyperfine
+            # belief/generator mismatch (the belief hunting for a hyperfine_shift/k_np hyperfine
             # substructure that the true signal never has), so it's excluded from this
             # override and falls through to nv_center_smc_belief's own
             # hyperfine="unresolved" default.

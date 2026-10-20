@@ -440,16 +440,16 @@ def test_matlab_signal_proxy_parameter_values():
 
     proxy = _MatlabSignalProxy(2770e6, 2970e6)
     vals = proxy.parameter_values()
-    assert "center_freq" in vals
-    assert math.isnan(vals["center_freq"])
+    assert "zero_field_freq" in vals
+    assert math.isnan(vals["zero_field_freq"])
 
 
 def test_matlab_signal_proxy_get_param_value():
     from nvision.cli.matlab_cmd import _MatlabSignalProxy
 
     proxy = _MatlabSignalProxy(2770e6, 2970e6)
-    assert math.isnan(proxy.get_param_value("center_freq"))
-    assert math.isnan(proxy.get_param_value("linewidth"))
+    assert math.isnan(proxy.get_param_value("zero_field_freq"))
+    assert math.isnan(proxy.get_param_value("hwhm"))
 
 
 def test_matlab_signal_proxy_all_bounds():
@@ -457,7 +457,7 @@ def test_matlab_signal_proxy_all_bounds():
 
     proxy = _MatlabSignalProxy(2770e6, 2970e6)
     bounds = proxy.all_bounds()
-    assert bounds["center_freq"] == (2770e6, 2970e6)
+    assert bounds["zero_field_freq"] == (2770e6, 2970e6)
 
 
 def test_matlab_signal_proxy_callable_returns_nan():

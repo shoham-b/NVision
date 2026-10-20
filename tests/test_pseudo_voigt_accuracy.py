@@ -3,9 +3,9 @@
 ``nv_center_pseudo_voigt_eval`` evaluates both the Lorentzian and Gaussian components at the
 shared combined width (``fwhm_total``), matching the standard Thompson-Cox-Hastings formulation
 that the ``eta`` mixing polynomial is calibrated against. (An earlier version evaluated each
-component at its own split width instead — ``lorentz_frac * fwhm_total`` and
+component at its own hyperfine_shift width instead — ``lorentz_frac * fwhm_total`` and
 ``(1 - lorentz_frac) * fwhm_total`` — which pinned the Lorentzian core to the raw homogeneous
-linewidth regardless of ``fwhm_total`` and diverged from a true Voigt profile by up to ~68% of
+hwhm regardless of ``fwhm_total`` and diverged from a true Voigt profile by up to ~68% of
 peak height at extreme ``lorentz_frac``; it also meant a hyperfine triplet's sub-dips could never
 merge no matter how large the inhomogeneous broadening got.) This is a regression guard recording
 the current approximation's magnitude, not an assertion that it is textbook-accurate.
@@ -47,10 +47,10 @@ def test_pseudo_voigt_max_absolute_error_within_recorded_tolerance() -> None:
     a metric artifact rather than a meaningful accuracy signal for the likelihood evaluation.
     """
     bounds = nv_center_voigt_bounds_for_domain(0.0, 1.0)
-    hl_lo, hl_hi = bounds["homogeneous_linewidth"]
+    hl_lo, hl_hi = bounds["hwhm_lorentz"]
     si_lo, si_hi = bounds["sigma_inhom"]
     # Sweep the kernel-native fwhm_total across what the model's own
-    # (homogeneous_linewidth, sigma_inhom) prior range can produce.
+    # (hwhm_lorentz, sigma_inhom) prior range can produce.
     fwhm_lo, _ = _voigt_reparam_scalar(hl_lo, si_lo)
     fwhm_hi, _ = _voigt_reparam_scalar(hl_hi, si_hi)
 

@@ -118,8 +118,8 @@ class AbstractMarginalDistribution(ABC):
         """
         return self._empirical_robust_uncertainty()
 
-    def crlb_center_freq(self) -> float:
-        """Analytical Cramér-Rao lower bound for center_freq in physical Hz.
+    def crlb_zero_field_freq(self) -> float:
+        """Analytical Cramér-Rao lower bound for zero_field_freq in physical Hz.
 
         Returns ``math.inf`` unless overridden by a subclass that knows the
         physical signal model (e.g. NV-center Lorentzian).

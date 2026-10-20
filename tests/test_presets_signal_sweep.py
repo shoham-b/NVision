@@ -8,7 +8,7 @@ from nvision.sim.combinations import CombinationGrid
 
 
 def test_generators_basic_default_unchanged(monkeypatch):
-    monkeypatch.setattr(sim_defaults, "NVISION_SIGNAL_LINEWIDTH", None)
+    monkeypatch.setattr(sim_defaults, "NVISION_SIGNAL_HWHM", None)
     monkeypatch.setattr(sim_defaults, "NVISION_SIGNAL_CONTRAST", None)
     monkeypatch.setattr(sim_defaults, "NVISION_SIGNAL_SWEEP_PARAM", None)
     gens = presets.generators_basic()
@@ -23,15 +23,15 @@ def test_generators_basic_default_unchanged(monkeypatch):
 
 
 def test_generators_basic_fixed_values_single_generator(monkeypatch):
-    monkeypatch.setattr(sim_defaults, "NVISION_SIGNAL_LINEWIDTH", 1e6)
+    monkeypatch.setattr(sim_defaults, "NVISION_SIGNAL_HWHM", 1e6)
     monkeypatch.setattr(sim_defaults, "NVISION_SIGNAL_CONTRAST", 0.1)
     monkeypatch.setattr(sim_defaults, "NVISION_SIGNAL_SWEEP_PARAM", None)
     gens = presets.generators_basic()
     assert len(gens) == 1
     name, gen = gens[0]
     assert name == "NVCenter-lorentzian-w1.00MHz-c0.10"
-    assert gen.linewidth == 1e6
-    assert gen.c_total == 0.1
+    assert gen.hwhm == 1e6
+    assert gen.contrast_total == 0.1
 
 
 def test_generators_basic_sweep_width(monkeypatch):
@@ -45,12 +45,12 @@ def test_generators_basic_sweep_width(monkeypatch):
     names = [name for name, _ in gens]
     assert len(set(names)) == 5
     for _name, gen in gens:
-        assert gen.c_total == 0.1
-        assert gen.linewidth is not None
+        assert gen.contrast_total == 0.1
+        assert gen.hwhm is not None
 
 
 def test_generators_basic_sweep_contrast(monkeypatch):
-    monkeypatch.setattr(sim_defaults, "NVISION_SIGNAL_LINEWIDTH", 1e6)
+    monkeypatch.setattr(sim_defaults, "NVISION_SIGNAL_HWHM", 1e6)
     monkeypatch.setattr(sim_defaults, "NVISION_SIGNAL_SWEEP_PARAM", "contrast")
     monkeypatch.setattr(sim_defaults, "NVISION_SIGNAL_SWEEP_MIN", 0.1)
     monkeypatch.setattr(sim_defaults, "NVISION_SIGNAL_SWEEP_MAX", 0.4)
@@ -58,19 +58,19 @@ def test_generators_basic_sweep_contrast(monkeypatch):
     gens = presets.generators_basic()
     assert len(gens) == 4
     for _name, gen in gens:
-        assert gen.linewidth == 1e6
-        assert gen.c_total is not None
+        assert gen.hwhm == 1e6
+        assert gen.contrast_total is not None
 
 
 def test_combination_grid_expands_swept_generators_across_noise_and_strategy():
     """Study-1 shape: fixed width/contrast, 5 noise levels, filtered to 2 strategies -> 10 combos."""
-    orig_linewidth = sim_defaults.NVISION_SIGNAL_LINEWIDTH
+    orig_hwhm = sim_defaults.NVISION_SIGNAL_HWHM
     orig_contrast = sim_defaults.NVISION_SIGNAL_CONTRAST
     orig_sweep_param = sim_defaults.NVISION_SIGNAL_SWEEP_PARAM
     orig_noise_steps = sim_defaults.NVISION_NOISE_GAUSS_STEPS
     orig_noise_max = sim_defaults.NVISION_NOISE_MAX_GAUSS
     try:
-        sim_defaults.NVISION_SIGNAL_LINEWIDTH = 1e6
+        sim_defaults.NVISION_SIGNAL_HWHM = 1e6
         sim_defaults.NVISION_SIGNAL_CONTRAST = 0.1
         sim_defaults.NVISION_SIGNAL_SWEEP_PARAM = None
         sim_defaults.NVISION_NOISE_GAUSS_STEPS = 5
@@ -82,7 +82,7 @@ def test_combination_grid_expands_swept_generators_across_noise_and_strategy():
         assert all(c.generator_name == "NVCenter-lorentzian-w1.00MHz-c0.10" for c in combos)
         assert {c.noise_name for c in combos} == set(dict(presets.noises_single_each()).keys())
     finally:
-        sim_defaults.NVISION_SIGNAL_LINEWIDTH = orig_linewidth
+        sim_defaults.NVISION_SIGNAL_HWHM = orig_hwhm
         sim_defaults.NVISION_SIGNAL_CONTRAST = orig_contrast
         sim_defaults.NVISION_SIGNAL_SWEEP_PARAM = orig_sweep_param
         sim_defaults.NVISION_NOISE_GAUSS_STEPS = orig_noise_steps

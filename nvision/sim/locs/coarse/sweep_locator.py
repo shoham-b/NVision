@@ -65,16 +65,16 @@ class SweepingLocator(Locator):
         _names = signal_model.parameter_names()
         if center_param:
             self._center_param = center_param
-        elif "center_freq" in _names or "center_freq" in signal_model.spec.fixed_values:
-            # "center_freq" is always the drive-frequency axis for NV-center models even
+        elif "zero_field_freq" in _names or "zero_field_freq" in signal_model.spec.fixed_values:
+            # "zero_field_freq" is always the drive-frequency axis for NV-center models even
             # when fixed (not inferred) and therefore absent from _names. Reading
             # spec.fixed_values (rather than probing the model object itself for a
-            # `_with_fixed_center_freq` attribute) also works when `signal_model` is a
+            # `_with_fixed_zero_field_freq` attribute) also works when `signal_model` is a
             # `UnitCubeSignalModel` wrapper, whose `.spec` delegates to `inner.spec`
-            # but which never carries `_with_fixed_center_freq` itself -- the previous
+            # but which never carries `_with_fixed_zero_field_freq` itself -- the previous
             # `hasattr` check silently missed this case and fell through to using
-            # the first free parameter (e.g. "linewidth") as the scan axis instead.
-            self._center_param = "center_freq"
+            # the first free parameter (e.g. "hwhm") as the scan axis instead.
+            self._center_param = "zero_field_freq"
         else:
             self._center_param = _names[0] if _names else "x"
         self._domain_lo = domain_lo

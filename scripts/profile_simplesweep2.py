@@ -22,7 +22,7 @@ def make_experiment(seed: int) -> CoreExperiment:
     true_signal = gen.generate(rng)
     drive_freq_min_phys, drive_freq_max_phys = None, None
     for name in true_signal.parameter_names:
-        if "center_freq" in name:
+        if "zero_field_freq" in name:
             drive_freq_min_phys, drive_freq_max_phys = true_signal.get_param_bounds(name)
             break
     return CoreExperiment(

@@ -2,11 +2,11 @@
 
 Two physical drivers, each a :class:`DriftProcess` that starts at 0 when the run starts:
 
-* sample temperature (kelvin) shifts the zero-field ``center_freq`` by
+* sample temperature (kelvin) shifts the zero-field ``zero_field_freq`` by
   :data:`NV_D_TEMPERATURE_COEFF_HZ_PER_K`, and a permanent magnet's field (so
-  ``zeeman_split``) by ``magnet_tempco_per_k`` of its starting value;
-* the field along the NV axis (milligauss) shifts ``zeeman_split`` by
-  :data:`NV_GYROMAGNETIC_HZ_PER_MG` (``zeeman_split`` is the center-to-dip distance, gamma*B).
+  ``zeeman_shift``) by ``magnet_tempco_per_k`` of its starting value;
+* the field along the NV axis (milligauss) shifts ``zeeman_shift`` by
+  :data:`NV_GYROMAGNETIC_HZ_PER_MG` (``zeeman_shift`` is the center-to-dip distance, gamma*B).
 
 Time advances per shot. A realization (:class:`DriftTrajectory`) is a pure function of
 the shot index, so every strategy measuring the same repeat sees the identical path no
@@ -87,11 +87,11 @@ class DriftSpec:
         return not self.temperature_k.is_zero()
 
     @property
-    def moves_split(self) -> bool:
+    def moves_zeeman_shift(self) -> bool:
         return not self.field_mg.is_zero() or (self.magnet_tempco_per_k != 0.0 and self.moves_center)
 
-    def realize(self, seed: int, base_zeeman_split: float | None) -> DriftTrajectory:
-        return DriftTrajectory(self, seed, base_zeeman_split)
+    def realize(self, seed: int, base_zeeman_shift: float | None) -> DriftTrajectory:
+        return DriftTrajectory(self, seed, base_zeeman_shift)
 
 
 class _ProcessPath:
@@ -143,13 +143,13 @@ class _ProcessPath:
 class DriftTrajectory:
     """One seeded realization of a :class:`DriftSpec`: offsets of the true parameters per shot."""
 
-    def __init__(self, spec: DriftSpec, seed: int, base_zeeman_split: float | None) -> None:
-        if spec.magnet_tempco_per_k != 0.0 and spec.moves_center and base_zeeman_split is None:
+    def __init__(self, spec: DriftSpec, seed: int, base_zeeman_shift: float | None) -> None:
+        if spec.magnet_tempco_per_k != 0.0 and spec.moves_center and base_zeeman_shift is None:
             raise ValueError(
-                f"Drift {spec.label!r} couples the magnet to temperature but the signal has no zeeman_split"
+                f"Drift {spec.label!r} couples the magnet to temperature but the signal has no zeeman_shift"
             )
         self.spec = spec
-        self._base_split = base_zeeman_split
+        self._base_zeeman_shift = base_zeeman_shift
         temp_seq, field_seq = np.random.SeedSequence(int(seed)).spawn(2)
         dt = spec.shot_duration_s
         self._temperature = _ProcessPath(spec.temperature_k, dt, np.random.default_rng(temp_seq))
@@ -158,24 +158,26 @@ class DriftTrajectory:
     def center_offset_hz(self, shot_index: int) -> float:
         return NV_D_TEMPERATURE_COEFF_HZ_PER_K * self._temperature.value(shot_index)
 
-    def split_offset_hz(self, shot_index: int) -> float:
+    def zeeman_shift_offset_hz(self, shot_index: int) -> float:
         offset = NV_GYROMAGNETIC_HZ_PER_MG * self._field.value(shot_index)
-        if self.spec.magnet_tempco_per_k != 0.0 and self._base_split is not None:
-            offset += self.spec.magnet_tempco_per_k * self._temperature.value(shot_index) * self._base_split
+        if self.spec.magnet_tempco_per_k != 0.0 and self._base_zeeman_shift is not None:
+            offset += self.spec.magnet_tempco_per_k * self._temperature.value(shot_index) * self._base_zeeman_shift
         return offset
 
     def apply(self, typed_parameters: Any, shot_index: int) -> Any:
         """Return ``typed_parameters`` as they truly are at ``shot_index``."""
         changes: dict[str, float] = {}
         if self.spec.moves_center:
-            if not hasattr(typed_parameters, "center_freq"):
-                raise ValueError(f"Drift {self.spec.label!r} moves the center but the signal has no center_freq")
-            changes["center_freq"] = float(typed_parameters.center_freq) + self.center_offset_hz(shot_index)
-        if self.spec.moves_split:
-            if not hasattr(typed_parameters, "zeeman_split"):
-                raise ValueError(f"Drift {self.spec.label!r} moves the splitting but the signal has no zeeman_split")
-            # The dip separation is |gamma*B|: a field swinging through zero reopens the split.
-            changes["zeeman_split"] = abs(float(typed_parameters.zeeman_split) + self.split_offset_hz(shot_index))
+            if not hasattr(typed_parameters, "zero_field_freq"):
+                raise ValueError(f"Drift {self.spec.label!r} moves the center but the signal has no zero_field_freq")
+            changes["zero_field_freq"] = float(typed_parameters.zero_field_freq) + self.center_offset_hz(shot_index)
+        if self.spec.moves_zeeman_shift:
+            if not hasattr(typed_parameters, "zeeman_shift"):
+                raise ValueError(f"Drift {self.spec.label!r} moves the splitting but the signal has no zeeman_shift")
+            # The dip separation is |gamma*B|: a field swinging through zero reopens the line splitting.
+            changes["zeeman_shift"] = abs(
+                float(typed_parameters.zeeman_shift) + self.zeeman_shift_offset_hz(shot_index)
+            )
         return dataclasses.replace(typed_parameters, **changes) if changes else typed_parameters
 
     def truth_summary(self, typed_parameters: Any, n_shots: int, prefix: str = "drift_") -> dict[str, float]:
@@ -184,14 +186,14 @@ class DriftTrajectory:
             return {}
         out: dict[str, float] = {f"{prefix}shots": float(n_shots)}
         for name, moves, offset in (
-            ("center_freq", self.spec.moves_center, self.center_offset_hz),
-            ("zeeman_split", self.spec.moves_split, self.split_offset_hz),
+            ("zero_field_freq", self.spec.moves_center, self.center_offset_hz),
+            ("zeeman_shift", self.spec.moves_zeeman_shift, self.zeeman_shift_offset_hz),
         ):
             if not moves or not hasattr(typed_parameters, name):
                 continue
             base = float(getattr(typed_parameters, name))
             path = np.array([base + offset(i) for i in range(n_shots)])
-            if name == "zeeman_split":
+            if name == "zeeman_shift":
                 path = np.abs(path)
             out[f"{prefix}true_{name}_start"] = base
             out[f"{prefix}true_{name}_end"] = float(path[-1])
@@ -213,6 +215,8 @@ def attach_drift_for_repeat(
     if noise is None or noise.drift is None or experiment.drift is not None:
         return experiment
     key = measurement_repeat_key(seed, generator_name, "drift", noise.drift.label, repeat_idx)
-    base_split = getattr(experiment.true_signal.typed_parameters, "zeeman_split", None)
-    trajectory = noise.drift.realize(repeat_seed_int(key), None if base_split is None else float(base_split))
+    base_zeeman_shift = getattr(experiment.true_signal.typed_parameters, "zeeman_shift", None)
+    trajectory = noise.drift.realize(
+        repeat_seed_int(key), None if base_zeeman_shift is None else float(base_zeeman_shift)
+    )
     return dataclasses.replace(experiment, drift=trajectory)

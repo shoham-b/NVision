@@ -1,6 +1,6 @@
 # SBED + SMC — Equations and Approximations
 
-The SMC belief (unit-cube particles, with a free-center_freq variant), the SBED acquisition locator, the Gaussian Fisher/CRLB, and the convergence criteria form one inference stack and are documented together.  Symbols are defined at first use; defaults are the env-var values from `nvision/sim/defaults.py`.  Per-run evaluation metrics are in [metrics.md](metrics.md).
+The SMC belief (unit-cube particles, with a free-zero_field_freq variant), the SBED acquisition locator, the Gaussian Fisher/CRLB, and the convergence criteria form one inference stack and are documented together.  Symbols are defined at first use; defaults are the env-var values from `nvision/sim/defaults.py`.  Per-run evaluation metrics are in [metrics.md](metrics.md).
 
 > Scope: only the additive Gaussian measurement-noise path. The noise level is always inferred through its conjugate prior — a per-particle Inverse-Gamma state that is integrated out (§1.1a) — and that posterior is the only source of a noise σ anywhere in the stack. Poisson likelihoods and non-SBED locators are out of scope.
 >
@@ -70,7 +70,7 @@ with f_expl = `min_exploration_frac` = 0.01, t = `_step_count`, and [l_j, h_j] t
 
 After the nudge, any particle pushed outside the unit cube is **reflected** back in (a fold, u → 1 − |(u mod 2) − 1|), not clipped, so no probability mass piles up on a bound.
 
-**No particle rejuvenation:** Earlier versions replaced a fraction f_rejuv = 0.05·e^(−t/25) of particles with fresh prior draws at each resample (plus a joint dip-informed variant for (center_freq, zeeman_split)). Both were removed: an A/B on the danger-zone Lorentzian configs (zeeman_split/linewidth < 1.5, n=60 per arm, paired) showed no measurable accuracy or calibration benefit. Diversity after resampling comes only from the nudge covariance C above, including its `NVISION_SMC_MIN_EXPLORATION_FRAC` floor.
+**No particle rejuvenation:** Earlier versions replaced a fraction f_rejuv = 0.05·e^(−t/25) of particles with fresh prior draws at each resample (plus a joint dip-informed variant for (zero_field_freq, zeeman_shift)). Both were removed: an A/B on the danger-zone Lorentzian configs (zeeman_shift/hwhm < 1.5, n=60 per arm, paired) showed no measurable accuracy or calibration benefit. Diversity after resampling comes only from the nudge covariance C above, including its `NVISION_SMC_MIN_EXPLORATION_FRAC` floor.
 
 ### 1.5 Weighted Statistics
 
@@ -130,12 +130,12 @@ kinds of Gaussian-kernel-weight `(center, bandwidth, weight)` mixture
 components, plus an optional flat baseline term:
 
 - **Slope kernels.** One per slope point — two per dip (dip center ±
-  linewidth HWHM), for every Zeeman-group × hyperfine-offset combination:
+  hwhm HWHM), for every Zeeman-group × hyperfine-offset combination:
 
   $$\text{slope points} = \{f_B \pm \Delta f_{\rm hf}\} \pm \Omega_{\rm hw}$$
 
-  where f_B = posterior mean center_freq (the fixed zero-field D when center_freq is not
-  inferred), Δf_hf = posterior mean split, Ω_hw = posterior mean linewidth (HWHM). A slope
+  where f_B = posterior mean zero_field_freq (the fixed zero-field D when zero_field_freq is not
+  inferred), Δf_hf = posterior mean hyperfine_shift, Ω_hw = posterior mean hwhm (HWHM). A slope
   point that falls outside the drive-frequency window is measured at its mirror image about f_B
   (`2 f_B − s`) when that lies inside it, so the lower Zeeman group's slopes land on the
   upper half instead of wasting kernel mass outside the window. Each slope kernel has bandwidth
@@ -201,8 +201,8 @@ $$\sigma^{\rm phys}_j = \sigma^u_j \cdot (h_j - l_j)$$
 
 #### Per-parameter CRLB floor (`reported_uncertainty`)
 
-`reported_uncertainty()` floors every parameter — including center_freq — at its own CRLB,
-unconditionally, at 1× (no safety factor): center_freq uses the closed-form `crlb_center_freq()`
+`reported_uncertainty()` floors every parameter — including zero_field_freq — at its own CRLB,
+unconditionally, at 1× (no safety factor): zero_field_freq uses the closed-form `crlb_zero_field_freq()`
 (§2.3); every other parameter uses its marginal CRLB from the cumulative FIM (§4.3's
 `crlb_per_param()`, i.e. $\sqrt{\operatorname{diag}(\operatorname{pinv}(\mathbf I_{\rm cum}))}$,
 profiling out the other parameters rather than holding them fixed). This floor is independent of the stop rule in §5.5, which gates only the primary parameter
@@ -211,11 +211,11 @@ profiling out the other parameters rather than holding them fixed). This floor i
 $$\sigma^{\rm reported}_j = \max\!\left(\sigma^{\rm phys}_j,\; \text{CRLB}_j\right), \qquad \forall j$$
 
 The particle spread alone understates uncertainty exactly where it matters: when two parameters
-trade off along a near-flat ridge (`zeeman_split` against the width pair below dip-resolution is
+trade off along a near-flat ridge (`zeeman_shift` against the width pair below dip-resolution is
 the standard case), the SMC posterior can be narrow and *wrong*, while the marginal CRLB
 correctly blows up because the FIM is near-singular in that direction. Measured over 120 mixed
 repeats (56 deliberately degenerate configs), flooring moves the median `error/reported σ` for
-`zeeman_split` from 1.21 to 0.90 and cuts the fraction beyond 3σ from 8.3% to 2.5%; `c_total`
+`zeeman_shift` from 1.21 to 0.90 and cuts the fraction beyond 3σ from 8.3% to 2.5%; `contrast_total`
 goes 1.61→0.96 and 18.3%→3.3%. The width pair becomes ~2–3× conservative (medians 1.03/1.38 →
 0.36/0.49) since both sit *in* the degenerate direction even though their sum stays well
 determined — accepted, since overstating precision is the dangerous direction. No safety factor
@@ -225,19 +225,19 @@ variance, so 1× is the principled choice — a 4× factor was measured to over-
 declares a run converged* — it is a stopping-decision margin, not a property of the CRLB itself,
 so it must not scale a value this method reports.
 
-### 2.3 Analytical CRLB for center_freq (Lorentzian, Gaussian noise)
+### 2.3 Analytical CRLB for zero_field_freq (Lorentzian, Gaussian noise)
 
-For a Lorentzian signal measured under Gaussian noise with uniform measurement density ρ = N/W (measurements per Hz, W = bandwidth), the closed-form Cramér-Rao lower bound on center_freq variance is:
+For a Lorentzian signal measured under Gaussian noise with uniform measurement density ρ = N/W (measurements per Hz, W = bandwidth), the closed-form Cramér-Rao lower bound on zero_field_freq variance is:
 
 $$\text{Var}^{\rm CRLB}(f) = \frac{4\sigma^2 \Omega}{\pi c^2 \rho}, \qquad \text{CRLB}_f = \sqrt{\text{Var}^{\rm CRLB}(f)}$$
 
-where σ = noise std, Ω = `linewidth` (Hz, **HWHM** — the code's `omega` denominator directly, not FWHM), c = `c_total` (contrast).
+where σ = noise std, Ω = `hwhm` (Hz, **HWHM** — the code's `omega` denominator directly, not FWHM), c = `contrast_total` (contrast).
 
 **Derivation:** write the signal as S = c·L with L(x) = Ω² / [Ω² + (x−f)²] (unit height at x=f, HWHM = Ω — matches `nv_center_lorentzian_eval`'s `1/(x_dim²+1)` with `x_dim=(x−f)/Ω` exactly). The Gaussian Fisher information for one measurement at x is (∂S/∂f)²/σ². The amplitude-free derivative integral evaluates to
 
 $$\int_{-\infty}^{\infty}\left(\frac{\partial L}{\partial f}\right)^2 dx = \frac{\pi}{4\Omega},$$
 
-(verified by direct numerical integration against the coded kernel), so integrating over the uniform density ρ gives I(f) = (ρ/σ²)·c²·(π/4Ω) = π·c²·ρ / (4σ²Ω), hence Var^CRLB = 1/I(f). An earlier version of this derivation used Ω to mean FWHM (HWHM = Ω/2) while the code's `linewidth` is the HWHM directly — that unit mismatch produced a Var^CRLB two times too small; both `crlb_center_freq()` and the SBED `n_theory` backstop have been corrected to the `4σ²Ω` form above.
+(verified by direct numerical integration against the coded kernel), so integrating over the uniform density ρ gives I(f) = (ρ/σ²)·c²·(π/4Ω) = π·c²·ρ / (4σ²Ω), hence Var^CRLB = 1/I(f). An earlier version of this derivation used Ω to mean FWHM (HWHM = Ω/2) while the code's `hwhm` is the HWHM directly — that unit mismatch produced a Var^CRLB two times too small; both `crlb_zero_field_freq()` and the SBED `n_theory` backstop have been corrected to the `4σ²Ω` form above.
 
 For any pseudo-Voigt lineshape — plain Voigt or the saturation-coupled variant (§7) — Ω is replaced by the general lineshape integral J = ∫(V′)²dx of the height-normalized pseudo-Voigt profile V = elf/(x²+γ_hom²) + egf·exp(−x²/2σ_inhom²) (the same `elf`, `egf` unit-height factors the pseudo-Voigt kernels use, from `_pv_factors(fwhm_total, lorentz_frac)`). Integrating each term independently (cross-term dropped — a single-dip approximation that is conservative, i.e. Var^CRLB is an overestimate for genuinely mixed lineshapes) gives closed forms for each piece:
 
@@ -245,23 +245,23 @@ $$\int\left(\frac{\partial}{\partial x}\frac{{\rm elf}}{x^2+\gamma_{\rm hom}^2}\
 
 $$J = {\rm elf}^2\frac{\pi}{4\gamma_{\rm hom}^5} + {\rm egf}^2\frac{\sqrt{\pi}}{2\sigma_{\rm inhom}}, \qquad \text{Var}^{\rm CRLB}(f) = \frac{\sigma^2}{\rho\, c_{\rm total}^2\, J}$$
 
-where `c_total` is the population-normalized contrast (a free parameter for plain Voigt, or `c_max·s/(1+s)`, the realized saturation-scaled contrast, for Saturation-Voigt — see §7). Both terms were verified by direct numerical integration and reduce exactly to the Lorentzian J = π/(4Ω) as `sigma_inhom → 0` (`elf → γ_hom²`, `egf → 0`). `center_freq_crlb()`'s plain-Voigt branch (`models/fisher_information.py`, the single home of all Fisher/CRLB code; the belief's `crlb_center_freq()` delegates to it) mirrors the Saturation-Voigt branch structurally, reparametrizing `(homogeneous_linewidth, sigma_inhom) → (fwhm_total, lorentz_frac)` via `_voigt_reparam_scalar` before this same J formula.
+where `contrast_total` is the population-normalized contrast (a free parameter for plain Voigt, or `c_max·s/(1+s)`, the realized saturation-scaled contrast, for Saturation-Voigt — see §7). Both terms were verified by direct numerical integration and reduce exactly to the Lorentzian J = π/(4Ω) as `sigma_inhom → 0` (`elf → γ_hom²`, `egf → 0`). `zero_field_freq_crlb()`'s plain-Voigt branch (`models/fisher_information.py`, the single home of all Fisher/CRLB code; the belief's `crlb_zero_field_freq()` delegates to it) mirrors the Saturation-Voigt branch structurally, reparametrizing `(hwhm_lorentz, sigma_inhom) → (fwhm_total, lorentz_frac)` via `_voigt_reparam_scalar` before this same J formula.
 
 ### 2.4 Probe-Axis Focus (locator-owned, at each resample)
 
 The **focus** is a set of disjoint sections of the drive-frequency axis, owned by the locator (`SequentialBayesianLocator._focus`, a `FocusRegion`). It limits only *which candidate x positions may be scanned*: `_eig_acquire` drops every epoch candidate outside all sections (`FocusRegion.contains`; an empty result raises). The belief never sees it, so its parameter bounds, particles and the model's x-range are untouched. The exploration branches in `_acquire` still draw from the full drive-frequency axis.
 
-It is updated by the pure function `next_focus_region` (`focus_window.py`) right after a resample (weights uniform), from the significant dips `find_dips` reports: one section per dip, its `[f_min, f_max]` run of significant windows (at least the line core) padded by `NVISION_SMC_FOCUSING_COVER_FACTOR` (= 3.0) × the posterior-mean effective HWHM per side, clamped to the axis, overlapping sections merged. A dip section outside the focus expands it (union) immediately; narrowing to the target waits `NVISION_MIN_STEPS_BEFORE_NARROWING` steps (and as many since the last expansion) and must shrink the total covered width by ≥5%. With no significant dip the focus is unchanged. Dips are measurement facts, so this is active with the default fixed `center_freq` too.
+It is updated by the pure function `next_focus_region` (`focus_window.py`) right after a resample (weights uniform), from the significant dips `find_dips` reports: one section per dip, its `[f_min, f_max]` run of significant windows (at least the line core) padded by `NVISION_SMC_FOCUSING_COVER_FACTOR` (= 3.0) × the posterior-mean effective HWHM per side, clamped to the axis, overlapping sections merged. A dip section outside the focus expands it (union) immediately; narrowing to the target waits `NVISION_MIN_STEPS_BEFORE_NARROWING` steps (and as many since the last expansion) and must shrink the total covered width by ≥5%. With no significant dip the focus is unchanged. Dips are measurement facts, so this is active with the default fixed `zero_field_freq` too.
 
 The focus narrows to the union of particle-predicted active regions. Each particle i covers
 
 $$[f_i - \Delta f_{\rm zeeman,i} - \Delta f_{\rm hf,i} - k\Omega_i,\quad f_i + \Delta f_{\rm zeeman,i} + \Delta f_{\rm hf,i} + k\Omega_i]$$
 
-with cover factor k = `NVISION_SMC_FOCUSING_COVER_FACTOR` = 3.0. The new bounds are the 5th / 95th percentiles of the `center_freq` particles widened by the 95th percentile of that half-span (`_FOCUSING_TAIL_PERCENTILE`); a narrowing is applied only if it shrinks the focus by at least 5 %, and only after `NVISION_MIN_STEPS_BEFORE_NARROWING` = 8 steps (and 8 steps after any expansion).
+with cover factor k = `NVISION_SMC_FOCUSING_COVER_FACTOR` = 3.0. The new bounds are the 5th / 95th percentiles of the `zero_field_freq` particles widened by the 95th percentile of that half-span (`_FOCUSING_TAIL_PERCENTILE`); a narrowing is applied only if it shrinks the focus by at least 5 %, and only after `NVISION_MIN_STEPS_BEFORE_NARROWING` = 8 steps (and 8 steps after any expansion).
 
-When more than 15 % of the `center_freq` particles lie within 5 % of a focus edge *or beyond it*, the focus is instead expanded by max(width, 10·Ω + 2·zeeman) in that direction, never past the full drive-frequency axis.
+When more than 15 % of the `zero_field_freq` particles lie within 5 % of a focus edge *or beyond it*, the focus is instead expanded by max(width, 10·Ω + 2·zeeman) in that direction, never past the full drive-frequency axis.
 
-Because the belief's unit cube is the full drive-frequency axis, the `min_exploration_frac` variance floor in §1.4 is a fraction of the *full* axis for `center_freq` (previously a fraction of the narrowed window), so it is larger in physical Hz for free-`center_freq` runs.
+Because the belief's unit cube is the full drive-frequency axis, the `min_exploration_frac` variance floor in §1.4 is a fraction of the *full* axis for `zero_field_freq` (previously a fraction of the narrowed window), so it is larger in physical Hz for free-`zero_field_freq` runs.
 
 ---
 
@@ -273,7 +273,7 @@ The locator calls `belief.select_max_information_gain(candidates)`, which maximi
 
 $$x^* = \arg\max_x \frac{1}{2}\ln\!\left(1 + \frac{\sigma^2_{\rm pred}(x)}{\sigma^2_{\rm noise}}\right)$$
 
-Candidates come from the belief's slope-targeted epoch grid and are thinned to a minimum physical spacing of `candidate_step_hz` (default = 100 kHz = the center_freq convergence threshold).
+Candidates come from the belief's slope-targeted epoch grid and are thinned to a minimum physical spacing of `candidate_step_hz` (default = 100 kHz = the zero_field_freq convergence threshold).
 
 **Boltzmann chunk selection:** EIG scores are split into chunks of 64; each chunk's argmax competes via a softmax with temperature τ = 0.01,
 
@@ -302,7 +302,7 @@ The locator has exactly one noise estimate: the belief's Inverse-Gamma posterior
 
 ### 3.5 Dip Detection (`find_dips`, `belief/dip_detection.py`)
 
-Deterministic, shape-agnostic dip finding from the measured scan alone — a generalized likelihood ratio test with a boxcar (prefix-sum) scan. It assumes no lineshape and never reads the particles' signal parameters. Inputs are the observations (x, y), the noise posterior of §3.3 as a Student-t scale and degrees of freedom, and the FWHM prior Γ̄ ± σ_Γ (range [Γ_min, Γ_max]) taken from the parameter *bounds* (`linewidth_fwhm_prior_hz`: the effective HWHM at the lower and upper bounds spans a uniform prior, FWHM = 2·HWHM). The prior only sets which window widths are tried.
+Deterministic, shape-agnostic dip finding from the measured scan alone — a generalized likelihood ratio test with a boxcar (prefix-sum) scan. It assumes no lineshape and never reads the particles' signal parameters. Inputs are the observations (x, y), the noise posterior of §3.3 as a Student-t scale and degrees of freedom, and the FWHM prior Γ̄ ± σ_Γ (range [Γ_min, Γ_max]) taken from the parameter *bounds* (`hwhm_fwhm_prior_hz`: the effective HWHM at the lower and upper bounds spans a uniform prior, FWHM = 2·HWHM). The prior only sets which window widths are tried.
 
 1. **Dip z-scores.** z_i = (b − y_i)/s. σ is not known exactly: its posterior σ² ∼ Inverse-Gamma(α, β) (§3.3) makes each score, averaged over σ, Student-t with ν = 2α degrees of freedom and scale s = √(β/α) (`noise_student_t()`). The baseline is b = q₇₀(y) − t_ν⁻¹(0.7)·s: the 70th percentile less its noise offset, so the scores are centred under "no dip", while dip points (all below b) cannot drag b down until they outnumber the points above it. A plain median would sink once SBED concentrates more than half its measurements on a dip.
 2. **Window widths.** Spans in [max(Γ_min, Γ̄ − 2σ_Γ), min(Γ_max, Γ̄ + 2σ_Γ)] (±2σ of a uniform prior overshoots both ends, the low one even below 0).
@@ -374,7 +374,7 @@ $\sqrt{1/\epsilon}=1000$ regardless of the data.
 
 ### 5.1 Per-Parameter Convergence
 
-**center_freq** (absolute ceiling):
+**zero_field_freq** (absolute ceiling):
 
 $$\sigma_f < T_f = 100\,\text{kHz} \quad (\texttt{NVISION\_FREQ\_CONVERGENCE\_THRESHOLD})$$
 
@@ -398,9 +398,9 @@ $$C(s, c_{\max}) = c_{\max}\tfrac{s}{1+s},
 \qquad
 \sigma_C = \sqrt{\left(\tfrac{s}{1+s}\,\sigma_{c_{\max}}\right)^2 + \left(\tfrac{c_{\max}}{(1+s)^2}\,\sigma_s\right)^2}$$
 
-$\sigma_\Omega$ is gated with **linewidth** semantics (absolute
-`NVISION_LINEWIDTH_CONVERGENCE_THRESHOLD` if set, else relative to the effective-HWHM
-range implied by the raw bounds); $\sigma_C$ with **c_total** semantics (relative to the
+$\sigma_\Omega$ is gated with **hwhm** semantics (absolute
+`NVISION_HWHM_CONVERGENCE_THRESHOLD` if set, else relative to the effective-HWHM
+range implied by the raw bounds); $\sigma_C$ with **contrast_total** semantics (relative to the
 realized-contrast range). The SBED CRLB early-stop propagates per-parameter CRLBs
 through the same Jacobians. **History note:** `all_converged_step` values recorded for
 saturation-Voigt runs *before* this change used raw 1%-of-bound-width gating and are not
@@ -433,19 +433,19 @@ $$n_{\rm req} = t \cdot \left(\frac{\text{CRLB}_f}{T_f}\right)^2$$
 - If n_req > N_max·K_safety: stop immediately (infeasible).
 - Otherwise the dynamic budget is N_dyn = min(N_max, K_safety·n_req + 1); stop when `inference_step_count` ≥ N_dyn.
 
-with K_safety = `NVISION_CENTER_FREQ_CRLB_SAFETY_FACTOR` = 4.0.
+with K_safety = `NVISION_ZERO_FIELD_FREQ_CRLB_SAFETY_FACTOR` = 4.0.
 
 ### 5.5 CRLB Early-Stop in SBED (`_check_crlb_early_stop`)
 
-The stop gates the **primary parameter** only (`zeeman_split`/`split` when present, else `center_freq`;
-`resolve_primary_param` in `nvision/metrics/milestones.py`). Its CRLB is the closed-form center_freq CRLB of
-§2.3 when the primary parameter is `center_freq`, otherwise its marginal CRLB from the cumulative FIM
+The stop gates the **primary parameter** only (`zeeman_shift`/`hyperfine_shift` when present, else `zero_field_freq`;
+`resolve_primary_param` in `nvision/metrics/milestones.py`). Its CRLB is the closed-form zero_field_freq CRLB of
+§2.3 when the primary parameter is `zero_field_freq`, otherwise its marginal CRLB from the cumulative FIM
 (§4.2/§4.3, `crlb_per_param()`), both at the belief's conjugate noise estimate σ̂ (§3.3). `_primary_crlb_done`
 passes when **both** hold:
 
 $$\sigma_p < K_{\rm safety}\cdot \text{CRLB}_p \qquad\text{and}\qquad \text{CRLB}_p < T_p$$
 
-($T_p$ = the parameter's absolute convergence threshold, e.g. `NVISION_ZEEMAN_SPLIT_CONVERGENCE_THRESHOLD`.)
+($T_p$ = the parameter's absolute convergence threshold, e.g. `NVISION_ZEEMAN_SHIFT_CONVERGENCE_THRESHOLD`.)
 Passing for `patience` consecutive checks sets `_is_converged = True` (its own streak,
 `_crlb_convergence_streak`). The primary parameter's CRLB is absent until a cumulative FIM exists, in which
 case the check does not pass.
@@ -453,7 +453,7 @@ case the check does not pass.
 The second condition is what keeps the test from passing trivially. A FIM-driven stop *without* it was tested
 and rejected: it improved the reported numbers (median run length 450→24 steps, catastrophic rate on
 known-degenerate configs 67%→12%) only as an artifact. At a near-degenerate point the marginal CRLB is inflated
-by a near-singular FIM (e.g. 11.8 MHz on `zeeman_split` where the achieved error was 1.3 MHz), so
+by a near-singular FIM (e.g. 11.8 MHz on `zeeman_shift` where the achieved error was 1.3 MHz), so
 $\sigma < K\,\text{CRLB}$ holds from the first steps, exactly when the problem is hardest; and generators draw
 each repeat's prior mean as `gauss(true_value, sigma)`, so stopping early scores well precisely because it
 reports a truth-centred prior it never had to earn. An inflated CRLB fails $\text{CRLB}_p < T_p$.
@@ -462,8 +462,8 @@ stop step 32 vs 81, median error at the stop ≈ 2× the run's final error) — 
 with real power exists.
 
 The milestones (`primary_converged_step`, `all_converged_step`) are separate bookkeeping: they use the
-closed-form center_freq CRLB (infinite for every other parameter) or the absolute threshold, so for
-non-center_freq parameters they are decided by the absolute threshold alone.
+closed-form zero_field_freq CRLB (infinite for every other parameter) or the absolute threshold, so for
+non-zero_field_freq parameters they are decided by the absolute threshold alone.
 
 ### 5.6 Adaptive Plateau Stop (`_check_estimate_plateau`, default-on)
 
@@ -489,7 +489,7 @@ premature stops in this locator's history (four separate bugs): a near-singular 
 CRLB, and particle spread can be narrow and wrong. The estimate holding still is the thing
 actually being claimed at the end of a run.
 
-**Motivation and calibration.** On the NV Voigt grid (120 repeats), median `zeeman_split` error
+**Motivation and calibration.** On the NV Voigt grid (120 repeats), median `zeeman_shift` error
 falls from 1.483 MHz at step 10 to 0.237 at step 25, 0.059 at 50, 0.022 at 100, 0.016 at 450 — a
 knee around step 100, after which the last 350 of a 450-step budget buy ~1.3× accuracy for 4.5×
 the measurements. f_σ was calibrated by replaying the criterion inside full-budget runs (so the
@@ -504,12 +504,12 @@ with a live A/B (120 configs/arm):
 | 0.40 | 100% | 132 | 3.4× | 100% | 86 | 5.2× |
 
 Live A/B at f_σ=0.25 (median steps 450→220 ordinary, 450→124 degenerate): ordinary
-`zeeman_split` error 0.0211→0.0233 MHz, `homogeneous_linewidth` 0.165→0.154 (better),
-`sigma_inhom` 0.136→0.164, `c_total` 0.0025→0.0032. Degenerate-config `zeeman_split`
+`zeeman_shift` error 0.0211→0.0233 MHz, `hwhm_lorentz` 0.165→0.154 (better),
+`sigma_inhom` 0.136→0.164, `contrast_total` 0.0025→0.0032. Degenerate-config `zeeman_shift`
 0.406→0.604, widths slightly better. Both beat the naive √n rule of thumb — a 2–3.6× cut in
 measurements costs well under the √2–√3.6 error increase that would imply.
 
-**Cost to track when tuning:** on the degenerate configs the catastrophic rate (`zeeman_split`
+**Cost to track when tuning:** on the degenerate configs the catastrophic rate (`zeeman_shift`
 error > 1 MHz) went 7.1%→12.5% (4→7 of 56, small counts). Dropping f_σ to 0.15 keeps most of
 that margin at a 2.2× rather than 3.6× saving.
 
@@ -526,8 +526,8 @@ that margin at a 2.2× rather than 3.6× saving.
 | Δ_min | `NVISION_SMC_EPOCH_GRID_MIN_STEP_HZ` | 10 000 | Hz |
 | — | `NVISION_SMC_DIP_WINDOW_MIN_HZ` | 5 000 000 | Hz |
 | — | `NVISION_SMC_EPOCH_CANDIDATE_BUDGET` | 800 | — (fixed, not env-configurable) |
-| T_f | `NVISION_CENTER_FREQ_CONVERGENCE_THRESHOLD` | 100 000 | Hz |
-| K_safety | `NVISION_CENTER_FREQ_CRLB_SAFETY_FACTOR` | 4.0 | — |
+| T_f | `NVISION_ZERO_FIELD_FREQ_CONVERGENCE_THRESHOLD` | 100 000 | Hz |
+| K_safety | `NVISION_ZERO_FIELD_FREQ_CRLB_SAFETY_FACTOR` | 4.0 | — |
 | patience | `NVISION_CONVERGENCE_PATIENCE` | 8 | steps |
 | threshold | `NVISION_CONVERGENCE_THRESHOLD` | 0.01 | relative |
 | p_fa | `NVISION_DIP_P_FA` | 0.01 | — (family-wise) |
@@ -543,14 +543,14 @@ that margin at a 2.2× rather than 3.6× saving.
 
 | Parameter | Physical origin |
 |---|---|
-| `center_freq` | Zero-field splitting D ≈ 2.87 GHz between the ms=0 and ms=±1 levels |
-| `zeeman_split` | External B-field along the NV axis (γ_NV ≈ 28 MHz/mT) splits ms=+1 from ms=−1 |
-| `split` | ¹⁴N (nuclear spin I=1) hyperfine coupling, A∥ ≈ 2.16 MHz (`NV_N14_HYPERFINE_SPLIT_HZ`, `nv_center.py:49`) — splits each Zeeman line into a triplet (mI = −1, 0, +1). A ¹⁵N (I=½) sample would give a doublet instead. |
+| `zero_field_freq` | Zero-field splitting D ≈ 2.87 GHz between the ms=0 and ms=±1 levels |
+| `zeeman_shift` | External B-field along the NV axis (γ_NV ≈ 28 MHz/mT) splits ms=+1 from ms=−1 |
+| `hyperfine_shift` | ¹⁴N (nuclear spin I=1) hyperfine coupling, A∥ ≈ 2.16 MHz (`NV_N14_HYPERFINE_SPLIT_HZ`, `nv_center.py:49`) — splits each Zeeman line into a triplet (mI = −1, 0, +1). A ¹⁵N (I=½) sample would give a doublet instead. |
 | `k_np` | Nuclear-spin-polarization asymmetry: population/depth ratio between the mI=−1 and mI=+1 hyperfine lines (`k_np=1` ⇒ unpolarized) |
-| `homogeneous_linewidth`, `sigma_inhom` (plain Voigt) or `saturation`, `sigma_inhom` (Saturation-Voigt) | Combined homogeneous + inhomogeneous linewidth, reparametrized to the kernel-native `fwhm_total`/`lorentz_frac` — see §7.2 |
-| `c_total` | ODMR contrast, set by microwave/optical saturation — population-normalized, shared by Lorentzian, Voigt, and Saturation-Voigt (see [`dip_depth_reparametrization.md`](../dip_depth_reparametrization.md)) |
+| `hwhm_lorentz`, `sigma_inhom` (plain Voigt) or `saturation`, `sigma_inhom` (Saturation-Voigt) | Combined homogeneous + inhomogeneous hwhm, reparametrized to the kernel-native `fwhm_total`/`lorentz_frac` — see §7.2 |
+| `contrast_total` | ODMR contrast, set by microwave/optical saturation — population-normalized, shared by Lorentzian, Voigt, and Saturation-Voigt (see [`contrast_reparametrization.md`](../contrast_reparametrization.md)) |
 
-Both Zeeman groups share the same `(split, k_np)` — the spectrum is exactly symmetric about `center_freq` by construction (`_zeeman_pv_pred`, `numba_kernels.py:1295`, uses one `(p_l, p_0, p_r)` population triple for both groups).
+Both Zeeman groups share the same `(hyperfine_shift, k_np)` — the spectrum is exactly symmetric about `zero_field_freq` by construction (`_zeeman_pv_pred`, `numba_kernels.py:1295`, uses one `(p_l, p_0, p_r)` population triple for both groups).
 
 ### 7.2 Homogeneous vs. Inhomogeneous Broadening
 
@@ -574,33 +574,33 @@ Plain Voigt and Saturation-Voigt both infer physical widths one level up from
 `(fwhm_total, lorentz_frac)` and reparametrize down to them right before the kernel call:
 Saturation-Voigt from `(saturation, sigma_inhom)` via `_saturation_voigt_reparam_scalar`
 (`gamma_hom = NV_NATURAL_HWHM_HZ·√(1+saturation)`), plain Voigt from
-`(homogeneous_linewidth, sigma_inhom)` via `_voigt_reparam_scalar`
-(`gamma_hom = homogeneous_linewidth` directly — no saturation coupling, since plain Voigt's
-`c_total` is a free parameter rather than saturation-derived). Both give
+`(hwhm_lorentz, sigma_inhom)` via `_voigt_reparam_scalar`
+(`gamma_hom = hwhm_lorentz` directly — no saturation coupling, since plain Voigt's
+`contrast_total` is a free parameter rather than saturation-derived). Both give
 `fwhm_l = 2·gamma_hom`, `fwhm_g = 2√(2ln2)·sigma_inhom`, `fwhm_total = fwhm_l+fwhm_g`,
 `lorentz_frac = fwhm_l/fwhm_total`; `sigma_inhom → 0` is the pure-Lorentzian limit
 (`lorentz_frac → 1`) for both.
 
 **Physical origin.** Homogeneous (Lorentzian) broadening is the Fourier transform of exponential-in-time decay (T2 dephasing, microwave power broadening). Inhomogeneous (Gaussian) broadening is an ensemble average over many small, independent static offsets (strain, field inhomogeneity, unresolved ¹³C hyperfine coupling) — Gaussian by the central limit theorem. In open-quantum-system terms: the ¹³C nuclear spin bath is the environment, and whether its contribution to the lineshape is Lorentzian or Gaussian depends on its correlation time τc relative to the measurement time T — τc ≪ T gives motional narrowing (Lorentzian), τc ≫ T gives a quasi-static, shot-to-shot-varying distribution (Gaussian). The saturation-coupled model's `NV_NATURAL_HWHM_HZ` (`nv_center.py:64`) seeds the homogeneous `gamma_hom` branch specifically; `sigma_inhom` is the independent Gaussian branch (`nv_center.py:688-706`).
 
-### 7.3 The `k_np` / `split` Identifiability Limit
+### 7.3 The `k_np` / `hyperfine_shift` Identifiability Limit
 
-When the hyperfine triplet is unresolved (`fwhm_total` comparable to or larger than `split`), `k_np` becomes the near-null direction of the local sensitivity (finite-difference Jacobian of the Zeeman pseudo-Voigt kernel w.r.t. `(fwhm_total, split, k_np)`, fixed `zeeman_split`) — its effect on the observable curve vanishes exactly as `split → 0`:
+When the hyperfine triplet is unresolved (`fwhm_total` comparable to or larger than `hyperfine_shift`), `k_np` becomes the near-null direction of the local sensitivity (finite-difference Jacobian of the Zeeman pseudo-Voigt kernel w.r.t. `(fwhm_total, split, k_np)`, fixed `zeeman_shift`) — its effect on the observable curve vanishes exactly as `split → 0`:
 
-| `split` | smallest singular value | condition number |
+| `hyperfine_shift` | smallest singular value | condition number |
 |---|---|---|
 | 0.001 | 0.001 | 71 000 |
 | 0.010 | 0.078 | 980 |
 | 0.030 | 0.277 | 300 |
 | 0.090 | 0.372 | 193 |
 
-The weak singular vector is ≈ pure `k_np`; `split` and `fwhm_total` stay comparatively well-conditioned against each other throughout. This is a real, not merely practical, degeneracy: once the hyperfine structure is unresolved there is no information left about *how* population is split among the sublevels — only its aggregate effect on width/depth survives.
+The weak singular vector is ≈ pure `k_np`; `hyperfine_shift` and `fwhm_total` stay comparatively well-conditioned against each other throughout. This is a real, not merely practical, degeneracy: once the hyperfine structure is unresolved there is no information left about *how* population is split among the sublevels — only its aggregate effect on width/depth survives.
 
 ### 7.4 Reduced Model (Zeeman-Only, Hyperfine Unresolved)
 
-Per §7.3, `split`/`k_np` should be dropped as free parameters whenever the multiplet isn't resolved. Two separate choices follow from that, and the model configuration keeps them separate:
+Per §7.3, `hyperfine_shift`/`k_np` should be dropped as free parameters whenever the multiplet isn't resolved. Two separate choices follow from that, and the model configuration keeps them separate:
 
-| | `split`/`k_np` free? | forward model's line structure |
+| | `hyperfine_shift`/`k_np` free? | forward model's line structure |
 |---|---|---|
 | `hyperfine="unresolved"` (**default**) | no | one line per Zeeman group |
 | `hyperfine="n14"`, `infer_hyperfine=False` | no | ¹⁴N triplet at the fixed physical `A_∥` |
@@ -610,13 +610,13 @@ Per §7.3, `split`/`k_np` should be dropped as free parameters whenever the mult
 Rows 2-3 are the "physically present but unidentifiable" reading this section originally argued for, and they remain available unchanged. The **default** is now row 1 instead, for two reasons the original argument didn't account for:
 
 1. **It isn't always a triplet.** The nitrogen is ¹⁴N (I=1, three lines) or ¹⁵N (I=1/2, *two* lines, no central line). A model that always draws three lines is committing to an isotope, so "keep the structure at its physical value" needs to know which physical value — and if the structure is unresolved, the data cannot tell you.
-2. **A fixed structure the data can't see only adds rigidity.** With `A_∥` a couple of MHz against a linewidth up to `MAX_LINEWIDTH = 5 MHz` (HWHM), the merged envelope is fit equally well by a single line, because `linewidth` is free and absorbs the extra broadening. Committing to a wrong fixed `A_∥` biases the width instead of being absorbed.
+2. **A fixed structure the data can't see only adds rigidity.** With `A_∥` a couple of MHz against a hwhm up to `MAX_HWHM = 5 MHz` (HWHM), the merged envelope is fit equally well by a single line, because `hwhm` is free and absorbs the extra broadening. Committing to a wrong fixed `A_∥` biases the width instead of being absorbed.
 
 Concretely, the previous `with_hyperfine_splitting=False` was row 2 while *reporting* row 1 — `expected_dip_count()` said 2 dips while the kernels drew 6 — so consumers that trusted the dip count (e.g. `GenericSweepLocator`'s peak-detection cap) had to hard-code corrections. `expected_dip_count()` is now truthful for every row.
 
-- **Signal models**: `NVCenterLorentzianModel(with_zeeman_splitting=True)` → `NVCenterLorentzianZeemanSpectrum(center_freq, linewidth, zeeman_split, c_total)`; `NVCenterSaturationVoigtModel(with_zeeman_splitting=True)` → `NVCenterSaturationVoigtZeemanSpectrum(center_freq, saturation, sigma_inhom, zeeman_split)` (contrast fixed to `NV_SATURATION_C_MAX`, not a free parameter for this model); `NVCenterVoigtModel(with_zeeman_splitting=True)` → `NVCenterVoigtZeemanSpectrum(frequency, homogeneous_linewidth, sigma_inhom, zeeman_split, c_total)` (c_total free, unlike Saturation-Voigt). The parameter tuples are the same for any `hyperfine=` in rows 1-3 — only the predicted lineshape differs.
+- **Signal models**: `NVCenterLorentzianModel(with_zeeman_splitting=True)` → `NVCenterLorentzianZeemanSpectrum(zero_field_freq, hwhm, zeeman_shift, contrast_total)`; `NVCenterSaturationVoigtModel(with_zeeman_splitting=True)` → `NVCenterSaturationVoigtZeemanSpectrum(zero_field_freq, saturation, sigma_inhom, zeeman_shift)` (contrast fixed to `NV_SATURATION_C_MAX`, not a free parameter for this model); `NVCenterVoigtModel(with_zeeman_splitting=True)` → `NVCenterVoigtZeemanSpectrum(frequency, hwhm_lorentz, sigma_inhom, zeeman_shift, contrast_total)` (contrast_total free, unlike Saturation-Voigt). The parameter tuples are the same for any `hyperfine=` in rows 1-3 — only the predicted lineshape differs.
 - **Belief builder**: `with_zeeman_splitting=True, hyperfine="unresolved", infer_hyperfine=False` are the *defaults* of `nv_center_smc_belief()`.
 - **Generator**: `NVCenterCoreGenerator` defaults the same way. The belief's `hyperfine` must match the generator's, or the locator models a different number of lines than the signal has.
 - **Task wiring**: `combinations.py` switches `lineshape="saturation_voigt"` automatically when the generator name starts with `NVCenter-saturation_voigt`; it also sets `hyperfine="n14"`/`infer_hyperfine=True` for the `NVCenter-voigt-w…` grid, whose generators explicitly draw a resolved triplet.
 
-So "only `zeeman_split` and the linewidth are visible" is the out-of-the-box configuration, not an opt-in — the opt-in is `infer_hyperfine=True`, which should only be reached when §7.3's resolvability condition actually holds (e.g. gated on the current linewidth posterior, per the discussion this section is drawn from).
+So "only `zeeman_shift` and the hwhm are visible" is the out-of-the-box configuration, not an opt-in — the opt-in is `infer_hyperfine=True`, which should only be reached when §7.3's resolvability condition actually holds (e.g. gated on the current hwhm posterior, per the discussion this section is drawn from).

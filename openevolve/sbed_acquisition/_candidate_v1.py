@@ -35,8 +35,8 @@ from nvision.sim.locs.bayesian.dip_detection import identify_dip_candidates
 
 from nvision.sim.locs.bayesian.sbed_locator import (
     _DUAL_WINDOW_ENABLED,
-    _effective_linewidth_and_contrast_estimate,
-    _effective_max_linewidth_hz,
+    _effective_hwhm_and_contrast_estimate,
+    _effective_max_hwhm_hz,
     _max_dip_cluster_span_hz,
 )
 
@@ -57,8 +57,8 @@ def _acquire(self) -> float:
     # enough background points to estimate noise for the CRLB early-stop.
     if self._forced_bg_mode:
         est = self.belief.estimates()
-        f_hat = est.get("center_freq", (lo + hi) / 2.0)
-        lw_hat, _ = _effective_linewidth_and_contrast_estimate(est, self.belief.physical_param_bounds)
+        f_hat = est.get("zero_field_freq", (lo + hi) / 2.0)
+        lw_hat, _ = _effective_hwhm_and_contrast_estimate(est, self.belief.physical_param_bounds)
         max_split_hz = _max_dip_cluster_span_hz(self.belief.physical_param_bounds, est)
         from nvision.sim.defaults import NVISION_NOISE_BG_SPAN_FACTOR
 
@@ -95,12 +95,12 @@ def _acquire(self) -> float:
             dip_centers = getattr(self.belief, "_dip_centers", None)
             if dip_centers is None:
                 rescale_maps = self.belief._rescale_maps
-                if "center_freq" not in rescale_maps:
+                if "zero_field_freq" not in rescale_maps:
                     raise RuntimeError(
-                        f"{type(self.belief).__name__} is missing _rescale_maps['center_freq']. "
-                        "Ensure physical_param_bounds includes 'center_freq' at construction."
+                        f"{type(self.belief).__name__} is missing _rescale_maps['zero_field_freq']. "
+                        "Ensure physical_param_bounds includes 'zero_field_freq' at construction."
                     )
-                freq_rescale = rescale_maps["center_freq"]
+                freq_rescale = rescale_maps["zero_field_freq"]
                 if hasattr(self.belief, "observation_arrays"):
                     obs_drive_freqs_unit, obs_ys = self.belief.observation_arrays()
                     obs_drive_freqs_phys = freq_rescale.to_phys(obs_drive_freqs_unit)
@@ -121,7 +121,7 @@ def _acquire(self) -> float:
                 phys_bounds = getattr(
                     self.belief, "physical_param_bounds", getattr(self.belief, "parameter_bounds", {})
                 )
-                max_linewidth_hz = _effective_max_linewidth_hz(phys_bounds)
+                max_hwhm_hz = _effective_max_hwhm_hz(phys_bounds)
                 max_split_hz = _max_dip_cluster_span_hz(phys_bounds, self.belief.estimates())
 
                 per_particle_sigmas = None
@@ -146,7 +146,7 @@ def _acquire(self) -> float:
                     obs_drive_freqs_phys,
                     obs_ys,
                     noise_std,
-                    max_linewidth_hz,
+                    max_hwhm_hz,
                     noise_std_unc=noise_std_unc,
                     per_particle_sigmas=per_particle_sigmas,
                     particle_weights=particle_weights,
@@ -198,22 +198,22 @@ def _acquire(self) -> float:
 def _dual_window_acquire(self) -> float | None:
     """Explicit dual symmetric-window acquisition for Zeeman-split signals.
 
-    Breaks a sloppy frequency/zeeman_split trade-off ridge by forcing balanced
+    Breaks a sloppy frequency/zeeman_shift trade-off ridge by forcing balanced
     measurement between the two Zeeman flanks. See the full rationale in the
     original method's docstring in ``nvision/sim/locs/bayesian/sbed_locator.py``.
     Falls back to None (caller uses plain EIG) when there is no Zeeman-split
-    axis, the split estimate is not yet meaningfully nonzero, or a window
+    axis, the hyperfine_shift estimate is not yet meaningfully nonzero, or a window
     collapses to nothing.
     """
     param_names = getattr(self.belief, "_param_names", None)
-    if not param_names or "zeeman_split" not in param_names or "center_freq" not in param_names:
+    if not param_names or "zeeman_shift" not in param_names or "zero_field_freq" not in param_names:
         return None
     est = self.belief.estimates()
-    center_hat = est.get("center_freq")
-    split_hat = est.get("zeeman_split")
+    center_hat = est.get("zero_field_freq")
+    split_hat = est.get("zeeman_shift")
     if center_hat is None or split_hat is None:
         return None
-    lw_hat, _ = _effective_linewidth_and_contrast_estimate(est, self.belief.physical_param_bounds)
+    lw_hat, _ = _effective_hwhm_and_contrast_estimate(est, self.belief.physical_param_bounds)
     lw_hat = abs(lw_hat)
     if split_hat < 3.0 * lw_hat:
         return None

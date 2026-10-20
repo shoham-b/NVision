@@ -25,15 +25,15 @@ def _gaussian_experiment(center: float = 0.5, sigma: float = 0.1) -> CoreExperim
 
     model = GaussianModel()
     typed_params = GaussianSpectrum(
-        center_freq=center,
+        zero_field_freq=center,
         sigma=sigma,
-        dip_depth=1.0,
+        contrast=1.0,
         background=0.0,
     )
     bounds = {
-        "center_freq": (0.0, 1.0),
+        "zero_field_freq": (0.0, 1.0),
         "sigma": (0.01, 0.3),
-        "dip_depth": (0.0, 1.5),
+        "contrast": (0.0, 1.5),
         "background": (0.0, 0.5),
     }
     true_signal = TrueSignal(model=model, typed_parameters=typed_params, bounds=bounds)

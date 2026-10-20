@@ -45,8 +45,8 @@ uv run nv cache convergence --breakdown strategy    # compare every locator in t
 - `strategy` (default) — is the problem in one locator or all of them? A shared bug in
   `nvision/runner/metrics.py`/`executor.py`'s finalize path looks like *every* strategy being
   bad simultaneously; a locator-specific algorithmic bug looks like one strategy standing out.
-- `grid_linewidth,grid_c_total` (or whatever grid columns the run uses) — is it isolated to hard
-  corners of the parameter grid (narrow linewidth, low contrast) or uniform across the whole
+- `grid_hwhm,grid_contrast_total` (or whatever grid columns the run uses) — is it isolated to hard
+  corners of the parameter grid (narrow hwhm, low contrast) or uniform across the whole
   grid? Uniform-and-bad across the entire grid is the more alarming pattern: it rules out "this
   is just a hard case" and points at a bug, not a physics limit.
 - `strategy,noise` — does it track noise level, or is it noise-independent (another point toward
@@ -62,7 +62,7 @@ wrong (e.g. locked onto the wrong Zeeman dip).
 
 - **A "% ratio>=bad" over ~20-30% across the board is worth treating as a real problem**, not
   noise. In one case audited this way, three unrelated strategies (SBED, Sobol, Sweep) in the
-  same run all showed 70-90% bad-ratio rates, uniformly across every linewidth × contrast × noise
+  same run all showed 70-90% bad-ratio rates, uniformly across every hwhm × contrast × noise
   cell in the grid — that uniformity, more than the specific number, is what made it clearly a
   bug rather than three independently hard locators.
 - **`% low meas.`** (repeats stopping at `--low-measurements` or fewer steps, default 5) flags
@@ -71,8 +71,8 @@ wrong (e.g. locked onto the wrong Zeeman dip).
   "Known historical traps": its `uncert`/`abs_err_x` only reflect the *final* least-squares fit,
   fixed 2026-06-12, so post-fix numbers are meaningful but the measurement-count signal is the
   more robust one for sweep specifically).
-- **Cross-reference `final_est_zeeman_split` / `final_est_center_freq` against `true_zeeman_split`
-  / `true_center_freq`** (both are in the CSV) for flagged repeats — a locator that's locked onto
+- **Cross-reference `final_est_zeeman_shift` / `final_est_zero_field_freq` against `true_zeeman_shift`
+  / `true_zero_field_freq`** (both are in the CSV) for flagged repeats — a locator that's locked onto
   the wrong Zeeman-split solution will show a badly wrong split estimate alongside the tiny
   claimed uncertainty. This is the single most common concrete cause of a bad ratio: a low-`n`
   SMC/particle posterior converges and resamples around a plausible-but-wrong mode before ever

@@ -61,7 +61,7 @@ def prior_fwhm_phys(belief) -> float:
 def max_sweep_points(lo_phys: float, hi_phys: float, min_hwhm_phys: float, points_per_fwhm: int) -> int:
     """Most grid points a sweep can need: the count for the narrowest dip the prior allows.
 
-    ``min_hwhm_phys`` is the lower bound of the linewidth prior; the prior-mean FWHM never falls below
+    ``min_hwhm_phys`` is the lower bound of the hwhm prior; the prior-mean FWHM never falls below
     ``2 * min_hwhm_phys``, so a sweep sized from the prior never exceeds this count.
     """
     return uniform_grid_phys(lo_phys, hi_phys, 2.0 * min_hwhm_phys / points_per_fwhm).size

@@ -105,7 +105,7 @@ def bench_scan(tmp: Path):
 
 def _make_posterior_inputs(n_frames: int, n_particles: int, n_params: int = 3):
     """Synthetic anim_all dict matching plots_data.write_posterior_data input."""
-    param_names = ["center_freq", "split", "linewidth"][:n_params]
+    param_names = ["zero_field_freq", "hyperfine_shift", "hwhm"][:n_params]
     anim_all = {}
     for p in param_names:
         hist = []
@@ -133,7 +133,7 @@ def bench_posterior(tmp: Path):
         def _old_write(anim_all, n_frames=n_frames):
             payload = {
                 "schema": "posterior_v1",
-                "param_names": ["center_freq", "split", "linewidth"],
+                "param_names": ["zero_field_freq", "hyperfine_shift", "hwhm"],
                 "steps": [
                     {
                         p: {
@@ -156,9 +156,9 @@ def bench_posterior(tmp: Path):
                 anim_all,
                 p,
                 physical_bounds={
-                    "center_freq": (2.6e9, 3.1e9),
-                    "split": (3e6, 8.5e6),
-                    "linewidth": (200e3, 5e6),
+                    "zero_field_freq": (2.6e9, 3.1e9),
+                    "hyperfine_shift": (3e6, 8.5e6),
+                    "hwhm": (200e3, 5e6),
                 },
             )
             return p.stat().st_size

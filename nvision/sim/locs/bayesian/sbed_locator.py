@@ -12,9 +12,9 @@ from nvision.belief.focus_window import NVISION_SMC_FOCUSING_COVER_FACTOR, next_
 from nvision.belief.smc_marginal import NVISION_EXPLORATION_DECAY_STEPS
 from nvision.models.observation import Observation
 from nvision.sim.defaults import (
-    NVISION_CENTER_FREQ_CRLB_SAFETY_FACTOR,
     NVISION_CONVERGENCE_THRESHOLD,
     NVISION_SMC_CANDIDATE_STEP_HZ,
+    NVISION_ZERO_FIELD_FREQ_CRLB_SAFETY_FACTOR,
 )
 from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBayesianLocator
 from nvision.sim.locs.search_grid import (
@@ -198,7 +198,7 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         section per dip -- its extent padded by ``NVISION_SMC_FOCUSING_COVER_FACTOR`` x the posterior-mean
         effective HWHM, overlapping sections merged (see :func:`next_focus_region`); with no significant
         dip the focus is unchanged.
-        Dips are measurement facts, so this is active whether or not ``center_freq`` is inferred.
+        Dips are measurement facts, so this is active whether or not ``zero_field_freq`` is inferred.
         Changes only which candidates may be scanned.
         """
         belief = self.belief
@@ -350,43 +350,43 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
 
         True when both hold for ``self._primary_param`` (physical units, scalars):
 
-        * ``uncertainty < NVISION_CENTER_FREQ_CRLB_SAFETY_FACTOR x CRLB`` -- the posterior is no wider
+        * ``uncertainty < NVISION_ZERO_FIELD_FREQ_CRLB_SAFETY_FACTOR x CRLB`` -- the posterior is no wider
           than the information limit allows, so more measurements cannot shrink it much; and
         * ``CRLB < the parameter's convergence threshold`` -- the limit itself is tight enough.
 
         The second condition is what keeps this from passing trivially. At a near-degenerate
-        point (e.g. ``zeeman_split`` against the widths below the dip-resolution threshold) the
+        point (e.g. ``zeeman_shift`` against the widths below the dip-resolution threshold) the
         cumulative FIM is near-singular, so the marginal CRLB is hugely inflated (11.8 MHz where
         the achieved error was 1.3 MHz) and the first condition alone holds from the first steps,
         exactly when the problem is hardest. An inflated CRLB fails the second condition.
 
-        The CRLB is the closed-form center_freq CRLB when the primary parameter is ``center_freq``,
+        The CRLB is the closed-form zero_field_freq CRLB when the primary parameter is ``zero_field_freq``,
         otherwise its marginal CRLB from the belief's cumulative FIM (``crlb_per_param``). It is
         absent until a FIM exists, in which case the parameter is not done.
         """
         primary = self._primary_param
         if primary is None:
             return False
-        crlb = crlb_f if primary == "center_freq" else self.belief.crlb_per_param().get(primary, math.nan)
+        crlb = crlb_f if primary == "zero_field_freq" else self.belief.crlb_per_param().get(primary, math.nan)
         unc = float(physical_uncertainties.get(primary, math.nan))
         if not (math.isfinite(crlb) and crlb > 0 and math.isfinite(unc)):
             return False
-        return unc < NVISION_CENTER_FREQ_CRLB_SAFETY_FACTOR * crlb and crlb < self._effective_primary_threshold()
+        return unc < NVISION_ZERO_FIELD_FREQ_CRLB_SAFETY_FACTOR * crlb and crlb < self._effective_primary_threshold()
 
     def _check_crlb_early_stop(self, physical_uncertainties) -> None:
         """CRLB convergence check on the primary parameter.
 
         The noise level is the belief's conjugate (Inverse-Gamma) estimate -- the only noise
         estimate in the locator. The run is marked converged once the primary parameter
-        (``zeeman_split``/``split``, else ``center_freq``; see ``resolve_primary_param``) passes
+        (``zeeman_shift``/``hyperfine_shift``, else ``zero_field_freq``; see ``resolve_primary_param``) passes
         :meth:`_primary_crlb_done` for ``_convergence_patience_steps`` consecutive checks.
         """
-        # Closed-form center_freq CRLB (computed at the same conjugate noise estimate); the
+        # Closed-form zero_field_freq CRLB (computed at the same conjugate noise estimate); the
         # models define no other analytical Fisher information.
-        crlb_f = self.belief.crlb_center_freq()
+        crlb_f = self.belief.crlb_zero_field_freq()
         if not math.isfinite(crlb_f) or crlb_f <= 0:
             return
-        crlbs_stored = {"center_freq": crlb_f}
+        crlbs_stored = {"zero_field_freq": crlb_f}
 
         bounds = self.belief.physical_param_bounds
         target_params = list(self.belief.model.parameter_names())
@@ -431,15 +431,15 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         #   all_converged_step       : ALL checked params are done (abs or crlb)
         #   primary_converged_step : self._primary_param is done (abs or crlb)
         #   _is_converged             : primary param passes _primary_crlb_done (streak-gated, below)
-        # The milestone `crlb_scaled` is only the closed-form center_freq CRLB (inf for every other
-        # parameter), so the milestones for non-center_freq params are decided by the absolute threshold.
+        # The milestone `crlb_scaled` is only the closed-form zero_field_freq CRLB (inf for every other
+        # parameter), so the milestones for non-zero_field_freq params are decided by the absolute threshold.
         checked = 0
         all_milestone_done = True
         splitting_milestone_done = False
 
         for name, unc, crlb_scaled in eval_items:
             # 1. CRLB check
-            crlb_threshold = NVISION_CENTER_FREQ_CRLB_SAFETY_FACTOR * crlb_scaled
+            crlb_threshold = NVISION_ZERO_FIELD_FREQ_CRLB_SAFETY_FACTOR * crlb_scaled
             crlb_done = unc < crlb_threshold if crlb_threshold > 0 and math.isfinite(crlb_threshold) else False
 
             # 2. Absolute threshold check
@@ -577,7 +577,7 @@ class SmartSweepLocator(_SearchThenFocusMixin, SequentialBayesianExperimentDesig
     across the dip, then halving the spacing).
 
     **Refine.** A sweep keeps spending measurements across the whole dip, most of them far from where the
-    signal is sensitive to the primary parameter ``theta`` (``zeeman_split``). Once the dip is located the
+    signal is sensitive to the primary parameter ``theta`` (``zeeman_shift``). Once the dip is located the
     Fisher-optimal points follow from the model itself: the argmax over drive frequency of the sensitivity
     ``g(x)^2 = (d signal / d theta)^2`` at the current posterior-mean estimate (for a Lorentzian the two
     steepest-slope points ``x0 +- HWHM / sqrt(3)``; computed numerically, so Voigt etc. work too). In refine

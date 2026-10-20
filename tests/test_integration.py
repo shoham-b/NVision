@@ -19,10 +19,10 @@ def _run_batch(generator, repeats: int = 2, max_steps: int = 30) -> pl.DataFrame
     for i in range(repeats):
         rng = random.Random(rng_seed + i)
         true_signal = generator.generate(rng)
-        # Find center_freq parameter bounds for drive_freq_min_phys/drive_freq_max_phys
+        # Find zero_field_freq parameter bounds for drive_freq_min_phys/drive_freq_max_phys
         drive_freq_min_phys, drive_freq_max_phys = true_signal.all_param_bounds()[true_signal.parameter_names[0]]
         for name in true_signal.parameter_names:
-            if "center_freq" in name:
+            if "zero_field_freq" in name:
                 drive_freq_min_phys, drive_freq_max_phys = true_signal.get_param_bounds(name)
                 break
         experiment = CoreExperiment(

@@ -2,7 +2,7 @@
 
 Single-observation Fisher information (aligned with ``likelihood.py``), cumulative FIMs in
 unit-normalized coordinates (:class:`CumulativeFisher`), the per-run history and oracle curves the
-plots read, the feasibility-gate budget CRLBs, and the closed-form NV center_freq CRLB.
+plots read, the feasibility-gate budget CRLBs, and the closed-form NV zero_field_freq CRLB.
 """
 
 from __future__ import annotations
@@ -321,7 +321,7 @@ def oracle_crlb_history(
 
 
 # ---------------------------------------------------------------------------
-# Closed-form center_freq CRLB for uniform sampling of NV dips.
+# Closed-form zero_field_freq CRLB for uniform sampling of NV dips.
 #
 # For uniformly spaced probes (rho = n_obs / bandwidth measurements per Hz) of a single
 # population-normalized dip of amplitude a and height-normalized shape V (peak 1):
@@ -331,28 +331,28 @@ def oracle_crlb_history(
 # ---------------------------------------------------------------------------
 
 
-def lorentzian_center_freq_crlb(
-    linewidth: float, c_total: float, noise_std: float, n_obs: int, bandwidth: float
+def lorentzian_zero_field_freq_crlb(
+    hwhm: float, contrast_total: float, noise_std: float, n_obs: int, bandwidth: float
 ) -> float:
-    """Closed-form center_freq CRLB (Hz) for ``n_obs`` uniform probes of a Lorentzian dip; ``inf`` if degenerate."""
-    if linewidth <= 0 or c_total <= 0 or noise_std <= 0 or bandwidth <= 0 or n_obs <= 0:
+    """Closed-form zero_field_freq CRLB (Hz) for ``n_obs`` uniform probes of a Lorentzian dip; ``inf`` if degenerate."""
+    if hwhm <= 0 or contrast_total <= 0 or noise_std <= 0 or bandwidth <= 0 or n_obs <= 0:
         return math.inf
     rho = n_obs / bandwidth
-    variance = (4.0 * noise_std**2 * linewidth) / (math.pi * c_total**2 * rho)
+    variance = (4.0 * noise_std**2 * hwhm) / (math.pi * contrast_total**2 * rho)
     return math.sqrt(max(variance, 0.0))
 
 
-def uniform_steps_for_center_freq_crlb(
-    linewidth: float, c_total: float, noise_std: float, bandwidth: float, target_std: float
+def uniform_steps_for_zero_field_freq_crlb(
+    hwhm: float, contrast_total: float, noise_std: float, bandwidth: float, target_std: float
 ) -> float:
-    """Uniform probes a Lorentzian dip needs for :func:`lorentzian_center_freq_crlb` to reach ``target_std`` (Hz)."""
-    return (4.0 * noise_std**2 * linewidth * bandwidth) / (math.pi * c_total**2 * target_std**2)
+    """Uniform probes a Lorentzian dip needs for :func:`lorentzian_zero_field_freq_crlb` to reach ``target_std``."""
+    return (4.0 * noise_std**2 * hwhm * bandwidth) / (math.pi * contrast_total**2 * target_std**2)
 
 
-def center_freq_crlb(
+def zero_field_freq_crlb(
     inner_model: Any, estimates: dict[str, float], noise_std: float, n_obs: int, bandwidth: float
 ) -> float:
-    """Closed-form center_freq CRLB (Hz) at the physical ``estimates`` for the NV Lorentzian/Voigt models.
+    """Closed-form zero_field_freq CRLB (Hz) at the physical ``estimates`` for the NV Lorentzian/Voigt models.
 
     Voigt-type lineshapes use the single-dip pseudo-Voigt ``J = int (V')^2 dx`` without the
     Lorentzian x Gaussian cross-term -- a conservative (larger) CRLB, exact as ``sigma_inhom -> 0``.
@@ -372,27 +372,27 @@ def center_freq_crlb(
         return math.inf
 
     if isinstance(inner_model, NVCenterLorentzianModel):
-        return lorentzian_center_freq_crlb(
-            estimates.get("linewidth", 0.0), estimates.get("c_total", 0.0), noise_std, n_obs, bandwidth
+        return lorentzian_zero_field_freq_crlb(
+            estimates.get("hwhm", 0.0), estimates.get("contrast_total", 0.0), noise_std, n_obs, bandwidth
         )
 
     if isinstance(inner_model, NVCenterSaturationVoigtModel):
         if "saturation" not in estimates or "sigma_inhom" not in estimates:
             return math.inf
-        fwhm_total, lorentz_frac, c_total = _saturation_voigt_reparam_scalar(
+        fwhm_total, lorentz_frac, contrast_total = _saturation_voigt_reparam_scalar(
             estimates["saturation"], estimates["sigma_inhom"], NV_SATURATION_C_MAX
         )
     elif isinstance(inner_model, NVCenterVoigtModel):
-        if not {"homogeneous_linewidth", "sigma_inhom", "c_total"} <= estimates.keys():
+        if not {"hwhm_lorentz", "sigma_inhom", "contrast_total"} <= estimates.keys():
             return math.inf
-        if estimates["homogeneous_linewidth"] <= 0:
+        if estimates["hwhm_lorentz"] <= 0:
             return math.inf
-        fwhm_total, lorentz_frac = _voigt_reparam_scalar(estimates["homogeneous_linewidth"], estimates["sigma_inhom"])
-        c_total = estimates["c_total"]
+        fwhm_total, lorentz_frac = _voigt_reparam_scalar(estimates["hwhm_lorentz"], estimates["sigma_inhom"])
+        contrast_total = estimates["contrast_total"]
     else:
         return math.inf
 
-    if fwhm_total <= 0 or c_total <= 0:
+    if fwhm_total <= 0 or contrast_total <= 0:
         return math.inf
     elf, egf, nhs, gamma2, has_gamma, has_sigma = _pv_factors(fwhm_total, lorentz_frac)
     j_lorentz = (elf**2) * math.pi / (4.0 * gamma2**2.5) if has_gamma else 0.0
@@ -401,4 +401,4 @@ def center_freq_crlb(
     if j_total <= 0:
         return math.inf
     rho = n_obs / bandwidth
-    return math.sqrt(max(noise_std**2 / (rho * c_total**2 * j_total), 0.0))
+    return math.sqrt(max(noise_std**2 / (rho * contrast_total**2 * j_total), 0.0))

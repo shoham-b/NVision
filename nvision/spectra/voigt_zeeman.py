@@ -22,37 +22,37 @@ from nvision.spectra.spec import GenericParamSpec
 
 @dataclass(frozen=True)
 class VoigtZeemanSpectrum:
-    center_freq: float
+    zero_field_freq: float
     fwhm_total: float
     lorentz_frac: float
-    zeeman_split: float
-    split: float
+    zeeman_shift: float
+    hyperfine_shift: float
     k_np: float
-    c_total: float
+    contrast_total: float
     background: float
 
 
 @dataclass(frozen=True)
 class VoigtZeemanSpectrumSamples:
-    center_freq: np.ndarray
+    zero_field_freq: np.ndarray
     fwhm_total: np.ndarray
     lorentz_frac: np.ndarray
-    zeeman_split: np.ndarray
-    split: np.ndarray
+    zeeman_shift: np.ndarray
+    hyperfine_shift: np.ndarray
     k_np: np.ndarray
-    c_total: np.ndarray
+    contrast_total: np.ndarray
     background: np.ndarray
 
 
 @dataclass(frozen=True)
 class VoigtZeemanSpectrumUncertainty:
-    center_freq: float
+    zero_field_freq: float
     fwhm_total: float
     lorentz_frac: float
-    zeeman_split: float
-    split: float
+    zeeman_shift: float
+    hyperfine_shift: float
     k_np: float
-    c_total: float
+    contrast_total: float
     background: float
 
 
@@ -82,27 +82,27 @@ class VoigtZeemanModel(SignalModel[VoigtZeemanSpectrum, VoigtZeemanSpectrumSampl
     multiplet of Voigt profile dips. Each Lorentzian dip is convolved with a Gaussian, which
     accounts for both homogeneous (Lorentzian) and inhomogeneous (Gaussian) broadening.
 
-    Unlike the models in :mod:`nvision.spectra.nv_center`, ``split`` is always a
+    Unlike the models in :mod:`nvision.spectra.nv_center`, ``hyperfine_shift`` is always a
     free parameter here, so this model always *has* hyperfine structure -- the
     ``hyperfine`` constructor argument only chooses its shape (``"n14"``, the
     default, for the triplet; ``"n15"`` for the doublet with no central line).
 
     Parameters
     ----------
-    center_freq : float
-        Zero-field dip centre ``center_freq`` (f_B)
+    zero_field_freq : float
+        Zero-field dip centre ``zero_field_freq`` (f_B)
     fwhm_total : float
-        Total effective linewidth (Lorentzian + Gaussian)
+        Total effective hwhm (Lorentzian + Gaussian)
     lorentz_frac : float
         Lorentzian share of broadening in [0, 1]
-    zeeman_split : float
+    zeeman_shift : float
         Half-separation between the two Zeeman groups
-    split : float
+    hyperfine_shift : float
         Hyperfine splitting (delta_f_HF) within each Zeeman group
     k_np : float
         Non-polarization factor (amplitude ratio between hyperfine peaks)
-    c_total : float
-        Population-normalized total contrast, split across both Zeeman groups
+    contrast_total : float
+        Population-normalized total contrast, hyperfine_shift across both Zeeman groups
         and the hyperfine lines within each via ``k_np``.
     background : float
         Background level
@@ -117,26 +117,26 @@ class VoigtZeemanModel(SignalModel[VoigtZeemanSpectrum, VoigtZeemanSpectrumSampl
     def compute_voigt_zeeman_model(
         self,
         x: float,
-        center_freq: float,
+        zero_field_freq: float,
         fwhm_total: float,
         lorentz_frac: float,
-        zeeman_split: float,
-        split: float,
+        zeeman_shift: float,
+        hyperfine_shift: float,
         k_np: float,
-        c_total: float,
+        contrast_total: float,
         background: float,
     ) -> float:
         """Zeeman + hyperfine pseudo-Voigt NV model; parameter order matches :meth:`parameter_names`."""
         return nv_center_zeeman_pseudo_voigt_eval(
             float(x),
-            float(center_freq),
+            float(zero_field_freq),
             float(fwhm_total),
             float(lorentz_frac),
-            float(zeeman_split),
-            float(split),
+            float(zeeman_shift),
+            float(hyperfine_shift),
             float(k_np),
             float(self._w_center),
-            float(c_total),
+            float(contrast_total),
             float(background),
         )
 
@@ -147,7 +147,7 @@ class VoigtZeemanModel(SignalModel[VoigtZeemanSpectrum, VoigtZeemanSpectrumSampl
         return self._SPEC
 
     def is_scale_parameter(self, name: str) -> bool:
-        return name in ("fwhm_total", "c_total")
+        return name in ("fwhm_total", "contrast_total")
 
     def expected_dip_count(self) -> int:
         """Hyperfine lines per group x the 2 Zeeman groups."""
@@ -156,55 +156,55 @@ class VoigtZeemanModel(SignalModel[VoigtZeemanSpectrum, VoigtZeemanSpectrumSampl
     def compute(self, x: float, params: VoigtZeemanSpectrum) -> float:
         return self.compute_voigt_zeeman_model(
             float(x),
-            params.center_freq,
+            params.zero_field_freq,
             params.fwhm_total,
             params.lorentz_frac,
-            params.zeeman_split,
-            params.split,
+            params.zeeman_shift,
+            params.hyperfine_shift,
             params.k_np,
-            params.c_total,
+            params.contrast_total,
             params.background,
         )
 
     def compute_vectorized_samples(self, x: float, samples: VoigtZeemanSpectrumSamples) -> np.ndarray:
-        center_freq = np.asarray(samples.center_freq, dtype=FLOAT_DTYPE)
-        n = center_freq.shape[0]
+        zero_field_freq = np.asarray(samples.zero_field_freq, dtype=FLOAT_DTYPE)
+        n = zero_field_freq.shape[0]
         out = np.empty(n, dtype=FLOAT_DTYPE)
         nv_center_zeeman_pseudo_voigt_vectorized_one_serial(
             float(x),
-            center_freq,
+            zero_field_freq,
             np.asarray(samples.fwhm_total, dtype=FLOAT_DTYPE),
             np.asarray(samples.lorentz_frac, dtype=FLOAT_DTYPE),
-            np.asarray(samples.zeeman_split, dtype=FLOAT_DTYPE),
-            np.asarray(samples.split, dtype=FLOAT_DTYPE),
+            np.asarray(samples.zeeman_shift, dtype=FLOAT_DTYPE),
+            np.asarray(samples.hyperfine_shift, dtype=FLOAT_DTYPE),
             np.asarray(samples.k_np, dtype=FLOAT_DTYPE),
             self._w_center,
-            np.asarray(samples.c_total, dtype=FLOAT_DTYPE),
+            np.asarray(samples.contrast_total, dtype=FLOAT_DTYPE),
             np.asarray(samples.background, dtype=FLOAT_DTYPE),
             out,
         )
         return out
 
     def compute_vectorized_many(self, x_array: Sequence[float], samples: VoigtZeemanSpectrumSamples) -> np.ndarray:
-        if not hasattr(samples, "center_freq"):
+        if not hasattr(samples, "zero_field_freq"):
             return super().compute_vectorized_many(x_array, samples)  # type: ignore[arg-type]
 
         xs = np.asarray(x_array, dtype=FLOAT_DTYPE)
         if xs.ndim != 1:
             raise ValueError("x_array must be one-dimensional")
 
-        center_freq = np.asarray(samples.center_freq, dtype=FLOAT_DTYPE)
-        out = np.empty((xs.shape[0], center_freq.shape[0]), dtype=FLOAT_DTYPE)
+        zero_field_freq = np.asarray(samples.zero_field_freq, dtype=FLOAT_DTYPE)
+        out = np.empty((xs.shape[0], zero_field_freq.shape[0]), dtype=FLOAT_DTYPE)
         nv_center_zeeman_pseudo_voigt_vectorized_many(
             xs,
-            center_freq,
+            zero_field_freq,
             np.asarray(samples.fwhm_total, dtype=FLOAT_DTYPE),
             np.asarray(samples.lorentz_frac, dtype=FLOAT_DTYPE),
-            np.asarray(samples.zeeman_split, dtype=FLOAT_DTYPE),
-            np.asarray(samples.split, dtype=FLOAT_DTYPE),
+            np.asarray(samples.zeeman_shift, dtype=FLOAT_DTYPE),
+            np.asarray(samples.hyperfine_shift, dtype=FLOAT_DTYPE),
             np.asarray(samples.k_np, dtype=FLOAT_DTYPE),
             self._w_center,
-            np.asarray(samples.c_total, dtype=FLOAT_DTYPE),
+            np.asarray(samples.contrast_total, dtype=FLOAT_DTYPE),
             np.asarray(samples.background, dtype=FLOAT_DTYPE),
             out,
         )
@@ -212,22 +212,22 @@ class VoigtZeemanModel(SignalModel[VoigtZeemanSpectrum, VoigtZeemanSpectrumSampl
 
     def compute_vectorized_many_fast(self, x_array: Sequence[float], samples: VoigtZeemanSpectrumSamples) -> np.ndarray:
         """Acquisition-only fast variant: uses the fastmath Zeeman pseudo-Voigt kernel."""
-        if not hasattr(samples, "center_freq"):
+        if not hasattr(samples, "zero_field_freq"):
             return super().compute_vectorized_many_fast(x_array, samples)  # type: ignore[arg-type]
 
         xs = np.asarray(x_array, dtype=FLOAT_DTYPE)
-        center_freq = np.asarray(samples.center_freq, dtype=FLOAT_DTYPE)
-        out = np.empty((xs.shape[0], center_freq.shape[0]), dtype=FLOAT_DTYPE)
+        zero_field_freq = np.asarray(samples.zero_field_freq, dtype=FLOAT_DTYPE)
+        out = np.empty((xs.shape[0], zero_field_freq.shape[0]), dtype=FLOAT_DTYPE)
         nv_center_zeeman_pseudo_voigt_vectorized_many_fast(
             xs,
-            center_freq,
+            zero_field_freq,
             np.asarray(samples.fwhm_total, dtype=FLOAT_DTYPE),
             np.asarray(samples.lorentz_frac, dtype=FLOAT_DTYPE),
-            np.asarray(samples.zeeman_split, dtype=FLOAT_DTYPE),
-            np.asarray(samples.split, dtype=FLOAT_DTYPE),
+            np.asarray(samples.zeeman_shift, dtype=FLOAT_DTYPE),
+            np.asarray(samples.hyperfine_shift, dtype=FLOAT_DTYPE),
             np.asarray(samples.k_np, dtype=FLOAT_DTYPE),
             self._w_center,
-            np.asarray(samples.c_total, dtype=FLOAT_DTYPE),
+            np.asarray(samples.contrast_total, dtype=FLOAT_DTYPE),
             np.asarray(samples.background, dtype=FLOAT_DTYPE),
             out,
         )
@@ -236,52 +236,52 @@ class VoigtZeemanModel(SignalModel[VoigtZeemanSpectrum, VoigtZeemanSpectrumSampl
     def sample_params(self, rng: random.Random) -> VoigtZeemanSpectrum:
         """Sample parameters that keep the signal within [0, 1].
 
-        ``zeeman_split`` is drawn strictly larger than ``split`` (as ``split + gap``) so the two
-        hyperfine sub-triplets never interleave past the shared ``center_freq``. ``fwhm_total``
-        is then drawn as a multiple of ``2 * zeeman_split`` (the group-to-group separation), so
-        the ratio between linewidth and group separation is what varies — spanning cleanly
+        ``zeeman_shift`` is drawn strictly larger than ``hyperfine_shift`` (as ``hyperfine_shift + gap``) so the two
+        hyperfine sub-triplets never interleave past the shared ``zero_field_freq``. ``fwhm_total``
+        is then drawn as a multiple of ``2 * zeeman_shift`` (the group-to-group separation), so
+        the ratio between hwhm and group separation is what varies — spanning cleanly
         separated groups (ratio << 1), groups that visibly overlap but are still two distinct
         dips (ratio ~ 1), and a single fully merged dip (ratio >> 1). It's also frequently well
-        beyond ``split``, so strong inhomogeneous broadening regularly washes out the fine
+        beyond ``hyperfine_shift``, so strong inhomogeneous broadening regularly washes out the fine
         (hyperfine) structure into a single dip per Zeeman group on top of that.
         """
         lorentz_frac = rng.uniform(0.23, 0.89)
-        split = rng.uniform(0.05, 0.12)
-        zeeman_split = split + rng.uniform(0.05, 0.12)
-        fwhm_ratio = rng.uniform(0.15, 1.1)  # fwhm_total / (2 * zeeman_split)
-        fwhm_total = max(fwhm_ratio * 2.0 * zeeman_split, 0.03)
+        hyperfine_shift = rng.uniform(0.05, 0.12)
+        zeeman_shift = hyperfine_shift + rng.uniform(0.05, 0.12)
+        fwhm_ratio = rng.uniform(0.15, 1.1)  # fwhm_total / (2 * zeeman_shift)
+        fwhm_total = max(fwhm_ratio * 2.0 * zeeman_shift, 0.03)
         k_np = rng.uniform(2.0, 4.0)
-        margin = zeeman_split + split + 0.08
-        center_freq = rng.uniform(margin, 1.0 - margin)
+        margin = zeeman_shift + hyperfine_shift + 0.08
+        zero_field_freq = rng.uniform(margin, 1.0 - margin)
         background = 1.0
 
-        # Estimate c_total (population-normalized amplitude) using a coarse grid.
-        # We use compute_vectorized_many with background=0 and c_total=1.
+        # Estimate contrast_total (population-normalized amplitude) using a coarse grid.
+        # We use compute_vectorized_many with background=0 and contrast_total=1.
         # The max dip depth is then 1.0 / max_dip_observed.
-        xs = np.linspace(center_freq - margin, center_freq + margin, 400)
+        xs = np.linspace(zero_field_freq - margin, zero_field_freq + margin, 400)
         samples = VoigtZeemanSpectrumSamples(
-            center_freq=np.array([center_freq], dtype=FLOAT_DTYPE),
+            zero_field_freq=np.array([zero_field_freq], dtype=FLOAT_DTYPE),
             fwhm_total=np.array([fwhm_total], dtype=FLOAT_DTYPE),
             lorentz_frac=np.array([lorentz_frac], dtype=FLOAT_DTYPE),
-            zeeman_split=np.array([zeeman_split], dtype=FLOAT_DTYPE),
-            split=np.array([split], dtype=FLOAT_DTYPE),
+            zeeman_shift=np.array([zeeman_shift], dtype=FLOAT_DTYPE),
+            hyperfine_shift=np.array([hyperfine_shift], dtype=FLOAT_DTYPE),
             k_np=np.array([k_np], dtype=FLOAT_DTYPE),
-            c_total=np.array([1.0], dtype=FLOAT_DTYPE),
+            contrast_total=np.array([1.0], dtype=FLOAT_DTYPE),
             background=np.array([0.0], dtype=FLOAT_DTYPE),
         )
         # compute_vectorized_many returns bg - dips.
         # Here bg=0, so it returns -dips.
         res = self.compute_vectorized_many(xs, samples)
         max_dip = -float(res.min())
-        c_total = 1.0 / max_dip if max_dip > 1e-6 else 1.0
+        contrast_total = 1.0 / max_dip if max_dip > 1e-6 else 1.0
 
         return VoigtZeemanSpectrum(
-            center_freq=center_freq,
+            zero_field_freq=zero_field_freq,
             fwhm_total=fwhm_total,
             lorentz_frac=lorentz_frac,
-            zeeman_split=zeeman_split,
-            split=split,
+            zeeman_shift=zeeman_shift,
+            hyperfine_shift=hyperfine_shift,
             k_np=k_np,
-            c_total=c_total,
+            contrast_total=contrast_total,
             background=background,
         )

@@ -13,10 +13,10 @@ class PeakSpec:
 
     Attributes:
         width_key: Parameter name for the width field (e.g. ``"sigma"``
-            for Gaussian, ``"linewidth"`` for Lorentzian).
+            for Gaussian, ``"hwhm"`` for Lorentzian).
         width_frac: ``(lo, hi)`` width range expressed as *fractions of the
             domain width* (so ``0.01`` means 1 % of ``drive_freq_max_phys - drive_freq_min_phys``).
-        dip_depth: ``(lo, hi)`` allowed range for the dip depth parameter.
+        contrast: ``(lo, hi)`` allowed range for the dip depth parameter.
         background: ``(lo, hi)`` allowed range for the background parameter
             when used as a *standalone* (non-composite) peak.
         composite_background: ``(lo, hi)`` range used when the peak is one
@@ -27,7 +27,7 @@ class PeakSpec:
 
     width_key: str
     width_frac: tuple[float, float]
-    dip_depth: tuple[float, float]
+    contrast: tuple[float, float]
     background: tuple[float, float]
     composite_background: tuple[float, float]
     background_default: float
@@ -46,21 +46,21 @@ class PeakSpec:
 GAUSSIAN = PeakSpec(
     width_key="sigma",
     width_frac=(0.01, 0.2),
-    dip_depth=(0.1, 1.4),
+    contrast=(0.1, 1.4),
     background=(0.0, 0.5),
     composite_background=(0.0, 0.5),
     background_default=0.0,
-    max_span_frac=4 * 0.2,  # ±2σ at maximum linewidth
+    max_span_frac=4 * 0.2,  # ±2σ at maximum hwhm
 )
 
 LORENTZIAN = PeakSpec(
-    width_key="linewidth",
+    width_key="hwhm",
     width_frac=(0.01, 0.2),
-    dip_depth=(0.05, 1.5),
+    contrast=(0.05, 1.5),
     background=(0.5, 1.2),
     composite_background=(0.0, 0.5),
     background_default=1.0,
-    max_span_frac=4 * 0.2,  # ±2×linewidth at maximum linewidth
+    max_span_frac=4 * 0.2,  # ±2×hwhm at maximum hwhm
 )
 
 

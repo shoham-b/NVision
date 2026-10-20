@@ -442,11 +442,11 @@ def _slim_manifest_entry(entry: dict[str, object]) -> dict[str, object]:
 
     # Zeeman-split generators never populate top-level abs_err_x --
     # _truth_positions() (nvision/runner/metrics.py) only matches parameter
-    # names containing "center_freq"/"position", so a fixed-center_freq Zeeman
-    # signal (whose free parameter is named "zeeman_split") is treated as a
+    # names containing "zero_field_freq"/"position", so a fixed-zero_field_freq Zeeman
+    # signal (whose free parameter is named "zeeman_shift") is treated as a
     # single-truth-position case with no matching x_hat-style estimate key,
     # and abs_err_x/abs_err_x1/abs_err_x2/pair_rmse all stay None. The real,
-    # populated final-state error for these runs is final_err_split (final
+    # populated final-state error for these runs is final_err_shift (final
     # splitting error) from calculate_zeeman_metrics (nvision/metrics/
     # milestones.py), nested under entry["metrics"]. Promote it (and
     # pair_rmse, for any future generator where that branch does fire) to
@@ -455,8 +455,8 @@ def _slim_manifest_entry(entry: dict[str, object]) -> dict[str, object]:
     # per-repeat round-trip.
     metrics = out.get("metrics")
     if isinstance(metrics, dict):
-        if out.get("final_err_split") is None and metrics.get("final_err_split") is not None:
-            out["final_err_split"] = metrics["final_err_split"]
+        if out.get("final_err_shift") is None and metrics.get("final_err_shift") is not None:
+            out["final_err_shift"] = metrics["final_err_shift"]
         if out.get("pair_rmse") is None and metrics.get("pair_rmse") is not None:
             out["pair_rmse"] = metrics["pair_rmse"]
 

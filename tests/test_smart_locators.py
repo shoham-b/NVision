@@ -1,7 +1,7 @@
 """Smart-Sweep and Smart-SBED: a coarse width-sized search first, then work inside the focus.
 
 Both are SBED locators in everything but acquisition. Checked on a real resonance-search signal (tight
-nuisance priors, unknown ``zeeman_split``): the search grid is sized from the prior FWHM, the switch to the
+nuisance priors, unknown ``zeeman_shift``): the search grid is sized from the prior FWHM, the switch to the
 focus happens as soon as the data show a dip, and from then on every measurement lies inside the focus.
 """
 
@@ -30,8 +30,8 @@ from tests.noise import gaussian_noise
 NOISE_SIGMA = 0.01
 
 
-def _experiment(seed: int = 3, linewidth: float = 2.75e6, contrast: float = 0.4):
-    gen = NVCenterCoreGenerator(variant="lorentzian", linewidth=linewidth, c_total=contrast, resonance_search=True)
+def _experiment(seed: int = 3, hwhm: float = 2.75e6, contrast: float = 0.4):
+    gen = NVCenterCoreGenerator(variant="lorentzian", hwhm=hwhm, contrast_total=contrast, resonance_search=True)
     true_signal = gen.generate(random.Random(seed))
     noise = CompositeNoise(over_frequency_noise=CompositeOverFrequencyNoise([OverFrequencyGaussianNoise(NOISE_SIGMA)]))
     exp = CoreExperiment(
@@ -68,17 +68,19 @@ def _drive(locator, exp, rng, n_steps: int):
 
 
 def test_resonance_search_priors_are_tight_on_nuisance_and_absent_on_the_resonance():
-    gen = NVCenterCoreGenerator(variant="lorentzian", linewidth=2.0e6, c_total=0.3)
+    gen = NVCenterCoreGenerator(variant="lorentzian", hwhm=2.0e6, contrast_total=0.3)
     default = gen.generate(random.Random(1)).bounds["_priors"]
     searched = (
-        NVCenterCoreGenerator(variant="lorentzian", linewidth=2.0e6, c_total=0.3, resonance_search=True)
+        NVCenterCoreGenerator(variant="lorentzian", hwhm=2.0e6, contrast_total=0.3, resonance_search=True)
         .generate(random.Random(1))
         .bounds["_priors"]
     )
-    assert "zeeman_split" in default
-    assert "zeeman_split" not in searched
-    assert searched["linewidth"][1] == pytest.approx(default["linewidth"][1] * RESONANCE_SEARCH_NUISANCE_STD_SCALE)
-    assert searched["c_total"][1] == pytest.approx(default["c_total"][1] * RESONANCE_SEARCH_NUISANCE_STD_SCALE)
+    assert "zeeman_shift" in default
+    assert "zeeman_shift" not in searched
+    assert searched["hwhm"][1] == pytest.approx(default["hwhm"][1] * RESONANCE_SEARCH_NUISANCE_STD_SCALE)
+    assert searched["contrast_total"][1] == pytest.approx(
+        default["contrast_total"][1] * RESONANCE_SEARCH_NUISANCE_STD_SCALE
+    )
 
 
 def test_smart_sweep_sweeps_at_fwhm_over_three_then_stays_in_the_focus():
@@ -143,8 +145,8 @@ def _true_dip_center_phys(true_signal, lo_phys: float, hi_phys: float) -> float:
 
 
 def test_smart_sweep_refines_at_both_steepest_slopes_once_the_dip_is_known():
-    linewidth = 2.75e6
-    exp, bounds = _experiment(linewidth=linewidth)
+    hwhm = 2.75e6
+    exp, bounds = _experiment(hwhm=hwhm)
     loc = _locator(SmartSweepLocator, bounds, max_steps=200)
     trace = _drive(loc, exp, random.Random(11), 200)
 
@@ -153,12 +155,12 @@ def test_smart_sweep_refines_at_both_steepest_slopes_once_the_dip_is_known():
     assert not trace[first_refine][0].is_full_domain(), "refine mode only starts once a focus exists"
     refine_x = np.array([trace[i][1] for i in loc.refine_steps])
 
-    # Lorentzian: the d signal / d zeeman_split maxima are x0 +- HWHM / sqrt(3). The locator finds them
+    # Lorentzian: the d signal / d zeeman_shift maxima are x0 +- HWHM / sqrt(3). The locator finds them
     # numerically from its own estimate; within 0.15 HWHM of the true ones they carry >= 90% of the information.
     x0 = _true_dip_center_phys(exp.true_signal, exp.drive_freq_min_phys, exp.drive_freq_max_phys)
-    optima = np.array([x0 - linewidth / np.sqrt(3.0), x0 + linewidth / np.sqrt(3.0)])
+    optima = np.array([x0 - hwhm / np.sqrt(3.0), x0 + hwhm / np.sqrt(3.0)])
     offset = np.min(np.abs(refine_x[:, None] - optima[None, :]), axis=1)
-    assert np.all(offset < 0.15 * linewidth)
+    assert np.all(offset < 0.15 * hwhm)
     sides = refine_x > x0
     assert sides.any(), "the upper slope is measured"
     assert (~sides).any(), "the lower slope is measured"
@@ -168,7 +170,9 @@ def test_smart_sweep_refines_at_both_steepest_slopes_once_the_dip_is_known():
 
 
 def test_smart_sweep_refine_points_come_from_the_model_not_a_lorentzian_formula():
-    gen = NVCenterCoreGenerator(variant="voigt", linewidth=1.5e6, c_total=0.4, sigma_inhom=1.0e6, resonance_search=True)
+    gen = NVCenterCoreGenerator(
+        variant="voigt", hwhm=1.5e6, contrast_total=0.4, sigma_inhom=1.0e6, resonance_search=True
+    )
     true_signal = gen.generate(random.Random(5))
     noise = CompositeNoise(over_frequency_noise=CompositeOverFrequencyNoise([OverFrequencyGaussianNoise(NOISE_SIGMA)]))
     exp = CoreExperiment(

@@ -33,15 +33,21 @@ from nvision.spectra.nv_center import PHYSICS_CONFIG_FINGERPRINT
 # MATLAB stats payload, ``matlab_drive_freq_stats``) and the locator config key ``probe_axis_param`` became
 # ``center_param``. Stored experiment/spec fields, locator configs and plot payloads carry the old names,
 # so older entries are hidden by ``nv serve`` (see v12); re-run, not just ``nv render``.
-CACHE_SCHEMA_VERSION = 13
+# v14: physical parameter renames: ``center_freq`` -> ``zero_field_freq``, ``linewidth`` -> ``hwhm``,
+# ``homogeneous_linewidth`` -> ``hwhm_lorentz``, ``zeeman_split`` -> ``zeeman_shift``, hyperfine ``split`` ->
+# ``hyperfine_shift``, ``dip_depth`` -> ``contrast``, ``c_total`` -> ``contrast_total`` (and the ``*_split``
+# milestone metrics -> ``*_shift``, ``center_param`` -> ``zero_field_param``). Stored params, bounds, metric
+# columns and plot payloads carry the old names, so older entries are hidden by ``nv serve`` (see v12);
+# re-run, not just ``nv render``.
+CACHE_SCHEMA_VERSION = 14
 
-# Oldest cache schema the current viewer can still read (see v13 above).
-MIN_VIEWABLE_CACHE_SCHEMA_VERSION = 13
+# Oldest cache schema the current viewer can still read (see v14 above).
+MIN_VIEWABLE_CACHE_SCHEMA_VERSION = 14
 
 # PHYSICS_CONFIG_FINGERPRINT (nvision/spectra/nv_center.py) is folded into every cache
 # config below instead of relying on a manual CACHE_SCHEMA_VERSION bump: a generator's
 # *name* (e.g. "NVCenter-lorentzian-w0.50MHz-c0.10") doesn't change when the underlying
-# physical bounds/constants it draws from do (domain delta, Zeeman/hyperfine/linewidth
+# physical bounds/constants it draws from do (domain delta, Zeeman/hyperfine/hwhm
 # ranges, zero-field splitting), so cache entries keyed only by name would keep matching
 # and silently serving stale true-signal draws generated under the old physics forever.
 # Folding it in busts every cached entry automatically on such a change, the same way

@@ -312,7 +312,7 @@ def cache_convergence(
             help=(
                 "Comma-separated locator-results columns to group rows by. Default 'strategy' "
                 "compares across every locator in the run. Use e.g. 'strategy,noise' or "
-                "'grid_linewidth,grid_c_total' to check whether a problem is isolated to part of the "
+                "'grid_hwhm,grid_contrast_total' to check whether a problem is isolated to part of the "
                 "grid or systemic across it."
             ),
         ),
@@ -940,7 +940,7 @@ def clean_manifest(
             help=(
                 "Also remove scan entries whose true_params.config_fingerprint doesn't match "
                 "the current physics config (nvision.spectra.nv_center.PHYSICS_CONFIG_FINGERPRINT). "
-                "Catches artifacts generated under old domain/Zeeman/hyperfine/linewidth bounds that "
+                "Catches artifacts generated under old domain/Zeeman/hyperfine/hwhm bounds that "
                 "a later code or .env change silently left behind -- e.g. a generator whose run group "
                 "was never re-run since, so it keeps serving pre-change data with nothing flagging it."
             ),
