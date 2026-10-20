@@ -132,15 +132,23 @@ window.NVISION_BOOTSTRAP = (async () => {
         window.NVISION_GENERATOR_GRID_INFO = gridInfoByName;
 
         let scopeGenerators = null; // null == unscoped (fallback when combos is empty/unknown)
+        let fullGenerator = null; // the one generator that also gets its non-scan (bayesian_*) entries
         if (allGenerators.length && !_nvisionForcedUnscoped()) {
             const hashGenerator = _nvisionHashGenerator();
             const target = hashGenerator && allGenerators.includes(hashGenerator) ? hashGenerator : allGenerators[0];
             scopeGenerators = _nvisionFamilyScope(target, allGenerators, gridInfoByName);
+            fullGenerator = target;
         }
         window.NVISION_LOADED_GENERATORS = scopeGenerators;
+        window.NVISION_FULL_GENERATOR = fullGenerator;
+        try {
+            // This generator is now fully loaded, so a later switch back to it may reload once again.
+            const attempts = JSON.parse(sessionStorage.getItem('nvisionGeneratorLoadAttempts') || '[]');
+            sessionStorage.setItem('nvisionGeneratorLoadAttempts', JSON.stringify(attempts.filter((g) => g !== fullGenerator)));
+        } catch (e) { /* ignore */ }
 
         const manifestPath = scopeGenerators
-            ? `api/manifest?generators=${encodeURIComponent(scopeGenerators.join(','))}`
+            ? `api/manifest?generators=${encodeURIComponent(scopeGenerators.join(','))}&full=${encodeURIComponent(fullGenerator)}`
             : 'api/manifest';
         window.MANIFEST = await fetchJson(manifestPath);
         if (!Array.isArray(window.MANIFEST)) {
@@ -166,8 +174,11 @@ window.NVISION_BOOTSTRAP = (async () => {
 // picker calls this to decide whether a selection can render instantly from the already-
 // loaded `plots` array, or needs nvisionNavigateToGenerator's reload first.
 window.nvisionNeedsWiderLoad = function (generatorName) {
+    // Only the one `full` generator carries its non-scan (bayesian_*) entries; the rest of the
+    // family is scan-only, so selecting any other generator needs a reload scoped to it.
     const loaded = window.NVISION_LOADED_GENERATORS;
-    return Array.isArray(loaded) && !loaded.includes(generatorName);
+    if (!Array.isArray(loaded)) return false;
+    return !loaded.includes(generatorName) || generatorName !== window.NVISION_FULL_GENERATOR;
 };
 
 // Reloads the page scoped to `generatorName`'s family instead of the currently-loaded one.

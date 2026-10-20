@@ -299,6 +299,30 @@ def _load_combo(bridge: CacheBridge, combo: dict) -> tuple[list[dict], list[dict
     return graph_entries, result_rows
 
 
+def _load_combo_memo(memo: dict, bridge: CacheBridge, combo: dict) -> tuple[list[dict], list[dict]]:
+    """``_load_combo`` memoised in *memo*, keyed on (combo_key, repeat count) so a growing
+    combo is re-read; the caller clears *memo* on /api/reload."""
+    key = (_combo_key(combo), int(combo.get("repeats", 0)))
+    hit = memo.get(key)
+    if hit is None:
+        hit = memo[key] = _load_combo(bridge, combo)
+    return hit
+
+
+def _warm_combo_memo(memo: dict, bridge: CacheBridge, combos: list[dict]) -> None:
+    """Read every combo into *memo* in the background so the first family-scoped manifest
+    request after startup doesn't pay the ~90 s cold read on a large cache."""
+    import concurrent.futures
+
+    try:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+            list(pool.map(lambda c: _load_combo_memo(memo, bridge, c), combos))
+    except Exception:
+        log.exception("combo memo warm-up failed (requests will read combos on demand)")
+    finally:
+        bridge.close()
+
+
 def build_app(cache_dir: Path, run_dir: Path) -> FastAPI:
     """Build the FastAPI app serving the repo's frontend against *cache_dir*.
 
@@ -308,13 +332,23 @@ def build_app(cache_dir: Path, run_dir: Path) -> FastAPI:
     ``static/`` directory, never copied into *run_dir*.
     """
     app = FastAPI(default_response_class=_NaNSafeJSONResponse)
-    app.add_middleware(GZipMiddleware, minimum_size=1024)
+    # compresslevel=1: the default (9) spends minutes compressing a family-scoped manifest
+    # for a ~5% smaller body; the payload is local/LAN, so speed wins.
+    app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=1)
 
     reload_state = ReloadState()
     # In-process caches, invalidated by /api/reload. Rebuilding the manifest means
     # walking every cached combination's :meta sidecars — cheap per call, but not
     # cheap enough to redo on every page load, so we cache it until told otherwise.
-    cache: dict[str, Any] = {"manifest": None, "aggregate_bytes": {}, "combos": None, "generator_grid_info": None}
+    cache: dict[str, Any] = {
+        "manifest": None,
+        "aggregate_bytes": {},
+        "combos": None,
+        "generator_grid_info": None,
+        # (combo_key, repeats) -> _load_combo result; keyed on the repeat count so a growing
+        # combo is re-read, cleared on /api/reload so edited repeats are picked up too.
+        "combo_memo": {},
+    }
     # RLock, not Lock: _get_manifest/aggregate hold `lock` while calling
     # _build_manifest, which calls _get_combos -- itself a `with lock:` block.
     # A plain Lock would deadlock on that same-thread re-acquisition.
@@ -376,9 +410,16 @@ def build_app(cache_dir: Path, run_dir: Path) -> FastAPI:
                     bridge.close()
             return cache["generator_grid_info"]
 
-    def _build_manifest(generators: frozenset[str] | None = None) -> list[dict]:
+    def _build_manifest(
+        generators: frozenset[str] | None = None, full_generators: frozenset[str] | None = None
+    ) -> list[dict]:
         """Build graph-manifest entries for the given *generators*, or every combo
         in the cache when *generators* is None.
+
+        When *full_generators* is given, only those generators keep their non-scan entries
+        (bayesian_* plots etc.); every other generator contributes just its ``scan`` entries,
+        which is all the family-wide views (Highlights, grid stats, speed/accuracy) read.
+        Non-scan entries are ~85% of a study family's manifest.
 
         Scoping to a subset of generators is what keeps a page load on a large
         shared cache from having to scan every repeat of every combo up front
@@ -400,7 +441,11 @@ def build_app(cache_dir: Path, run_dir: Path) -> FastAPI:
             result_rows: list[dict] = []
             n_workers = min(os.cpu_count() or 4, max(len(combos), 1), 12)
             with concurrent.futures.ThreadPoolExecutor(max_workers=n_workers) as pool:
-                for combo_entries, combo_rows in pool.map(lambda c: _load_combo(bridge, c), combos):
+                for combo, (combo_entries, combo_rows) in zip(
+                    combos, pool.map(lambda c: _load_combo_memo(cache["combo_memo"], bridge, c), combos), strict=True
+                ):
+                    if full_generators is not None and combo["generator"] not in full_generators:
+                        combo_entries = [e for e in combo_entries if e.get("type") == "scan"]
                     entries.extend(combo_entries)
                     result_rows.extend(combo_rows)
 
@@ -420,6 +465,12 @@ def build_app(cache_dir: Path, run_dir: Path) -> FastAPI:
             if cache["manifest"] is None:
                 cache["manifest"] = _build_manifest()
             return cache["manifest"]
+
+    threading.Thread(
+        target=lambda: _warm_combo_memo(cache["combo_memo"], _bridge(), list(_get_combos())),
+        daemon=True,
+        name="combo-memo-warmup",
+    ).start()
 
     @app.get("/api/status")
     def status() -> dict:
@@ -444,7 +495,7 @@ def build_app(cache_dir: Path, run_dir: Path) -> FastAPI:
         return _get_generator_grid_info()
 
     @app.get("/api/manifest")
-    def manifest(generators: str | None = None) -> list[dict]:
+    def manifest(generators: str | None = None, full: str | None = None) -> list[dict]:
         """Full manifest by default; pass ``?generators=a,b`` to scope the build
         to only those generators (skips the aggregate views -- see _build_manifest).
         Scoped requests aren't cached: each one only touches a handful of combos,
@@ -453,7 +504,8 @@ def build_app(cache_dir: Path, run_dir: Path) -> FastAPI:
         if generators is None:
             return _get_manifest()
         wanted = frozenset(g for g in generators.split(",") if g)
-        return _build_manifest(wanted)
+        full_wanted = frozenset(g for g in full.split(",") if g) if full is not None else None
+        return _build_manifest(wanted, full_wanted)
 
     @app.get("/api/graph/{combo_key}/{repeat_idx}/{gtype_with_ext}")
     def graph(combo_key: str, repeat_idx: int, gtype_with_ext: str) -> Response:
@@ -569,6 +621,7 @@ def build_app(cache_dir: Path, run_dir: Path) -> FastAPI:
                     cache["aggregate_bytes"] = {}
                     cache["combos"] = None
                     cache["generator_grid_info"] = None
+                    cache["combo_memo"] = {}
                 # Force a rebuild now so the next /api/manifest hit is warm, and to
                 # surface any errors in last_output immediately rather than lazily.
                 _get_manifest()
