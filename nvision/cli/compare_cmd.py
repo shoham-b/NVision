@@ -25,7 +25,7 @@ def _fmt(value: object, column: str) -> str:
         return f"{100 * float(value):.0f}%"
     if column.endswith("_ratio"):
         return f"{float(value):.3f}"
-    if column.startswith("err_") or column.startswith("unc_"):
+    if column.startswith(("err_", "unc_")) or column.endswith("_err_end"):
         return f"{float(value) / 1e3:.0f} kHz"
     return f"{float(value):.0f}"
 
@@ -78,13 +78,16 @@ def compare(
             "max_info",
             "max_info_step",
         ],
-        "Per stage: median measurements and uncertainty ratio (end / start)": [
+        "Per stage: median measurements, uncertainty ratio (end / start), true error at stage end, sensitivity": [
             "stage1_steps",
             "stage1_unc_ratio",
             "stage2_steps",
             "stage2_unc_ratio",
             "stage3_steps",
             "stage3_unc_ratio",
+            "stage1_err_end",
+            "stage2_err_end",
+            "stage3_err_end",
             "stage1_sens_eff",
             "stage2_sens_eff",
             "stage3_sens_eff",

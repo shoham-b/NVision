@@ -12,13 +12,17 @@ from nvision.metrics.stages import compute_stage_metrics, sensitivity_efficiency
 
 
 class _Belief:
-    def __init__(self, primary_unc: float, has_dip: bool):
+    def __init__(self, primary_unc: float, has_dip: bool, estimate: float = 1.0):
         self._unc = primary_unc
         self._has_dip = has_dip
+        self._estimate = estimate
         self.physical_param_bounds = {"zeeman_shift": (0.0, 60e6)}
 
     def uncertainty(self):
         return {"zeeman_shift": self._unc}
+
+    def estimates(self):
+        return {"zeeman_shift": self._estimate}
 
     def current_dips(self):
         return [object()] if self._has_dip else []
@@ -31,7 +35,9 @@ def _run(uncs: list[float], dip_from: int | None, shots: list[int] | None = None
         SimpleNamespace(belief=_Belief(u, dip_from is not None and i >= dip_from), obs=SimpleNamespace(n_shots=k))
         for i, (u, k) in enumerate(zip(uncs, shots, strict=True))
     ]
-    true_signal = SimpleNamespace(parameter_values=lambda: {"zeeman_shift": 1.0, "hwhm": 1.0})
+    true_signal = SimpleNamespace(
+        parameter_values=lambda: {"zeeman_shift": 1.0, "hwhm": 1.0}, get_param_value=lambda name: 1.0
+    )
     return SimpleNamespace(snapshots=snaps, true_signal=true_signal)
 
 
@@ -57,6 +63,17 @@ def test_all_three_stages_reached(monkeypatch):
     assert m["stage2_sens_eff"] == pytest.approx(0.1)
     assert m["stage3_sens_eff"] == pytest.approx(0.95)
     assert m["stage_primary_param"] == "zeeman_shift"
+
+
+def test_error_at_the_end_of_each_stage(monkeypatch):
+    uncs = [1e6] * 10
+    _with_eta(monkeypatch, [0.0, 0.0, 0.0, 0.0, 0.0, 0.2, 1.0, 0.9, 1.0, 0.9])
+    run = _run(uncs, dip_from=3)
+    # Estimate error (truth is 1.0) after measurement i: 10 - i, so stages end after indices 3, 5 and 9.
+    for i, snap in enumerate(run.snapshots):
+        snap.belief._estimate = 1.0 + (10 - i)
+    m = compute_stage_metrics(run)
+    assert (m["stage1_err_end"], m["stage2_err_end"], m["stage3_err_end"]) == (7.0, 5.0, 1.0)
 
 
 def test_one_stray_measurement_does_not_end_refine(monkeypatch):

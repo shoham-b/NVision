@@ -77,7 +77,11 @@ STAGE_METRIC_KEYS: tuple[str, ...] = (
     "stage_primary_param",
     "focus_found_step",
     "max_info_step",
-    *(f"stage{k}_{field}" for k in (1, 2, 3) for field in ("steps", "unc_start", "unc_end", "unc_ratio", "sens_eff")),
+    *(
+        f"stage{k}_{field}"
+        for k in (1, 2, 3)
+        for field in ("steps", "unc_start", "unc_end", "unc_ratio", "err_end", "sens_eff")
+    ),
 )
 
 
@@ -175,6 +179,8 @@ def compute_stage_metrics(run_result: RunResult) -> dict[str, Any]:
     * ``stage{1,2,3}_steps``: measurements spent in the stage (``None`` if the stage was not reached).
     * ``stage{1,2,3}_unc_start`` / ``_unc_end`` / ``_unc_ratio``: primary-parameter uncertainty (Hz) at the
       stage's first and last step, and ``end / start`` (< 1 means the stage shrank the uncertainty).
+    * ``stage{1,2,3}_err_end``: true error |estimate - truth| (Hz) of the primary parameter after the stage's last
+      measurement (the accuracy reached by the end of the stage).
     * ``stage{1,2,3}_sens_eff``: mean sensitivity efficiency of the stage's measurements (module docstring).
     """
     snapshots = run_result.snapshots
@@ -185,6 +191,7 @@ def compute_stage_metrics(run_result: RunResult) -> dict[str, Any]:
         out[f"stage{k}_unc_start"] = None
         out[f"stage{k}_unc_end"] = None
         out[f"stage{k}_unc_ratio"] = None
+        out[f"stage{k}_err_end"] = None
         out[f"stage{k}_sens_eff"] = None
     if n_steps == 0:
         return out
@@ -200,6 +207,8 @@ def compute_stage_metrics(run_result: RunResult) -> dict[str, Any]:
     shots = np.array([float(s.obs.n_shots) for s in snapshots])
 
     unc_trace = [float(s.belief.uncertainty().get(primary, math.nan)) for s in snapshots]
+    true_value = float(run_result.true_signal.get_param_value(primary))
+    err_trace = [abs(float(s.belief.estimates()[primary]) - true_value) for s in snapshots]  # Hz, (n_steps,)
 
     # Measurement indices (0-based). The measurement that reveals the dip ends the search; refine is the
     # efficient tail, which starts after that measurement.
@@ -229,6 +238,7 @@ def compute_stage_metrics(run_result: RunResult) -> dict[str, Any]:
         out[f"stage{k}_unc_start"] = _finite_or_none(start)
         out[f"stage{k}_unc_end"] = _finite_or_none(end)
         out[f"stage{k}_unc_ratio"] = _finite_or_none(end / start) if start > 0 else None
+        out[f"stage{k}_err_end"] = _finite_or_none(err_trace[max(final, first - 1, 0)])
         if n_in_stage > 0:
             w = shots[first : final + 1]
             out[f"stage{k}_sens_eff"] = float(np.sum(w * eta[first : final + 1]) / np.sum(w))

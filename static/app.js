@@ -5548,7 +5548,7 @@ function main() {
         const all = (window.MANIFEST || []).filter(p =>
             genSet.has(p.generator) && noiseSet.has(p.noise) && p.type === 'scan' && isSuccessRun(p)
         );
-        const strategies = [...new Set(all.map(p => p.strategy))].sort();
+        const strategies = [...new Set(all.map(p => p.strategy))].sort(hlStrategyCompare);
         const entities = [];
         for (const strategy of strategies) {
             const strategyPlots = all.filter(p => p.strategy === strategy);
@@ -5700,7 +5700,7 @@ function main() {
             p.repeat === plot.repeat
         );
 
-        const strategies = [...new Set(group.map(p => p.strategy))].sort();
+        const strategies = [...new Set(group.map(p => p.strategy))].sort(hlStrategyCompare);
         const entities = [];
         for (const strategy of strategies) {
             const p = group.find(q => q.strategy === strategy);
@@ -6489,6 +6489,26 @@ function main() {
         return /^SimpleSweep/.test(strategy || '');
     }
 
+    // Display order of locators: the SBED family together (plain SBED, its drive variant, Smart-SBED), then
+    // Smart-Sweep, then the plain sweeps at their spacings (coarsest first); anything else keeps alphabetical
+    // order before them.
+    function hlStrategyRank(strategy) {
+        const s = strategy || '';
+        if (s === 'Bayesian-SBED') return 0;
+        if (s === 'Bayesian-SBED-Drive') return 1;
+        if (s === 'Smart-SBED') return 2;
+        if (s === 'Smart-Sweep') return 3;
+        if (isSweepBaseline(s)) return 4;
+        return -1;
+    }
+    function hlStrategyCompare(a, b) {
+        const d = hlStrategyRank(a) - hlStrategyRank(b);
+        if (d) return d;
+        const ka = Number((/(\d+)perFWHM/.exec(a) || [])[1]) || 0;
+        const kb = Number((/(\d+)perFWHM/.exec(b) || [])[1]) || 0;
+        return ka - kb || a.localeCompare(b);
+    }
+
     function hlSorted(values) {
         return values.filter(v => v != null && isFinite(v)).sort((a, b) => a - b);
     }
@@ -6817,8 +6837,27 @@ function main() {
         return grid;
     }
 
+    function hlHslToHex(h, s, l) {
+        const a = s * Math.min(l, 1 - l);
+        const f = (n) => {
+            const k = (n + h / 30) % 12;
+            const c = l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1));
+            return Math.round(255 * c).toString(16).padStart(2, '0');
+        };
+        return `#${f(0)}${f(8)}${f(4)}`;
+    }
+
+    // The plain sweeps (SimpleSweep-<k>perFWHM) are one method at different spacings, so they share one hue
+    // that darkens with k (light = coarsest spacing); every other locator gets its own palette color.
     function hlStratColor(strategies, strategy) {
-        return HL_COLORS[strategies.indexOf(strategy) % HL_COLORS.length];
+        if (isSweepBaseline(strategy)) {
+            const sweepK = (s) => Number((/(\d+)perFWHM/.exec(s) || [])[1]) || 0;
+            const sweeps = strategies.filter(isSweepBaseline).sort((a, b) => sweepK(a) - sweepK(b));
+            const frac = sweeps.length > 1 ? sweeps.indexOf(strategy) / (sweeps.length - 1) : 0.5;
+            return hlHslToHex(215, 0.5, 0.78 - 0.5 * frac);
+        }
+        const others = strategies.filter((s) => !isSweepBaseline(s));
+        return HL_COLORS[others.indexOf(strategy) % HL_COLORS.length];
     }
     function hlHexToRgba(hex, alpha) {
         const r = parseInt(hex.slice(1, 3), 16), g = parseInt(hex.slice(3, 5), 16), b = parseInt(hex.slice(5, 7), 16);
@@ -6842,7 +6881,7 @@ function main() {
         hlLastArgs = { generator, noises };
         ensureScanFieldsFor(generator, noises).then(() => {
         const byStrategy = hlCollect(generator, noises);
-        const strategies = [...byStrategy.keys()].sort();
+        const strategies = [...byStrategy.keys()].sort(hlStrategyCompare);
         const sweepCandidates = strategies.filter(isSweepBaseline);
         const sweepName = sweepCandidates.find(s => /^SimpleSweep/.test(s)) || sweepCandidates[0] || null;
 
@@ -6929,7 +6968,7 @@ function main() {
         hlLastArgs = { generator: gen, noises };
         ensureScanFieldsFor(gen, noises).then(() => {
         const byStrategy = hlCollect(gen, noises);
-        const strategies = [...byStrategy.keys()].sort();
+        const strategies = [...byStrategy.keys()].sort(hlStrategyCompare);
         const sweepName = strategies.filter(isSweepBaseline).find(s => /^SimpleSweep/.test(s))
             || strategies.filter(isSweepBaseline)[0] || null;
 
@@ -7025,9 +7064,10 @@ function main() {
             cover2: paired.length ? paired.filter(([e, u]) => e <= 2 * u).length / paired.length : null,
             focusFound: share('focus_found_step'), focusStep: med('focus_found_step'),
             maxInfo: share('max_info_step'), maxInfoStep: med('max_info_step'),
-            stageSteps: {}, stageRatio: {},
+            stageSteps: {}, stageRatio: {}, stageErr: {},
         };
         for (const st of HL_STAGES) {
+            row.stageErr[st.n] = med(`stage${st.n}_err_end`);
             row.stageSteps[st.n] = med(`stage${st.n}_steps`);
             row.stageRatio[st.n] = med(`stage${st.n}_unc_ratio`);
         }
@@ -7066,8 +7106,8 @@ function main() {
 
     let hlCmpStage = 2;
 
-    // Locators side by side within ONE stage: reached share, measurements spent, uncertainty change, and the
-    // uncertainty shrink per measurement (ratio^(1/steps), per run) as a speed-independent-of-start rate.
+    // Locators side by side within ONE stage: reached share, measurements spent (speed), true error at the end of
+    // the stage (accuracy) and how close to the steepest point the stage measured.
     function renderHlStageCompare(byStrategy, strategies) {
         const box = document.getElementById('hl-stage-compare');
         if (!box) return;
@@ -7080,20 +7120,17 @@ function main() {
         const rows = strategies.map(strat => {
             const runs = byStrategy.get(strat);
             const steps = runs.map(p => _mv(p, `stage${n}_steps`));
-            const ratios = runs.map(p => _mv(p, `stage${n}_unc_ratio`));
-            const shrink = runs.map(p => {
-                const st = _mv(p, `stage${n}_steps`), r = _mv(p, `stage${n}_unc_ratio`);
-                return st > 0 && r > 0 ? Math.pow(r, 1 / st) : null;
-            });
             const sens = runs.map(p => _mv(p, `stage${n}_sens_eff`));
+            const errs = runs.map(p => _mv(p, `stage${n}_err_end`));
             return {
                 strat, reached: steps.filter(v => v != null).length, total: runs.length,
-                stepsMed: hlMedian(steps), shrinkMed: hlMedian(shrink), sensMed: hlMedian(sens),
-                stepsHtml: iqr(steps), ratioHtml: iqr(ratios), shrinkHtml: iqr(shrink), sensHtml: iqr(sens),
+                stepsMed: hlMedian(steps), sensMed: hlMedian(sens), errMed: hlMedian(errs),
+                stepsHtml: iqr(steps), sensHtml: iqr(sens),
+                errHtml: iqr(errs.map(v => (v == null ? null : v / 1e3))),
             };
         });
         const best = (key) => Math.min(...rows.map(r => r[key]).filter(v => v != null));
-        const bestSteps = best('stepsMed'), bestShrink = best('shrinkMed');
+        const bestSteps = best('stepsMed'), bestErr = best('errMed');
         const bestSens = Math.max(...rows.map(r => r.sensMed).filter(v => v != null));
         rows.sort((a, b) => (a.stepsMed ?? Infinity) - (b.stepsMed ?? Infinity));
         const td = (v, bold) => `<td style="padding:2px 8px;text-align:right;${bold ? 'font-weight:700;color:#047857' : ''}">${v}</td>`;
@@ -7101,14 +7138,14 @@ function main() {
         box.innerHTML =
             '<h4 style="margin:0.8em 0 0.2em;font-size:0.85em;color:#475569;">Compare locators within one stage ' +
             `<select id="hl-stage-compare-pick" class="control-select">${opts}</select>` +
-            '<span tabindex="0" class="help-icon-visible" title="Only runs that reached this stage count. Cells show median (interquartile range). Shrink per measurement = (uncertainty end / start)^(1 / steps) per run: lower = the stage cut the uncertainty faster. Sensitivity = how close the stage measured to the steepest point of the dip (1 = at it, 0 = on the flat baseline or dip centre; simulation ground truth). Best values in green (lowest steps and shrink, highest sensitivity); rows sorted by measurements spent.">?</span></h4>' +
+            '<span tabindex="0" class="help-icon-visible" title="Only runs that reached this stage count. Cells show median (interquartile range). Error at stage end = true |estimate - truth| of the primary parameter after the last measurement of the stage (lower = more accurate by then). Sensitivity = how close the stage measured to the steepest point of the dip (1 = at it, 0 = on the flat baseline or dip centre; simulation ground truth). Best values in green (lowest steps and error, highest sensitivity); rows sorted by measurements spent.">?</span></h4>' +
             '<table class="metric-table" style="border-collapse:collapse;font-size:0.85em;"><thead><tr>' +
             '<th style="text-align:left;padding:2px 12px 2px 0">Strategy</th>' +
-            ['Reached', 'Measurements', 'Uncertainty end / start', 'Shrink per measurement', 'Sensitivity (1 = steepest point)']
+            ['Reached', 'Speed: measurements', 'Accuracy: error at stage end (kHz)', 'Sensitivity (1 = steepest point)']
                 .map(h => `<th style="padding:2px 8px;text-align:right">${h}</th>`).join('') +
             `</tr></thead><tbody>${rows.map(r => `<tr><td style="padding:2px 12px 2px 0">${_shortStratLabel(r.strat)}</td>` +
                 td(`${r.reached}/${r.total}`) + td(r.stepsHtml, r.stepsMed != null && r.stepsMed === bestSteps) +
-                td(r.ratioHtml) + td(r.shrinkHtml, r.shrinkMed != null && r.shrinkMed === bestShrink) +
+                td(r.errHtml, r.errMed != null && r.errMed === bestErr) +
                 td(r.sensHtml, r.sensMed != null && r.sensMed === bestSens) + '</tr>').join('')}</tbody></table>`;
         document.getElementById('hl-stage-compare-pick').addEventListener('change', (e) => {
             hlCmpStage = Number(e.target.value);
@@ -7116,21 +7153,73 @@ function main() {
         });
     }
 
+    // Median (and interquartile band) over repeats of a per-step series value -- 'u' claimed uncertainty or
+    // 'e' true error of the primary parameter -- against the measurement count, one line per locator.
+    // Diamonds / stars sit on each locator's curve at its median focus-found / max-information step.
+    function renderHlStageCurve(div, byStrategy, strategies, key, yTitle) {
+        let maxStep = 1;
+        for (const s of strategies) {
+            for (const p of byStrategy.get(s)) {
+                const m = hlRunSteps(p);
+                if (m != null && m > maxStep) maxStep = m;
+            }
+        }
+        const grid = hlStepGrid(maxStep);
+        const traces = [];
+        const markers = [];
+        for (const strat of strategies) {
+            const runs = byStrategy.get(strat).filter(p => p.series && p.series[key]);
+            if (!runs.length) continue;
+            const color = hlStratColor(strategies, strat);
+            const label = _shortStratLabel(strat);
+            const xs = [], med = [], qLo = [], qHi = [];
+            for (const step of grid) {
+                const vals = hlSorted(runs.map(p => hlSeriesValueAt(p.series, key, step)).filter(v => v != null && v > 0));
+                if (!vals.length) continue;
+                xs.push(step);
+                med.push(hlQuantileSorted(vals, 0.5));
+                qLo.push(hlQuantileSorted(vals, 0.25));
+                qHi.push(hlQuantileSorted(vals, 0.75));
+            }
+            if (!xs.length) continue;
+            traces.push({ x: xs, y: qHi, mode: 'lines', line: { width: 0 }, hoverinfo: 'skip', showlegend: false, legendgroup: strat });
+            traces.push({ x: xs, y: qLo, mode: 'lines', line: { width: 0 }, fill: 'tonexty', fillcolor: hlHexToRgba(color, 0.13),
+                hoverinfo: 'skip', showlegend: false, legendgroup: strat });
+            traces.push({ x: xs, y: med, mode: 'lines', legendgroup: strat, name: `${label} (n=${runs.length})`,
+                line: { color, width: 2 }, hovertemplate: `step %{x}<br>median %{y:.4g} Hz<extra>${label}</extra>` });
+            for (const [field, symbol, what] of [['focus_found_step', 'diamond', 'focus found'], ['max_info_step', 'star', 'max information']]) {
+                const step = hlMedian(byStrategy.get(strat).map(p => _mv(p, field)));
+                if (step == null) continue;
+                const at = xs.findIndex(x => x >= step);
+                if (at < 0) continue;
+                markers.push({ x: [step], y: [med[at]], mode: 'markers', legendgroup: strat, showlegend: false,
+                    marker: { color, size: 11, symbol, line: { color: '#fff', width: 1 } },
+                    hovertemplate: `${what}: step ${Math.round(step)}<extra>${label}</extra>` });
+            }
+        }
+        const layout = hlBaseLayout();
+        layout.xaxis = { ...layout.xaxis, title: { text: 'Measurements', font: { size: 11 } }, type: 'log' };
+        layout.yaxis = { ...layout.yaxis, title: { text: yTitle, font: { size: 11 } }, type: 'log' };
+        Plotly.react(div, [...traces, ...markers], layout, { displayModeBar: false, responsive: true });
+    }
+
     function renderHlStages(generator, noises) {
         const tableDiv = document.getElementById('hl-stages-table');
         const stepsDiv = document.getElementById('hl-stages-steps');
-        const ratioDiv = document.getElementById('hl-stages-ratio');
-        if (!tableDiv || !stepsDiv || !ratioDiv) return;
+        const uncDiv = document.getElementById('hl-stages-unc');
+        const errCurveDiv = document.getElementById('hl-stages-errcurve');
+        if (!tableDiv || !stepsDiv || !uncDiv || !errCurveDiv) return;
         const byStrategy = hlStageRuns(generator, noises);
         const strategies = [...byStrategy.keys()]
             .filter(s => byStrategy.get(s).some(p => _mv(p, 'stage1_steps') != null))
-            .sort();
+            .sort(hlStrategyCompare);
         if (!strategies.length) {
             const cmpBox = document.getElementById('hl-stage-compare');
             if (cmpBox) cmpBox.innerHTML = '';
             tableDiv.innerHTML = '<p style="color:#94a3b8;padding:1em;font-size:0.9em;">No stage metrics for this selection — these runs predate the stage export. Re-run to include them.</p>';
             Plotly.purge(stepsDiv);
-            Plotly.purge(ratioDiv);
+            Plotly.purge(uncDiv);
+            Plotly.purge(errCurveDiv);
             return;
         }
 
@@ -7150,9 +7239,9 @@ function main() {
             section('Stage boundaries (share of runs that reached them, median step)',
                 ['Focus found', 'Median step', 'Max information', 'Median step'],
                 r => [f.pct(r.focusFound), f.count(r.focusStep), f.pct(r.maxInfo), f.count(r.maxInfoStep)]) +
-            section('Per stage (reached runs only): median measurements, median uncertainty ratio end / start',
-                HL_STAGES.flatMap(st => [`${st.label} steps`, `${st.label} ratio`]),
-                r => HL_STAGES.flatMap(st => [f.count(r.stageSteps[st.n]), f.ratio(r.stageRatio[st.n])]));
+            section('Per stage (reached runs only): speed = median measurements; accuracy = median true error at stage end',
+                HL_STAGES.flatMap(st => [`${st.label} steps`, `${st.label} error`]),
+                r => HL_STAGES.flatMap(st => [f.count(r.stageSteps[st.n]), f.khz(r.stageErr[st.n])]));
 
         renderHlStageCompare(byStrategy, strategies);
 
@@ -7162,12 +7251,17 @@ function main() {
         Plotly.react(stepsDiv, hlStageBarTraces(byStrategy, strategies, 'steps', 'measurements'), stepsLayout,
             { displayModeBar: false, responsive: true });
 
-        const ratioLayout = hlBaseLayout();
-        ratioLayout.barmode = 'group';
-        ratioLayout.yaxis = { ...ratioLayout.yaxis, type: 'log', title: { text: 'Uncertainty end / start (median)', font: { size: 11 } } };
-        ratioLayout.shapes = [{ type: 'line', xref: 'paper', x0: 0, x1: 1, yref: 'y', y0: 1, y1: 1, line: { color: '#94a3b8', width: 1, dash: 'dash' } }];
-        Plotly.react(ratioDiv, hlStageBarTraces(byStrategy, strategies, 'unc_ratio', '(end / start)'), ratioLayout,
-            { displayModeBar: false, responsive: true });
+        renderHlStageCurve(uncDiv, byStrategy, strategies, 'u', 'Median claimed uncertainty (Hz)');
+        renderHlStageCurve(errCurveDiv, byStrategy, strategies, 'e', 'Median true |error| (Hz)');
+
+        const errDiv = document.getElementById('hl-stages-err');
+        if (errDiv) {
+            const errLayout = hlBaseLayout();
+            errLayout.barmode = 'group';
+            errLayout.yaxis = { ...errLayout.yaxis, type: 'log', title: { text: 'True error at stage end, Hz (median)', font: { size: 11 } } };
+            Plotly.react(errDiv, hlStageBarTraces(byStrategy, strategies, 'err_end', 'Hz'), errLayout,
+                { displayModeBar: false, responsive: true });
+        }
     }
 
     function renderSpeedNoise(gen) {
@@ -7177,7 +7271,7 @@ function main() {
 
         const genPlots = scanPlots.filter(p => toGenSet(gen).has(p.generator));
         const noises = sortNoiseLabels([...new Set(genPlots.map(p => p.noise))].filter(Boolean));
-        const strategies = [...new Set(genPlots.map(p => p.strategy))].filter(Boolean).sort();
+        const strategies = [...new Set(genPlots.map(p => p.strategy))].filter(Boolean).sort(hlStrategyCompare);
         const adaptive = strategies.filter(s => !isSweepBaseline(s));
         const sweepName = strategies.filter(isSweepBaseline).find(s => /^SimpleSweep/.test(s))
             || strategies.filter(isSweepBaseline)[0] || null;
@@ -7386,7 +7480,7 @@ function main() {
         const container = document.getElementById('speed-span-content');
         if (!container) return;
         container.innerHTML = '';
-        const allStrats = [...new Set(scanPlots.map(p => p.strategy))].filter(Boolean).sort();
+        const allStrats = [...new Set(scanPlots.map(p => p.strategy))].filter(Boolean).sort(hlStrategyCompare);
         const plotDiv = dashPanelDiv(container,
             `Steps to convergence vs signal span — pooled, τ×${hlTauMult}`,
             'Each run by fractional signal span (hwhm / spectrum width). Log-binned median + IQR band. Sweep shown as total measurement count (dashed).',
@@ -7427,7 +7521,7 @@ function main() {
         hlLastArgs = { generator: gen, noises };
         ensureScanFieldsFor(gen, noises).then(() => {
         const byStrategy = hlCollect(gen, noises);
-        const strategies = [...byStrategy.keys()].sort();
+        const strategies = [...byStrategy.keys()].sort(hlStrategyCompare);
         const sweepName = strategies.filter(isSweepBaseline).find(s => /^SimpleSweep/.test(s))
             || strategies.filter(isSweepBaseline)[0] || null;
 
@@ -7663,7 +7757,7 @@ function main() {
 
         const genPlots = scanPlots.filter(p => toGenSet(gen).has(p.generator));
         const noises = sortNoiseLabels([...new Set(genPlots.map(p => p.noise))].filter(Boolean));
-        const strategies = [...new Set(genPlots.map(p => p.strategy))].filter(Boolean).sort();
+        const strategies = [...new Set(genPlots.map(p => p.strategy))].filter(Boolean).sort(hlStrategyCompare);
 
         if (!strategies.length || !noises.length) {
             container.innerHTML = '<div style="padding:2em;color:#64748b;text-align:center;">No data for this generator.</div>';
@@ -7780,7 +7874,7 @@ function main() {
         const container = document.getElementById('acc-span-content');
         if (!container) return;
         container.innerHTML = '';
-        const allStrats = [...new Set(scanPlots.map(p => p.strategy))].filter(Boolean).sort();
+        const allStrats = [...new Set(scanPlots.map(p => p.strategy))].filter(Boolean).sort(hlStrategyCompare);
         const plotDiv = dashPanelDiv(container,
             'Calibration vs signal span — pooled',
             'Per-run 1σ calibration log-binned by fractional signal span. Near 68% is ideal (dashed line).',
@@ -8294,14 +8388,14 @@ function main() {
         hdr.innerHTML = '<h2 style="margin-bottom:0.2em;">Measurement Savings <span tabindex="0" class="help-icon-visible" title="How many measurements each locator needs to converge, compared to the full sweep, as a function of noise level and signal span. τ toggle scales the convergence threshold.">?</span></h2>';
         content.appendChild(hdr);
 
-        const allStrats = [...new Set(scanPlots.map(p => p.strategy))].filter(Boolean).sort();
+        const allStrats = [...new Set(scanPlots.map(p => p.strategy))].filter(Boolean).sort(hlStrategyCompare);
         const sweepName = allStrats.filter(isSweepBaseline).find(s => /^SimpleSweep/.test(s))
             || allStrats.filter(isSweepBaseline)[0] || null;
 
         for (const gen of generators) {
             const genPlots = scanPlots.filter(p => p.generator === gen);
             const noises = sortNoiseLabels([...new Set(genPlots.map(p => p.noise))].filter(Boolean));
-            const strategies = [...new Set(genPlots.map(p => p.strategy))].filter(Boolean).sort();
+            const strategies = [...new Set(genPlots.map(p => p.strategy))].filter(Boolean).sort(hlStrategyCompare);
             const adaptive = strategies.filter(s => !isSweepBaseline(s));
             if (!strategies.length) continue;
 
@@ -8449,12 +8543,12 @@ function main() {
         hdr.innerHTML = '<h2 style="margin-bottom:0.2em;">Uncertainty Quality <span tabindex="0" class="help-icon-visible" title="Whether the locator\'s claimed uncertainty matches the true error (calibration) and how tight the final answer is, as a function of noise level and signal span.">?</span></h2>';
         content.appendChild(hdr);
 
-        const allStrats = [...new Set(scanPlots.map(p => p.strategy))].filter(Boolean).sort();
+        const allStrats = [...new Set(scanPlots.map(p => p.strategy))].filter(Boolean).sort(hlStrategyCompare);
 
         for (const gen of generators) {
             const genPlots = scanPlots.filter(p => p.generator === gen);
             const noises = sortNoiseLabels([...new Set(genPlots.map(p => p.noise))].filter(Boolean));
-            const strategies = [...new Set(genPlots.map(p => p.strategy))].filter(Boolean).sort();
+            const strategies = [...new Set(genPlots.map(p => p.strategy))].filter(Boolean).sort(hlStrategyCompare);
             if (!strategies.length) continue;
 
             const genSection = document.createElement('div');
