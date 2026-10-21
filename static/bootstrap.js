@@ -18,8 +18,10 @@ if (!window.NVISION_ASSET_PREFIX) {
 // pickers), so there is exactly one implementation instead of two independent
 // name-regex parsers that had to be manually kept in sync (see git history --
 // that used to be a real drift hazard, not a hypothetical one).
-window.NVISION_GRID_AXIS_ORDER = ['width', 'contrast', 'saturation', 'sigma_inhom', 'hyperfine'];
+window.NVISION_GRID_AXIS_ORDER = ['drive_mode', 'width', 'contrast', 'saturation', 'sigma_inhom', 'hyperfine'];
 window.NVISION_GRID_AXIS_INFO = {
+    // Derived from grid_variant ("cw_drive"/"pulsed_drive"), not a recorded grid_* field.
+    drive_mode: { label: 'Drive', short: 'drive', metricsKey: 'grid_drive_mode', scaleToMHz: false },
     width: { label: 'HWHM (MHz)', short: 'hwhm', metricsKey: 'grid_hwhm', scaleToMHz: true },
     contrast: { label: 'Contrast', short: 'contrast', metricsKey: 'grid_contrast_total', scaleToMHz: false },
     saturation: { label: 'Saturation', short: 'saturation', metricsKey: 'grid_saturation', scaleToMHz: false },
@@ -31,10 +33,28 @@ window.NVISION_GRID_AXIS_INFO = {
 // /api/generator-grid-info (or undefined/null for a generator with no recorded
 // grid_* metrics, e.g. a bare non-grid or MATLAB generator). Returns null for
 // those; otherwise {family, familyLabel, axes}.
-window.nvisionGeneratorAxes = function (gridInfo) {
-    if (!gridInfo) return null;
-    const variant = gridInfo.grid_variant;
+//
+// Physics-level grouping (not the generator class names):
+//  - A Lorentzian width x contrast grid generator is the sigma_inhom = 0 slice of the
+//    Voigt lineshape (sigma_inhom=0 draws lorentz_frac=1, see presets.py), so it joins
+//    the Voigt family with sigma_inhom = 0 and its own isotope instead of being its own Study.
+//  - CW and pulsed drive generators are one "drive" family with a CW/pulsed axis; drive
+//    only changes the physics for locators that also choose the MW amplitude.
+const NVISION_DRIVE_MODES = { cw_drive: 'cw', pulsed_drive: 'pulsed' };
+const NVISION_FAMILY_LABELS = { voigt: 'Lorentzian / Voigt', drive: 'CW / pulsed drive' };
+
+window.nvisionGeneratorAxes = function (rawGridInfo) {
+    if (!rawGridInfo) return null;
+    let variant = rawGridInfo.grid_variant;
     if (!variant) return null;
+    const gridInfo = { ...rawGridInfo };
+    if (variant === 'lorentzian' && gridInfo.grid_hwhm != null && gridInfo.grid_sigma_inhom == null) {
+        variant = 'voigt';
+        gridInfo.grid_sigma_inhom = 0;
+    } else if (variant in NVISION_DRIVE_MODES) {
+        gridInfo.grid_drive_mode = NVISION_DRIVE_MODES[variant];
+        variant = 'drive';
+    }
     const axes = [];
     for (const key of window.NVISION_GRID_AXIS_ORDER) {
         const info = window.NVISION_GRID_AXIS_INFO[key];
@@ -46,7 +66,7 @@ window.nvisionGeneratorAxes = function (gridInfo) {
     if (!axes.length) return null;
     return {
         family: `${variant}_${axes.map((a) => a.key).join('_')}`,
-        familyLabel: `${variant} (${axes.map((a) => window.NVISION_GRID_AXIS_INFO[a.key].short).join(' × ')})`,
+        familyLabel: `${NVISION_FAMILY_LABELS[variant] || variant} (${axes.map((a) => window.NVISION_GRID_AXIS_INFO[a.key].short).join(' × ')})`,
         axes,
     };
 };

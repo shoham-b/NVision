@@ -225,7 +225,7 @@ _COMPARE_FIELDS = (
     "uncert",
     "focus_found_step",
     "max_info_step",
-    *(f"stage{k}_{m}" for k in (1, 2, 3) for m in ("steps", "unc_ratio")),
+    *(f"stage{k}_{m}" for k in (1, 2, 3) for m in ("steps", "unc_ratio", "err_end", "sens_eff")),
 )
 
 
