@@ -289,8 +289,21 @@
         <!-- Section A: Per condition (filtered: generator + noise) -->
         <h3 style="margin:0.8em 0 0.3em; color:#475569; font-size:0.95em; font-weight:600; text-transform:uppercase; letter-spacing:0.04em;">Per Condition</h3>
         <div style="background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px; margin-bottom:1em;">
-            <h3 style="margin-left:10px;">Uncertainty calibration (coverage) <span tabindex="0" class="help-icon-visible" title="Bars show the fraction of repeats where |error| ≤ 1× and ≤ 2× the claimed final uncertainty, with Wilson 95% intervals. Dashed lines are the 68%/95% Gaussian nominals.">?</span></h3>
-            <div id="hl-coverage" style="height:380px; width:100%;"></div>
+            <h3 style="margin-left:10px;">Was the stop right? <span tabindex="0" class="help-icon-visible" title="True error of the primary parameter at the step each run stopped, in units of the stop target τ (the σ threshold the run stopped on). Only runs that reached the target are counted (Stopped / runs). The fractions give how many repeats ended more than 1×, 2× and 3× τ from the truth, with Wilson 95% intervals in brackets. Reference: if the error were N(0, τ²), 32% / 4.6% / 0.3% would exceed 1× / 2× / 3×; extra spread from the model or locator raises these, so read them as a cost, not a pass/fail.">?</span></h3>
+            <div id="hl-stop-table" style="margin:0.5em 0; overflow-x:auto;"></div>
+        </div>
+        <div style="display:flex; flex-wrap:wrap; gap:1.5em; margin-bottom:1em;">
+            <div style="flex:1 1 46%; min-width:420px; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px;">
+                <h3 style="margin-left:10px;">Did σ fall at the right pace? <span tabindex="0" class="help-icon-visible" title="Median claimed σ (dotted) and median true |error| (solid) against measurements, per strategy. The shaded shells sit above the claimed σ: amber is 1–2σ and red is 2–3σ. An error line that rises into them is larger than σ claimed; below σ is normal and left clear. σ above the error means the run was underconfident, σ below it means overconfident. The dashed line is the stop target τ.">?</span></h3>
+                <label style="display:block; margin:0 0 0 10px; font-size:0.8em; color:#64748b; cursor:pointer;">
+                    <input type="checkbox" id="hl-pace-bands-toggle" checked> Show deviation bands (amber 1–2σ, red 2–3σ above claimed σ)
+                </label>
+                <div id="hl-sigma-pace" style="height:380px; width:100%;"></div>
+            </div>
+            <div style="flex:1 1 46%; min-width:420px; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px;">
+                <h3 style="margin-left:10px;">Does σ relate to the real error? <span tabindex="0" class="help-icon-visible" title="True |error| (median and IQR) against the claimed σ, pooled over all steps and repeats. The dashed line is a calibrated Gaussian belief (median |error| = 0.67 σ). A curve parallel to it means σ tracks the error up to a constant factor; a flat curve means σ says little about the error. Steps within a run are correlated, so the bands are descriptive, not confidence intervals.">?</span></h3>
+                <div id="hl-sigma-reality" style="height:380px; width:100%;"></div>
+            </div>
         </div>
 
         <!-- Section B: vs Noise (generator; all noise levels) -->
