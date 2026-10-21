@@ -270,6 +270,16 @@
                 <div id="hl-stages-err" style="height:360px; width:100%;"></div>
             </div>
         </div>
+        <div style="display:flex; flex-wrap:wrap; gap:1.5em; margin-top:1em;">
+            <div style="flex:1 1 46%; min-width:420px; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px;">
+                <h3 style="margin-left:10px;">Refine: claimed uncertainty vs Fisher <span tabindex="0" class="help-icon-visible" title="Stage 3 aligned to its start. Solid: the locator's claimed primary-parameter uncertainty (median, IQR over runs still going), relative to its value when refine began. Dashed: the Fisher reference, the start uncertainty improved only by the true Fisher information of the measurements since (sensitivity of the true signal, shots and noise). Solid below dashed = the belief claims more precision than the data carry. Applies to every locator that reaches the stage.">?</span></h3>
+                <div id="hl-refine-unc" style="height:360px; width:100%;"></div>
+            </div>
+            <div style="flex:1 1 46%; min-width:420px; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px;">
+                <h3 style="margin-left:10px;">Refine: true error vs Fisher <span tabindex="0" class="help-icon-visible" title="Same alignment as the left plot, but the solid line is the actual |estimate - truth| relative to the claimed uncertainty at refine start. The dashed Fisher reference is the same one, so true error above it means the locator is not improving as fast as Fisher information allows.">?</span></h3>
+                <div id="hl-refine-err" style="height:360px; width:100%;"></div>
+            </div>
+        </div>
     </div>
 
     <!-- ── Accuracy tab: uncertainty quality ──────────────────────────────── -->

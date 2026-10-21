@@ -24,6 +24,8 @@ import math
 from contextlib import suppress
 from typing import Any
 
+import numpy as np
+
 from nvision.models.observer import RunResult
 from nvision.sim.defaults import NVISION_CONVERGENCE_THRESHOLD, PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS
 
@@ -92,6 +94,40 @@ def _resolve_series_param(run_result: RunResult, param: str) -> str:
     from nvision.metrics.milestones import default_shift_param
 
     return default_shift_param(run_result)
+
+
+def extract_refine_series(run_result: RunResult, primary: str, refine_step: int) -> dict[str, Any]:
+    """The refine stage (stage 3) of one run, aligned to its start, every measurement kept.
+
+    ``refine_step`` is the 1-indexed ``max_info_step`` (first refine measurement). Entry ``j`` of each list
+    is the state after ``j`` refine measurements (``j = 0``: the belief just before the first one):
+
+    * ``e``: ``|estimate - truth|`` of ``primary`` (Hz).
+    * ``u``: the belief's claimed 1-sigma uncertainty of ``primary`` (Hz), the raw ``uncertainty()``.
+    * ``f``: the Fisher reference (Hz): ``(u_0^-2 + sum_{t <= j} I_t)^(-1/2)``, i.e. the claimed uncertainty
+      at refine start improved only by the true Fisher information of the measurements taken since
+      (:func:`~nvision.metrics.stages.fisher_information_trace`). ``u`` falling faster than ``f`` means the
+      belief gains more precision than the data carry.
+
+    Also ``"s0"``: ``refine_step``.
+    """
+    from nvision.metrics.stages import fisher_information_trace
+
+    first = refine_step - 1  # 0-based index of the first refine measurement
+    snapshots = run_result.snapshots
+    if not 1 <= first < len(snapshots):
+        raise ValueError(f"refine_step {refine_step} is outside the run's 1..{len(snapshots)} measurements")
+    truth = float(run_result.true_signal.get_param_value(primary))
+    unc = np.array([float(s.belief.uncertainty()[primary]) for s in snapshots[first - 1 :]])
+    est = np.array([float(s.belief.estimates()[primary]) for s in snapshots[first - 1 :]])
+    info = np.concatenate([[0.0], np.cumsum(fisher_information_trace(run_result, primary)[first:])])
+    ref = (unc[0] ** -2 + info) ** -0.5
+    return {
+        "s0": refine_step,
+        "e": [_round_sig(v) for v in np.abs(est - truth)],
+        "u": [_round_sig(v) for v in unc],
+        "f": [_round_sig(v) for v in ref],
+    }
 
 
 def extract_step_series(

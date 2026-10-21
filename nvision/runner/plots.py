@@ -946,7 +946,7 @@ def generate_attempt_plots(
     # Bayesian auxiliary entries and must stay slim.
     if run_result is not None:
         try:
-            from nvision.metrics.series import _round_sig, extract_step_series
+            from nvision.metrics.series import _round_sig, extract_refine_series, extract_step_series
 
             step_series = extract_step_series(run_result)
             if step_series:
@@ -959,6 +959,11 @@ def generate_attempt_plots(
                     step_series["e"][-1] = _round_sig(float(final_err))
                 if isinstance(final_unc, int | float) and math.isfinite(final_unc):
                     step_series["u"][-1] = _round_sig(float(final_unc))
+                # Refine stage aligned to its start, for runs that reached it (``r``, see extract_refine_series).
+                refine_step = entry_base.get("max_info_step")
+                stage_param = entry_base.get("stage_primary_param")
+                if refine_step is not None and stage_param is not None:
+                    step_series["r"] = extract_refine_series(run_result, stage_param, int(refine_step))
                 scan_entry["series"] = step_series
         except Exception:
             log.debug("Step series extraction failed for %s", attempt_slug, exc_info=True)
