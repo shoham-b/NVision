@@ -32,7 +32,11 @@ def _signal_model():
 def _locator(passes: int, converged_at_step: int | None) -> GenericSweepLocator:
     """A sweep whose stopping rules (`_update_stop_rules`) report convergence from ``converged_at_step`` on."""
     loc = GenericSweepLocator(
-        belief=_FakeBelief(), signal_model=_signal_model(), max_steps=_N_GRID, spacing_divisor=None, max_passes=passes
+        belief=_FakeBelief(),
+        signal_model=_signal_model(),
+        max_steps=_N_GRID,
+        spacing_divisor=None,
+        max_measurements=passes * _N_GRID,
     )
 
     def fake_rules() -> None:
@@ -62,7 +66,7 @@ def test_stops_at_the_pass_boundary_after_the_rules_fire():
     assert loc.history.count == 2 * _N_GRID
 
 
-def test_stops_at_max_passes_when_the_rules_never_fire():
+def test_stops_at_the_measurement_cap_when_the_rules_never_fire():
     assert len(_drive(_locator(passes=3, converged_at_step=None))) == 3 * _N_GRID
 
 
@@ -71,11 +75,25 @@ def test_rules_firing_in_the_first_pass_give_a_single_pass():
 
 
 def test_requires_at_least_one_pass():
-    with pytest.raises(ValueError, match="max_passes"):
+    with pytest.raises(ValueError, match="max_measurements"):
         GenericSweepLocator(
             belief=_FakeBelief(),
             signal_model=_signal_model(),
             max_steps=_N_GRID,
             spacing_divisor=None,
-            max_passes=0,
+            max_measurements=0,
         )
+
+
+def test_measurement_cap_counts_whole_passes_only():
+    def cap(max_measurements: int) -> GenericSweepLocator:
+        return GenericSweepLocator(
+            belief=_FakeBelief(),
+            signal_model=_signal_model(),
+            max_steps=_N_GRID,
+            spacing_divisor=None,
+            max_measurements=max_measurements,
+        )
+
+    assert cap(2 * _N_GRID + _N_GRID - 1).max_passes == 2
+    assert cap(1).max_passes == 1  # a pass always completes, even when the cap is below one pass

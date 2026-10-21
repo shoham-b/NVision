@@ -72,7 +72,7 @@ def test_locator_proposes_valid_positions():
 def test_runner_yields_exactly_max_steps():
     exp = _gaussian_experiment()
     rng = random.Random(2)
-    steps = list(run_loop(GenericSweepLocator, exp, rng, max_steps=10, spacing_divisor=None, max_passes=1))
+    steps = list(run_loop(GenericSweepLocator, exp, rng, max_steps=10, spacing_divisor=None, max_measurements=1))
     assert len(steps) <= 10
     assert len(steps) > 0
 

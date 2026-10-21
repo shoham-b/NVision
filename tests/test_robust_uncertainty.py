@@ -279,6 +279,7 @@ class TestSbedStreakSurvivesRawUncertaintySpike:
     def test_streak_not_reset_by_a_transient_raw_spike(self) -> None:
         loc = self._make_locator()
         belief = loc.belief
+        belief.current_dips = lambda: [object()]  # the stop rules also need a dip; this test is about the spike
         # Plain NVCenterLorentzianModel() (no Zeeman/hyperfine, fixed-zero_field_freq
         # by default) only infers hwhm and contrast_total.
         assert list(belief._param_names) == ["hwhm", "contrast_total"]
@@ -318,3 +319,19 @@ class TestSbedStreakSurvivesRawUncertaintySpike:
             "convergence streak was reset by a transient raw-uncertainty spike "
             "that robust_uncertainty() should have filtered out"
         )
+
+
+class TestStopNeedsAFoundDip:
+    def test_converged_uncertainty_without_a_dip_does_not_stop(self) -> None:
+        loc = TestSbedStreakSurvivesRawUncertaintySpike()._make_locator()
+        loc._target_params_converged = lambda _uncertainties=None: True  # the uncertainty ceiling is met
+
+        loc.belief.current_dips = lambda: []
+        for _ in range(10):
+            loc._update_stop_rules()
+        assert not loc._is_converged
+
+        loc.belief.current_dips = lambda: [object()]
+        for _ in range(10):
+            loc._update_stop_rules()
+        assert loc._is_converged

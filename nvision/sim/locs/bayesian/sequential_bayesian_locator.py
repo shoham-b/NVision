@@ -9,7 +9,7 @@ import numpy as np
 
 from nvision.belief.abstract_marginal import AbstractMarginalDistribution
 from nvision.belief.focus_window import FocusRegion
-from nvision.belief.smc_marginal import _inverse_sum_squares
+from nvision.belief.smc_marginal import SMCMarginalDistribution, _inverse_sum_squares
 from nvision.metrics.milestones import (  # noqa: F401  (re-exported for callers and tests)
     DRIVE_RESPONSE_PARAMS,
     belief_target_params_converged,
@@ -51,12 +51,19 @@ class ConvergenceStopRules:
         """Run the stopping rules once, after the belief has absorbed the latest measurement.
 
         Sets ``_is_converged`` once every target parameter's uncertainty has stayed under its ceiling for
-        ``_convergence_patience_steps`` consecutive checks. This is the only stopping rule besides the step budget.
+        ``_convergence_patience_steps`` consecutive checks, *and* the data show a dip (the focus is found,
+        ``belief.current_dips()`` -- the rule the stage metrics use). The belief's uncertainty is overconfident, so
+        without the dip requirement a run could stop having never located the resonance. This is the only
+        stopping rule besides the step budget.
         """
         # The raw belief uncertainty -- the same measure the convergence milestones are read from
         # (nvision/metrics/milestones.py), so the stop rule and the recorded milestones can never disagree.
         uncertainties = self.belief.uncertainty()
-        if self._target_params_converged(uncertainties):
+        # The dip scan only runs once the uncertainty is already under its ceiling. Only the SMC belief models dips
+        # (a grid belief has no focus to find), so the requirement applies to it alone.
+        if self._target_params_converged(uncertainties) and (
+            not isinstance(self.belief, SMCMarginalDistribution) or self.belief.current_dips()
+        ):
             self._convergence_streak += 1
             if self._convergence_streak >= self._convergence_patience_steps:
                 self._is_converged = True

@@ -67,9 +67,9 @@ NVISION_DIP_P_FA: float = float(os.getenv("NVISION_DIP_P_FA", "0.01"))
 NVISION_SWEEP_COVERAGE_FACTOR: float = float(os.getenv("NVISION_SWEEP_COVERAGE_FACTOR", "3.0"))
 NVISION_SWEEP_MIN_STEPS: int = int(os.getenv("NVISION_SWEEP_MIN_STEPS", "50"))
 NVISION_SWEEP_MAX_STEPS: int = int(os.getenv("NVISION_SWEEP_MAX_STEPS", "500"))
-# Plain sweeps repeat their grid and average the passes until the primary parameter's uncertainty target is
-# met; this caps the number of passes (GenericSweepLocator).
-NVISION_SWEEP_MAX_PASSES: int = int(os.getenv("NVISION_SWEEP_MAX_PASSES", "5"))
+# Plain sweeps repeat their grid and average the passes until the stopping rules fire (uncertainty target met and
+# a dip found); this caps the total measurements, in whole passes (GenericSweepLocator).
+NVISION_SWEEP_MAX_MEASUREMENTS: int = int(os.getenv("NVISION_SWEEP_MAX_MEASUREMENTS", "2500"))
 
 # Step budget for the Bayesian-SBED locator (nvision/sim/combinations.py).
 # Read through the module (``sim_defaults.NVISION_SBED_MAX_STEPS``) rather than
