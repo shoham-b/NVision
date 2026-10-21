@@ -240,11 +240,12 @@
             A stage a run never reached is left out of that stage's median; the "Reached" column says how many did (a plain sweep never refines).
         </p>
         <div style="display:flex; align-items:center; gap:0.5em; margin:0 0 0.6em;">
-            <span class="control-label" style="font-size:0.85em; font-weight:600; color:#334155;">Curves start at:</span>
+            <span class="control-label" style="font-size:0.85em; font-weight:600; color:#334155;">Show:</span>
             <div class="segmented-control" id="hl-stages-from" role="radiogroup">
-                <button type="button" role="radio" aria-checked="true" data-value="1" class="is-active" tabindex="0">The beginning</button>
-                <button type="button" role="radio" aria-checked="false" data-value="2" tabindex="-1">Focus found (stage 2)</button>
-                <button type="button" role="radio" aria-checked="false" data-value="3" tabindex="-1">Refine (stage 3)</button>
+                <button type="button" role="radio" aria-checked="true" data-value="0" class="is-active" tabindex="0">Whole run</button>
+                <button type="button" role="radio" aria-checked="false" data-value="1" tabindex="-1">1. Search</button>
+                <button type="button" role="radio" aria-checked="false" data-value="2" tabindex="-1">2. Focus</button>
+                <button type="button" role="radio" aria-checked="false" data-value="3" tabindex="-1">3. Refine</button>
             </div>
         </div>
         <div style="display:flex; flex-wrap:wrap; gap:1.5em;">

@@ -7167,35 +7167,40 @@ function main() {
         });
     }
 
-    // Where the over-time curves start: 1 = the first measurement, 2 = the first measurement after the focus was
-    // found (stage 2), 3 = the first refine measurement (stage 3). Each run is shifted so its chosen stage begins at
-    // x = 1, which lines the locators up at that point; runs that never reached the stage are left out.
-    let hlCurveFrom = 1;
+    // Which part of the run the over-time curves show: 0 = the whole run, 1 / 2 / 3 = just the search / focus / refine
+    // stage. A stage view shifts each run so its stage begins at x = 1 (lining the locators up there) and stops at the
+    // run's own end of that stage; runs that never reached the stage are left out.
+    let hlCurveStage = 0;
     let hlStagesLast = null;
+    const HL_CURVE_STAGE_NAMES = { 1: 'search', 2: 'focus', 3: 'refine' };
 
-    function hlStageStartStep(p, from) {
-        if (from === 1) return 1;
-        if (from === 2) { const f = _mv(p, 'focus_found_step'); return f == null ? null : f + 1; }
-        const r = _mv(p, 'max_info_step');
-        return r == null ? null : r;
+    // First and last measurement (1-indexed) of the run in the chosen view, or null when the stage was not reached.
+    function hlStageWindow(p, stage) {
+        if (stage === 0) {
+            const total = hlRunSteps(p);
+            return total == null ? null : { start: 1, end: total };
+        }
+        const steps = _mv(p, `stage${stage}_steps`);
+        if (!(steps > 0)) return null;
+        const first = stage === 1 ? 1 : stage === 2 ? _mv(p, 'focus_found_step') + 1 : _mv(p, 'max_info_step');
+        return { start: first, end: first - 1 + steps };
     }
 
     // Median (and interquartile band) over repeats of a per-step series value -- 'u' claimed uncertainty or
     // 'e' true error of the primary parameter -- against the measurements since the chosen start, one line per
     // locator. Diamonds / stars sit on each locator's curve at its median focus-found / max-information step.
     function renderHlStageCurve(div, byStrategy, strategies, key, yTitle) {
-        const from = hlCurveFrom;
+        const stage = hlCurveStage;
         const items = [];
         let maxRel = 1;
         for (const strat of strategies) {
             const runs = [];
             for (const p of byStrategy.get(strat)) {
                 if (!p.series || !p.series[key]) continue;
-                const start = hlStageStartStep(p, from);
-                const total = hlRunSteps(p);
-                if (start == null || total == null || total < start) continue;
-                runs.push({ p, start });
-                if (total - start + 1 > maxRel) maxRel = total - start + 1;
+                const win = hlStageWindow(p, stage);
+                if (win == null) continue;
+                runs.push({ p, start: win.start, len: win.end - win.start + 1 });
+                if (win.end - win.start + 1 > maxRel) maxRel = win.end - win.start + 1;
             }
             if (runs.length) items.push({ strat, runs });
         }
@@ -7207,7 +7212,7 @@ function main() {
             const label = _shortStratLabel(strat);
             const xs = [], med = [], qLo = [], qHi = [];
             for (const rel of grid) {
-                const vals = hlSorted(runs.map(({ p, start }) => hlSeriesValueAt(p.series, key, start - 1 + rel)).filter(v => v != null && v > 0));
+                const vals = hlSorted(runs.filter(r => rel <= r.len).map(({ p, start }) => hlSeriesValueAt(p.series, key, start - 1 + rel)).filter(v => v != null && v > 0));
                 if (!vals.length) continue;
                 xs.push(rel);
                 med.push(hlQuantileSorted(vals, 0.5));
@@ -7231,8 +7236,7 @@ function main() {
             }
         }
         const layout = hlBaseLayout();
-        const xTitle = from === 1 ? 'Measurements' : from === 2 ? 'Measurements since the focus was found (stage 2 start)'
-            : 'Measurements since refine started (stage 3 start)';
+        const xTitle = stage === 0 ? 'Measurements' : `Measurements into the ${HL_CURVE_STAGE_NAMES[stage]} stage`;
         layout.xaxis = { ...layout.xaxis, title: { text: xTitle, font: { size: 11 } }, type: 'log' };
         layout.yaxis = { ...layout.yaxis, title: { text: yTitle, font: { size: 11 } }, type: 'log' };
         Plotly.react(div, [...traces, ...markers], layout, { displayModeBar: false, responsive: true });
@@ -7251,7 +7255,7 @@ function main() {
         group.addEventListener('click', (e) => {
             const btn = e.target.closest('button[data-value]');
             if (!btn) return;
-            hlCurveFrom = Number(btn.dataset.value);
+            hlCurveStage = Number(btn.dataset.value);
             group.querySelectorAll('button').forEach(b => {
                 const active = b === btn;
                 b.classList.toggle('is-active', active);
