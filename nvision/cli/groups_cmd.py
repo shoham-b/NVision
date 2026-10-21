@@ -74,6 +74,8 @@ def _run_named_group(
     no_progress: bool = False,
     retry_failed: bool = False,
     resume: bool = False,
+    resume_since: str | None = None,
+    resume_run: str | None = None,
     shard_index: int | None = None,
     shard_count: int | None = None,
 ) -> None:
@@ -92,6 +94,8 @@ def _run_named_group(
         open_browser=open_browser,
         retry_failed=retry_failed,
         resume=resume,
+        resume_since=resume_since,
+        resume_run=resume_run,
         shard_index=shard_index,
         shard_count=shard_count,
     )
@@ -174,6 +178,8 @@ def run_preset(
     no_progress: cli_options.NoProgressOption = False,
     retry_failed: cli_options.RetryFailedOption = False,
     resume: cli_options.ResumeOption = False,
+    resume_since: cli_options.ResumeSinceOption = None,
+    resume_run: cli_options.ResumeRunOption = None,
     shard_index: cli_options.ShardIndexOption = None,
     shard_count: cli_options.ShardCountOption = None,
 ) -> None:
@@ -190,6 +196,8 @@ def run_preset(
         no_progress=no_progress,
         retry_failed=retry_failed,
         resume=resume,
+        resume_since=resume_since,
+        resume_run=resume_run,
         shard_index=shard_index,
         shard_count=shard_count,
     )
@@ -210,6 +218,8 @@ def run_all(
     no_progress: cli_options.NoProgressOption = False,
     retry_failed: cli_options.RetryFailedOption = False,
     resume: cli_options.ResumeOption = False,
+    resume_since: cli_options.ResumeSinceOption = None,
+    resume_run: cli_options.ResumeRunOption = None,
 ) -> int:
     """Run all experiments (alias for ``nvision groups run voigt-grid``)."""
     return run(
@@ -225,6 +235,8 @@ def run_all(
         no_progress=no_progress,
         retry_failed=retry_failed,
         resume=resume,
+        resume_since=resume_since,
+        resume_run=resume_run,
     )
 
 
@@ -245,6 +257,8 @@ def _register_group_alias(group_name: str) -> None:
         no_progress: cli_options.NoProgressOption = False,
         retry_failed: cli_options.RetryFailedOption = False,
         resume: cli_options.ResumeOption = False,
+        resume_since: cli_options.ResumeSinceOption = None,
+        resume_run: cli_options.ResumeRunOption = None,
     ) -> None:
         _run_named_group(
             group_name,
@@ -258,6 +272,8 @@ def _register_group_alias(group_name: str) -> None:
             no_progress=no_progress,
             retry_failed=retry_failed,
             resume=resume,
+            resume_since=resume_since,
+            resume_run=resume_run,
         )
 
     alias.__doc__ = f"Alias for ``groups run {group_name}``."

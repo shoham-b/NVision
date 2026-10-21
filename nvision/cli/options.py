@@ -119,9 +119,32 @@ ResumeOption = Annotated[
     typer.Option(
         "--resume",
         help=(
-            "Resume an interrupted run: keeps results for combinations that ran in the "
-            "latest session (resuming partial repeats), and runs unstarted combinations "
-            "fresh without reusing stale pre-session cache."
+            "Resume the latest recorded run (see `nv runs`): reuses cached results for every combination in "
+            "its stop/resume chain, continuing partial repeats; other combinations run fresh. "
+            "Pick a different run with --resume-run, or by time with --resume-since."
+        ),
+    ),
+]
+
+ResumeSinceOption = Annotated[
+    str | None,
+    typer.Option(
+        "--resume-since",
+        help=(
+            "Implies --resume, and additionally reuses every combination whose cached results were "
+            "written at or after this local time (ISO, e.g. '2026-10-20 20:00' or '2026-10-20'). "
+            "Use it to pick up a run whose chain was not recorded."
+        ),
+    ),
+]
+
+ResumeRunOption = Annotated[
+    str | None,
+    typer.Option(
+        "--resume-run",
+        help=(
+            "Implies --resume, continuing a specific earlier run instead of the latest. Takes an id from "
+            "`nv runs`, an id prefix, 'latest', or '~N' (N-th last run)."
         ),
     ),
 ]

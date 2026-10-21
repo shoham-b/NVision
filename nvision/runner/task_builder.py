@@ -51,7 +51,7 @@ class TaskListBuildConfig:
     # This run's shard index (see nv run --shard-index), threaded onto every
     # built task so worker processes know which MySQL shard table to use.
     shard_index: str | None = None
-    # Set of (generator, noise, strategy) triples that ran in the session being resumed.
+    # (generator, noise, strategy) triples started by any session in the current stop/resume chain.
     # When set, tasks in this set use cache (keeping completed and resuming partials),
     # while tasks not in this set bypass cache (running fresh without stale pre-session cache).
     ran_in_resume_session: set[tuple[str, str, str]] | None = None

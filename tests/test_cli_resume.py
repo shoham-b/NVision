@@ -89,3 +89,64 @@ def test_task_builder_resume_cache_flag(tmp_path: Path) -> None:
             assert task.use_cache is True, f"{triple} should use cache (was in session)"
         else:
             assert task.use_cache is False, f"{triple} should bypass cache (was unrun in session)"
+
+
+def test_combos_written_since_filters_by_local_time() -> None:
+    from datetime import UTC, datetime, timedelta
+
+    import pytest
+    import typer
+
+    from nvision.cli.run import _combos_written_since
+
+    now = datetime.now().astimezone()
+    fmt = "%Y-%m-%d %H:%M:%S"
+
+    def combo(name: str, when: datetime) -> dict:
+        return {
+            "generator": name,
+            "noise": "n",
+            "strategy": "s",
+            "updated_at": when.astimezone(UTC).strftime(fmt),
+        }
+
+    class FakeBridge:
+        def list_combinations_with_updated_at(self) -> list[dict]:
+            return [combo("old", now - timedelta(hours=10)), combo("new", now - timedelta(hours=1))]
+
+    since = (now - timedelta(hours=5)).strftime("%Y-%m-%d %H:%M:%S")
+    assert _combos_written_since(FakeBridge(), since) == {("new", "n", "s")}  # type: ignore[arg-type]
+    with pytest.raises(typer.BadParameter):
+        _combos_written_since(FakeBridge(), "last night")  # type: ignore[arg-type]
+
+
+def test_run_history_chain_and_lookup(tmp_path: Path) -> None:
+    from nvision.cache import CacheBridge
+    from nvision.cli import run_history as rh
+
+    logs = tmp_path / "logs"
+    logs.mkdir()
+    (logs / "a.log").write_text("x Running task: g1/n/s (1)\nRunning task: g2/n/s (1)\n", encoding="utf-8")
+    (logs / "b.log").write_text("Running task: g3/n/s (1)\n", encoding="utf-8")
+
+    runs: list = []
+    rh.record_run(runs, run_id="r1", group="all", repeats=10, log_name="a.log", resumed_from=None, inherited=set())
+    assert runs[0]["started"] is None
+    rh.finalize_runs(runs, logs)
+    assert runs[0]["chain"] == [("g1", "n", "s"), ("g2", "n", "s")]
+
+    rh.record_run(
+        runs, run_id="r2", group="all", repeats=10, log_name="b.log", resumed_from="r1",
+        inherited={tuple(c) for c in runs[0]["chain"]},
+    )  # fmt: skip
+    rh.finalize_runs(runs, logs)
+    assert len(runs[1]["chain"]) == 3  # inherited from r1 plus its own
+
+    assert rh.find_run(runs, "latest")["id"] == "r2"
+    assert rh.find_run(runs, "~1")["id"] == "r1"
+    assert rh.find_run(runs, "r1")["id"] == "r1"
+
+    store = CacheBridge(tmp_path / "cache").nv_center
+    rh.save_runs(store, runs)
+    assert [r["id"] for r in rh.load_runs(store)] == ["r1", "r2"]
+    store.close()

@@ -10,7 +10,7 @@ import re
 import struct
 import sys
 import time
-from datetime import datetime
+from datetime import UTC, datetime
 from logging.handlers import QueueHandler, QueueListener
 from multiprocessing import shared_memory
 from pathlib import Path
@@ -25,8 +25,10 @@ from rich.logging import RichHandler
 from nvision.cache import CacheBridge
 from nvision.cli import defaults as cli_defaults
 from nvision.cli import options as cli_options
+from nvision.cli import run_history
 from nvision.cli.app_instance import app
 from nvision.cli.monitor import MonitorErrorHandler, MonitorLogHandler, ProgressMonitor
+from nvision.cli.run_history import parse_started_combos_from_log as _parse_started_combos_from_log
 from nvision.models.task import LocatorTask
 from nvision.runner import TaskListBuildConfig, build_task_list, graph_queue, run_task
 from nvision.sim import run_groups as sim_run_groups
@@ -837,22 +839,6 @@ def _apply_retry_failed_filter(
     return failed
 
 
-_RUNNING_TASK_LOG_RE = re.compile(r"Running task:\s*(\S+)")
-
-
-def _parse_started_combos_from_log(log_path: Path) -> set[tuple[str, str, str]]:
-    """Extract (generator, noise, strategy) triples that executed in the session log."""
-    found: set[tuple[str, str, str]] = set()
-    with log_path.open("r", encoding="utf-8", errors="replace") as fh:
-        for line in fh:
-            m = _RUNNING_TASK_LOG_RE.search(line)
-            if m:
-                parts = m.group(1).split("/", 2)
-                if len(parts) == 3:
-                    found.add((parts[0], parts[1], parts[2]))
-    return found
-
-
 def _find_latest_session_log(logs_root: Path | None) -> Path | None:
     """Find the most recent run log that recorded actual task executions."""
     from nvision.tools.paths import LOGS_ROOT as _DEFAULT_LOGS_ROOT
@@ -868,6 +854,23 @@ def _find_latest_session_log(logs_root: Path | None) -> Path | None:
         except Exception:
             continue
     return candidates[-1] if candidates else None
+
+
+def _combos_written_since(bridge: CacheBridge, since: str) -> set[tuple[str, str, str]]:
+    """Combinations with cached results written at or after ``since`` (local time, ISO format).
+
+    The cache stamps ``updated_at`` in UTC (``%Y-%m-%d %H:%M:%S``), so ``since`` is converted to UTC.
+    """
+    try:
+        local = datetime.fromisoformat(since)
+    except ValueError as exc:
+        raise typer.BadParameter(f"--resume-since must be an ISO date/time like '2026-10-20 20:00': {exc}") from exc
+    since_utc = local.astimezone(UTC).strftime("%Y-%m-%d %H:%M:%S")
+    return {
+        (c["generator"], c["noise"], c["strategy"])
+        for c in bridge.list_combinations_with_updated_at()
+        if c.get("updated_at", "") >= since_utc
+    }
 
 
 @app.command()
@@ -1024,6 +1027,8 @@ def run(  # noqa: C901
         ),
     ] = False,
     resume: cli_options.ResumeOption = False,
+    resume_since: cli_options.ResumeSinceOption = None,
+    resume_run: cli_options.ResumeRunOption = None,
     shard_index: cli_options.ShardIndexOption = None,
     shard_count: cli_options.ShardCountOption = None,
 ) -> int:
@@ -1097,19 +1102,6 @@ def run(  # noqa: C901
         if not combination_names:
             console.print("[yellow]--retry-failed: no MemoryError failures found — nothing to retry.[/yellow]")
             return 0
-
-    ran_in_resume_session: set[tuple[str, str, str]] | None = None
-    if resume:
-        session_log = _find_latest_session_log(logs_root)
-        if session_log is None:
-            console.print("[yellow]--resume: no previous run logs found to resume from.[/yellow]")
-        else:
-            ran_in_resume_session = _parse_started_combos_from_log(session_log)
-            console.print(f"[bold cyan]--resume: resuming from {session_log.name}[/bold cyan]")
-            console.print(
-                f"  Recognized [bold green]{len(ran_in_resume_session)}[/bold green] "
-                f"combination(s) that ran in last session."
-            )
 
     # Cross-pod sharding: slice the fully-resolved combination list so each shard
     # runs a disjoint subset. Applied last so it composes with --run-group,
@@ -1273,6 +1265,51 @@ def run(  # noqa: C901
         tree = prepare_artifact_tree(out_dir, clear_cache=False)
         _maybe_autostart_server(out_dir, open_browser)
 
+        ran_in_resume_session: set[tuple[str, str, str]] | None = None
+        chain_bridge = CacheBridge(tree.cache_dir, shard_suffix=shard_index_str)
+        chain_store = chain_bridge.nv_center
+        runs = run_history.load_runs(chain_store)
+        history_changed = run_history.finalize_runs(runs, effective_logs_root)
+        resumed_from: str | None = None
+        if resume or resume_since is not None or resume_run is not None:
+            inherited: set[tuple[str, str, str]] = set()
+            try:
+                base = run_history.find_run(runs, resume_run or "latest") if (runs or resume_run) else None
+            except ValueError as exc:
+                raise typer.BadParameter(str(exc)) from exc
+            if base is not None:
+                resumed_from = base["id"]
+                inherited |= {tuple(c) for c in base["chain"]}
+            elif resume_since is None:
+                # Legacy fallback: no recorded runs yet, use the latest session log.
+                session_log = _find_latest_session_log(logs_root)
+                if session_log is not None:
+                    inherited |= _parse_started_combos_from_log(session_log)
+            if resume_since is not None:
+                inherited |= _combos_written_since(chain_bridge, resume_since)
+            if inherited:
+                ran_in_resume_session = inherited
+                console.print(
+                    f"[bold cyan]--resume: reusing results of {len(inherited)} combination(s)"
+                    f"{f' (continuing run {resumed_from})' if resumed_from else ''}.[/bold cyan]"
+                )
+            else:
+                console.print("[yellow]--resume: nothing recorded to resume from.[/yellow]")
+        if not dry_run:
+            run_history.record_run(
+                runs,
+                run_id=run_log_path.stem.removeprefix("nvision-run-"),
+                group=run_group,
+                repeats=repeats,
+                log_name=run_log_path.name,
+                resumed_from=resumed_from,
+                inherited=ran_in_resume_session or set(),
+            )
+            history_changed = True
+        if history_changed:
+            run_history.save_runs(chain_store, runs)
+        chain_store.close()
+
         # Apply remaining signal-parameter CLI overrides (noise-grid overrides were
         # already applied above, before --run-group resolution).
         if width is not None:
@@ -1339,6 +1376,7 @@ def run(  # noqa: C901
                 sweep_max_steps=None,
                 loc_timeout_s=loc_timeout_s,
                 no_cache=no_cache,
+                ran_in_resume_session=ran_in_resume_session,
                 dry_run=dry_run,
                 ignore_cache_strategy=ignore_cache_strategy,
                 require_cache=require_cache,
@@ -1350,7 +1388,6 @@ def run(  # noqa: C901
                 combination_names=combination_names,
                 extra_generators=extra_generators,
                 shard_index=shard_index_str,
-                ran_in_resume_session=ran_in_resume_session,
                 defer_graphs=defer_graphs,
             ),
             monitor=monitor,
