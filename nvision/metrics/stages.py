@@ -118,13 +118,12 @@ def _oracle_drives(true_signal: Any) -> list[DriveSetting | None]:
     ]
 
 
-def sensitivity_efficiency_trace(run_result: RunResult, primary: str) -> np.ndarray:
-    """Per-step Fisher-information efficiency about ``primary``, shape: (n_steps,), in ``[0, 1]``.
+def _primary_sensitivity(run_result: RunResult, primary: str) -> tuple[np.ndarray, float]:
+    """``(g_t^2, max g^2)``: squared sensitivity of each step's measurement and of the best possible one.
 
-    ``eta_t = g(x_t, d_t)^2 / max_{x, d} g(x, d)^2`` with ``g = d signal / d primary`` on the true signal,
-    ``x_t`` the step's physical drive frequency (Hz) and ``d_t`` its drive. The max is over a dense grid of
-    the full drive-frequency range (and, for drive-controlled models, of drive amplitudes). See the module
-    docstring for why this is the information relative to the CRLB-optimal measurement.
+    ``g = d signal / d primary`` on the true signal, in signal / Hz; ``g_t^2`` has shape (n_steps,), taken at the
+    step's physical drive frequency (Hz) and drive. The max is over a dense grid of the full drive-frequency
+    range (and, for drive-controlled models, of drive amplitudes).
     """
     true_signal = run_result.true_signal
     names = list(true_signal.parameter_names)
@@ -167,7 +166,30 @@ def sensitivity_efficiency_trace(run_result: RunResult, primary: str) -> np.ndar
         raise ValueError(
             f"A measurement beat the grid optimum by {measured.max() / best - 1:.2%}; increase _EFFICIENCY_GRID_POINTS."
         )
+    return measured, best
+
+
+def sensitivity_efficiency_trace(run_result: RunResult, primary: str) -> np.ndarray:
+    """Per-step Fisher-information efficiency about ``primary``, shape: (n_steps,), in ``[0, 1]``.
+
+    ``eta_t = g(x_t, d_t)^2 / max_{x, d} g(x, d)^2`` (see :func:`_primary_sensitivity`). See the module
+    docstring for why this is the information relative to the CRLB-optimal measurement.
+    """
+    measured, best = _primary_sensitivity(run_result, primary)
     return measured / max(best, float(measured.max()))
+
+
+def fisher_information_trace(run_result: RunResult, primary: str) -> np.ndarray:
+    """Per-step Fisher information about ``primary`` at its true value, shape: (n_steps,), in Hz^-2.
+
+    ``I_t = k_t g(x_t, d_t)^2 / sigma_t^2`` with ``k_t`` the step's averaged shots and ``sigma_t`` the per-shot
+    noise standard deviation of its observation. Informations add over independent measurements, so
+    ``(sum_t I_t)^(-1/2)`` is the Cramer-Rao bound (nuisance parameters known) on ``primary``.
+    """
+    measured, _ = _primary_sensitivity(run_result, primary)
+    shots = np.array([float(s.obs.n_shots) for s in run_result.snapshots])
+    noise_std = np.array([float(s.obs.noise_std) for s in run_result.snapshots])
+    return shots * measured / noise_std**2
 
 
 def _refine_start(eta: np.ndarray, shots: np.ndarray, first: int) -> int | None:

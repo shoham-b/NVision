@@ -7315,7 +7315,7 @@ function main() {
         Plotly.react(stepsDiv, hlStageBarTraces(byStrategy, strategies, 'steps', 'measurements'), stepsLayout,
             { displayModeBar: false, responsive: true });
 
-        hlStagesLast = { uncDiv, errCurveDiv, byStrategy, strategies };
+        hlStagesLast ={ uncDiv, errCurveDiv, byStrategy, strategies };
         setupStagesFromControl();
         renderHlStageCurves();
 
@@ -7326,6 +7326,66 @@ function main() {
             errLayout.yaxis = { ...errLayout.yaxis, type: 'log', title: { text: 'True error at stage end, Hz (median)', font: { size: 11 } } };
             Plotly.react(errDiv, hlStageBarTraces(byStrategy, strategies, 'err_end', 'Hz'), errLayout,
                 { displayModeBar: false, responsive: true });
+        }
+        renderHlRefineCurves(byStrategy, strategies);
+    }
+
+    // Refine stage aligned to its start: x = measurements since the stage began, y relative to the claimed
+    // uncertainty at its start. Solid = the run's own curve (median + IQR over the runs still going), dashed =
+    // the Fisher reference (series.r.f: start uncertainty improved only by the true Fisher information of the
+    // measurements since; see nvision/metrics/series.py extract_refine_series). Same for every locator that
+    // reaches the stage.
+    const HL_REFINE_MIN_RUNS = 3;
+    function renderHlRefineCurves(byStrategy, strategies) {
+        const uncDiv = document.getElementById('hl-refine-unc');
+        const errDiv = document.getElementById('hl-refine-err');
+        if (!uncDiv || !errDiv) return;
+        const uncTraces = [], errTraces = [];
+        for (const strat of strategies) {
+            const runs = byStrategy.get(strat).map(p => p.series && p.series.r).filter(r => r && r.u && r.u[0] > 0);
+            if (runs.length < HL_REFINE_MIN_RUNS) continue;
+            const color = hlStratColor(strategies, strat);
+            const label = _shortStratLabel(strat);
+            const maxK = Math.max(...runs.map(r => r.u.length - 1));
+            const add = (traces, key, name, dash, band) => {
+                const xs = [], med = [], lo = [], hi = [], n = [];
+                for (let k = 0; k <= maxK; k++) {
+                    const vals = hlSorted(runs.filter(r => r[key].length > k && r[key][k] != null).map(r => r[key][k] / r.u[0]));
+                    if (vals.length < HL_REFINE_MIN_RUNS) break;
+                    xs.push(k); n.push(vals.length);
+                    med.push(hlQuantileSorted(vals, 0.5)); lo.push(hlQuantileSorted(vals, 0.25)); hi.push(hlQuantileSorted(vals, 0.75));
+                }
+                if (!xs.length) return;
+                if (band) {
+                    traces.push({ x: xs, y: hi, mode: 'lines', line: { width: 0 }, hoverinfo: 'skip', showlegend: false, legendgroup: strat });
+                    traces.push({ x: xs, y: lo, mode: 'lines', line: { width: 0 }, fill: 'tonexty', fillcolor: hlHexToRgba(color, 0.13), hoverinfo: 'skip', showlegend: false, legendgroup: strat });
+                }
+                traces.push({
+                    x: xs, y: med, mode: 'lines', legendgroup: strat, name: `${label} ${name}`, customdata: n,
+                    line: { color, width: 2, dash },
+                    hovertemplate: `${label} ${name}<br>%{x} refine steps<br>%{y:.3g} × start σ (%{customdata} runs)<extra></extra>`,
+                });
+            };
+            add(uncTraces, 'u', `claimed σ (n=${runs.length})`, undefined, true);
+            add(uncTraces, 'f', 'Fisher reference', 'dash', false);
+            add(errTraces, 'e', `true error (n=${runs.length})`, undefined, true);
+            add(errTraces, 'f', 'Fisher reference', 'dash', false);
+        }
+        for (const [div, traces, title] of [
+            [uncDiv, uncTraces, 'Claimed σ / claimed σ at refine start'],
+            [errDiv, errTraces, '|True error| / claimed σ at refine start'],
+        ]) {
+            if (!traces.length) {
+                Plotly.purge(div);
+                div.innerHTML = '<p style="color:#94a3b8;padding:1em;font-size:0.9em;">No run reached the refine stage (or these runs predate the refine export).</p>';
+                continue;
+            }
+            const layout = hlBaseLayout();
+            layout.legend = { orientation: 'h', yanchor: 'top', y: -0.22, xanchor: 'left', x: 0, font: { size: 10 } };
+            layout.margin = { ...layout.margin, b: 110 };
+            layout.xaxis = { ...layout.xaxis, title: { text: 'Measurements since refine start', font: { size: 11 } } };
+            layout.yaxis = { ...layout.yaxis, title: { text: title, font: { size: 11 } }, type: 'log' };
+            Plotly.react(div, traces, layout, { displayModeBar: false, responsive: true });
         }
     }
 

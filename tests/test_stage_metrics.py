@@ -244,3 +244,34 @@ def test_oracle_includes_pulses_longer_than_the_pi_pulse():
     )
     eta = sensitivity_efficiency_trace(SimpleNamespace(true_signal=true_signal, snapshots=[snap]), "c")
     assert 0.0 < eta[0] <= 1.0  # before the fix: ValueError "A measurement beat the grid optimum"
+
+
+def test_refine_series_is_aligned_to_refine_start_with_fisher_reference(monkeypatch):
+    from nvision.metrics.series import extract_refine_series
+
+    class _B:
+        def __init__(self, unc: float, est: float):
+            self._unc, self._est = unc, est
+
+        def uncertainty(self):
+            return {"zeeman_shift": self._unc}
+
+        def estimates(self):
+            return {"zeeman_shift": self._est}
+
+    uncs = [9.0, 4.0, 2.0, 1.0, 0.5]
+    snaps = [SimpleNamespace(belief=_B(u, 10.0 + u)) for u in uncs]
+    true_signal = SimpleNamespace(get_param_value=lambda name: 10.0)
+    run = SimpleNamespace(snapshots=snaps, true_signal=true_signal)
+    monkeypatch.setattr(stages, "fisher_information_trace", lambda r, p: np.array([0.0, 0.0, 3.0, 5.0, 7.0]))
+
+    out = extract_refine_series(run, "zeeman_shift", refine_step=3)  # first refine measurement: index 2
+
+    assert out["s0"] == 3
+    assert out["u"] == [4.0, 2.0, 1.0, 0.5]  # belief before the first refine measurement, then after each
+    assert out["e"] == [4.0, 2.0, 1.0, 0.5]
+    # Fisher reference: u0 = 4 improved only by the info gained since: 1/16 + 3, + 5, + 7 (Hz^-2).
+    expected = [(1 / 16 + c) ** -0.5 for c in (0.0, 3.0, 8.0, 15.0)]
+    assert out["f"] == pytest.approx(expected, rel=1e-3)
+    with pytest.raises(ValueError, match="outside the run"):
+        extract_refine_series(run, "zeeman_shift", refine_step=99)
