@@ -8044,7 +8044,6 @@ function main() {
         const traces = [];
         const taus = [];
         const perStrategy = [];
-        let floorY = Infinity;
         for (const strat of strategies) {
             const runs = byStrategy.get(strat).filter(p => p.series && p.series.e && p.series.u);
             if (!runs.length) continue;
@@ -8059,31 +8058,23 @@ function main() {
                 sigMed.push(hlQuantileSorted(sigs, 0.5));
             }
             if (!xs.length) continue;
-            for (const v of errMed.concat(sigMed)) if (v > 0 && v < floorY) floorY = v;
             perStrategy.push({ strat, xs, errMed, sigMed });
         }
-        // Per strategy: pale 0-1σ, 1σ-2σ and 2σ-3σ bands of the median claimed σ (the true |error| should sit inside
-        // them if σ is right), then the lines on top. Plotly fills 'tonexty' down to the previous trace, so the bands are
-        // stacked from an invisible floor trace upward. The log axis cannot reach 0, hence the floor below the data.
+        // Per strategy: the claimed σ line, then deviation shells above it, coloured by how far out they are
+        // (1σ-2σ amber, 2σ-3σ red), then the true-error line on top. Below σ is left clear: an error there is normal.
+        // Plotly fills 'tonexty' up to the previous trace, so each shell is the trace above the one beneath it.
         for (const { strat, xs, errMed, sigMed } of perStrategy) {
             const color = hlStratColor(strategies, strat);
             const label = _shortStratLabel(strat);
-            if (hlPaceBands) {
-                traces.push({
-                    x: xs, y: xs.map(() => floorY * 0.5), mode: 'lines', line: { width: 0 },
-                    legendgroup: strat, showlegend: false, hoverinfo: 'skip',
-                });
-            }
             traces.push({
                 x: xs, y: sigMed, mode: 'lines', legendgroup: strat, name: `${label} claimed σ`,
                 line: { color, width: 2, dash: 'dot' },
-                ...(hlPaceBands ? { fill: 'tonexty', fillcolor: hlHexToRgba(color, 0.2) } : {}),
                 hovertemplate: 'step %{x}<br>median claimed σ %{y:.4g} Hz<extra>' + label + '</extra>',
             });
-            (hlPaceBands ? [[2, 0.12], [3, 0.06]] : []).forEach(([k, alpha]) => {
+            (hlPaceBands ? [[2, '#f59e0b', 0.22], [3, '#dc2626', 0.18]] : []).forEach(([k, shell, alpha]) => {
                 traces.push({
                     x: xs, y: sigMed.map(v => k * v), mode: 'lines', line: { width: 0 },
-                    fill: 'tonexty', fillcolor: hlHexToRgba(color, alpha),
+                    fill: 'tonexty', fillcolor: hlHexToRgba(shell, alpha),
                     legendgroup: strat, showlegend: false,
                     hovertemplate: 'step %{x}<br>' + k + 'σ %{y:.4g} Hz<extra>' + label + '</extra>',
                 });
@@ -8105,6 +8096,13 @@ function main() {
         if (tauMed != null && tauMed > 0) {
             layout.shapes = [{ type: 'line', xref: 'paper', x0: 0, x1: 1, yref: 'y', y0: tauMed, y1: tauMed, line: { color: '#64748b', width: 1.5, dash: 'dash' } }];
             layout.annotations = [{ xref: 'paper', x: 0.99, yref: 'y', y: Math.log10(tauMed), text: 'stop target τ', showarrow: false, font: { size: 9, color: '#64748b' }, yanchor: 'bottom', xanchor: 'right' }];
+        }
+        if (hlPaceBands) {
+            layout.annotations = (layout.annotations || []).concat([{
+                xref: 'paper', yref: 'paper', x: 0.01, y: 0.02, xanchor: 'left', yanchor: 'bottom', showarrow: false,
+                align: 'left', font: { size: 9, color: '#64748b' },
+                text: '<span style="color:#f59e0b">■</span> 1–2σ above claimed σ &nbsp; <span style="color:#dc2626">■</span> 2–3σ above claimed σ',
+            }]);
         }
         Plotly.react(div, traces, layout, { displayModeBar: false, responsive: true });
     }
