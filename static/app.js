@@ -7042,6 +7042,20 @@ function main() {
         return byStrategy;
     }
 
+    // True error of the primary parameter after a stage's last measurement. Runs made since stages.py records it
+    // exactly (stage{n}_err_end); for older results it is read from the run's stored per-step error series at the
+    // stage's last step (the series is downsampled, so this is approximate). null when the stage was not reached.
+    function hlStageErrEnd(p, n) {
+        const exact = _mv(p, `stage${n}_err_end`);
+        if (exact != null) return exact;
+        const steps = _mv(p, `stage${n}_steps`);
+        if (!(steps > 0) || !p.series || !p.series.e || !p.series.s.length) return null;
+        const last = p.series.s[p.series.s.length - 1];
+        const focus = _mv(p, 'focus_found_step'), refine = _mv(p, 'max_info_step');
+        const end = n === 1 ? (focus ?? last) : n === 2 ? (refine != null ? refine - 1 : last) : last;
+        return hlSeriesValueAt(p.series, 'e', end);
+    }
+
     // Polars' default quantile interpolation ("nearest"), so the p90 matches `nv compare` exactly.
     function hlQuantileNearest(sorted, q) {
         return sorted.length ? sorted[Math.round((sorted.length - 1) * q)] : null;
@@ -7067,7 +7081,7 @@ function main() {
             stageSteps: {}, stageRatio: {}, stageErr: {},
         };
         for (const st of HL_STAGES) {
-            row.stageErr[st.n] = med(`stage${st.n}_err_end`);
+            row.stageErr[st.n] = hlMedian(runs.map(p => hlStageErrEnd(p, st.n)));
             row.stageSteps[st.n] = med(`stage${st.n}_steps`);
             row.stageRatio[st.n] = med(`stage${st.n}_unc_ratio`);
         }
@@ -7086,7 +7100,7 @@ function main() {
             const runs = byStrategy.get(strat);
             const x = [], y = [], up = [], down = [], text = [];
             for (const st of HL_STAGES) {
-                const vals = hlSorted(runs.map(p => _mv(p, `stage${st.n}_${field}`)));
+                const vals = hlSorted(runs.map(p => (field === 'err_end' ? hlStageErrEnd(p, st.n) : _mv(p, `stage${st.n}_${field}`))));
                 if (!vals.length) continue;
                 const med = hlQuantileSorted(vals, 0.5);
                 x.push(st.label);
@@ -7121,7 +7135,7 @@ function main() {
             const runs = byStrategy.get(strat);
             const steps = runs.map(p => _mv(p, `stage${n}_steps`));
             const sens = runs.map(p => _mv(p, `stage${n}_sens_eff`));
-            const errs = runs.map(p => _mv(p, `stage${n}_err_end`));
+            const errs = runs.map(p => hlStageErrEnd(p, n));
             return {
                 strat, reached: steps.filter(v => v != null).length, total: runs.length,
                 stepsMed: hlMedian(steps), sensMed: hlMedian(sens), errMed: hlMedian(errs),
