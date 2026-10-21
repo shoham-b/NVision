@@ -6957,13 +6957,24 @@ function main() {
             renderSpeedNoise(gen);
             renderSpeedSpan();
             renderHlSpan(byStrategy, strategies, sweepName);
-            renderHlStages(gen, noises);
             renderSpeedEntityCards(gen, noises);
         }).catch(err => {
             const warn = document.getElementById('hl-warning');
             if (warn) warn.innerHTML = `<div style="padding:1em;color:#721c24;background:#f8d7da;border:1px solid #f5c6cb;border-radius:6px;margin:1em 0;"><strong>Speed render error:</strong> ${err.message || err}<br><pre style="white-space:pre-wrap;font-size:11px">${err.stack || ''}</pre></div>`;
         });
         });
+    }
+
+    // ── Stages tab ───────────────────────────────────────────────────────────
+    function renderStagesTab(gen, noises) {
+        if (toGenSet(gen).size === 0) return;
+        ensureScanFieldsFor(gen, noises)
+            .then(() => ensurePlotly())
+            .then(() => renderHlStages(gen, noises))
+            .catch(err => {
+                const box = document.getElementById('hl-stages-table');
+                if (box) box.innerHTML = `<div style="padding:1em;color:#721c24;background:#f8d7da;border-radius:6px;"><strong>Stages render error:</strong> ${err.message || err}</div>`;
+            });
     }
 
     // ── Stages: search -> focus -> refine ────────────────────────────────────
@@ -7074,28 +7085,31 @@ function main() {
                 const st = _mv(p, `stage${n}_steps`), r = _mv(p, `stage${n}_unc_ratio`);
                 return st > 0 && r > 0 ? Math.pow(r, 1 / st) : null;
             });
+            const sens = runs.map(p => _mv(p, `stage${n}_sens_eff`));
             return {
                 strat, reached: steps.filter(v => v != null).length, total: runs.length,
-                stepsMed: hlMedian(steps), shrinkMed: hlMedian(shrink),
-                stepsHtml: iqr(steps), ratioHtml: iqr(ratios), shrinkHtml: iqr(shrink),
+                stepsMed: hlMedian(steps), shrinkMed: hlMedian(shrink), sensMed: hlMedian(sens),
+                stepsHtml: iqr(steps), ratioHtml: iqr(ratios), shrinkHtml: iqr(shrink), sensHtml: iqr(sens),
             };
         });
         const best = (key) => Math.min(...rows.map(r => r[key]).filter(v => v != null));
         const bestSteps = best('stepsMed'), bestShrink = best('shrinkMed');
+        const bestSens = Math.max(...rows.map(r => r.sensMed).filter(v => v != null));
         rows.sort((a, b) => (a.stepsMed ?? Infinity) - (b.stepsMed ?? Infinity));
         const td = (v, bold) => `<td style="padding:2px 8px;text-align:right;${bold ? 'font-weight:700;color:#047857' : ''}">${v}</td>`;
         const opts = HL_STAGES.map(st => `<option value="${st.n}"${st.n === n ? ' selected' : ''}>${st.n}. ${st.label}</option>`).join('');
         box.innerHTML =
             '<h4 style="margin:0.8em 0 0.2em;font-size:0.85em;color:#475569;">Compare locators within one stage ' +
             `<select id="hl-stage-compare-pick" class="control-select">${opts}</select>` +
-            '<span tabindex="0" class="help-icon-visible" title="Only runs that reached this stage count. Cells show median (interquartile range). Shrink per measurement = (uncertainty end / start)^(1 / steps) per run: lower = the stage cut the uncertainty faster. Best (lowest) values in green; rows sorted by measurements spent.">?</span></h4>' +
+            '<span tabindex="0" class="help-icon-visible" title="Only runs that reached this stage count. Cells show median (interquartile range). Shrink per measurement = (uncertainty end / start)^(1 / steps) per run: lower = the stage cut the uncertainty faster. Sensitivity = how close the stage measured to the steepest point of the dip (1 = at it, 0 = on the flat baseline or dip centre; simulation ground truth). Best values in green (lowest steps and shrink, highest sensitivity); rows sorted by measurements spent.">?</span></h4>' +
             '<table class="metric-table" style="border-collapse:collapse;font-size:0.85em;"><thead><tr>' +
             '<th style="text-align:left;padding:2px 12px 2px 0">Strategy</th>' +
-            ['Reached', 'Measurements', 'Uncertainty end / start', 'Shrink per measurement']
+            ['Reached', 'Measurements', 'Uncertainty end / start', 'Shrink per measurement', 'Sensitivity (1 = steepest point)']
                 .map(h => `<th style="padding:2px 8px;text-align:right">${h}</th>`).join('') +
             `</tr></thead><tbody>${rows.map(r => `<tr><td style="padding:2px 12px 2px 0">${_shortStratLabel(r.strat)}</td>` +
                 td(`${r.reached}/${r.total}`) + td(r.stepsHtml, r.stepsMed != null && r.stepsMed === bestSteps) +
-                td(r.ratioHtml) + td(r.shrinkHtml, r.shrinkMed != null && r.shrinkMed === bestShrink) + '</tr>').join('')}</tbody></table>`;
+                td(r.ratioHtml) + td(r.shrinkHtml, r.shrinkMed != null && r.shrinkMed === bestShrink) +
+                td(r.sensHtml, r.sensMed != null && r.sensMed === bestSens) + '</tr>').join('')}</tbody></table>`;
         document.getElementById('hl-stage-compare-pick').addEventListener('change', (e) => {
             hlCmpStage = Number(e.target.value);
             renderHlStageCompare(byStrategy, strategies);
@@ -7112,6 +7126,8 @@ function main() {
             .filter(s => byStrategy.get(s).some(p => _mv(p, 'stage1_steps') != null))
             .sort();
         if (!strategies.length) {
+            const cmpBox = document.getElementById('hl-stage-compare');
+            if (cmpBox) cmpBox.innerHTML = '';
             tableDiv.innerHTML = '<p style="color:#94a3b8;padding:1em;font-size:0.9em;">No stage metrics for this selection — these runs predate the stage export. Re-run to include them.</p>';
             Plotly.purge(stepsDiv);
             Plotly.purge(ratioDiv);
@@ -8594,6 +8610,7 @@ function main() {
         const repeatView = document.getElementById('scan-repeat-view');
         const speedView = document.getElementById('speed-view');
         const accuracyView = document.getElementById('accuracy-view');
+        const stagesView = document.getElementById('stages-view');
         const pooledView = document.getElementById('pooled-view');
         const failedRunsView = document.getElementById('failed-runs-view');
         const gridStatsView = document.getElementById('grid-stats-view');
@@ -8604,6 +8621,7 @@ function main() {
         if (repeatView) repeatView.style.display = 'none';
         if (speedView) speedView.style.display = 'none';
         if (accuracyView) accuracyView.style.display = 'none';
+        if (stagesView) stagesView.style.display = 'none';
         if (pooledView) pooledView.style.display = 'none';
         if (failedRunsView) failedRunsView.style.display = 'none';
         if (gridStatsView) gridStatsView.style.display = 'none';
@@ -8623,6 +8641,12 @@ function main() {
             if (accuracyView) {
                 accuracyView.style.display = 'block';
                 renderAccuracyTab(gen, noises);
+            }
+        } else if (mode === 'stages') {
+            if (stoppingRow) stoppingRow.style.display = 'none';
+            if (stagesView) {
+                stagesView.style.display = 'block';
+                renderStagesTab(gen, noises);
             }
         } else if (mode === 'pooled') {
             if (stoppingRow) stoppingRow.style.display = 'none';

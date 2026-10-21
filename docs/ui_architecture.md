@@ -82,6 +82,12 @@ generators — the flat "MATLAB (real data)" study bucket). Instead:
    `/api/manifest?generators=<family members>`, sets `window.MANIFEST` to that, and records the
    loaded scope on `window.NVISION_LOADED_GENERATORS`.
 
+Families are physics-level, not generator-class-level (`window.nvisionGeneratorAxes`): a Lorentzian
+width × contrast grid generator joins the Voigt family as its σ_inhom = 0 slice, and `cw_drive` /
+`pulsed_drive` generators form one "drive" family with a CW/pulsed axis (`drive_mode`, derived from
+`grid_variant`). Because of the merge, the facet selection σ_inhom = 0 + isotope `unresolved` matches both
+the `voigt-grid` generator and the `lorentzian-drift` generator, so their repeats are pooled when both exist.
+
 `app.js`'s generator/study picker (`updateScanSignalControls`) still builds its options from
 *every* generator in the cache (`window.NVISION_ALL_GENERATORS`), not just the loaded ones, so
 every generator remains selectable. Picking one outside the loaded scope calls
