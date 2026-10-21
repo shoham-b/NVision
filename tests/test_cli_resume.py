@@ -89,3 +89,17 @@ def test_task_builder_resume_cache_flag(tmp_path: Path) -> None:
             assert task.use_cache is True, f"{triple} should use cache (was in session)"
         else:
             assert task.use_cache is False, f"{triple} should bypass cache (was unrun in session)"
+
+
+def test_resume_chain_roundtrips_through_cache_db(tmp_path: Path) -> None:
+    from nvision.cache import CacheBridge
+    from nvision.cli.run import _load_resume_chain, _save_resume_chain
+
+    store = CacheBridge(tmp_path / "cache").nv_center
+    assert _load_resume_chain(store) == set()
+    chain = {("NVCenter-lorentzian", "Gauss(0.0)", "Bayesian-SBED")}
+    _save_resume_chain(store, chain)
+    assert _load_resume_chain(store) == chain
+    _save_resume_chain(store, set())
+    assert _load_resume_chain(store) == set()
+    store.close()

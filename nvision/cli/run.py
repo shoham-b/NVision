@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import concurrent.futures
 import contextlib
-import json
 import logging
 import multiprocessing
 import os
@@ -24,6 +23,7 @@ from rich.console import Console
 from rich.logging import RichHandler
 
 from nvision.cache import CacheBridge
+from nvision.cache.data_store import CategoryDataStore
 from nvision.cli import defaults as cli_defaults
 from nvision.cli import options as cli_options
 from nvision.cli.app_instance import app
@@ -871,27 +871,19 @@ def _find_latest_session_log(logs_root: Path | None) -> Path | None:
     return candidates[-1] if candidates else None
 
 
-_RESUME_CHAIN_FILE = "resume_chain.json"
+_RESUME_CHAIN_KEY = "resume_chain"
 
 
-def _resume_chain_path(logs_root: Path | None) -> Path:
-    from nvision.tools.paths import LOGS_ROOT as _DEFAULT_LOGS_ROOT
-
-    return (logs_root if logs_root is not None else _DEFAULT_LOGS_ROOT) / _RESUME_CHAIN_FILE
-
-
-def _load_resume_chain(logs_root: Path | None) -> set[tuple[str, str, str]]:
+def _load_resume_chain(store: CategoryDataStore) -> set[tuple[str, str, str]]:
     """Combinations started by every earlier session in the current stop/resume chain."""
-    path = _resume_chain_path(logs_root)
-    if not path.exists():
+    payload = store.backend.get(_RESUME_CHAIN_KEY)
+    if not isinstance(payload, dict):
         return set()
-    return {(g, n, st) for g, n, st in json.loads(path.read_text(encoding="utf-8"))}
+    return {(g, n, st) for g, n, st in payload["combos"]}
 
 
-def _save_resume_chain(logs_root: Path | None, combos: set[tuple[str, str, str]]) -> None:
-    path = _resume_chain_path(logs_root)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(sorted(combos)), encoding="utf-8")
+def _save_resume_chain(store: CategoryDataStore, combos: set[tuple[str, str, str]]) -> None:
+    store.backend.set(_RESUME_CHAIN_KEY, {"kind": "resume_chain", "combos": sorted(combos)})
 
 
 @app.command()
@@ -1122,27 +1114,6 @@ def run(  # noqa: C901
             console.print("[yellow]--retry-failed: no MemoryError failures found — nothing to retry.[/yellow]")
             return 0
 
-    ran_in_resume_session: set[tuple[str, str, str]] | None = None
-    if resume:
-        # The chain persists across stop/resume cycles (run logs are pruned to the last two), so a
-        # resume of a resume still reuses everything the original run produced.
-        chain = _load_resume_chain(logs_root)
-        session_log = _find_latest_session_log(logs_root)
-        if session_log is None and not chain:
-            console.print("[yellow]--resume: no previous run logs found to resume from.[/yellow]")
-        else:
-            if session_log is not None:
-                chain |= _parse_started_combos_from_log(session_log)
-            ran_in_resume_session = chain
-            _save_resume_chain(logs_root, chain)
-            console.print(
-                f"[bold cyan]--resume: reusing results of {len(chain)} combination(s) from the "
-                f"stop/resume chain.[/bold cyan]"
-            )
-    else:
-        # A fresh (non-resume) run starts a new chain.
-        _save_resume_chain(logs_root, set())
-
     # Cross-pod sharding: slice the fully-resolved combination list so each shard
     # runs a disjoint subset. Applied last so it composes with --run-group,
     # --combination, --single-run, filters, and --retry-failed above.
@@ -1304,6 +1275,29 @@ def run(  # noqa: C901
         out_dir: Path = out
         tree = prepare_artifact_tree(out_dir, clear_cache=False)
         _maybe_autostart_server(out_dir, open_browser)
+
+        ran_in_resume_session: set[tuple[str, str, str]] | None = None
+        chain_store = CacheBridge(tree.cache_dir, shard_suffix=shard_index_str).nv_center
+        if resume:
+            # The chain lives in the cache DB, next to the results it refers to, so it survives
+            # stop/resume cycles (run logs are pruned to the last two) and is wiped with the DB.
+            chain = _load_resume_chain(chain_store)
+            session_log = _find_latest_session_log(logs_root)
+            if session_log is None and not chain:
+                console.print("[yellow]--resume: no previous run logs found to resume from.[/yellow]")
+            else:
+                if session_log is not None:
+                    chain |= _parse_started_combos_from_log(session_log)
+                ran_in_resume_session = chain
+                _save_resume_chain(chain_store, chain)
+                console.print(
+                    f"[bold cyan]--resume: reusing results of {len(chain)} combination(s) from the "
+                    f"stop/resume chain.[/bold cyan]"
+                )
+        else:
+            # A fresh (non-resume) run starts a new chain.
+            _save_resume_chain(chain_store, set())
+        chain_store.close()
 
         # Apply remaining signal-parameter CLI overrides (noise-grid overrides were
         # already applied above, before --run-group resolution).
