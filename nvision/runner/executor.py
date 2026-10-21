@@ -1355,9 +1355,11 @@ class _TaskRunner:
             signal_max_span = model.signal_max_span(domain_width)
         from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBayesianLocator
 
-        # Run SimpleSweep baseline for visualization (cached only, no manifest metrics)
+        # Run SimpleSweep baseline for visualization (cached only, no manifest metrics). Not for drive-controlled
+        # models: a sweep has no drive to choose, so their width (and hence the baseline) is undefined.
         if (
             issubclass(locator_class, SequentialBayesianLocator)
+            and not model.controls_drive
             and self._sweep_cache.get_simplesweep_baseline(
                 experiment, self.task.seed, self.generator_name, self.noise_name, rid
             )

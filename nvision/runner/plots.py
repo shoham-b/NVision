@@ -914,7 +914,8 @@ def generate_attempt_plots(
     sweep_ys: list[float] | None = None
     sweep_mode_estimates: dict[str, float] | None = None
     wants_baselines = plots_wanted(strat_name, attempt_idx_in_combo) and not defer
-    if not is_plain_sweep(strat_name) and wants_baselines:
+    # Drive-controlled models have no sweep baseline (a sweep chooses no drive, so their width is undefined).
+    if not is_plain_sweep(strat_name) and wants_baselines and not current_scan.true_signal.model.controls_drive:
         try:
             # entry_base["seed"] is explicitly None (not missing) for MATLAB real-data
             # runs, which have no synthetic generator seed -- `.get(..., 0)` only
