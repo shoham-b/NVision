@@ -14,7 +14,7 @@ from nvision.noises.drift import (
     attach_drift_for_repeat,
 )
 from nvision.sim import presets
-from nvision.sim.combinations import CombinationGrid, _parse_noise, parse_drift_label, parse_gauss_sigma
+from nvision.sim.combinations import _parse_noise, parse_drift_label, parse_gauss_sigma
 from nvision.sim.gen.nv_center_generator import NVCenterCoreGenerator
 
 
@@ -183,19 +183,6 @@ def test_drift_noise_names_round_trip():
         assert parsed.drift == noise.drift
     assert _parse_noise("Gauss(0.01)+Drift(no-such-scenario)") is None
     assert parse_gauss_sigma("Gauss(0.01)") == 0.01
-
-
-def test_drift_group_resolves_every_combination():
-    from nvision.sim.run_groups import get_run_group
-
-    group = get_run_group("lorentzian-drift")
-    grid = CombinationGrid(extra_generators=group.extra_generators)
-    gen = group.generator_names[0]
-    for noise_name in group.noise_names:
-        for strat in group.strategy_names:
-            combo = grid.resolve(gen, noise_name, strat)
-            assert combo is not None
-            assert (combo.noise.drift is None) == ("+Drift(" not in noise_name)
 
 
 def test_scenario_labels_are_unique_and_sized_as_documented():

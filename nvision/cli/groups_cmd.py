@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import inspect
+import typing
 from typing import Annotated
 
 import typer
@@ -58,46 +60,6 @@ def run_single(
         runners=runners,
         no_progress=no_progress,
         open_browser=open_browser,
-    )
-
-
-def _run_named_group(
-    group_name: str,
-    *,
-    repeats_override: int | None = None,
-    no_cache: bool = False,
-    purge: bool = False,
-    dry_run: bool = False,
-    runners: int = cli_defaults.DEFAULT_RUNNERS,
-    open_browser: bool = False,
-    loc_timeout_s: int = cli_defaults.DEFAULT_LOC_TIMEOUT_S,
-    no_progress: bool = False,
-    retry_failed: bool = False,
-    resume: bool = False,
-    resume_since: str | None = None,
-    resume_run: str | None = None,
-    shard_index: int | None = None,
-    shard_count: int | None = None,
-) -> None:
-    """Execute a named :class:`~nvision.sim.run_groups.RunGroup` via :func:`nvision.cli.run.run`."""
-    group = sim_run_groups.get_run_group(group_name)
-    run(
-        out=ARTIFACTS_ROOT,
-        repeats=repeats_override if repeats_override is not None else cli_defaults.DEFAULT_REPEATS,
-        run_group=group.name,
-        no_cache=no_cache,
-        purge=purge,
-        dry_run=dry_run,
-        loc_timeout_s=loc_timeout_s,
-        no_progress=no_progress,
-        runners=runners,
-        open_browser=open_browser,
-        retry_failed=retry_failed,
-        resume=resume,
-        resume_since=resume_since,
-        resume_run=resume_run,
-        shard_index=shard_index,
-        shard_count=shard_count,
     )
 
 
@@ -159,50 +121,6 @@ def count_group(
         typer.echo(str(capped))
 
 
-@groups_app.command("run")
-def run_preset(
-    group_name: Annotated[
-        str,
-        typer.Argument(
-            ...,
-            help="Preset group (same values as `nvision groups list`, e.g. voigt-grid).",
-        ),
-    ],
-    repeats: cli_options.RepeatsOption = cli_defaults.DEFAULT_REPEATS,
-    no_cache: cli_options.NoCacheOption = False,
-    purge: cli_options.PurgeOption = False,
-    dry_run: cli_options.DryRunOption = False,
-    runners: cli_options.RunnersOption = cli_defaults.DEFAULT_RUNNERS,
-    open_browser: cli_options.OpenBrowserOption = cli_defaults.DEFAULT_OPEN_BROWSER,
-    loc_timeout_s: cli_options.LocTimeoutOption = cli_defaults.DEFAULT_LOC_TIMEOUT_S,
-    no_progress: cli_options.NoProgressOption = False,
-    retry_failed: cli_options.RetryFailedOption = False,
-    resume: cli_options.ResumeOption = False,
-    resume_since: cli_options.ResumeSinceOption = None,
-    resume_run: cli_options.ResumeRunOption = None,
-    shard_index: cli_options.ShardIndexOption = None,
-    shard_count: cli_options.ShardCountOption = None,
-) -> None:
-    """Run any registered preset group by name (single entry point for all groups)."""
-    _run_named_group(
-        group_name,
-        repeats_override=repeats,
-        no_cache=no_cache,
-        purge=purge,
-        dry_run=dry_run,
-        runners=runners,
-        open_browser=open_browser,
-        loc_timeout_s=loc_timeout_s,
-        no_progress=no_progress,
-        retry_failed=retry_failed,
-        resume=resume,
-        resume_since=resume_since,
-        resume_run=resume_run,
-        shard_index=shard_index,
-        shard_count=shard_count,
-    )
-
-
 # --- Top-level ``nvision run`` alias ------------------------------------------
 
 
@@ -240,44 +158,56 @@ def run_all(
     )
 
 
-# --- Shorthand aliases (same as ``groups run <name>``) -------------------------
+# --- ``groups run <name>`` / ``groups <name>``: ``nv run --run-group <name>`` with the same flags -------------
+
+
+def _run_signature() -> tuple[inspect.Signature, dict[str, object]]:
+    """``run``'s signature without ``--run-group`` (the group is given as the command/argument), plus its resolved
+    type hints, so the group commands accept exactly the flags ``nv run`` does."""
+    hints = typing.get_type_hints(run, include_extras=True)
+    params = [p.replace(annotation=hints[n]) for n, p in inspect.signature(run).parameters.items() if n != "run_group"]
+    return inspect.Signature(params, return_annotation=hints.get("return", inspect.Signature.empty)), hints
+
+
+def _with_run_flags(func, *leading: inspect.Parameter):
+    """Give ``func`` the CLI signature of ``run`` (minus ``--run-group``), optionally preceded by ``leading`` params."""
+    sig, hints = _run_signature()
+    func.__signature__ = sig.replace(parameters=[*leading, *sig.parameters.values()])
+    func.__annotations__ = {
+        **{p.name: p.annotation for p in leading},
+        **{n: h for n, h in hints.items() if n != "run_group"},
+    }
+    return func
+
+
+_GROUP_NAME_PARAM = inspect.Parameter(
+    "group_name",
+    inspect.Parameter.POSITIONAL_OR_KEYWORD,
+    annotation=Annotated[
+        str, typer.Argument(help="Preset group (same values as `nv groups list`, e.g. voigt-grid, all).")
+    ],
+)
+
+
+def run_preset(group_name: str, **run_flags):
+    """``nv groups run <group>``: identical to ``nv run --run-group <group>`` (every ``nv run`` flag applies)."""
+    return run(run_group=sim_run_groups.get_run_group(group_name).name, **run_flags)
+
+
+_with_run_flags(run_preset, _GROUP_NAME_PARAM)
+groups_app.command("run", help="Run a preset group; same as `nv run --run-group <group>` and takes the same flags.")(
+    run_preset
+)
 
 
 def _register_group_alias(group_name: str) -> None:
     """Register ``groups <group_name>`` as shorthand for ``groups run <group_name>``."""
 
-    def alias(
-        repeats: cli_options.RepeatsOption = cli_defaults.DEFAULT_REPEATS,
-        no_cache: cli_options.NoCacheOption = False,
-        purge: cli_options.PurgeOption = False,
-        dry_run: cli_options.DryRunOption = False,
-        runners: cli_options.RunnersOption = cli_defaults.DEFAULT_RUNNERS,
-        open_browser: cli_options.OpenBrowserOption = cli_defaults.DEFAULT_OPEN_BROWSER,
-        loc_timeout_s: cli_options.LocTimeoutOption = cli_defaults.DEFAULT_LOC_TIMEOUT_S,
-        no_progress: cli_options.NoProgressOption = False,
-        retry_failed: cli_options.RetryFailedOption = False,
-        resume: cli_options.ResumeOption = False,
-        resume_since: cli_options.ResumeSinceOption = None,
-        resume_run: cli_options.ResumeRunOption = None,
-    ) -> None:
-        _run_named_group(
-            group_name,
-            repeats_override=repeats,
-            no_cache=no_cache,
-            purge=purge,
-            dry_run=dry_run,
-            runners=runners,
-            open_browser=open_browser,
-            loc_timeout_s=loc_timeout_s,
-            no_progress=no_progress,
-            retry_failed=retry_failed,
-            resume=resume,
-            resume_since=resume_since,
-            resume_run=resume_run,
-        )
+    def alias(**run_flags):
+        return run_preset(group_name, **run_flags)
 
-    alias.__doc__ = f"Alias for ``groups run {group_name}``."
-    groups_app.command(group_name)(alias)
+    alias.__doc__ = f"Same as `nv run --run-group {group_name}` (and `groups run {group_name}`); takes the same flags."
+    groups_app.command(group_name)(_with_run_flags(alias))
 
 
 for _group_name in (*(g.name for g in sim_run_groups.run_groups()), *sim_run_groups.alias_names()):

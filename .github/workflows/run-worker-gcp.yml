@@ -10,7 +10,6 @@ on:
         type: choice
         options:
           - voigt-grid
-          - lorentzian-drift
           - drive-control
           - both-sbed
           - both-sbed-only

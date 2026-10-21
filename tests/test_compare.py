@@ -58,7 +58,7 @@ def test_sweep_strategies_are_named_by_points_per_fwhm():
 
 
 def test_standard_groups_run_every_sweep_spacing_and_both_smart_locators():
-    for group in ("voigt-grid", "lorentzian-drift"):
+    for group in ("voigt-grid",):
         strategies = get_run_group(group).strategy_names
         assert {sweep_strategy_name(k) for k in SWEEP_SPACING_DIVISORS} <= set(strategies)
         assert {"Smart-Sweep", "Smart-SBED", "Bayesian-SBED"} <= set(strategies)
