@@ -23,11 +23,12 @@ from rich.console import Console
 from rich.logging import RichHandler
 
 from nvision.cache import CacheBridge
-from nvision.cache.data_store import CategoryDataStore
 from nvision.cli import defaults as cli_defaults
 from nvision.cli import options as cli_options
+from nvision.cli import run_history
 from nvision.cli.app_instance import app
 from nvision.cli.monitor import MonitorErrorHandler, MonitorLogHandler, ProgressMonitor
+from nvision.cli.run_history import parse_started_combos_from_log as _parse_started_combos_from_log
 from nvision.models.task import LocatorTask
 from nvision.runner import TaskListBuildConfig, build_task_list, graph_queue, run_task
 from nvision.sim import run_groups as sim_run_groups
@@ -838,22 +839,6 @@ def _apply_retry_failed_filter(
     return failed
 
 
-_RUNNING_TASK_LOG_RE = re.compile(r"Running task:\s*(\S+)")
-
-
-def _parse_started_combos_from_log(log_path: Path) -> set[tuple[str, str, str]]:
-    """Extract (generator, noise, strategy) triples that executed in the session log."""
-    found: set[tuple[str, str, str]] = set()
-    with log_path.open("r", encoding="utf-8", errors="replace") as fh:
-        for line in fh:
-            m = _RUNNING_TASK_LOG_RE.search(line)
-            if m:
-                parts = m.group(1).split("/", 2)
-                if len(parts) == 3:
-                    found.add((parts[0], parts[1], parts[2]))
-    return found
-
-
 def _find_latest_session_log(logs_root: Path | None) -> Path | None:
     """Find the most recent run log that recorded actual task executions."""
     from nvision.tools.paths import LOGS_ROOT as _DEFAULT_LOGS_ROOT
@@ -869,21 +854,6 @@ def _find_latest_session_log(logs_root: Path | None) -> Path | None:
         except Exception:
             continue
     return candidates[-1] if candidates else None
-
-
-_RESUME_CHAIN_KEY = "resume_chain"
-
-
-def _load_resume_chain(store: CategoryDataStore) -> set[tuple[str, str, str]]:
-    """Combinations started by every earlier session in the current stop/resume chain."""
-    payload = store.backend.get(_RESUME_CHAIN_KEY)
-    if not isinstance(payload, dict):
-        return set()
-    return {(g, n, st) for g, n, st in payload["combos"]}
-
-
-def _save_resume_chain(store: CategoryDataStore, combos: set[tuple[str, str, str]]) -> None:
-    store.backend.set(_RESUME_CHAIN_KEY, {"kind": "resume_chain", "combos": sorted(combos)})
 
 
 def _combos_written_since(bridge: CacheBridge, since: str) -> set[tuple[str, str, str]]:
@@ -1058,6 +1028,7 @@ def run(  # noqa: C901
     ] = False,
     resume: cli_options.ResumeOption = False,
     resume_since: cli_options.ResumeSinceOption = None,
+    resume_run: cli_options.ResumeRunOption = None,
     shard_index: cli_options.ShardIndexOption = None,
     shard_count: cli_options.ShardCountOption = None,
 ) -> int:
@@ -1297,27 +1268,46 @@ def run(  # noqa: C901
         ran_in_resume_session: set[tuple[str, str, str]] | None = None
         chain_bridge = CacheBridge(tree.cache_dir, shard_suffix=shard_index_str)
         chain_store = chain_bridge.nv_center
-        if resume or resume_since is not None:
-            # The chain lives in the cache DB, next to the results it refers to, so it survives
-            # stop/resume cycles (run logs are pruned to the last two) and is wiped with the DB.
-            chain = _load_resume_chain(chain_store)
-            session_log = _find_latest_session_log(logs_root)
-            if resume_since is not None:
-                chain |= _combos_written_since(chain_bridge, resume_since)
-            if session_log is None and not chain:
-                console.print("[yellow]--resume: no previous run logs found to resume from.[/yellow]")
-            else:
+        runs = run_history.load_runs(chain_store)
+        history_changed = run_history.finalize_runs(runs, effective_logs_root)
+        resumed_from: str | None = None
+        if resume or resume_since is not None or resume_run is not None:
+            inherited: set[tuple[str, str, str]] = set()
+            try:
+                base = run_history.find_run(runs, resume_run or "latest") if (runs or resume_run) else None
+            except ValueError as exc:
+                raise typer.BadParameter(str(exc)) from exc
+            if base is not None:
+                resumed_from = base["id"]
+                inherited |= {tuple(c) for c in base["chain"]}
+            elif resume_since is None:
+                # Legacy fallback: no recorded runs yet, use the latest session log.
+                session_log = _find_latest_session_log(logs_root)
                 if session_log is not None:
-                    chain |= _parse_started_combos_from_log(session_log)
-                ran_in_resume_session = chain
-                _save_resume_chain(chain_store, chain)
+                    inherited |= _parse_started_combos_from_log(session_log)
+            if resume_since is not None:
+                inherited |= _combos_written_since(chain_bridge, resume_since)
+            if inherited:
+                ran_in_resume_session = inherited
                 console.print(
-                    f"[bold cyan]--resume: reusing results of {len(chain)} combination(s) from the "
-                    f"stop/resume chain.[/bold cyan]"
+                    f"[bold cyan]--resume: reusing results of {len(inherited)} combination(s)"
+                    f"{f' (continuing run {resumed_from})' if resumed_from else ''}.[/bold cyan]"
                 )
-        else:
-            # A fresh (non-resume) run starts a new chain.
-            _save_resume_chain(chain_store, set())
+            else:
+                console.print("[yellow]--resume: nothing recorded to resume from.[/yellow]")
+        if not dry_run:
+            run_history.record_run(
+                runs,
+                run_id=run_log_path.stem.removeprefix("nvision-run-"),
+                group=run_group,
+                repeats=repeats,
+                log_name=run_log_path.name,
+                resumed_from=resumed_from,
+                inherited=ran_in_resume_session or set(),
+            )
+            history_changed = True
+        if history_changed:
+            run_history.save_runs(chain_store, runs)
         chain_store.close()
 
         # Apply remaining signal-parameter CLI overrides (noise-grid overrides were
