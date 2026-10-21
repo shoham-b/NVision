@@ -291,6 +291,7 @@ class TestSbedStreakSurvivesRawUncertaintySpike:
             idx = belief._param_names.index(name)
             belief._particles[:, idx] = 0.5 + rng.normal(0.0, 0.002, size=n)
         belief._weights[:] = 1.0 / n
+        belief._belief_version += 1  # particles edited in place: invalidate the memoized uncertainty
 
         # Build up a genuine streak first (tight cloud, no spike).
         for _ in range(3):
@@ -304,6 +305,7 @@ class TestSbedStreakSurvivesRawUncertaintySpike:
         spiked = belief._particles[:, target_idx].copy()
         spiked[:3] = 0.95
         belief._particles[:, target_idx] = spiked
+        belief._belief_version += 1
 
         # Confirm this really would have been a raw-uncertainty spike (the
         # bug this fix targets), before checking the streak survives it.
