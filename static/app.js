@@ -6474,15 +6474,14 @@ function main() {
     // Curated quick view answering four questions with only fair comparisons:
     //   1. Error vs measurements (anytime curves; sweep = practical baseline)
     //   2. Convergence vs measurements (survival curves; adaptive locators only)
-    //   3. Uncertainty calibration (coverage of claimed uncertainty vs Gaussian nominals)
+    //   3. Stop quality (true error at the stop, claimed σ pace, claimed σ vs true error)
     //   4. Savings vs signal span (paired, matched-promise) + search/refine split
-    const HL_NOMINAL_1S = 0.683;
-    const HL_NOMINAL_2S = 0.954;
-    const HL_NOMINAL_3S = 0.997;
     const HL_COLORS = ['#2563eb', '#f59e0b', '#10b981', '#8b5cf6', '#ec4899', '#ef4444', '#06b6d4', '#14b8a6'];
     let hlTauMult = 1;
     let hlSpeedCriteria = 'primary';  // 'primary' | 'all'
     let hlLastArgs = null;
+    let hlPaceBands = true;   // pale 1σ/2σ/3σ bands on the pace graph; off when strategies' bands overlap too much
+    let hlPaceArgs = null;
 
     // The plain (non-adaptive) sweeps: SimpleSweep and its SimpleSweep-d<k> spacings. Smart-Sweep is adaptive.
     function isSweepBaseline(strategy) {
@@ -6891,7 +6890,7 @@ function main() {
             warn.innerHTML = '';
             if (strategies.length === 0) {
                 warn.innerHTML = '<div style="padding:2em;color:#64748b;text-align:center;background:#f8fafc;border:1px dashed #cbd5e1;border-radius:8px;">No scan data for this generator/noise selection.</div>';
-                ['hl-headline', 'hl-error-curves', 'hl-survival', 'hl-coverage', 'hl-span', 'hl-firstsignal'].forEach(id => {
+                ['hl-headline', 'hl-error-curves', 'hl-survival', 'hl-stop-table', 'hl-sigma-pace', 'hl-sigma-reality', 'hl-span', 'hl-firstsignal'].forEach(id => {
                     const el = document.getElementById(id);
                     if (el) el.innerHTML = '';
                 });
@@ -6906,7 +6905,7 @@ function main() {
         ensurePlotly().then(() => {
             renderHlErrorCurves(byStrategy, strategies, sweepName);
             renderHlSurvival(byStrategy, strategies, sweepName);
-            renderHlCoverage(byStrategy, strategies);
+            renderHlStopQuality(byStrategy, strategies);
             renderHlSpan(byStrategy, strategies, sweepName);
             renderHlHeadline(byStrategy, strategies, sweepName);
         });
@@ -7654,7 +7653,7 @@ function main() {
         if (accView) accView.dataset.renderDebug = `renderAccuracyTab called: gen=${gen}, noises=${JSON.stringify(noises)}, strategies=${strategies.length}`;
         ensurePlotly().then(() => {
             if (accView) accView.dataset.renderDebug += ' | Plotly ready';
-            renderHlCoverage(byStrategy, strategies);
+            renderHlStopQuality(byStrategy, strategies);
             renderAccuracyNoise(gen);
             renderAccuracySpan();
             renderHlSpan(byStrategy, strategies, sweepName);
@@ -8196,69 +8195,197 @@ function main() {
         Plotly.react(div, traces, layout, { displayModeBar: false, responsive: true });
     }
 
-    // Panel 3: coverage of the claimed final uncertainty vs Gaussian nominals.
-    function renderHlCoverage(byStrategy, strategies) {
-        const div = document.getElementById('hl-coverage');
+    // Panel 3: was the stop right, and did the claimed σ relate to the real error?
+    // The run stops once the claimed σ falls below the target τ, so σ at the stop is ≈ τ for every repeat and
+    // says nothing by itself. Three views, each using the known truth:
+    //   * stop table  -- the true error at the stop step, in units of τ (no σ involved);
+    //   * pace        -- claimed σ(t) next to the true |error|(t) over the run;
+    //   * reality     -- true |error| against the claimed σ across all steps (σ varies there, unlike at the stop).
+    function renderHlStopQuality(byStrategy, strategies) {
+        renderHlStopTable(byStrategy, strategies);
+        renderHlSigmaPace(byStrategy, strategies);
+        renderHlSigmaReality(byStrategy, strategies);
+    }
+
+    function renderHlStopTable(byStrategy, strategies) {
+        const div = document.getElementById('hl-stop-table');
         if (!div) return;
-        const labels = [], c1 = [], c1err = [], c2 = [], c2err = [], c3 = [], c3err = [], colors1 = [], colors2 = [], colors3 = [], hover1 = [], hover2 = [], hover3 = [];
+        const fmtFrac = (k, n) => {
+            const w = hlWilson(k, n);
+            return w ? `${(w.p * 100).toFixed(0)}% <span style="color:#94a3b8">[${(w.lo * 100).toFixed(0)}–${(w.hi * 100).toFixed(0)}]</span>` : '–';
+        };
+        const fmtX = v => (v == null ? '–' : `${v.toFixed(2)}×`);
+        const body = [];
         for (const strat of strategies) {
-            const pairs = byStrategy.get(strat).filter(p => _mv(p, 'abs_err_x', 'final_err_shift', 'pair_rmse') != null && p.uncert != null && p.uncert > 0);
-            const n = pairs.length;
-            if (!n) continue;
-            const k1 = pairs.filter(p => _mv(p, 'abs_err_x', 'final_err_shift', 'pair_rmse') <= p.uncert).length;
-            const k2 = pairs.filter(p => _mv(p, 'abs_err_x', 'final_err_shift', 'pair_rmse') <= 2 * p.uncert).length;
-            const k3 = pairs.filter(p => _mv(p, 'abs_err_x', 'final_err_shift', 'pair_rmse') <= 3 * p.uncert).length;
-            const w1 = hlWilson(k1, n), w2 = hlWilson(k2, n), w3 = hlWilson(k3, n);
-            labels.push(_shortStratLabel(strat));
-            c1.push(w1.p); c2.push(w2.p); c3.push(w3.p);
-            c1err.push({ up: w1.hi - w1.p, down: w1.p - w1.lo });
-            c2err.push({ up: w2.hi - w2.p, down: w2.p - w2.lo });
-            c3err.push({ up: w3.hi - w3.p, down: w3.p - w3.lo });
-            // Red only when the whole Wilson interval sits below nominal.
-            colors1.push(w1.hi < HL_NOMINAL_1S ? '#dc2626' : '#60a5fa');
-            colors2.push(w2.hi < HL_NOMINAL_2S ? '#dc2626' : '#1d4ed8');
-            colors3.push(w3.hi < HL_NOMINAL_3S ? '#dc2626' : '#1e3a8a');
-            hover1.push(`${k1}/${n} repeats with |err| ≤ 1σ`);
-            hover2.push(`${k2}/${n} repeats with |err| ≤ 2σ`);
-            hover3.push(`${k3}/${n} repeats with |err| ≤ 3σ`);
+            const runs = byStrategy.get(strat) || [];
+            const ratios = [];
+            for (const p of runs) {
+                const err = _mv(p, 'err_primary_at_milestone');
+                const tau = p.series ? p.series.tau : null;
+                if (p.primary_converged_step == null || err == null || !(tau > 0)) continue;
+                ratios.push(err / tau);
+            }
+            const sorted = hlSorted(ratios);
+            const n = sorted.length;
+            const over = t => sorted.filter(r => r > t).length;
+            body.push(`<tr>
+                <td style="text-align:left;font-weight:600;">${_shortStratLabel(strat)}</td>
+                <td>${n}/${runs.length}</td>
+                <td>${fmtX(hlQuantileSorted(sorted, 0.5))}</td>
+                <td>${fmtX(hlQuantileSorted(sorted, 0.9))}</td>
+                <td>${fmtX(hlQuantileSorted(sorted, 0.99))}</td>
+                <td>${fmtFrac(over(1), n)}</td>
+                <td>${fmtFrac(over(2), n)}</td>
+                <td>${fmtFrac(over(3), n)}</td>
+            </tr>`);
         }
-        if (!labels.length) {
+        if (!body.length) {
+            div.innerHTML = '<p style="color:#94a3b8;padding:1em;font-size:0.9em;">No repeats in this selection.</p>';
+            return;
+        }
+        div.innerHTML = `<table class="hl-stop-table" style="border-collapse:collapse;font-size:0.85em;width:100%;text-align:right;">
+            <thead><tr style="color:#64748b;border-bottom:1px solid #e2e8f0;">
+                <th style="text-align:left;">Strategy</th><th>Stopped / runs</th>
+                <th>Median |err|</th><th>90th pct</th><th>99th pct</th>
+                <th>&gt; 1× τ</th><th>&gt; 2× τ</th><th>&gt; 3× τ</th>
+            </tr></thead><tbody>${body.join('')}</tbody></table>`;
+        div.querySelectorAll('td, th').forEach(c => { c.style.padding = '4px 10px'; });
+    }
+
+    function renderHlSigmaPace(byStrategy, strategies) {
+        const div = document.getElementById('hl-sigma-pace');
+        if (!div) return;
+        hlPaceArgs = { byStrategy, strategies };
+        const toggle = document.getElementById('hl-pace-bands-toggle');
+        if (toggle) {
+            toggle.checked = hlPaceBands;
+            if (!toggle._hasListener) {
+                toggle.addEventListener('change', () => {
+                    hlPaceBands = toggle.checked;
+                    if (hlPaceArgs) renderHlSigmaPace(hlPaceArgs.byStrategy, hlPaceArgs.strategies);
+                });
+                toggle._hasListener = true;
+            }
+        }
+        let globalMax = 1;
+        for (const s of strategies) {
+            if (isSweepBaseline(s)) continue; // a sweep's full-grid step count would swamp the adaptive scale
+            for (const p of byStrategy.get(s)) {
+                const m = hlRunSteps(p);
+                if (m != null && m > globalMax) globalMax = m;
+            }
+        }
+        const grid = hlStepGrid(globalMax);
+        const traces = [];
+        const taus = [];
+        const perStrategy = [];
+        for (const strat of strategies) {
+            const runs = byStrategy.get(strat).filter(p => p.series && p.series.e && p.series.u);
+            if (!runs.length) continue;
+            runs.forEach(p => { if (p.series.tau > 0) taus.push(p.series.tau); });
+            const xs = [], errMed = [], sigMed = [];
+            for (const step of grid) {
+                const errs = hlSorted(runs.map(p => hlSeriesValueAt(p.series, 'e', step)));
+                const sigs = hlSorted(runs.map(p => hlSeriesValueAt(p.series, 'u', step)));
+                if (!errs.length || !sigs.length) continue;
+                xs.push(step);
+                errMed.push(hlQuantileSorted(errs, 0.5));
+                sigMed.push(hlQuantileSorted(sigs, 0.5));
+            }
+            if (!xs.length) continue;
+            perStrategy.push({ strat, xs, errMed, sigMed });
+        }
+        // Per strategy: the claimed σ line, then deviation shells above it, coloured by how far out they are
+        // (1σ-2σ amber, 2σ-3σ red), then the true-error line on top. Below σ is left clear: an error there is normal.
+        // Plotly fills 'tonexty' up to the previous trace, so each shell is the trace above the one beneath it.
+        for (const { strat, xs, errMed, sigMed } of perStrategy) {
+            const color = hlStratColor(strategies, strat);
+            const label = _shortStratLabel(strat);
+            traces.push({
+                x: xs, y: sigMed, mode: 'lines', legendgroup: strat, name: `${label} claimed σ`,
+                line: { color, width: 2, dash: 'dot' },
+                hovertemplate: 'step %{x}<br>median claimed σ %{y:.4g} Hz<extra>' + label + '</extra>',
+            });
+            (hlPaceBands ? [[2, '#f59e0b', 0.22], [3, '#dc2626', 0.18]] : []).forEach(([k, shell, alpha]) => {
+                traces.push({
+                    x: xs, y: sigMed.map(v => k * v), mode: 'lines', line: { width: 0 },
+                    fill: 'tonexty', fillcolor: hlHexToRgba(shell, alpha),
+                    legendgroup: strat, showlegend: false,
+                    hovertemplate: 'step %{x}<br>' + k + 'σ %{y:.4g} Hz<extra>' + label + '</extra>',
+                });
+            });
+            traces.push({
+                x: xs, y: errMed, mode: 'lines', legendgroup: strat, name: `${label} true |err|`,
+                line: { color, width: 2 },
+                hovertemplate: 'step %{x}<br>median true |err| %{y:.4g} Hz<extra>' + label + '</extra>',
+            });
+        }
+        if (!traces.length) {
+            div.innerHTML = '<p style="color:#94a3b8;padding:1em;font-size:0.9em;">No per-step series available.</p>';
+            return;
+        }
+        const layout = hlBaseLayout();
+        layout.xaxis = { ...layout.xaxis, title: { text: 'Measurements', font: { size: 11 } }, type: 'log' };
+        layout.yaxis = { ...layout.yaxis, title: { text: 'Median over repeats (Hz)', font: { size: 11 } }, type: 'log' };
+        const tauMed = hlMedian(taus);
+        if (tauMed != null && tauMed > 0) {
+            layout.shapes = [{ type: 'line', xref: 'paper', x0: 0, x1: 1, yref: 'y', y0: tauMed, y1: tauMed, line: { color: '#64748b', width: 1.5, dash: 'dash' } }];
+            layout.annotations = [{ xref: 'paper', x: 0.99, yref: 'y', y: Math.log10(tauMed), text: 'stop target τ', showarrow: false, font: { size: 9, color: '#64748b' }, yanchor: 'bottom', xanchor: 'right' }];
+        }
+        if (hlPaceBands) {
+            layout.annotations = (layout.annotations || []).concat([{
+                xref: 'paper', yref: 'paper', x: 0.01, y: 0.02, xanchor: 'left', yanchor: 'bottom', showarrow: false,
+                align: 'left', font: { size: 9, color: '#64748b' },
+                text: '<span style="color:#f59e0b">■</span> 1–2σ above claimed σ &nbsp; <span style="color:#dc2626">■</span> 2–3σ above claimed σ',
+            }]);
+        }
+        Plotly.react(div, traces, layout, { displayModeBar: false, responsive: true });
+    }
+
+    function renderHlSigmaReality(byStrategy, strategies) {
+        const div = document.getElementById('hl-sigma-reality');
+        if (!div) return;
+        const traces = [];
+        let xMin = Infinity, xMax = -Infinity;
+        for (const strat of strategies) {
+            const xs = [], ys = [];
+            for (const p of byStrategy.get(strat)) {
+                const ser = p.series;
+                if (!ser || !ser.e || !ser.u) continue;
+                for (let i = 0; i < ser.s.length; i++) {
+                    if (ser.u[i] > 0 && ser.e[i] != null) { xs.push(ser.u[i]); ys.push(ser.e[i]); }
+                }
+            }
+            const bin = hlLogBinMedian(xs, ys, 20, 5);
+            if (!bin.cx.length) continue;
+            const color = hlStratColor(strategies, strat);
+            const label = _shortStratLabel(strat);
+            xMin = Math.min(xMin, bin.cx[0]);
+            xMax = Math.max(xMax, bin.cx[bin.cx.length - 1]);
+            traces.push({
+                x: bin.cx.concat([...bin.cx].reverse()), y: bin.hi.concat([...bin.lo].reverse()),
+                fill: 'toself', fillcolor: hlHexToRgba(color, 0.12), line: { width: 0 },
+                mode: 'lines', hoverinfo: 'skip', showlegend: false, legendgroup: strat,
+            });
+            traces.push({
+                x: bin.cx, y: bin.med, mode: 'lines+markers', legendgroup: strat, name: label,
+                line: { color, width: 2 }, marker: { color, size: 4 }, customdata: bin.n,
+                hovertemplate: 'claimed σ %{x:.3g} Hz<br>median true |err| %{y:.3g} Hz<br>n=%{customdata}<extra>' + label + '</extra>',
+            });
+        }
+        if (!traces.length) {
             div.innerHTML = '<p style="color:#94a3b8;padding:1em;font-size:0.9em;">No (error, uncertainty) pairs available.</p>';
             return;
         }
-        const traces = [
-            {
-                x: labels, y: c1, type: 'bar', name: '|err| ≤ 1σ',
-                marker: { color: colors1 }, text: hover1, textposition: 'none',
-                hovertemplate: '%{y:.0%}<br>%{text}<extra></extra>',
-                error_y: { type: 'data', array: c1err.map(e => e.up), arrayminus: c1err.map(e => e.down), color: '#475569', thickness: 1 },
-            },
-            {
-                x: labels, y: c2, type: 'bar', name: '|err| ≤ 2σ',
-                marker: { color: colors2 }, text: hover2, textposition: 'none',
-                hovertemplate: '%{y:.0%}<br>%{text}<extra></extra>',
-                error_y: { type: 'data', array: c2err.map(e => e.up), arrayminus: c2err.map(e => e.down), color: '#475569', thickness: 1 },
-            },
-            {
-                x: labels, y: c3, type: 'bar', name: '|err| ≤ 3σ',
-                marker: { color: colors3 }, text: hover3, textposition: 'none',
-                hovertemplate: '%{y:.0%}<br>%{text}<extra></extra>',
-                error_y: { type: 'data', array: c3err.map(e => e.up), arrayminus: c3err.map(e => e.down), color: '#475569', thickness: 1 },
-            },
-        ];
+        // A calibrated Gaussian belief has median |error| = 0.6745 σ. A curve parallel to this line means σ tracks the
+        // real error up to a constant factor; a flatter curve means σ says little about the error.
+        traces.push({
+            x: [xMin, xMax], y: [0.6745 * xMin, 0.6745 * xMax], mode: 'lines', name: 'calibrated Gaussian (0.67 σ)',
+            line: { color: '#64748b', width: 1.5, dash: 'dash' }, hoverinfo: 'skip',
+        });
         const layout = hlBaseLayout();
-        layout.barmode = 'group';
-        layout.yaxis = { ...layout.yaxis, title: { text: 'Coverage (fraction of repeats)', font: { size: 11 } }, range: [0, 1.06], tickformat: '.0%' };
-        layout.shapes = [
-            { type: 'line', xref: 'paper', x0: 0, x1: 1, yref: 'y', y0: HL_NOMINAL_1S, y1: HL_NOMINAL_1S, line: { color: '#60a5fa', width: 1, dash: 'dash' } },
-            { type: 'line', xref: 'paper', x0: 0, x1: 1, yref: 'y', y0: HL_NOMINAL_2S, y1: HL_NOMINAL_2S, line: { color: '#1d4ed8', width: 1, dash: 'dash' } },
-            { type: 'line', xref: 'paper', x0: 0, x1: 1, yref: 'y', y0: HL_NOMINAL_3S, y1: HL_NOMINAL_3S, line: { color: '#1e3a8a', width: 1, dash: 'dash' } },
-        ];
-        layout.annotations = [
-            { xref: 'paper', x: 0.005, yref: 'y', y: HL_NOMINAL_1S, text: '68% nominal', showarrow: false, font: { size: 9, color: '#60a5fa' }, yanchor: 'bottom', xanchor: 'left' },
-            { xref: 'paper', x: 0.005, yref: 'y', y: HL_NOMINAL_2S, text: '95% nominal', showarrow: false, font: { size: 9, color: '#1d4ed8' }, yanchor: 'bottom', xanchor: 'left' },
-            { xref: 'paper', x: 0.005, yref: 'y', y: HL_NOMINAL_3S, text: '99.7% nominal', showarrow: false, font: { size: 9, color: '#1e3a8a' }, yanchor: 'bottom', xanchor: 'left' },
-        ];
+        layout.xaxis = { ...layout.xaxis, title: { text: 'Claimed σ (Hz)', font: { size: 11 } }, type: 'log' };
+        layout.yaxis = { ...layout.yaxis, title: { text: 'True |error| (Hz): median and IQR per σ bin', font: { size: 11 } }, type: 'log' };
         Plotly.react(div, traces, layout, { displayModeBar: false, responsive: true });
     }
 
