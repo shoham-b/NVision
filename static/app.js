@@ -7167,30 +7167,49 @@ function main() {
         });
     }
 
+    // Where the over-time curves start: 1 = the first measurement, 2 = the first measurement after the focus was
+    // found (stage 2), 3 = the first refine measurement (stage 3). Each run is shifted so its chosen stage begins at
+    // x = 1, which lines the locators up at that point; runs that never reached the stage are left out.
+    let hlCurveFrom = 1;
+    let hlStagesLast = null;
+
+    function hlStageStartStep(p, from) {
+        if (from === 1) return 1;
+        if (from === 2) { const f = _mv(p, 'focus_found_step'); return f == null ? null : f + 1; }
+        const r = _mv(p, 'max_info_step');
+        return r == null ? null : r;
+    }
+
     // Median (and interquartile band) over repeats of a per-step series value -- 'u' claimed uncertainty or
-    // 'e' true error of the primary parameter -- against the measurement count, one line per locator.
-    // Diamonds / stars sit on each locator's curve at its median focus-found / max-information step.
+    // 'e' true error of the primary parameter -- against the measurements since the chosen start, one line per
+    // locator. Diamonds / stars sit on each locator's curve at its median focus-found / max-information step.
     function renderHlStageCurve(div, byStrategy, strategies, key, yTitle) {
-        let maxStep = 1;
-        for (const s of strategies) {
-            for (const p of byStrategy.get(s)) {
-                const m = hlRunSteps(p);
-                if (m != null && m > maxStep) maxStep = m;
+        const from = hlCurveFrom;
+        const items = [];
+        let maxRel = 1;
+        for (const strat of strategies) {
+            const runs = [];
+            for (const p of byStrategy.get(strat)) {
+                if (!p.series || !p.series[key]) continue;
+                const start = hlStageStartStep(p, from);
+                const total = hlRunSteps(p);
+                if (start == null || total == null || total < start) continue;
+                runs.push({ p, start });
+                if (total - start + 1 > maxRel) maxRel = total - start + 1;
             }
+            if (runs.length) items.push({ strat, runs });
         }
-        const grid = hlStepGrid(maxStep);
+        const grid = hlStepGrid(maxRel);
         const traces = [];
         const markers = [];
-        for (const strat of strategies) {
-            const runs = byStrategy.get(strat).filter(p => p.series && p.series[key]);
-            if (!runs.length) continue;
+        for (const { strat, runs } of items) {
             const color = hlStratColor(strategies, strat);
             const label = _shortStratLabel(strat);
             const xs = [], med = [], qLo = [], qHi = [];
-            for (const step of grid) {
-                const vals = hlSorted(runs.map(p => hlSeriesValueAt(p.series, key, step)).filter(v => v != null && v > 0));
+            for (const rel of grid) {
+                const vals = hlSorted(runs.map(({ p, start }) => hlSeriesValueAt(p.series, key, start - 1 + rel)).filter(v => v != null && v > 0));
                 if (!vals.length) continue;
-                xs.push(step);
+                xs.push(rel);
                 med.push(hlQuantileSorted(vals, 0.5));
                 qLo.push(hlQuantileSorted(vals, 0.25));
                 qHi.push(hlQuantileSorted(vals, 0.75));
@@ -7202,19 +7221,46 @@ function main() {
             traces.push({ x: xs, y: med, mode: 'lines', legendgroup: strat, name: `${label} (n=${runs.length})`,
                 line: { color, width: 2 }, hovertemplate: `step %{x}<br>median %{y:.4g} Hz<extra>${label}</extra>` });
             for (const [field, symbol, what] of [['focus_found_step', 'diamond', 'focus found'], ['max_info_step', 'star', 'max information']]) {
-                const step = hlMedian(byStrategy.get(strat).map(p => _mv(p, field)));
-                if (step == null) continue;
-                const at = xs.findIndex(x => x >= step);
+                const rel = hlMedian(runs.map(({ p, start }) => { const v = _mv(p, field); return v == null ? null : v - start + 1; }));
+                if (rel == null || rel < 1) continue;
+                const at = xs.findIndex(x => x >= rel);
                 if (at < 0) continue;
-                markers.push({ x: [step], y: [med[at]], mode: 'markers', legendgroup: strat, showlegend: false,
+                markers.push({ x: [rel], y: [med[at]], mode: 'markers', legendgroup: strat, showlegend: false,
                     marker: { color, size: 11, symbol, line: { color: '#fff', width: 1 } },
-                    hovertemplate: `${what}: step ${Math.round(step)}<extra>${label}</extra>` });
+                    hovertemplate: `${what}: ${Math.round(rel)} measurements in<extra>${label}</extra>` });
             }
         }
         const layout = hlBaseLayout();
-        layout.xaxis = { ...layout.xaxis, title: { text: 'Measurements', font: { size: 11 } }, type: 'log' };
+        const xTitle = from === 1 ? 'Measurements' : from === 2 ? 'Measurements since the focus was found (stage 2 start)'
+            : 'Measurements since refine started (stage 3 start)';
+        layout.xaxis = { ...layout.xaxis, title: { text: xTitle, font: { size: 11 } }, type: 'log' };
         layout.yaxis = { ...layout.yaxis, title: { text: yTitle, font: { size: 11 } }, type: 'log' };
         Plotly.react(div, [...traces, ...markers], layout, { displayModeBar: false, responsive: true });
+    }
+
+    function renderHlStageCurves() {
+        if (!hlStagesLast) return;
+        const { uncDiv, errCurveDiv, byStrategy, strategies } = hlStagesLast;
+        renderHlStageCurve(uncDiv, byStrategy, strategies, 'u', 'Median claimed uncertainty (Hz)');
+        renderHlStageCurve(errCurveDiv, byStrategy, strategies, 'e', 'Median true |error| (Hz)');
+    }
+
+    function setupStagesFromControl() {
+        const group = document.getElementById('hl-stages-from');
+        if (!group || group._hasListener) return;
+        group.addEventListener('click', (e) => {
+            const btn = e.target.closest('button[data-value]');
+            if (!btn) return;
+            hlCurveFrom = Number(btn.dataset.value);
+            group.querySelectorAll('button').forEach(b => {
+                const active = b === btn;
+                b.classList.toggle('is-active', active);
+                b.setAttribute('aria-checked', active ? 'true' : 'false');
+                b.tabIndex = active ? 0 : -1;
+            });
+            renderHlStageCurves();
+        });
+        group._hasListener = true;
     }
 
     function renderHlStages(generator, noises) {
@@ -7265,8 +7311,9 @@ function main() {
         Plotly.react(stepsDiv, hlStageBarTraces(byStrategy, strategies, 'steps', 'measurements'), stepsLayout,
             { displayModeBar: false, responsive: true });
 
-        renderHlStageCurve(uncDiv, byStrategy, strategies, 'u', 'Median claimed uncertainty (Hz)');
-        renderHlStageCurve(errCurveDiv, byStrategy, strategies, 'e', 'Median true |error| (Hz)');
+        hlStagesLast = { uncDiv, errCurveDiv, byStrategy, strategies };
+        setupStagesFromControl();
+        renderHlStageCurves();
 
         const errDiv = document.getElementById('hl-stages-err');
         if (errDiv) {
