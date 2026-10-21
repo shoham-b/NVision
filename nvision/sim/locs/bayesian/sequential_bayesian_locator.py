@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from collections.abc import Callable, Mapping
 
 import numpy as np
@@ -9,87 +10,68 @@ import numpy as np
 from nvision.belief.abstract_marginal import AbstractMarginalDistribution
 from nvision.belief.focus_window import FocusRegion
 from nvision.belief.smc_marginal import _inverse_sum_squares
-from nvision.metrics.milestones import resolve_primary_param
+from nvision.metrics.milestones import (  # noqa: F401  (re-exported for callers and tests)
+    DRIVE_RESPONSE_PARAMS,
+    belief_target_params_converged,
+    resolve_primary_param,
+    saturation_voigt_derived_bounds,
+    saturation_voigt_derived_sigmas,
+)
 from nvision.models.locator import Locator
 from nvision.models.observation import Observation
 from nvision.sim.defaults import (
     NVISION_CONVERGENCE_THRESHOLD,
-    param_convergence_bound_width,
 )
 
-# Raw saturation-Voigt parameters whose convergence is gated via the derived
-# effective-HWHM / realized-contrast quantities instead of per-param thresholds.
-# c_max is not included: it's a fixed constant (NV_SATURATION_C_MAX), not an
-# inferred/estimated parameter, so it has no posterior uncertainty to gate on.
-_SATURATION_VOIGT_RAW_PARAMS: tuple[str, ...] = ("saturation", "sigma_inhom")
-# Inferred response of the sample to the microwave drive (drive-controlled models, see
-# nvision/spectra/nv_center_drive.py). Nuisance parameters: excluded from the convergence targets.
-DRIVE_RESPONSE_PARAMS: tuple[str, ...] = ("drive_amp_sat", "rabi_per_amp")
+# Minimum number of consecutive converged checks before declaring convergence.
+# Prevents false early stops on the first measurement, especially with no noise.
+NVISION_CONVERGENCE_PATIENCE: int = int(os.getenv("NVISION_CONVERGENCE_PATIENCE", "8"))
 
 
-def saturation_voigt_derived_sigmas(
-    estimates: Mapping[str, float], sigmas: Mapping[str, float]
-) -> dict[str, float] | None:
-    """Propagate raw saturation-Voigt per-param sigma-like values onto derived quantities.
+class ConvergenceStopRules:
+    """The stopping rules shared by every locator that infers with an SMC belief (SBED family and the sweeps).
 
-    Maps ``sigmas`` entries (posterior uncertainties or CRLBs — both propagate the same
-    way through the local linear Jacobian at *estimates*) for
-    (``saturation``, ``sigma_inhom``) onto the derived effective-HWHM
-    (keyed ``"hwhm"``) and realized-contrast (keyed ``"contrast_total"``) sigmas, so
-    convergence semantics match the Lorentzian model's hwhm/contrast_total thresholds
-    across lineshapes. The raw relative thresholds are physically inconsistent along
-    the saturation axis (width scales as sqrt(1+s)), which is why derived gating is
-    used instead. ``c_max`` is a fixed constant (:data:`~nvision.spectra.nv_center.
-    NV_SATURATION_C_MAX`), so its contribution to ``sigma_c`` is exactly zero.
-
-    Returns ``None`` unless the model exposes the saturation-Voigt parameter set.
+    Needs ``self.belief`` and ``self.step_count``; call :meth:`_init_stop_rules` once, then
+    :meth:`_update_stop_rules` after each observation and read ``_is_converged``.
     """
-    if not all(k in estimates for k in _SATURATION_VOIGT_RAW_PARAMS):
-        return None
-    if "saturation" not in sigmas or "sigma_inhom" not in sigmas:
-        return None
-    from nvision.spectra.nv_center import (
-        NV_SATURATION_C_MAX,
-        saturation_voigt_effective_hwhm_and_unc,
-        saturation_voigt_realized_contrast_and_unc,
-    )
 
-    s = float(estimates["saturation"])
-    sigma_inhom = float(estimates["sigma_inhom"])
-    _, sigma_omega = saturation_voigt_effective_hwhm_and_unc(
-        s, sigma_inhom, float(sigmas["saturation"]), float(sigmas["sigma_inhom"])
-    )
-    _, sigma_c = saturation_voigt_realized_contrast_and_unc(s, NV_SATURATION_C_MAX, float(sigmas["saturation"]), 0.0)
-    return {"hwhm": sigma_omega, "contrast_total": sigma_c}
+    def _init_stop_rules(self, convergence_threshold: float, convergence_patience_steps: int) -> None:
+        """Set the state the stopping rules keep (requires ``self.belief``)."""
+        self.convergence_threshold = convergence_threshold
+        self._convergence_patience_steps = max(1, int(convergence_patience_steps))
+        self._convergence_streak = 0
+        # The primary parameter (see resolve_primary_param) --
+        # zeeman_shift/hyperfine_shift when the model has one (the actual free/scientific-interest quantity
+        # once zero_field_freq is fixed by default), else zero_field_freq itself for legacy free-zero_field_freq
+        # configs. See resolve_primary_param.
+        self._primary_param: str | None = resolve_primary_param(self.belief.model.parameter_names())
+        self._is_converged: bool = False
 
+    def _update_stop_rules(self) -> None:
+        """Run the stopping rules once, after the belief has absorbed the latest measurement.
 
-def saturation_voigt_derived_bounds(
-    phys_bounds: Mapping[str, tuple[float, float]],
-) -> dict[str, tuple[float, float]]:
-    """Effective-HWHM / realized-contrast ranges implied by the raw parameter bounds.
+        Sets ``_is_converged`` once every target parameter's uncertainty has stayed under its ceiling for
+        ``_convergence_patience_steps`` consecutive checks. This is the only stopping rule besides the step budget.
+        """
+        # The raw belief uncertainty -- the same measure the convergence milestones are read from
+        # (nvision/metrics/milestones.py), so the stop rule and the recorded milestones can never disagree.
+        uncertainties = self.belief.uncertainty()
+        if self._target_params_converged(uncertainties):
+            self._convergence_streak += 1
+            if self._convergence_streak >= self._convergence_patience_steps:
+                self._is_converged = True
+        else:
+            self._convergence_streak = 0
 
-    ``omega`` and ``C`` are monotone increasing in each of their inputs, so the range
-    endpoints map directly. Used as the bound width for relative-threshold convergence
-    of the derived quantities (keys match :func:`saturation_voigt_derived_sigmas`).
-    ``c_max`` is the fixed :data:`~nvision.spectra.nv_center.NV_SATURATION_C_MAX`
-    constant at both ends (it has no range — it isn't inferred).
-    """
-    from nvision.spectra.nv_center import (
-        NV_SATURATION_C_MAX,
-        saturation_voigt_effective_hwhm_and_unc,
-        saturation_voigt_realized_contrast_and_unc,
-    )
+    def _target_params_converged(self, physical_uncertainties=None) -> bool:
+        """Whether every target parameter's uncertainty is under its ceiling (see :func:`target_params_converged`).
 
-    s_lo, s_hi = phys_bounds.get("saturation", (0.0, 0.0))
-    si_lo, si_hi = phys_bounds.get("sigma_inhom", (0.0, 0.0))
-    omega_lo, _ = saturation_voigt_effective_hwhm_and_unc(s_lo, si_lo)
-    omega_hi, _ = saturation_voigt_effective_hwhm_and_unc(s_hi, si_hi)
-    c_lo, _ = saturation_voigt_realized_contrast_and_unc(s_lo, NV_SATURATION_C_MAX)
-    c_hi, _ = saturation_voigt_realized_contrast_and_unc(s_hi, NV_SATURATION_C_MAX)
-    return {"hwhm": (omega_lo, omega_hi), "contrast_total": (c_lo, c_hi)}
+        ``physical_uncertainties`` may be passed in to avoid recomputing the full O(particles x params) pass.
+        """
+        return belief_target_params_converged(self.belief, physical_uncertainties, self.convergence_threshold)
 
 
-class SequentialBayesianLocator(Locator):
+class SequentialBayesianLocator(ConvergenceStopRules, Locator):
     """Shared Bayesian loop infrastructure for all acquisition strategies.
 
     Handles the mechanics common to every Bayesian locator:
@@ -131,7 +113,6 @@ class SequentialBayesianLocator(Locator):
         self.max_steps = int(max_steps)
         if self.max_steps <= 0:
             raise ValueError("max_steps must be positive")
-        self.convergence_threshold = convergence_threshold
         # Total measurement count
         self.step_count: int = 0
         # Bayesian acquisition count
@@ -143,17 +124,7 @@ class SequentialBayesianLocator(Locator):
             if "zero_field_freq" in belief.physical_param_bounds
             else belief.model.parameter_names()[0]
         )
-        self._convergence_patience_steps = max(1, int(convergence_patience_steps))
-        self._convergence_streak = 0
-        # The parameter whose convergence defines the "primary milestone"
-        # (primary_converged_step) -- zeeman_shift/hyperfine_shift when the model has
-        # one (the actual free/scientific-interest quantity once zero_field_freq is
-        # fixed by default), else zero_field_freq itself for legacy free-zero_field_freq
-        # configs. See resolve_primary_param.
-        self._primary_param: str | None = resolve_primary_param(self.belief.model.parameter_names())
-        self.primary_converged_step: int | None = None
-        self.all_converged_step: int | None = None
-        self._is_converged: bool = False
+        self._init_stop_rules(convergence_threshold, convergence_patience_steps)
 
         self._true_signal = None
 
@@ -208,27 +179,6 @@ class SequentialBayesianLocator(Locator):
         """
         raise NotImplementedError("Subclasses must implement _acquire()")
 
-    def _check_convergence_milestones(self, physical_uncertainties=None) -> None:
-        """Record the first step at which the primary parameter and all params converge.
-
-        ``physical_uncertainties`` may be passed in to avoid recomputing the
-        full O(particles x params) uncertainty pass when the caller already
-        has it for this step.
-        """
-        if physical_uncertainties is None:
-            physical_uncertainties = self.belief.uncertainty()
-        if (
-            self.primary_converged_step is None
-            and self._primary_param is not None
-            and self._primary_param in physical_uncertainties
-        ):
-            primary_threshold = self._effective_primary_threshold()
-            if float(physical_uncertainties[self._primary_param]) < primary_threshold:
-                self.primary_converged_step = self.step_count
-
-        if self.all_converged_step is None and self._target_params_converged(physical_uncertainties):
-            self.all_converged_step = self.step_count
-
     def _observe_acquisition(self, obs: Observation) -> None:
         """Route acquisition observations to the belief immediately."""
         self.belief.update(obs)
@@ -239,7 +189,7 @@ class SequentialBayesianLocator(Locator):
 
         Stops when:
         1. Target parameters have stayed converged for ``convergence_patience_steps``
-           (``_target_params_converged`` / SBED's own ``_check_crlb_early_stop``,
+           (``_target_params_converged``,
            both of which require several *consecutive* or empirically-grounded
            confirmations, not a single snapshot).
         2. The absolute ``max_steps`` budget is exhausted.
@@ -259,8 +209,8 @@ class SequentialBayesianLocator(Locator):
         wrong mode whose *own* narrow-looking CRLB snapshot satisfied the
         "budget reached" branch at a fraction of max_steps, reporting a
         confidently wrong zero_field_freq tens of MHz off. Both are the same
-        underlying risk the convergence-patience streak and
-        `_check_crlb_early_stop` already guard against for the "declare
+        underlying risk the convergence-patience streak
+        already guards against for the "declare
         converged" path -- removing this second, snapshot-only stopping path
         rather than trying to further patch its triggering condition.
         """
@@ -285,98 +235,6 @@ class SequentialBayesianLocator(Locator):
     def done(self) -> bool:
         """Stop when converged or step budget is exhausted."""
         return self._acquisition_done()
-
-    def _effective_zero_field_freq_threshold(self) -> float:
-        """Absolute zero_field_freq-uncertainty ceiling for convergence (physical Hz)."""
-        from nvision.sim.defaults import NVISION_ZERO_FIELD_FREQ_CONVERGENCE_THRESHOLD
-
-        return NVISION_ZERO_FIELD_FREQ_CONVERGENCE_THRESHOLD
-
-    def _effective_primary_threshold(self) -> float:
-        """Absolute uncertainty ceiling for ``self._primary_param`` (physical units).
-
-        Resolves via PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS, which naturally lands on
-        NVISION_ZEEMAN_SHIFT_CONVERGENCE_THRESHOLD when the primary param is
-        zeeman_shift (already tuned to actually bind, unlike the generic bound-width
-        fallback -- see nvision/sim/defaults.py), or the zero_field_freq threshold
-        unchanged for legacy free-zero_field_freq configs.
-        """
-        from nvision.sim.defaults import (
-            NVISION_ZERO_FIELD_FREQ_CONVERGENCE_THRESHOLD,
-            PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS,
-        )
-
-        if self._primary_param is None:
-            return NVISION_ZERO_FIELD_FREQ_CONVERGENCE_THRESHOLD
-        return PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS.get(
-            self._primary_param, NVISION_ZERO_FIELD_FREQ_CONVERGENCE_THRESHOLD
-        )
-
-    def _target_params_converged(self, physical_uncertainties=None) -> bool:
-        """Check convergence on configured target parameters.
-
-        Convergence requires the uncertainty of each target parameter to be
-        below ``convergence_threshold`` as a fraction of its physical bound
-        width (e.g. ``0.01`` = 1 %).  Parameters listed in
-        ``PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS`` (from env, e.g.
-        ``NVISION_ZERO_FIELD_FREQ_CONVERGENCE_THRESHOLD``) use an absolute uncertainty
-        ceiling instead.  The overall (RMS) relative uncertainty across all
-        target parameters must also be below the same threshold.
-
-        ``physical_uncertainties`` may be passed in to avoid recomputing the
-        full O(particles x params) uncertainty pass.
-        """
-        # The drive-response parameters describe the setup's coupling to the microwave field (a nuisance,
-        # like an instrument calibration), not the spectrum being located; they never gate convergence.
-        target_params = [name for name in self.belief.model.parameter_names() if name not in DRIVE_RESPONSE_PARAMS]
-        if physical_uncertainties is None:
-            physical_uncertainties = self.belief.uncertainty()
-        bounds = self.belief.physical_param_bounds
-
-        # Saturation-Voigt: gate via derived effective-HWHM / realized-contrast instead
-        # of the raw (saturation, sigma_inhom) params, whose relative thresholds are
-        # physically inconsistent along the saturation axis.
-        derived_sigmas: dict[str, float] | None = None
-        if "saturation" in physical_uncertainties and "sigma_inhom" in physical_uncertainties:
-            derived_sigmas = saturation_voigt_derived_sigmas(self.belief.estimates(), physical_uncertainties)
-        if derived_sigmas is not None:
-            bounds = {**bounds, **saturation_voigt_derived_bounds(bounds)}
-
-        check_items: list[tuple[str, float]] = [
-            (name, float(physical_uncertainties[name]))
-            for name in target_params
-            if name in physical_uncertainties
-            and not (derived_sigmas is not None and name in _SATURATION_VOIGT_RAW_PARAMS)
-        ]
-        if derived_sigmas is not None:
-            check_items.extend(derived_sigmas.items())
-
-        relative_uncertainties: dict[str, float] = {}
-        for name, unc in check_items:
-            if name == "zero_field_freq":
-                # CRLB-aware ceiling: bound_width chosen so that
-                # unc / bound_width < threshold  ⟺  unc < effective_zero_field_freq_threshold.
-                bound_width = self._effective_zero_field_freq_threshold() / self.convergence_threshold
-            else:
-                bound_width = param_convergence_bound_width(name, self.convergence_threshold, bounds)
-            if bound_width <= 0:
-                return False
-            relative_uncertainties[name] = unc / bound_width
-
-        if not relative_uncertainties:
-            return False
-
-        # Check 1: Each individual parameter must be below threshold
-        individual_converged = all(u < self.convergence_threshold for u in relative_uncertainties.values())
-        if not individual_converged:
-            return False
-
-        # Check 2: Overall (RMS) relative uncertainty must also be below threshold
-        uncertainties_array = np.array(list(relative_uncertainties.values()))
-        rms_uncertainty = float(np.sqrt(np.mean(uncertainties_array**2)))
-        overall_converged = rms_uncertainty < self.convergence_threshold
-
-        return overall_converged
 
     def result(self) -> dict[str, float]:
         """Return posterior-mean estimates for all parameters."""

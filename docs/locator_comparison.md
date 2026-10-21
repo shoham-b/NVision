@@ -61,7 +61,7 @@ parameters, clipped to their bounds) -- never the true signal's width (`nvision/
 | `Bayesian-SBED` | unchanged SBED |
 | `Smart-SBED` | EIG over the not-yet-measured points of a FWHM/3 grid until a dip is found, then ordinary SBED inside the focus |
 
-`Smart-Sweep` and `Smart-SBED` are subclasses of the SBED locator: same belief, convergence/plateau/CRLB stop,
+`Smart-Sweep` and `Smart-SBED` are subclasses of the SBED locator: same belief, uncertainty-convergence stop,
 and focus rule (`next_focus_region`), but the focus is re-decided after every measurement (from
 `belief.current_dips()`) instead of only at resamples. All sweeps update the same SMC belief every step, so an
 uncertainty trajectory exists for every locator. A plain sweep's *reported* estimate is still its final fit.

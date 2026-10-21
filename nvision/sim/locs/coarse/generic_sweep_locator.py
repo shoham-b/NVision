@@ -11,8 +11,13 @@ from numpy.typing import NDArray
 
 from nvision.belief.abstract_marginal import AbstractMarginalDistribution
 from nvision.models.fisher_information import lorentzian_zero_field_freq_crlb
-from nvision.models.observation import ObservationHistory
-from nvision.sim.defaults import NVISION_SWEEP_FIT_EARLY_STOP_SIGMAS
+from nvision.models.observation import Observation, ObservationHistory
+from nvision.sim.defaults import (
+    NVISION_CONVERGENCE_THRESHOLD,
+    NVISION_SWEEP_FIT_EARLY_STOP_SIGMAS,
+    NVISION_SWEEP_MAX_PASSES,
+)
+from nvision.sim.locs.bayesian.sequential_bayesian_locator import NVISION_CONVERGENCE_PATIENCE, ConvergenceStopRules
 from nvision.sim.locs.coarse.sweep_locator import SweepingLocator
 from nvision.sim.locs.search_grid import SWEEP_POINTS_PER_FWHM, prior_fwhm_phys, uniform_grid_phys
 from nvision.spectra.signal import SignalModel
@@ -70,15 +75,18 @@ NVISION_SWEEP_FIT_FLOAT32: bool = os.getenv("NVISION_SWEEP_FIT_FLOAT32", "0") no
 _FIT_FLOAT32_DIFF_STEP: float = float(os.getenv("NVISION_SWEEP_FIT_FLOAT32_DIFF_STEP", "1e-4"))
 
 
-class GenericSweepLocator(SweepingLocator):
+class GenericSweepLocator(ConvergenceStopRules, SweepingLocator):
     """Uniform grid sweep over the whole drive-frequency axis, then a least-squares model fit.
 
     The grid spacing is the prior FWHM divided by ``spacing_divisor`` (3 by default: three points inside the
     dip, so a dip cannot be stepped over and ``find_dips`` has the cluster it needs), where the FWHM is
     ``2 * effective_hwhm`` of the belief's *prior* estimate -- never the true signal's width. The number of
-    steps follows from that spacing and the axis width. No refocusing or early stopping -- every grid point is
-    measured -- but the belief is updated after each measurement, so its uncertainty can be followed step by
-    step like any other locator's. The reported estimate is the final fit (see :meth:`finalize`).
+    steps follows from that spacing and the axis width. No refocusing -- every grid point is measured -- but the
+    belief is updated after each measurement, so its uncertainty can be followed step by step like any other
+    locator's. The grid is repeated (averaging the passes) until the stopping rules Bayesian-SBED uses
+    (:class:`ConvergenceStopRules`: every target uncertainty under its ceiling) has
+    fired (the rules run every step, but the sweep only stops at the end of a pass), for at most ``max_passes``
+    passes. The reported estimate is the final fit to the averaged passes (see :meth:`finalize`).
 
     Parameters
     ----------
@@ -92,6 +100,8 @@ class GenericSweepLocator(SweepingLocator):
     spacing_divisor : int | None, default 3
         Grid points per FWHM (spacing = FWHM / spacing_divisor). ``None`` selects a fixed-count sweep of exactly
         ``max_steps`` evenly spaced points instead (for models without a hwhm prior).
+    max_passes : int, default NVISION_SWEEP_MAX_PASSES
+        Maximum number of passes over the grid (1 = a single pass, no averaging).
     noise_std : float, default 0.01
         Estimated measurement noise standard deviation.
     noise_max_dev : float | None, default None
@@ -123,6 +133,7 @@ class GenericSweepLocator(SweepingLocator):
         center_param: str | None = None,
         parameter_bounds: dict[str, tuple[float, float]] | None = None,
         spacing_divisor: int | None = SWEEP_POINTS_PER_FWHM,
+        max_passes: int = NVISION_SWEEP_MAX_PASSES,
         **kwargs: Any,
     ) -> GenericSweepLocator:
         domain_lo = kwargs.pop("domain_lo", None)
@@ -154,6 +165,7 @@ class GenericSweepLocator(SweepingLocator):
             domain_lo=domain_lo,
             domain_hi=domain_hi,
             spacing_divisor=spacing_divisor,
+            max_passes=max_passes,
         )
         if parameter_bounds is not None:
             inst._parameter_bounds = dict(parameter_bounds)
@@ -173,7 +185,10 @@ class GenericSweepLocator(SweepingLocator):
         domain_lo: float = 0.0,
         domain_hi: float = 1.0,
         spacing_divisor: int | None = SWEEP_POINTS_PER_FWHM,
+        max_passes: int = NVISION_SWEEP_MAX_PASSES,
     ):
+        if max_passes < 1:
+            raise ValueError(f"max_passes must be >= 1, got {max_passes!r}")
         if spacing_divisor is not None and spacing_divisor < 1:
             raise ValueError(f"spacing_divisor must be >= 1 (or None), got {spacing_divisor!r}")
         if spacing_divisor is None and max_steps < 2:
@@ -228,9 +243,39 @@ class GenericSweepLocator(SweepingLocator):
                     f"{self._fwhm_prior_phys / spacing_divisor:g} Hz needs {n_points} points, over the budget of "
                     f"{max_steps} steps."
                 )
+        # ``max_steps`` stays the length of ONE pass over the grid; averaging repeats the pass.
         self.max_steps = n_points
-        self.history = ObservationHistory(n_points)
+        self.max_passes = max_passes
+        self._init_stop_rules(NVISION_CONVERGENCE_THRESHOLD, NVISION_CONVERGENCE_PATIENCE)
+        self.history = ObservationHistory(n_points * self.max_passes)
         self._sweep_points = self._generate_sweep_points(n_points)
+
+    @property
+    def passes_done(self) -> int:
+        """Number of complete passes over the grid measured so far."""
+        return self.step_count // self.max_steps if self.max_steps else 0
+
+    def next(self) -> float:
+        """Propose the next grid point; after the last one the sweep starts over (averaging mode)."""
+        self.step_count += 1
+        if self.step_count > self.max_steps * self.max_passes:
+            return 0.5
+        return float(self._sweep_points[(self.step_count - 1) % self.max_steps])
+
+    def observe(self, obs: Observation) -> None:
+        """Record the observation, update the belief and run the same stopping rules as Bayesian-SBED."""
+        if self.step_count <= self.max_steps * self.max_passes:
+            self.history.append(obs)
+            self.belief.last_obs = obs
+            self.belief.update(obs)
+            self._update_stop_rules()
+
+    def done(self) -> bool:
+        """Stop once the stopping rules fired -- at the end of a pass, so the average covers whole passes -- or
+        after ``max_passes`` passes."""
+        return self.step_count >= self.max_steps * self.max_passes or (
+            self._is_converged and self.step_count % self.max_steps == 0
+        )
 
     def _generate_sweep_points(self, n: int) -> NDArray[np.float64]:
         if n <= 0:
@@ -1092,7 +1137,22 @@ class GenericSweepLocator(SweepingLocator):
         if self.history.count == 0:
             return
         domain_width = self._domain_hi - self._domain_lo
-        zero_field_freq_phys, uncert_phys = self._fit_model(self.history.drive_freqs_unit, self.history.ys)
+        passes = self.passes_done
+        if passes <= 1:
+            zero_field_freq_phys, uncert_phys = self._fit_model(self.history.drive_freqs_unit, self.history.ys)
+        else:
+            # Fit the per-grid-point mean over the passes (the fit helpers expect one ordered pass), whose
+            # noise is noise_std / sqrt(passes). Only whole passes exist: done() stops on a pass boundary.
+            n = self.max_steps
+            assert self.history.count == n * passes, "averaged sweep must hold whole passes"
+            grid_unit = self.history.drive_freqs_unit[:n]
+            mean_ys = self.history.ys.reshape(passes, n).mean(axis=0)
+            single_pass_noise_std = self._noise_std
+            self._noise_std = single_pass_noise_std / np.sqrt(passes)
+            try:
+                zero_field_freq_phys, uncert_phys = self._fit_model(grid_unit, mean_ys)
+            finally:
+                self._noise_std = single_pass_noise_std
 
         self._zero_field_freq_estimate_phys = zero_field_freq_phys
         self._zero_field_freq_uncert_phys = uncert_phys

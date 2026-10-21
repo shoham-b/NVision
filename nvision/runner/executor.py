@@ -144,6 +144,10 @@ def run_loop(
 
     locator = locator_class.create(**locator_config)
 
+    if getattr(locator, "max_passes", 1) > 1:
+        # The sweep cache holds one pass keyed by the pass length; it cannot serve a sweep that repeats passes.
+        sweep_cache = None
+
     # Check if we can use cached sweep for Bayesian locators or sweep locators
     cached_sweep: list[Observation] | None = None
     if sweep_cache is not None and isinstance(locator, SweepingLocator):
@@ -1511,13 +1515,9 @@ class _TaskRunner:
                 eff_sweep_steps = step_count
             finalize_record["sweep_steps"] = int(eff_sweep_steps or 0)
             finalize_record["locator_steps"] = int(inf_steps or 0)
-            finalize_record["primary_converged_step"] = getattr(last_loc, "primary_converged_step", None)
-            finalize_record["all_converged_step"] = getattr(last_loc, "all_converged_step", None)
         else:
             finalize_record["sweep_steps"] = None
             finalize_record["locator_steps"] = None
-            finalize_record["primary_converged_step"] = None
-            finalize_record["all_converged_step"] = None
 
         # SBED-specific noise diagnostics
         from nvision.sim.locs.bayesian.sbed_locator import SequentialBayesianExperimentDesignLocator
