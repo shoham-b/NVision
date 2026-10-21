@@ -10,7 +10,7 @@ from typing import Any
 
 import polars as pl
 
-from nvision.metrics.milestones import calculate_zeeman_metrics, resolve_primary_param
+from nvision.metrics.milestones import calculate_zeeman_metrics, detect_all_converged_step, resolve_primary_param
 from nvision.metrics.stages import STAGE_METRIC_KEYS, compute_stage_metrics
 from nvision.models.experiment import CoreExperiment
 from nvision.models.observer import RunResult
@@ -128,17 +128,13 @@ def generate_attempt_metrics(
             if val is not None:
                 locator_steps = int(val)
 
+    # Convergence milestones are measured on the recorded run, identically for every locator.
     primary_converged_step: int | None = None
     all_converged_step: int | None = None
-    if not finalize_row.is_empty():
-        if "primary_converged_step" in finalize_row.columns:
-            val = finalize_row.get_column("primary_converged_step")[0]
-            if val is not None:
-                primary_converged_step = int(val)
-        if "all_converged_step" in finalize_row.columns:
-            val = finalize_row.get_column("all_converged_step")[0]
-            if val is not None:
-                all_converged_step = int(val)
+    if run_result:
+        steps_to_primary = metrics_serialized.get("steps_to_primary")
+        primary_converged_step = None if steps_to_primary is None else int(steps_to_primary)
+        all_converged_step = detect_all_converged_step(run_result)
 
     # All-converged milestone metrics -- error/uncertainty of the primary (shift)
     # parameter at all_converged_step, mirroring the primary-milestone fields above but

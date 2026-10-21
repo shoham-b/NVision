@@ -420,7 +420,7 @@ Both the per-parameter and RMS checks must pass simultaneously.
 
 A running counter `_convergence_streak` is incremented whenever `_target_params_converged()` returns `True` (evaluated once per resample, sharing a single uncertainty pass).  Convergence is declared only when the streak reaches `convergence_patience_steps` = 8 consecutive successes; any failure resets it to 0.
 
-The streak is evaluated on `robust_uncertainty()` — the weighted IQR/1.349 marginal spread — not on the raw weighted std.  Right after a resample the nudge (§1.4) briefly inflates the raw std with a handful of freshly nudged particles, which would otherwise reset the streak even though the bulk of the posterior has converged.  `robust_uncertainty()` can under-report genuine multi-modal spread, so it is used only for this gate; `reported_uncertainty()` (what is plotted and scored) keeps the raw std with the CRLB floor (§2.2).
+The streak is evaluated on the raw `uncertainty()` (the weighted std), the same measure the convergence milestones (`primary_converged_step`, `all_converged_step`) are read from, so the stop rule and the recorded milestones cannot disagree. (It used to use `robust_uncertainty()`, the weighted IQR/1.349, which ignores a few outlier particles after a resample but can under-report multi-modal spread; that made a run stop on a criterion its own milestones said was never met.)
 
 ### 5.4 Dynamic CRLB Budget (base locator)
 
@@ -435,83 +435,18 @@ $$n_{\rm req} = t \cdot \left(\frac{\text{CRLB}_f}{T_f}\right)^2$$
 
 with K_safety = `NVISION_ZERO_FIELD_FREQ_CRLB_SAFETY_FACTOR` = 4.0.
 
-### 5.5 CRLB Early-Stop in SBED (`_check_crlb_early_stop`)
+### 5.5 Stopping rule (`ConvergenceStopRules`)
 
-The stop gates the **primary parameter** only (`zeeman_shift`/`hyperfine_shift` when present, else `zero_field_freq`;
-`resolve_primary_param` in `nvision/metrics/milestones.py`). Its CRLB is the closed-form zero_field_freq CRLB of
-§2.3 when the primary parameter is `zero_field_freq`, otherwise its marginal CRLB from the cumulative FIM
-(§4.2/§4.3, `crlb_per_param()`), both at the belief's conjugate noise estimate σ̂ (§3.3). `_primary_crlb_done`
-passes when **both** hold:
+SBED and the sweeps share one stopping rule (`sequential_bayesian_locator.py`, `ConvergenceStopRules`): stop once
+every target parameter's uncertainty has stayed under its ceiling (§5.1-§5.3) for `convergence_patience_steps`
+consecutive checks, or when the step budget is spent. A sweep checks every step but only stops at the end of a
+pass (the passes are averaged, up to `NVISION_SWEEP_MAX_PASSES`).
 
-$$\sigma_p < K_{\rm safety}\cdot \text{CRLB}_p \qquad\text{and}\qquad \text{CRLB}_p < T_p$$
-
-($T_p$ = the parameter's absolute convergence threshold, e.g. `NVISION_ZEEMAN_SHIFT_CONVERGENCE_THRESHOLD`.)
-Passing for `patience` consecutive checks sets `_is_converged = True` (its own streak,
-`_crlb_convergence_streak`). The primary parameter's CRLB is absent until a cumulative FIM exists, in which
-case the check does not pass.
-
-The second condition is what keeps the test from passing trivially. A FIM-driven stop *without* it was tested
-and rejected: it improved the reported numbers (median run length 450→24 steps, catastrophic rate on
-known-degenerate configs 67%→12%) only as an artifact. At a near-degenerate point the marginal CRLB is inflated
-by a near-singular FIM (e.g. 11.8 MHz on `zeeman_shift` where the achieved error was 1.3 MHz), so
-$\sigma < K\,\text{CRLB}$ holds from the first steps, exactly when the problem is hardest; and generators draw
-each repeat's prior mean as `gauss(true_value, sigma)`, so stopping early scores well precisely because it
-reports a truth-centred prior it never had to earn. An inflated CRLB fails $\text{CRLB}_p < T_p$.
-The guarded rule has only been checked on a small counterfactual sample (n=12: fires in half the runs, median
-stop step 32 vs 81, median error at the stop ≈ 2× the run's final error) — treat it as unvalidated until an A/B
-with real power exists.
-
-The milestones (`primary_converged_step`, `all_converged_step`) are separate bookkeeping: they use the
-closed-form zero_field_freq CRLB (infinite for every other parameter) or the absolute threshold, so for
-non-zero_field_freq parameters they are decided by the absolute threshold alone.
-
-### 5.6 Adaptive Plateau Stop (`_check_estimate_plateau`, default-on)
-
-Stops once the *estimate itself* has stopped moving relative to its own error bar, rather than
-waiting on a derived quantity's claim that the information limit has been reached — the
-complement to §5.5's CRLB gate, which only declares convergence on the primary parameter.
-
-For each target parameter, the current estimate is compared against the one from
-`NVISION_SBED_PLATEAU_WINDOW` = 30 convergence checks ago, expressed in units of that
-parameter's *current* uncertainty:
-
-$$\text{plateaued}_j \iff \left|\hat\theta_j^{(t)} - \hat\theta_j^{(t-W)}\right| < f_\sigma\cdot\sigma_j^{(t)}$$
-
-with window W = `NVISION_SBED_PLATEAU_WINDOW` = 30 and fraction f_σ = `NVISION_SBED_PLATEAU_SIGMA_FRAC`
-= 0.25. When *every* target parameter plateaus for `convergence_patience_steps` consecutive
-checks, the run stops (`plateau_stop_step`). A parameter with a non-finite or non-positive σ
-cannot be judged and blocks the check entirely, so an unmeasurable parameter is never silently
-treated as converged. Movement is scaled by each parameter's own σ (not its bound range) so one
-threshold works across parameters spanning orders of magnitude without a per-parameter table.
-
-**Why the estimate, not the uncertainty or a CRLB.** Derived quantities have repeatedly produced
-premature stops in this locator's history (four separate bugs): a near-singular FIM inflates the
-CRLB, and particle spread can be narrow and wrong. The estimate holding still is the thing
-actually being claimed at the end of a run.
-
-**Motivation and calibration.** On the NV Voigt grid (120 repeats), median `zeeman_shift` error
-falls from 1.483 MHz at step 10 to 0.237 at step 25, 0.059 at 50, 0.022 at 100, 0.016 at 450 — a
-knee around step 100, after which the last 350 of a 450-step budget buy ~1.3× accuracy for 4.5×
-the measurements. f_σ was calibrated by replaying the criterion inside full-budget runs (so the
-stop step and the budget estimate share one run, avoiding a cross-arm confound), then confirmed
-with a live A/B (120 configs/arm):
-
-| f_σ | fires (ordinary) | med. step | saving | fires (degenerate) | med. step | saving |
-|---|---|---|---|---|---|---|
-| 0.10 | 41% | 367 | 1.2× | 79% | 284 | 1.6× *(unreliable)* |
-| 0.15 | 83% | 330 | 1.4× | 98% | 201 | 2.2× |
-| **0.25** (default) | 100% | 197 | 2.3× | 100% | 124 | 3.6× |
-| 0.40 | 100% | 132 | 3.4× | 100% | 86 | 5.2× |
-
-Live A/B at f_σ=0.25 (median steps 450→220 ordinary, 450→124 degenerate): ordinary
-`zeeman_shift` error 0.0211→0.0233 MHz, `hwhm_lorentz` 0.165→0.154 (better),
-`sigma_inhom` 0.136→0.164, `contrast_total` 0.0025→0.0032. Degenerate-config `zeeman_shift`
-0.406→0.604, widths slightly better. Both beat the naive √n rule of thumb — a 2–3.6× cut in
-measurements costs well under the √2–√3.6 error increase that would imply.
-
-**Cost to track when tuning:** on the degenerate configs the catastrophic rate (`zeeman_shift`
-error > 1 MHz) went 7.1%→12.5% (4→7 of 56, small counts). Dropping f_σ to 0.15 keeps most of
-that margin at a 2.2× rather than 3.6× saving.
+There is deliberately no CRLB stop and no estimate-plateau stop. A plateau stop ends a run when the estimate
+stops moving, which is exactly the behaviour the stage metrics measure (the move into the refine stage); stopping
+on it would hide that stage. The convergence milestones (`primary_converged_step`, `all_converged_step`) and the
+stage boundaries are not part of the stop rule: they are measured afterwards from the recorded run, identically for
+every locator (`nvision/metrics/milestones.py`, `nvision/metrics/stages.py`).
 
 ---
 
@@ -532,8 +467,6 @@ that margin at a 2.2× rather than 3.6× saving.
 | threshold | `NVISION_CONVERGENCE_THRESHOLD` | 0.01 | relative |
 | p_fa | `NVISION_DIP_P_FA` | 0.01 | — (family-wise) |
 | f_expl | `NVISION_SMC_MIN_EXPLORATION_FRAC` | 0.01 | — |
-| W | `NVISION_SBED_PLATEAU_WINDOW` | 30 | steps |
-| f_σ | `NVISION_SBED_PLATEAU_SIGMA_FRAC` | 0.25 | — |
 
 ---
 

@@ -3,11 +3,185 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping, Sequence
 from typing import Any
 
+import numpy as np
+
 from nvision.models.observer import RunResult
-from nvision.sim.defaults import NVISION_CONVERGENCE_THRESHOLD, PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS
+from nvision.sim.defaults import (
+    NVISION_CONVERGENCE_THRESHOLD,
+    NVISION_ZERO_FIELD_FREQ_CONVERGENCE_THRESHOLD,
+    PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS,
+    param_convergence_bound_width,
+)
+
+# Raw saturation-Voigt parameters whose convergence is gated via the derived
+# effective-HWHM / realized-contrast quantities instead of per-param thresholds.
+# c_max is not included: it's a fixed constant (NV_SATURATION_C_MAX), not an
+# inferred/estimated parameter, so it has no posterior uncertainty to gate on.
+_SATURATION_VOIGT_RAW_PARAMS: tuple[str, ...] = ("saturation", "sigma_inhom")
+# Inferred response of the sample to the microwave drive (drive-controlled models, see
+# nvision/spectra/nv_center_drive.py). Nuisance parameters: excluded from the convergence targets.
+DRIVE_RESPONSE_PARAMS: tuple[str, ...] = ("drive_amp_sat", "rabi_per_amp")
+
+
+def saturation_voigt_derived_sigmas(
+    estimates: Mapping[str, float], sigmas: Mapping[str, float]
+) -> dict[str, float] | None:
+    """Propagate raw saturation-Voigt per-param sigma-like values onto derived quantities.
+
+    Maps ``sigmas`` entries (posterior uncertainties or CRLBs — both propagate the same
+    way through the local linear Jacobian at *estimates*) for
+    (``saturation``, ``sigma_inhom``) onto the derived effective-HWHM
+    (keyed ``"hwhm"``) and realized-contrast (keyed ``"contrast_total"``) sigmas, so
+    convergence semantics match the Lorentzian model's hwhm/contrast_total thresholds
+    across lineshapes. The raw relative thresholds are physically inconsistent along
+    the saturation axis (width scales as sqrt(1+s)), which is why derived gating is
+    used instead. ``c_max`` is a fixed constant (:data:`~nvision.spectra.nv_center.
+    NV_SATURATION_C_MAX`), so its contribution to ``sigma_c`` is exactly zero.
+
+    Returns ``None`` unless the model exposes the saturation-Voigt parameter set.
+    """
+    if not all(k in estimates for k in _SATURATION_VOIGT_RAW_PARAMS):
+        return None
+    if "saturation" not in sigmas or "sigma_inhom" not in sigmas:
+        return None
+    from nvision.spectra.nv_center import (
+        NV_SATURATION_C_MAX,
+        saturation_voigt_effective_hwhm_and_unc,
+        saturation_voigt_realized_contrast_and_unc,
+    )
+
+    s = float(estimates["saturation"])
+    sigma_inhom = float(estimates["sigma_inhom"])
+    _, sigma_omega = saturation_voigt_effective_hwhm_and_unc(
+        s, sigma_inhom, float(sigmas["saturation"]), float(sigmas["sigma_inhom"])
+    )
+    _, sigma_c = saturation_voigt_realized_contrast_and_unc(s, NV_SATURATION_C_MAX, float(sigmas["saturation"]), 0.0)
+    return {"hwhm": sigma_omega, "contrast_total": sigma_c}
+
+
+def saturation_voigt_derived_bounds(
+    phys_bounds: Mapping[str, tuple[float, float]],
+) -> dict[str, tuple[float, float]]:
+    """Effective-HWHM / realized-contrast ranges implied by the raw parameter bounds.
+
+    ``omega`` and ``C`` are monotone increasing in each of their inputs, so the range
+    endpoints map directly. Used as the bound width for relative-threshold convergence
+    of the derived quantities (keys match :func:`saturation_voigt_derived_sigmas`).
+    ``c_max`` is the fixed :data:`~nvision.spectra.nv_center.NV_SATURATION_C_MAX`
+    constant at both ends (it has no range — it isn't inferred).
+    """
+    from nvision.spectra.nv_center import (
+        NV_SATURATION_C_MAX,
+        saturation_voigt_effective_hwhm_and_unc,
+        saturation_voigt_realized_contrast_and_unc,
+    )
+
+    s_lo, s_hi = phys_bounds.get("saturation", (0.0, 0.0))
+    si_lo, si_hi = phys_bounds.get("sigma_inhom", (0.0, 0.0))
+    omega_lo, _ = saturation_voigt_effective_hwhm_and_unc(s_lo, si_lo)
+    omega_hi, _ = saturation_voigt_effective_hwhm_and_unc(s_hi, si_hi)
+    c_lo, _ = saturation_voigt_realized_contrast_and_unc(s_lo, NV_SATURATION_C_MAX)
+    c_hi, _ = saturation_voigt_realized_contrast_and_unc(s_hi, NV_SATURATION_C_MAX)
+    return {"hwhm": (omega_lo, omega_hi), "contrast_total": (c_lo, c_hi)}
+
+
+def target_params_converged(
+    parameter_names: Sequence[str],
+    bounds: Mapping[str, tuple[float, float]],
+    uncertainties: Mapping[str, float],
+    estimates: Mapping[str, float],
+    convergence_threshold: float,
+) -> bool:
+    """Whether every target parameter's uncertainty is under its ceiling at one moment of a run.
+
+    The "all converged" criterion, shared by every locator (it is a measurement on the belief, not a property
+    of how a locator chooses its next point). Convergence requires each target parameter's uncertainty to be
+    below ``convergence_threshold`` as a fraction of its physical bound width (e.g. ``0.01`` = 1 %).
+    Parameters in ``PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS`` use an absolute ceiling instead, and the overall
+    (RMS) relative uncertainty must also be below the same threshold.
+
+    ``parameter_names``: the model's parameters; ``bounds``, ``uncertainties``, ``estimates``: physical units,
+    keyed by parameter name.
+    """
+    # The drive-response parameters describe the setup's coupling to the microwave field (a nuisance,
+    # like an instrument calibration), not the spectrum being located; they never gate convergence.
+    target_params = [name for name in parameter_names if name not in DRIVE_RESPONSE_PARAMS]
+
+    # Saturation-Voigt: gate via derived effective-HWHM / realized-contrast instead
+    # of the raw (saturation, sigma_inhom) params, whose relative thresholds are
+    # physically inconsistent along the saturation axis.
+    derived_sigmas: dict[str, float] | None = None
+    if "saturation" in uncertainties and "sigma_inhom" in uncertainties:
+        derived_sigmas = saturation_voigt_derived_sigmas(estimates, uncertainties)
+    if derived_sigmas is not None:
+        bounds = {**bounds, **saturation_voigt_derived_bounds(bounds)}
+
+    check_items: list[tuple[str, float]] = [
+        (name, float(uncertainties[name]))
+        for name in target_params
+        if name in uncertainties and not (derived_sigmas is not None and name in _SATURATION_VOIGT_RAW_PARAMS)
+    ]
+    if derived_sigmas is not None:
+        check_items.extend(derived_sigmas.items())
+
+    relative_uncertainties: dict[str, float] = {}
+    for name, unc in check_items:
+        if name == "zero_field_freq":
+            # bound_width chosen so that unc / bound_width < threshold  <=>  unc < the absolute zero_field_freq
+            # ceiling.
+            bound_width = NVISION_ZERO_FIELD_FREQ_CONVERGENCE_THRESHOLD / convergence_threshold
+        else:
+            bound_width = param_convergence_bound_width(name, convergence_threshold, bounds)
+        if bound_width <= 0:
+            return False
+        relative_uncertainties[name] = unc / bound_width
+
+    if not relative_uncertainties:
+        return False
+
+    # Each individual parameter must be below threshold ...
+    if not all(u < convergence_threshold for u in relative_uncertainties.values()):
+        return False
+    # ... and so must the overall (RMS) relative uncertainty.
+    rms_uncertainty = float(np.sqrt(np.mean(np.array(list(relative_uncertainties.values())) ** 2)))
+    return rms_uncertainty < convergence_threshold
+
+
+def belief_target_params_converged(
+    belief: Any,
+    uncertainties: Mapping[str, float] | None = None,
+    convergence_threshold: float = NVISION_CONVERGENCE_THRESHOLD,
+) -> bool:
+    """:func:`target_params_converged` on a belief (live or snapshotted); ``uncertainties`` default to its own.
+
+    The belief's estimates are read only when the saturation-Voigt gating needs them.
+    """
+    if uncertainties is None:
+        uncertainties = belief.uncertainty()
+    needs_estimates = "saturation" in uncertainties and "sigma_inhom" in uncertainties
+    return target_params_converged(
+        belief.model.parameter_names(),
+        belief.physical_param_bounds,
+        uncertainties,
+        belief.estimates() if needs_estimates else {},
+        convergence_threshold,
+    )
+
+
+def detect_all_converged_step(
+    run_result: RunResult, convergence_threshold: float = NVISION_CONVERGENCE_THRESHOLD
+) -> int | None:
+    """First step (1-indexed) at which every target parameter is converged, or None.
+
+    Read off the recorded run's belief snapshots, so it is the same criterion for every locator.
+    """
+    for i, snapshot in enumerate(run_result.snapshots):
+        if belief_target_params_converged(snapshot.belief, convergence_threshold=convergence_threshold):
+            return i + 1
+    return None
 
 
 def convergence_threshold(
@@ -149,12 +323,7 @@ def calculate_all_converged_metrics(
 ) -> dict[str, Any]:
     """Error/uncertainty of the primary parameter at the all-converged milestone.
 
-    ``all_converged_step`` is tracked live by the locator (1-indexed measurement
-    count, see ``SequentialBayesianLocator._check_convergence_milestones``) rather
-    than re-detected here, since "all converged" depends on every tracked
-    parameter's uncertainty, not just ``primary_param`` -- unlike the primary milestone in
-    ``calculate_zeeman_metrics``, which re-derives its own step via
-    ``detect_milestone``.
+    ``all_converged_step`` (1-indexed) comes from :func:`detect_all_converged_step` on the recorded run.
     """
     if shift_param is None:
         shift_param = default_shift_param(run_result)
