@@ -10,7 +10,7 @@ import re
 import struct
 import sys
 import time
-from datetime import datetime
+from datetime import UTC, datetime
 from logging.handlers import QueueHandler, QueueListener
 from multiprocessing import shared_memory
 from pathlib import Path
@@ -886,6 +886,23 @@ def _save_resume_chain(store: CategoryDataStore, combos: set[tuple[str, str, str
     store.backend.set(_RESUME_CHAIN_KEY, {"kind": "resume_chain", "combos": sorted(combos)})
 
 
+def _combos_written_since(bridge: CacheBridge, since: str) -> set[tuple[str, str, str]]:
+    """Combinations with cached results written at or after ``since`` (local time, ISO format).
+
+    The cache stamps ``updated_at`` in UTC (``%Y-%m-%d %H:%M:%S``), so ``since`` is converted to UTC.
+    """
+    try:
+        local = datetime.fromisoformat(since)
+    except ValueError as exc:
+        raise typer.BadParameter(f"--resume-since must be an ISO date/time like '2026-10-20 20:00': {exc}") from exc
+    since_utc = local.astimezone(UTC).strftime("%Y-%m-%d %H:%M:%S")
+    return {
+        (c["generator"], c["noise"], c["strategy"])
+        for c in bridge.list_combinations_with_updated_at()
+        if c.get("updated_at", "") >= since_utc
+    }
+
+
 @app.command()
 def run(  # noqa: C901
     out: Annotated[Path | None, typer.Option("--out", help="Output directory")] = Path(cli_defaults.DEFAULT_OUT)
@@ -1040,6 +1057,7 @@ def run(  # noqa: C901
         ),
     ] = False,
     resume: cli_options.ResumeOption = False,
+    resume_since: cli_options.ResumeSinceOption = None,
     shard_index: cli_options.ShardIndexOption = None,
     shard_count: cli_options.ShardCountOption = None,
 ) -> int:
@@ -1277,12 +1295,15 @@ def run(  # noqa: C901
         _maybe_autostart_server(out_dir, open_browser)
 
         ran_in_resume_session: set[tuple[str, str, str]] | None = None
-        chain_store = CacheBridge(tree.cache_dir, shard_suffix=shard_index_str).nv_center
-        if resume:
+        chain_bridge = CacheBridge(tree.cache_dir, shard_suffix=shard_index_str)
+        chain_store = chain_bridge.nv_center
+        if resume or resume_since is not None:
             # The chain lives in the cache DB, next to the results it refers to, so it survives
             # stop/resume cycles (run logs are pruned to the last two) and is wiped with the DB.
             chain = _load_resume_chain(chain_store)
             session_log = _find_latest_session_log(logs_root)
+            if resume_since is not None:
+                chain |= _combos_written_since(chain_bridge, resume_since)
             if session_log is None and not chain:
                 console.print("[yellow]--resume: no previous run logs found to resume from.[/yellow]")
             else:

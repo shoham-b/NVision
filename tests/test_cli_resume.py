@@ -103,3 +103,32 @@ def test_resume_chain_roundtrips_through_cache_db(tmp_path: Path) -> None:
     _save_resume_chain(store, set())
     assert _load_resume_chain(store) == set()
     store.close()
+
+
+def test_combos_written_since_filters_by_local_time() -> None:
+    from datetime import UTC, datetime, timedelta
+
+    import pytest
+    import typer
+
+    from nvision.cli.run import _combos_written_since
+
+    now = datetime.now().astimezone()
+    fmt = "%Y-%m-%d %H:%M:%S"
+
+    def combo(name: str, when: datetime) -> dict:
+        return {
+            "generator": name,
+            "noise": "n",
+            "strategy": "s",
+            "updated_at": when.astimezone(UTC).strftime(fmt),
+        }
+
+    class FakeBridge:
+        def list_combinations_with_updated_at(self) -> list[dict]:
+            return [combo("old", now - timedelta(hours=10)), combo("new", now - timedelta(hours=1))]
+
+    since = (now - timedelta(hours=5)).strftime("%Y-%m-%d %H:%M:%S")
+    assert _combos_written_since(FakeBridge(), since) == {("new", "n", "s")}  # type: ignore[arg-type]
+    with pytest.raises(typer.BadParameter):
+        _combos_written_since(FakeBridge(), "last night")  # type: ignore[arg-type]

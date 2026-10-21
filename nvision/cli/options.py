@@ -125,3 +125,15 @@ ResumeOption = Annotated[
         ),
     ),
 ]
+
+ResumeSinceOption = Annotated[
+    str | None,
+    typer.Option(
+        "--resume-since",
+        help=(
+            "Implies --resume, and additionally reuses every combination whose cached results were "
+            "written at or after this local time (ISO, e.g. '2026-10-20 20:00' or '2026-10-20'). "
+            "Use it to pick up a run whose chain was not recorded."
+        ),
+    ),
+]
