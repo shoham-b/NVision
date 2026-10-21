@@ -256,6 +256,9 @@
         <div style="display:flex; flex-wrap:wrap; gap:1.5em; margin-bottom:1em;">
             <div style="flex:1 1 46%; min-width:420px; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px;">
                 <h3 style="margin-left:10px;">Did σ fall at the right pace? <span tabindex="0" class="help-icon-visible" title="Median claimed σ (dotted) and median true |error| (solid) against measurements, per strategy. The pale bands are 0–1σ, 1–2σ and 2–3σ of the median claimed σ: if σ is right, the true error stays inside them. σ above the error means the run was underconfident, σ below it means overconfident. The dashed line is the stop target τ.">?</span></h3>
+                <label style="display:block; margin:0 0 0 10px; font-size:0.8em; color:#64748b; cursor:pointer;">
+                    <input type="checkbox" id="hl-pace-bands-toggle" checked> Show 1σ / 2σ / 3σ bands
+                </label>
                 <div id="hl-sigma-pace" style="height:380px; width:100%;"></div>
             </div>
             <div style="flex:1 1 46%; min-width:420px; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px;">

@@ -6480,6 +6480,8 @@ function main() {
     let hlTauMult = 1;
     let hlSpeedCriteria = 'primary';  // 'primary' | 'all'
     let hlLastArgs = null;
+    let hlPaceBands = true;   // pale 1σ/2σ/3σ bands on the pace graph; off when strategies' bands overlap too much
+    let hlPaceArgs = null;
 
     // The plain (non-adaptive) sweeps: SimpleSweep and its SimpleSweep-d<k> spacings. Smart-Sweep is adaptive.
     function isSweepBaseline(strategy) {
@@ -8018,6 +8020,18 @@ function main() {
     function renderHlSigmaPace(byStrategy, strategies) {
         const div = document.getElementById('hl-sigma-pace');
         if (!div) return;
+        hlPaceArgs = { byStrategy, strategies };
+        const toggle = document.getElementById('hl-pace-bands-toggle');
+        if (toggle) {
+            toggle.checked = hlPaceBands;
+            if (!toggle._hasListener) {
+                toggle.addEventListener('change', () => {
+                    hlPaceBands = toggle.checked;
+                    if (hlPaceArgs) renderHlSigmaPace(hlPaceArgs.byStrategy, hlPaceArgs.strategies);
+                });
+                toggle._hasListener = true;
+            }
+        }
         let globalMax = 1;
         for (const s of strategies) {
             if (isSweepBaseline(s)) continue; // a sweep's full-grid step count would swamp the adaptive scale
@@ -8054,16 +8068,19 @@ function main() {
         for (const { strat, xs, errMed, sigMed } of perStrategy) {
             const color = hlStratColor(strategies, strat);
             const label = _shortStratLabel(strat);
-            traces.push({
-                x: xs, y: xs.map(() => floorY * 0.5), mode: 'lines', line: { width: 0 },
-                legendgroup: strat, showlegend: false, hoverinfo: 'skip',
-            });
+            if (hlPaceBands) {
+                traces.push({
+                    x: xs, y: xs.map(() => floorY * 0.5), mode: 'lines', line: { width: 0 },
+                    legendgroup: strat, showlegend: false, hoverinfo: 'skip',
+                });
+            }
             traces.push({
                 x: xs, y: sigMed, mode: 'lines', legendgroup: strat, name: `${label} claimed σ`,
-                line: { color, width: 2, dash: 'dot' }, fill: 'tonexty', fillcolor: hlHexToRgba(color, 0.2),
+                line: { color, width: 2, dash: 'dot' },
+                ...(hlPaceBands ? { fill: 'tonexty', fillcolor: hlHexToRgba(color, 0.2) } : {}),
                 hovertemplate: 'step %{x}<br>median claimed σ %{y:.4g} Hz<extra>' + label + '</extra>',
             });
-            [[2, 0.12], [3, 0.06]].forEach(([k, alpha]) => {
+            (hlPaceBands ? [[2, 0.12], [3, 0.06]] : []).forEach(([k, alpha]) => {
                 traces.push({
                     x: xs, y: sigMed.map(v => k * v), mode: 'lines', line: { width: 0 },
                     fill: 'tonexty', fillcolor: hlHexToRgba(color, alpha),
