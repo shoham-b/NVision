@@ -9,6 +9,8 @@ import pytest
 
 from nvision.metrics import stages
 from nvision.metrics.stages import compute_stage_metrics, sensitivity_efficiency_trace
+from nvision.spectra.drive import DRIVE_AMP_MIN_UNIT, DriveSetting
+from nvision.spectra.nv_center_drive import pi_pulse_duration_s, rabi_transition_probability
 
 
 class _Belief:
@@ -176,3 +178,52 @@ def test_lorentzian_efficiency_loss_is_second_order_near_the_optimum():
     assert eta[0] == pytest.approx(1.0, abs=1e-4)
     assert eta[1] == pytest.approx(1 - 4.5 * 0.1**2, abs=0.01)
     assert eta[2] == pytest.approx(1 - 4.5 * 0.1**2, abs=0.01)
+
+
+class _PulsedRabiModel:
+    """Pulsed model with one parameter ``c`` (resonance, Hz): the spin-flip probability of a square pulse."""
+
+    controls_drive = True
+    is_pulsed = True
+    spec = SimpleNamespace(pack_params=lambda p: [p], unpack_params=lambda v: v[0])
+
+    def __init__(self, rabi_hz: float, duration_s: float | None = None):
+        self._rabi_hz = rabi_hz
+        self._duration_s = duration_s
+
+    def compute_many_float64(self, xs, c):
+        return rabi_transition_probability(xs - c, self._rabi_hz, self._duration_s)
+
+
+def test_oracle_includes_pulses_longer_than_the_pi_pulse():
+    # A pulse 5.6x the pi-pulse is far more sensitive to the resonance than the pi-pulse (Ramsey-like fringes).
+    # A locator with a mis-calibrated Rabi frequency can pick one; the oracle must not be beaten by it.
+    rabi_per_amp = 5e6
+    amp = DRIVE_AMP_MIN_UNIT
+    t_long = 10**0.75 * pi_pulse_duration_s(rabi_per_amp * amp)
+    model = _PulsedRabiModel(rabi_per_amp * amp)
+    x_lo, x_hi = -30e6, 30e6
+
+    def model_at(drive):
+        return _PulsedRabiModel(rabi_per_amp * drive.drive_amp_unit, drive.pulse_duration_s)
+
+    true_signal = SimpleNamespace(
+        parameter_names=("c",),
+        get_param_bounds=lambda name: (-30e6, 30e6),
+        model=model,
+        typed_parameters=0.0,
+        model_at=model_at,
+        get_param_value=lambda name: rabi_per_amp,
+    )
+    belief = SimpleNamespace(drive_freq_bounds_phys=(x_lo, x_hi))
+    xs = np.linspace(x_lo, x_hi, 40001)
+    h = 6e3
+    long_model = model_at(DriveSetting(amp, t_long))
+    g2 = ((long_model.compute_many_float64(xs, h) - long_model.compute_many_float64(xs, -h)) / (2 * h)) ** 2
+    x_best = float(xs[np.argmax(g2)])
+    drive = DriveSetting(amp, t_long)
+    snap = SimpleNamespace(
+        belief=belief, obs=SimpleNamespace(drive=drive, drive_freq_unit=(x_best - x_lo) / (x_hi - x_lo))
+    )
+    eta = sensitivity_efficiency_trace(SimpleNamespace(true_signal=true_signal, snapshots=[snap]), "c")
+    assert 0.0 < eta[0] <= 1.0  # before the fix: ValueError "A measurement beat the grid optimum"

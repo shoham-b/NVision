@@ -46,7 +46,7 @@ Assumptions: additive noise whose ``sigma`` does not depend on ``x`` or the driv
 known (a model whose other parameters were classified before). With free nuisance parameters a single
 measurement's information about ``theta`` alone is the diagonal term, an upper bound on the efficient
 (Schur-complement) information. For a drive-controlled model the oracle also picks the drive amplitude
-(and, when pulsed, the true pi-pulse).
+(and, when pulsed, the pulse duration, from 0.1x to 10x the true pi-pulse).
 
 Steps are 1-indexed measurement counts. A stage that was never reached has ``None`` metrics -- for
 a plain sweep, which does not stop when it has converged, a short or absent *refine* stage is a real
@@ -63,12 +63,19 @@ import numpy as np
 from nvision.metrics.milestones import resolve_primary_param
 from nvision.models.observer import RunResult
 from nvision.spectra.drive import DRIVE_AMP_MIN_UNIT, DriveSetting
+from nvision.spectra.nv_center_drive import RABI_PER_AMP_BOUNDS
 
 # delta: the refine stage may lose at most this fraction of the oracle's Fisher information (CRLB within 1/(1-delta)).
 REFINE_INFO_LOSS = 0.1
 _EFFICIENCY_GRID_POINTS = 4001
 _GRID_MAX_TOLERANCE = 0.01
 _ORACLE_DRIVE_AMPS = 48
+# Pulsed oracle: coarser amplitudes x pulse durations (as multiples of the true pi-pulse, which is 1.0). The
+# multiples span true/estimated Rabi frequency over the prior bounds, the most a calibration can be off.
+_ORACLE_PULSED_AMPS = 16
+_ORACLE_DURATION_RATIOS = np.geomspace(
+    RABI_PER_AMP_BOUNDS[0] / RABI_PER_AMP_BOUNDS[1], RABI_PER_AMP_BOUNDS[1] / RABI_PER_AMP_BOUNDS[0], 17
+)
 
 STAGE_NAMES: tuple[str, str, str] = ("search", "focus", "refine")
 
@@ -96,7 +103,15 @@ def _oracle_drives(true_signal: Any) -> list[DriveSetting | None]:
     if not model.is_pulsed:
         return [DriveSetting(float(a)) for a in amps]
     rabi_per_amp = true_signal.get_param_value("rabi_per_amp")
-    return [DriveSetting(float(a), pi_pulse_duration_s(rabi_per_amp * float(a))) for a in amps]
+    # Pulses of any length, not just the true pi-pulse: a locator calibrates its pulse from its *estimated* Rabi
+    # frequency, so it can legitimately pick a longer or shorter pulse, and a longer pulse is often far more
+    # sensitive (fringes) than the pi-pulse. Durations span the reach of that calibration error.
+    pulsed_amps = np.geomspace(DRIVE_AMP_MIN_UNIT, 1.0, _ORACLE_PULSED_AMPS)
+    return [
+        DriveSetting(float(a), float(m * pi_pulse_duration_s(rabi_per_amp * float(a))))
+        for a in pulsed_amps
+        for m in _ORACLE_DURATION_RATIOS
+    ]
 
 
 def sensitivity_efficiency_trace(run_result: RunResult, primary: str) -> np.ndarray:
