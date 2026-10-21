@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import concurrent.futures
 import contextlib
+import json
 import logging
 import multiprocessing
 import os
@@ -870,6 +871,29 @@ def _find_latest_session_log(logs_root: Path | None) -> Path | None:
     return candidates[-1] if candidates else None
 
 
+_RESUME_CHAIN_FILE = "resume_chain.json"
+
+
+def _resume_chain_path(logs_root: Path | None) -> Path:
+    from nvision.tools.paths import LOGS_ROOT as _DEFAULT_LOGS_ROOT
+
+    return (logs_root if logs_root is not None else _DEFAULT_LOGS_ROOT) / _RESUME_CHAIN_FILE
+
+
+def _load_resume_chain(logs_root: Path | None) -> set[tuple[str, str, str]]:
+    """Combinations started by every earlier session in the current stop/resume chain."""
+    path = _resume_chain_path(logs_root)
+    if not path.exists():
+        return set()
+    return {(g, n, st) for g, n, st in json.loads(path.read_text(encoding="utf-8"))}
+
+
+def _save_resume_chain(logs_root: Path | None, combos: set[tuple[str, str, str]]) -> None:
+    path = _resume_chain_path(logs_root)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(sorted(combos)), encoding="utf-8")
+
+
 @app.command()
 def run(  # noqa: C901
     out: Annotated[Path | None, typer.Option("--out", help="Output directory")] = Path(cli_defaults.DEFAULT_OUT)
@@ -1100,16 +1124,24 @@ def run(  # noqa: C901
 
     ran_in_resume_session: set[tuple[str, str, str]] | None = None
     if resume:
+        # The chain persists across stop/resume cycles (run logs are pruned to the last two), so a
+        # resume of a resume still reuses everything the original run produced.
+        chain = _load_resume_chain(logs_root)
         session_log = _find_latest_session_log(logs_root)
-        if session_log is None:
+        if session_log is None and not chain:
             console.print("[yellow]--resume: no previous run logs found to resume from.[/yellow]")
         else:
-            ran_in_resume_session = _parse_started_combos_from_log(session_log)
-            console.print(f"[bold cyan]--resume: resuming from {session_log.name}[/bold cyan]")
+            if session_log is not None:
+                chain |= _parse_started_combos_from_log(session_log)
+            ran_in_resume_session = chain
+            _save_resume_chain(logs_root, chain)
             console.print(
-                f"  Recognized [bold green]{len(ran_in_resume_session)}[/bold green] "
-                f"combination(s) that ran in last session."
+                f"[bold cyan]--resume: reusing results of {len(chain)} combination(s) from the "
+                f"stop/resume chain.[/bold cyan]"
             )
+    else:
+        # A fresh (non-resume) run starts a new chain.
+        _save_resume_chain(logs_root, set())
 
     # Cross-pod sharding: slice the fully-resolved combination list so each shard
     # runs a disjoint subset. Applied last so it composes with --run-group,
@@ -1339,6 +1371,7 @@ def run(  # noqa: C901
                 sweep_max_steps=None,
                 loc_timeout_s=loc_timeout_s,
                 no_cache=no_cache,
+                ran_in_resume_session=ran_in_resume_session,
                 dry_run=dry_run,
                 ignore_cache_strategy=ignore_cache_strategy,
                 require_cache=require_cache,
@@ -1350,7 +1383,6 @@ def run(  # noqa: C901
                 combination_names=combination_names,
                 extra_generators=extra_generators,
                 shard_index=shard_index_str,
-                ran_in_resume_session=ran_in_resume_session,
                 defer_graphs=defer_graphs,
             ),
             monitor=monitor,
