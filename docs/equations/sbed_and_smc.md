@@ -440,7 +440,7 @@ with K_safety = `NVISION_ZERO_FIELD_FREQ_CRLB_SAFETY_FACTOR` = 4.0.
 SBED and the sweeps share one stopping rule (`sequential_bayesian_locator.py`, `ConvergenceStopRules`): stop once
 every target parameter's uncertainty has stayed under its ceiling (§5.1-§5.3) for `convergence_patience_steps`
 consecutive checks, or when the step budget is spent. A sweep checks every step but only stops at the end of a
-pass (the passes are averaged, up to `NVISION_SWEEP_MAX_PASSES`).
+pass (the passes are averaged, capped at `NVISION_SWEEP_MAX_MEASUREMENTS` measurements).
 
 There is deliberately no CRLB stop and no estimate-plateau stop. A plateau stop ends a run when the estimate
 stops moving, which is exactly the behaviour the stage metrics measure (the move into the refine stage); stopping

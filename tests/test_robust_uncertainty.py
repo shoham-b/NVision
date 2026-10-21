@@ -316,3 +316,19 @@ class TestSbedStreakSurvivesRawUncertaintySpike:
             "convergence streak was reset by a transient raw-uncertainty spike "
             "that robust_uncertainty() should have filtered out"
         )
+
+
+class TestStopNeedsAFoundDip:
+    def test_converged_uncertainty_without_a_dip_does_not_stop(self) -> None:
+        loc = TestSbedStreakSurvivesRawUncertaintySpike()._make_locator()
+        loc._target_params_converged = lambda _uncertainties=None: True  # the uncertainty ceiling is met
+
+        loc.belief.current_dips = lambda: []
+        for _ in range(10):
+            loc._update_stop_rules()
+        assert not loc._is_converged
+
+        loc.belief.current_dips = lambda: [object()]
+        for _ in range(10):
+            loc._update_stop_rules()
+        assert loc._is_converged
