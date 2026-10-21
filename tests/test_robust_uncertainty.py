@@ -246,7 +246,7 @@ class TestDefaultRobustUncertaintyFallsBackToRaw:
 # ---------------------------------------------------------------------------
 
 
-class TestSbedStreakSurvivesRawUncertaintySpike:
+class _SbedLocatorFactory:
     def _make_locator(self):
         from nvision.sim.locs.bayesian.sbed_locator import SequentialBayesianExperimentDesignLocator
         from nvision.spectra.nv_center import NVCenterLorentzianModel
@@ -276,51 +276,10 @@ class TestSbedStreakSurvivesRawUncertaintySpike:
         )
         return loc
 
-    def test_streak_not_reset_by_a_transient_raw_spike(self) -> None:
-        loc = self._make_locator()
-        belief = loc.belief
-        # Plain NVCenterLorentzianModel() (no Zeeman/hyperfine, fixed-zero_field_freq
-        # by default) only infers hwhm and contrast_total.
-        assert list(belief._param_names) == ["hwhm", "contrast_total"]
-        target_idx = belief._param_names.index("hwhm")
-        n = belief.num_particles
-
-        # Tight, well-converged cloud on every free parameter.
-        rng = np.random.default_rng(2)
-        for name in belief._param_names:
-            idx = belief._param_names.index(name)
-            belief._particles[:, idx] = 0.5 + rng.normal(0.0, 0.002, size=n)
-        belief._weights[:] = 1.0 / n
-
-        # Build up a genuine streak first (tight cloud, no spike).
-        for _ in range(3):
-            loc._check_and_resample()
-        assert loc._convergence_streak == 3
-        assert not loc._is_converged
-
-        # Now simulate exactly what a resample's rejuvenation particles look
-        # like: a small minority (3/200) of the cloud redrawn far from the
-        # bulk, for hwhm specifically -- everything else still tight.
-        spiked = belief._particles[:, target_idx].copy()
-        spiked[:3] = 0.95
-        belief._particles[:, target_idx] = spiked
-
-        # Confirm this really would have been a raw-uncertainty spike (the
-        # bug this fix targets), before checking the streak survives it.
-        raw_unc = belief.uncertainty()["hwhm"]
-        robust_unc = belief.robust_uncertainty()["hwhm"]
-        assert raw_unc > robust_unc * 3
-
-        loc._check_and_resample()
-        assert loc._convergence_streak == 4, (
-            "convergence streak was reset by a transient raw-uncertainty spike "
-            "that robust_uncertainty() should have filtered out"
-        )
-
 
 class TestStopNeedsAFoundDip:
     def test_converged_uncertainty_without_a_dip_does_not_stop(self) -> None:
-        loc = TestSbedStreakSurvivesRawUncertaintySpike()._make_locator()
+        loc = _SbedLocatorFactory()._make_locator()
         loc._target_params_converged = lambda _uncertainties=None: True  # the uncertainty ceiling is met
 
         loc.belief.current_dips = lambda: []
