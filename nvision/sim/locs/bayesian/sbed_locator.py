@@ -253,8 +253,12 @@ class _SearchThenFocusMixin:
         self._last_focus = self._focus
 
     def _focus_dips(self):
-        """Dips from every measurement so far (``belief.current_dips()``), not only as of the last resample."""
-        return self.belief.current_dips()
+        """Dips from the measurements so far (``belief.current_dips()``), not only as of the last resample.
+
+        Re-scanned at most every ``NVISION_DIP_SCAN_EVERY`` measurements (see ``_scanned_dips``), so the switch from
+        search to focus can come up to that many measurements after the dip first becomes visible.
+        """
+        return self._scanned_dips()
 
     def _refresh_focus(self) -> bool:
         """Re-decide the focus from the dips measured so far; True if it changed."""
