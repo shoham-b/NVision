@@ -335,3 +335,46 @@ class TestStopNeedsAFoundDip:
         for _ in range(10):
             loc._update_stop_rules()
         assert loc._is_converged
+
+
+class TestDipScanInterval:
+    def _locator(self, monkeypatch):
+        from nvision.sim.locs.bayesian import sequential_bayesian_locator as sbl
+
+        monkeypatch.setattr(sbl, "NVISION_DIP_SCAN_EVERY", 10)
+        loc = TestSbedStreakSurvivesRawUncertaintySpike()._make_locator()
+        loc._target_params_converged = lambda _uncertainties=None: True  # the uncertainty ceiling is met
+        return loc
+
+    def test_scan_runs_once_per_interval_of_measurements(self, monkeypatch) -> None:
+        loc = self._locator(monkeypatch)
+        scans: list[int] = []
+        loc.belief.current_dips = lambda: scans.append(1) or []
+        for _ in range(25):
+            loc._update_stop_rules()
+        assert len(scans) == 3  # at measurements 1, 11 and 21
+
+    def test_scan_interval_counts_measurements_not_converged_checks(self, monkeypatch) -> None:
+        loc = self._locator(monkeypatch)
+        scans: list[int] = []
+        loc.belief.current_dips = lambda: scans.append(1) or [object()]
+        loc._target_params_converged = lambda _uncertainties=None: False
+        for _ in range(10):
+            loc._update_stop_rules()
+        assert not scans  # uncertainty not under its ceiling: no scan
+        loc._target_params_converged = lambda _uncertainties=None: True
+        loc._update_stop_rules()  # measurement 11: the interval has elapsed
+        assert len(scans) == 1
+
+    def test_fired_rule_stays_fired_and_stops_scanning(self, monkeypatch) -> None:
+        loc = self._locator(monkeypatch)
+        scans: list[int] = []
+        loc.belief.current_dips = lambda: scans.append(1) or [object()]
+        for _ in range(8):
+            loc._update_stop_rules()
+        assert loc._is_converged
+        n_scans = len(scans)
+        for _ in range(30):
+            loc._update_stop_rules()
+        assert loc._is_converged
+        assert len(scans) == n_scans

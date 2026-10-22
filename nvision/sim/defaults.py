@@ -61,6 +61,10 @@ NVISION_SWEEP_FIT_EARLY_STOP_SIGMAS: float = float(os.getenv("NVISION_SWEEP_FIT_
 # tested), see nvision.belief.dip_detection.find_dips.
 NVISION_DIP_P_FA: float = float(os.getenv("NVISION_DIP_P_FA", "0.01"))
 
+# The stopping rules re-run the dip scan at most once per this many measurements (the scan grows with the number
+# of measurements, and a dip already seen does not vanish between two consecutive measurements).
+NVISION_DIP_SCAN_EVERY: int = max(1, int(os.getenv("NVISION_DIP_SCAN_EVERY", "10")))
+
 
 # --- Sweep Steps Defaults (sweep_steps.py) -----------------------------------
 

@@ -21,6 +21,7 @@ from nvision.models.locator import Locator
 from nvision.models.observation import Observation
 from nvision.sim.defaults import (
     NVISION_CONVERGENCE_THRESHOLD,
+    NVISION_DIP_SCAN_EVERY,
 )
 
 # Minimum number of consecutive converged checks before declaring convergence.
@@ -46,6 +47,9 @@ class ConvergenceStopRules:
         # configs. See resolve_primary_param.
         self._primary_param: str | None = resolve_primary_param(self.belief.model.parameter_names())
         self._is_converged: bool = False
+        # Dip-scan cache: the scan is re-run at most every NVISION_DIP_SCAN_EVERY measurements (see _data_show_dip).
+        self._checks_since_dip_scan: int = NVISION_DIP_SCAN_EVERY - 1  # so the first scan happens at the first check
+        self._dip_seen: bool = False
 
     def _update_stop_rules(self) -> None:
         """Run the stopping rules once, after the belief has absorbed the latest measurement.
@@ -54,21 +58,35 @@ class ConvergenceStopRules:
         ``_convergence_patience_steps`` consecutive checks, *and* the data show a dip (the focus is found,
         ``belief.current_dips()`` -- the rule the stage metrics use). The belief's uncertainty is overconfident, so
         without the dip requirement a run could stop having never located the resonance. This is the only
-        stopping rule besides the step budget.
+        stopping rule besides the step budget. Once it has fired it stays fired, so later checks do nothing.
         """
+        if self._is_converged:
+            return
+        self._checks_since_dip_scan += 1  # one check per measurement, whether or not the scan runs
         # The raw belief uncertainty -- the same measure the convergence milestones are read from
         # (nvision/metrics/milestones.py), so the stop rule and the recorded milestones can never disagree.
         uncertainties = self.belief.uncertainty()
-        # The dip scan only runs once the uncertainty is already under its ceiling. Only the SMC belief models dips
-        # (a grid belief has no focus to find), so the requirement applies to it alone.
-        if self._target_params_converged(uncertainties) and (
-            not isinstance(self.belief, SMCMarginalDistribution) or self.belief.current_dips()
-        ):
+        # The dip scan only runs once the uncertainty is already under its ceiling.
+        if self._target_params_converged(uncertainties) and self._data_show_dip():
             self._convergence_streak += 1
             if self._convergence_streak >= self._convergence_patience_steps:
                 self._is_converged = True
         else:
             self._convergence_streak = 0
+
+    def _data_show_dip(self) -> bool:
+        """Whether the data show a dip, re-scanned at most every ``NVISION_DIP_SCAN_EVERY`` measurements.
+
+        The scan costs more the more measurements there are, and a dip does not appear or vanish between two
+        consecutive measurements, so the last result is reused in between. Only the SMC belief models dips (a grid
+        belief has no focus to find), so the requirement applies to it alone.
+        """
+        if not isinstance(self.belief, SMCMarginalDistribution):
+            return True
+        if self._checks_since_dip_scan >= NVISION_DIP_SCAN_EVERY:
+            self._checks_since_dip_scan = 0
+            self._dip_seen = bool(self.belief.current_dips())
+        return self._dip_seen
 
     def _target_params_converged(self, physical_uncertainties=None) -> bool:
         """Whether every target parameter's uncertainty is under its ceiling (see :func:`target_params_converged`).

@@ -24,7 +24,6 @@ def test_voigt_grid_group_uses_voigt_inhom_grid_and_all_locators():
         "SimpleSweep-2perFWHM",
         "SimpleSweep-3perFWHM",
         "SimpleSweep-4perFWHM",
-        "SimpleSweep-5perFWHM",
         "Smart-Sweep",
         "Bayesian-SBED",
         "Smart-SBED",

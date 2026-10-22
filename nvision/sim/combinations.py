@@ -44,7 +44,7 @@ class Combination:
 
 
 # Sweep spacings studied, as grid points per prior FWHM (SWEEP_POINTS_PER_FWHM is the derived default).
-SWEEP_SPACING_DIVISORS: tuple[int, ...] = (1, 2, 3, 4, 5)
+SWEEP_SPACING_DIVISORS: tuple[int, ...] = (1, 2, 3, 4)
 
 _NV_SMC: dict[str, object] = {
     "builder": nv_center_smc_belief,
