@@ -27,7 +27,7 @@ def run(curve_fn, x, ys, cands, make_p0, lo, hi, xtol, **kw):
 
 G._seed_zero_field_freq_and_splits = seed
 G._run_curve_fit_candidates = staticmethod(run)
-from nvision.models import observer as _obs
+from nvision.models import observer as _obs  # noqa: E402
 
 TRUTH = []
 _oi = _obs.Observer.__init__
