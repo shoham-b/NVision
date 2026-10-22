@@ -679,3 +679,45 @@ def test_sweep_fit_hwhm_not_blind_seeded():
     c_ratio = fit["contrast_total"] / true_params.contrast_total
     assert 0.7 < lw_ratio < 1.4, f"hwhm ratio {lw_ratio:.2f} looks like the blind-seed compensating minimum"
     assert 0.7 < c_ratio < 1.4, f"contrast_total ratio {c_ratio:.2f} looks like the blind-seed compensating minimum"
+
+
+@pytest.mark.parametrize("true_zeeman_shift", [2.54e6, 18.15e6, 54.26e6])
+def test_sweep_fit_fixed_center_half_window_finds_zeeman_shift(true_zeeman_shift):
+    """With ``zero_field_freq`` fixed and the domain the half-window ``[D, D + Delta]``, the fit must find the dip.
+
+    Regression guard for the sweep reporting ``zeeman_shift`` at the middle of its bounds (about 30 MHz for
+    ``(0, 60 MHz)``) whatever the truth. A fixed ``zero_field_freq`` is not a fit parameter, so the seeds'
+    dip-centre was discarded by ``make_p0`` and ``zeeman_shift``, whose seed was ``None`` (or the merged-dips
+    ``0``), started at the bounds midpoint. A 0.5 MHz-HWHM dip is tens of linewidths from that start, where the
+    residual is flat, so curve_fit returned its start point as a converged fit.
+    """
+    from nvision.spectra.nv_center import NVCenterVoigtModel, NVCenterVoigtZeemanSpectrum
+
+    domain_lo, domain_hi = 2.87e9, 3.02e9  # half-window: D = zero_field_freq (fixed), Delta = 150 MHz
+    model = NVCenterVoigtModel(hyperfine="unresolved", with_zeeman_splitting=True)
+    assert "zero_field_freq" not in model.parameter_names(), "this test needs the fixed-center model"
+    bounds = {
+        "hwhm_lorentz": (2.0e5, 7.5e6),
+        "sigma_inhom": (0.0, 3.0e6),
+        "zeeman_shift": (0.0, 60.0e6),
+        "contrast_total": (0.1, 0.4),
+    }
+    true_params = NVCenterVoigtZeemanSpectrum(
+        zero_field_freq=domain_lo,
+        hwhm_lorentz=0.5e6,
+        sigma_inhom=0.3e6,
+        zeeman_shift=true_zeeman_shift,
+        contrast_total=0.2,
+    )
+    noise_std = 0.001  # peak SNR ~ 30: an easy case, any failure is the start, not the noise
+
+    locator = _build_locator_for(model, bounds, domain_lo, domain_hi, n_steps=300, noise_std=noise_std)
+    _inject_sweep_data_for(locator, model, true_params, noise_std=noise_std, seed=3)
+    locator.finalize()
+
+    fit = locator.fit_mode_estimates()
+    assert fit is not None
+    assert abs(fit["zeeman_shift"] - true_zeeman_shift) < 0.2e6, (
+        f"fitted zeeman_shift {fit['zeeman_shift'] / 1e6:.2f} MHz, truth {true_zeeman_shift / 1e6:.2f} MHz "
+        f"(bounds midpoint is 30 MHz)"
+    )

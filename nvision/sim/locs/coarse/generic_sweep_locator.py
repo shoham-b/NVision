@@ -370,6 +370,9 @@ class GenericSweepLocator(ConvergenceStopRules, SweepingLocator):
             hi_bounds,
         )
 
+        if fixed_center_value is not None and zs_idx is not None:
+            seeds = self._anchor_zeeman_seeds_to_fixed_center(seeds, fixed_center_value, domain_lo, domain_hi)
+
         # Parameters with no data-driven seed below (e.g. k_np) start at their belief-prior
         # mean rather than the bounds midpoint. The prior mean is deliberately offset from the
         # truth by the generator (see _widened_prior_mean), so this is not an oracle start.
@@ -894,6 +897,37 @@ class GenericSweepLocator(ConvergenceStopRules, SweepingLocator):
         zero_field_freq_init = 0.5 * (float(positions[0]) + float(positions[-1]))
         half_sep = 0.5 * (float(positions[-1]) - float(positions[0]))
         return [(zero_field_freq_init, half_sep, None)]
+
+    @staticmethod
+    def _anchor_zeeman_seeds_to_fixed_center(
+        seeds: list[tuple[float, float | None, float | None]],
+        fixed_center_phys: float,
+        domain_lo_phys: float,
+        domain_hi_phys: float,
+    ) -> list[tuple[float, float | None, float | None]]:
+        """Give every seed a ``zeeman_shift`` measured from the fixed ``zero_field_freq``.
+
+        Each seed's first entry is the detected centre of the dip pattern, but a fixed
+        ``zero_field_freq`` is not a fit parameter, so ``make_p0`` discards it. The dip's position then only
+        reaches the fit through ``zeeman_shift`` -- its distance from the fixed centre -- and a seed without one
+        starts at the bounds midpoint, tens of linewidths from the dip, where the residual is flat and the fit
+        never leaves. In the half-window domain ``[D, D + Delta]`` only the upper Zeeman group is visible, so
+        the group centre is at ``D + zeeman_shift`` and the seed is exactly ``centre - D``.
+
+        Seeds that already carry a ``zeeman_shift`` are kept when the domain straddles the fixed centre (both
+        groups visible, so the outermost-peak half-separation is right); in a one-sided domain the
+        outermost-peak midpoint is the lone group's centre, so there the offset replaces it. The explicit
+        ``zeeman_shift = 0`` (merged-dips) seeds are kept.
+
+        shape of ``seeds``: ``[(centre_phys, zeeman_shift_phys | None, hyperfine_shift_phys | None), ...]``.
+        """
+        one_sided = not (domain_lo_phys < fixed_center_phys < domain_hi_phys)
+        anchored: list[tuple[float, float | None, float | None]] = []
+        for centre, half_sep, hyperfine in seeds:
+            if half_sep is None or (one_sided and half_sep != 0.0):
+                half_sep = abs(centre - fixed_center_phys)
+            anchored.append((centre, half_sep, hyperfine))
+        return anchored
 
     def _build_fit_candidates(
         self,
