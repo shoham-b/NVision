@@ -753,7 +753,7 @@ def test_sweep_fit_raises_when_data_has_no_dip():
 
 
 def test_sweep_fit_raises_when_fit_is_stuck_at_a_bad_start(monkeypatch):
-    """Re-create the bounds-midpoint start (no ``zeeman_shift`` seed): the stalled fit must raise, not report ~30 MHz."""
+    """Re-create the bounds-midpoint start (no ``zeeman_shift`` seed): the stalled fit must raise, not give ~30 MHz."""
     monkeypatch.setattr(
         GenericSweepLocator,
         "_anchor_zeeman_seeds_to_fixed_center",
