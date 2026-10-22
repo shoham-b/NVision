@@ -1,0 +1,25 @@
+<!-- @dsCard group="Layout" height=230 subtitle="Signal and Locator control panels side by side" -->
+<!doctype html>
+<html><head><link rel="stylesheet" href="../../tokens.css"><link rel="stylesheet" href="../bundle.css"><meta charset="utf-8"><title>Panel</title><style>body{margin:16px;background:var(--surface)}</style></head>
+<body>
+<div class="scan-controls-split" style="margin:0">
+  <div class="panel panel-signal">
+    <h3 class="panel-title">Signal (pl_normalized)</h3>
+    <div class="control-row"><span class="control-label">Generator:</span>
+      <div class="segmented-control" role="radiogroup" aria-label="Scan generator">
+        <button type="button" role="radio" aria-checked="true" class="is-active">NVCenter-lorentzian</button>
+        <button type="button" role="radio" aria-checked="false">NVCenter-voigt</button>
+      </div>
+    </div>
+  </div>
+  <div class="panel panel-locator">
+    <h3 class="panel-title">Locator</h3>
+    <div class="control-row"><span class="control-label">View at:</span>
+      <div class="segmented-control" role="radiogroup" aria-label="Stopping criteria">
+        <button type="button" role="radio" aria-checked="false">Full</button>
+        <button type="button" role="radio" aria-checked="true" class="is-active">Primary converged</button>
+      </div>
+    </div>
+  </div>
+</div>
+</body></html>

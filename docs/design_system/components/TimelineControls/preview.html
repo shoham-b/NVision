@@ -1,0 +1,21 @@
+<!-- @dsCard group="Controls" height=130 subtitle="Sticky page-wide step timeline with resample ticks and milestones" -->
+<!doctype html>
+<html><head><link rel="stylesheet" href="../../tokens.css"><link rel="stylesheet" href="../bundle.css"><meta charset="utf-8"><title>TimelineControls</title><style>body{margin:16px;padding-top:12px}</style></head>
+<body>
+<div class="global-timeline-controls" style="position:relative;margin-bottom:0">
+  <button type="button" class="timeline-btn" aria-label="Play">▶ Play</button>
+  <div class="timeline-slider-container">
+    <input type="range" class="timeline-slider" min="0" max="120" value="84" aria-label="Measurement step">
+    <div class="timeline-ticks-container">
+      <span class="timeline-tick" style="left:18%"></span>
+      <span class="timeline-tick" style="left:37%"></span>
+      <span class="timeline-tick" style="left:58%"></span>
+      <button type="button" class="timeline-milestone milestone-primary" style="left:51%" aria-label="Jump to primary converged"></button>
+      <button type="button" class="timeline-milestone milestone-all" style="left:70%" aria-label="Jump to all converged"></button>
+      <button type="button" class="timeline-milestone milestone-full" style="left:100%" aria-label="Jump to full run"></button>
+    </div>
+  </div>
+  <span class="timeline-label">step 84 / 120</span>
+  <select class="speed-select" aria-label="Playback speed"><option>1×</option></select>
+</div>
+</body></html>

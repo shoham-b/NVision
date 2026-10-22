@@ -21,6 +21,7 @@ To understand the core design of the inference engine, you **MUST** read the doc
 - `nvision/runner/`: Task orchestration, CLI combinations, and execution.
 - `nvision/viz/`: Plotly mixins and UI facades.
 - `static/`: Frontend assets (Do NOT analyze directly, run the server instead).
+- `docs/design_system/`: The UI design system (tokens, component markup, full-page skeleton). Read its `README.md` before writing or restyling any UI.
 - `artifacts/`: Output directory for all experiment results, plots, and caches.
 
 ---

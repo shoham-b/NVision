@@ -1,0 +1,28 @@
+<!-- @dsCard group="Layout" height=610 width=980 subtitle="Analysis view: group labels and paired chart cards (Speed, Stages, Accuracy)" -->
+<!doctype html>
+<html><head><link rel="stylesheet" href="../../tokens.css"><link rel="stylesheet" href="../bundle.css"><meta charset="utf-8"><title>ChartCard</title>
+<style>
+body{margin:16px;background:var(--surface)}
+.ph{height:150px;border-radius:4px;background:var(--slate-50);display:flex;align-items:center;justify-content:center;color:var(--slate-500);font:12px var(--font-mono)}
+</style></head>
+<body>
+<div class="view-panel" style="margin-top:0">
+  <h2>Speed — Measurement Efficiency</h2>
+  <h3 class="group-label">Over time</h3>
+  <div class="chart-pair">
+    <div class="chart-card">
+      <h3>Error vs measurements <span tabindex="0" class="help-icon-visible" title="Anytime performance: median absolute primary-parameter error across repeats if the run were stopped at each measurement count.">?</span></h3>
+      <div class="ph">Plotly chart · #hl-error-curves · 420px</div>
+    </div>
+    <div class="chart-card">
+      <h3>Convergence vs measurements <span tabindex="0" class="help-icon-visible" title="Survival view: fraction of repeats whose claimed uncertainty crossed the threshold by each measurement count.">?</span></h3>
+      <div class="ph">Plotly chart · #hl-survival · 380px</div>
+    </div>
+  </div>
+  <h3 class="group-label">vs Signal Span</h3>
+  <div class="chart-card chart-card-full">
+    <h3>When does it pay — savings vs signal span <span tabindex="0" class="help-icon-visible" title="Per-repeat paired difference in steps-to-convergence against the fractional signal span.">?</span></h3>
+    <div class="ph" style="height:60px">Plotly chart · #hl-span · 340px</div>
+  </div>
+</div>
+</body></html>

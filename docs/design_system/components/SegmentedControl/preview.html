@@ -1,0 +1,24 @@
+<!-- @dsCard group="Navigation" height=170 subtitle="Pill radio group, and compact range buttons for noise and facet values" -->
+<!doctype html>
+<html><head><link rel="stylesheet" href="../../tokens.css"><link rel="stylesheet" href="../bundle.css"><meta charset="utf-8"><title>SegmentedControl</title><style>body{margin:16px;background:var(--surface)}</style></head>
+<body>
+<div class="control-row"><span class="control-label">View:</span>
+  <div class="segmented-control" role="radiogroup" aria-label="Scan view">
+    <button type="button" role="radio" aria-checked="true" class="is-active">Run</button>
+    <button type="button" role="radio" aria-checked="false">Speed</button>
+    <button type="button" role="radio" aria-checked="false">Accuracy</button>
+    <button type="button" role="radio" aria-checked="false">Stages</button>
+    <button type="button" role="radio" aria-checked="false" disabled>Pooled</button>
+  </div>
+</div>
+<div class="control-row"><span class="control-label">Noise:</span>
+  <div class="segmented-control" role="radiogroup" aria-label="Scan noise">
+    <button type="button" class="noise-btn">Gauss(0.001)</button>
+    <button type="button" class="noise-btn is-range-anchor">Gauss(0.005)</button>
+    <button type="button" class="noise-btn is-range-preview">Gauss(0.01)</button>
+    <button type="button" class="noise-btn is-range-preview">Gauss(0.02)</button>
+    <button type="button" class="noise-btn">Gauss(0.05)</button>
+    <button type="button" class="noise-btn is-active">Poisson</button>
+  </div>
+</div>
+</body></html>

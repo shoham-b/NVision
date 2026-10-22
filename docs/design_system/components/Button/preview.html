@@ -1,0 +1,19 @@
+<!-- @dsCard group="Controls" height=150 subtitle="Control button, link-button and arrow step buttons" -->
+<!doctype html>
+<html><head><link rel="stylesheet" href="../../tokens.css"><link rel="stylesheet" href="../bundle.css"><meta charset="utf-8"><title>Button</title><style>body{margin:16px;background:var(--surface)}</style></head>
+<body>
+<div class="control-row"><span class="control-label">Repeat:</span>
+  <div class="repeat-picker" role="group" aria-label="Scan repeat navigation">
+    <button type="button" class="control-button" aria-label="Previous repeat">Previous</button>
+    <select class="control-select" aria-label="Scan repeat"><option>repeat 3 / 25</option></select>
+    <button type="button" class="control-button" aria-label="Next repeat">Next</button>
+    <button type="button" class="control-button" disabled>Export</button>
+  </div>
+</div>
+<div class="control-row">
+  <button type="button" class="link-button">Recalculate results</button>
+  <a href="#" class="link-button">Download locator_results.parquet</a>
+  <button type="button" class="control-button arrow-btn" aria-label="Step back">◀</button>
+  <button type="button" class="control-button arrow-btn" aria-label="Step forward">▶</button>
+</div>
+</body></html>

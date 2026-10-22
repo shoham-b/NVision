@@ -1,0 +1,47 @@
+<!-- @dsCard group="Data" height=300 subtitle="Metric card grids: sweep (blue), scan (violet), and their state variants" -->
+<!doctype html>
+<html><head><link rel="stylesheet" href="../../tokens.css"><link rel="stylesheet" href="../bundle.css"><meta charset="utf-8"><title>MetricsPanel</title><style>body{margin:16px;background:var(--surface)}</style></head>
+<body>
+<div class="sweep-metrics-panel" style="margin-top:0">
+  <div class="metric-item">
+    <div class="metric-header"><span class="metric-label">Measurements</span><span class="help-icon" tabindex="0" title="Total measurements taken by the sweep.">?</span></div>
+    <span class="metric-value">240</span>
+    <span class="metric-formula">passes × points</span>
+  </div>
+  <div class="metric-item efficiency-good">
+    <div class="metric-header"><span class="metric-label">Efficiency</span></div>
+    <span class="metric-value">0.94</span>
+    <span class="metric-formula">CRLB / σ²</span>
+  </div>
+  <div class="metric-item efficiency-medium">
+    <div class="metric-header"><span class="metric-label">Efficiency (split)</span></div>
+    <span class="metric-value">0.61</span>
+  </div>
+  <div class="metric-item efficiency-bad">
+    <div class="metric-header"><span class="metric-label">Efficiency (width)</span></div>
+    <span class="metric-value">0.18</span>
+  </div>
+</div>
+<div class="scan-metrics-panel" style="margin-top:12px">
+  <div class="metric-item">
+    <div class="metric-header"><span class="metric-label">Found zero_field_freq</span></div>
+    <span class="metric-value">2.8701 GHz</span>
+  </div>
+  <div class="metric-item expected-card">
+    <div class="metric-header"><span class="metric-label">True zero_field_freq</span></div>
+    <span class="metric-value">2.8700 GHz</span>
+  </div>
+  <div class="metric-item err-medium-card">
+    <div class="metric-header"><span class="metric-label">abs_err_x</span></div>
+    <span class="metric-value">84 kHz</span>
+  </div>
+  <div class="metric-item err-high-card">
+    <div class="metric-header"><span class="metric-label">Error / σ</span></div>
+    <table class="metric-mini-table">
+      <tr><th>split</th><td>0.9</td></tr>
+      <tr class="err-medium-row"><th>width</th><td>2.4</td></tr>
+      <tr class="err-high-row"><th>center</th><td>5.1</td></tr>
+    </table>
+  </div>
+</div>
+</body></html>

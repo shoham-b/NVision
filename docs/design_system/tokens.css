@@ -1,0 +1,328 @@
+/* NVision — generated from tokens.json */
+:root, [data-theme="light"] {
+  --primary: #0056b3;
+  --primary-strong: #003d82;
+  --primary-hover: #004085;
+  --primary-soft: #6db3f5;
+  --signal-accent: #0d6efd;
+  --locator-accent: #198754;
+  --page: #f4f4f4;
+  --surface: #ffffff;
+  --surface-sunken: #fafafa;
+  --control: #f9f9f9;
+  --control-hover: #f0f0f0;
+  --tab: #f1f1f1;
+  --tab-hover: #e2e2e2;
+  --disabled: #eeeeee;
+  --ink: #333333;
+  --ink-soft: #444444;
+  --ink-muted: #666666;
+  --ink-disabled: #888888;
+  --border: #dddddd;
+  --border-control: #cccccc;
+  --divider: #e0e0e0;
+  --chart-grid: #eeeeee;
+  --divider-soft: #eeeeee;
+  --slate-50: #f8fafc;
+  --slate-100: #f1f5f9;
+  --slate-150: #e8edf2;
+  --slate-200: #e2e8f0;
+  --slate-300: #cbd5e1;
+  --slate-400: #94a3b8;
+  --slate-500: #64748b;
+  --slate-600: #475569;
+  --slate-700: #334155;
+  --slate-800: #1e293b;
+  --gray-300: #d1d5db;
+  --blue-100: #dbeafe;
+  --blue-200: #bfdbfe;
+  --blue-300: #93c5fd;
+  --blue-400: #60a5fa;
+  --blue-500: #3b82f6;
+  --blue-700: #1d4ed8;
+  --blue-800: #1e40af;
+  --blue-900: #1e3a8a;
+  --blue-tint: #f0f7ff;
+  --violet-200: #ddd6fe;
+  --violet-400: #a78bfa;
+  --violet-500: #8b5cf6;
+  --violet-800: #5b21b6;
+  --green-50: #f0fdf4;
+  --green-200: #bbf7d0;
+  --green-300: #86efac;
+  --green-400: #4ade80;
+  --green-600: #16a34a;
+  --green-700: #15803d;
+  --emerald-400: #34d399;
+  --emerald-500: #10b981;
+  --emerald-700: #047857;
+  --milestone-all: #22c55e;
+  --switch-on: #34c759;
+  --bounds-ink: #1a7a40;
+  --bounds-label: #176337;
+  --bounds-tint: rgba(46, 204, 113, 0.07);
+  --bounds-border: rgba(46, 204, 113, 0.5);
+  --bounds-chip: rgba(46, 204, 113, 0.14);
+  --bounds-chip-hover: rgba(46, 204, 113, 0.28);
+  --bounds-chip-border: rgba(46, 204, 113, 0.45);
+  --slider-card-border: rgba(46, 204, 113, 0.18);
+  --slider-card-border-hover: rgba(46, 204, 113, 0.4);
+  --lime-50: #f7fee7;
+  --lime-400: #a3e635;
+  --lime-900: #365314;
+  --amber-50: #fef3c7;
+  --amber-200: #fde68a;
+  --amber-800: #92400e;
+  --orange-400: #fb923c;
+  --orange-500: #f97316;
+  --orange-600: #ea580c;
+  --orange-700: #c2410c;
+  --red-25: #fff8f8;
+  --red-50: #fef2f2;
+  --red-100: #fee2e2;
+  --red-200: #fecaca;
+  --red-300: #fca5a5;
+  --red-400: #f87171;
+  --red-500: #ef4444;
+  --red-600: #dc2626;
+  --red-700: #b91c1c;
+  --red-800: #991b1b;
+  --red-900: #7f1d1d;
+  --status-scheduled-bg: #f3e5f5;
+  --status-scheduled-border: #ce93d8;
+  --status-scheduled-ink: #6a1b9a;
+  --status-running-bg: #e3f2fd;
+  --status-running-border: #90caf9;
+  --status-running-ink: #0d47a1;
+  --status-partial-bg: #fff3e0;
+  --status-partial-border: #ffcc80;
+  --status-partial-ink: #e65100;
+  --status-error-bg: #ffebee;
+  --status-error-border: #ef9a9a;
+  --status-error-ink: #b71c1c;
+  --status-complete-bg: #e8f5e9;
+  --status-complete-border: #a5d6a7;
+  --status-complete-ink: #1b5e20;
+  --spinner-track: rgba(13, 71, 161, 0.3);
+  --timeline: #1e90ff;
+  --timeline-strong: #005b96;
+  --timeline-tint: #e6f2ff;
+  --timeline-tint-hover: #d4e9ff;
+  --series-1: #1e90ff;
+  --series-2: #e05c00;
+  --series-3: #00a878;
+  --series-4: #9b59b6;
+  --series-5: #e74c3c;
+  --series-6: #2ecc71;
+  --series-7: #f39c12;
+  --highlight-1: #2563eb;
+  --highlight-2: #f59e0b;
+  --highlight-3: #10b981;
+  --highlight-4: #8b5cf6;
+  --highlight-5: #ec4899;
+  --highlight-6: #ef4444;
+  --highlight-7: #06b6d4;
+  --highlight-8: #14b8a6;
+  --reason-max-steps: #b45309;
+  --reason-theory-budget: #1d4ed8;
+  --reason-infeasible-crlb: #dc2626;
+  --reason-timeout: #7c3aed;
+  --trace-true-signal: #0000ff;
+  --trace-noisy: #ffa500;
+  --trace-noisy-band-1: rgba(255, 165, 0, 0.25);
+  --trace-noisy-band-2: rgba(255, 165, 0, 0.12);
+  --trace-mode: #d62728;
+  --trace-sweep: #8c564b;
+  --trace-sweep-meas: rgba(140, 86, 75, 0.85);
+  --trace-sweep-edge: #5b3a32;
+  --trace-meas-dist: rgba(111, 66, 193, 0.95);
+  --trace-meas-dist-fill: rgba(111, 66, 193, 0.3);
+  --trace-coarse: rgba(176, 176, 176, 0.95);
+  --trace-coarse-edge: #4a4a4a;
+  --trace-secondary: rgba(255, 127, 14, 0.9);
+  --trace-secondary-edge: #8b4513;
+  --trace-tertiary: rgba(148, 0, 211, 0.9);
+  --trace-tertiary-edge: #4b0082;
+  --trace-stem: rgba(120, 120, 120, 0.5);
+  --trace-entropy: #ff0000;
+  --trace-uncertainty: #008000;
+  --trace-marker-edge: #000000;
+  --chart-legend-bg: rgba(255, 255, 255, 0.75);
+  --glass: rgba(255, 255, 255, 0.95);
+  --glass-soft: rgba(255, 255, 255, 0.8);
+  --glass-slate: rgba(248, 250, 252, 0.8);
+  --glass-border: rgba(226, 232, 240, 0.8);
+  --shadow-section: 0 2px 4px rgba(0, 0, 0, 0.1);
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.03);
+  --shadow-card-hover: 0 4px 12px rgba(0, 86, 179, 0.08);
+  --shadow-card-hover-violet: 0 4px 12px rgba(124, 58, 237, 0.08);
+  --shadow-callout: 0 1px 3px rgba(0, 0, 0, 0.05);
+  --shadow-table: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+  --shadow-floating: 0 10px 15px -3px rgba(0, 0, 0, 0.05), 0 4px 6px -2px rgba(0, 0, 0, 0.02);
+  --shadow-knob: 0 1px 3px rgba(0, 0, 0, 0.25);
+  --shadow-thumb: 0 2px 4px rgba(0, 0, 0, 0.2);
+  --shadow-milestone: 0 1px 3px rgba(0, 0, 0, 0.35);
+}
+
+:root {
+  --space-1: 0.25em;
+  --space-2: 0.5em;
+  --space-3: 0.75em;
+  --space-4: 1em;
+  --space-5: 1.25rem;
+  --space-6: 1.5em;
+  --space-8: 2em;
+  --space-timeline-gap: 15px;
+  --space-timeline-y: 12px;
+  --space-timeline-x: 24px;
+  --radius-track: 2px;
+  --radius-xs: 4px;
+  --radius-sm: 5px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 10px;
+  --radius-2xl: 12px;
+  --radius-pill: 999px;
+  --radius-circle: 50%;
+  --font-sans: sans-serif;
+  --font-system: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "Cascadia Code", monospace;
+  --font-math: "Cambria Math", Cambria, Georgia, serif;
+}
+
+.type-h1 {
+  font-family: var(--font-sans);
+  font-size: 32px;
+  line-height: 1.6;
+  font-weight: 700;
+}
+
+.type-h2 {
+  font-family: var(--font-sans);
+  font-size: 24px;
+  line-height: 1.6;
+  font-weight: 700;
+}
+
+.type-h3 {
+  font-family: var(--font-sans);
+  font-size: 18.72px;
+  line-height: 1.6;
+  font-weight: 700;
+}
+
+.type-panel-title {
+  font-family: var(--font-sans);
+  font-size: 17.6px;
+  line-height: 1.6;
+  font-weight: 700;
+}
+
+.type-subheading {
+  font-family: var(--font-sans);
+  font-size: 16.8px;
+  line-height: 1.6;
+  font-weight: 700;
+}
+
+.type-group-label {
+  font-family: var(--font-sans);
+  font-size: 15.2px;
+  line-height: 1.6;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.type-group-header {
+  font-family: var(--font-sans);
+  font-size: 14.72px;
+  line-height: 1.6;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.type-body {
+  font-family: var(--font-sans);
+  font-size: 16px;
+  line-height: 1.6;
+  font-weight: 400;
+}
+
+.type-control-label {
+  font-family: var(--font-sans);
+  font-size: 16px;
+  line-height: 1.6;
+  font-weight: 700;
+}
+
+.type-metrics {
+  font-family: var(--font-sans);
+  font-size: 15.2px;
+  line-height: 1.6;
+  font-weight: 400;
+}
+
+.type-caption {
+  font-family: var(--font-sans);
+  font-size: 14.4px;
+  line-height: 1.6;
+  font-weight: 400;
+}
+
+.type-small {
+  font-family: var(--font-sans);
+  font-size: 12.8px;
+  line-height: 1.6;
+  font-weight: 400;
+}
+
+.type-col-header {
+  font-family: var(--font-sans);
+  font-size: 12.48px;
+  line-height: 1.6;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+}
+
+.type-metric-label {
+  font-family: var(--font-sans);
+  font-size: 9.22px;
+  line-height: 1.2;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+
+.type-metric-value {
+  font-family: var(--font-mono);
+  font-size: 14.72px;
+  line-height: 1.1;
+  font-weight: 700;
+}
+
+.type-timeline-label {
+  font-family: var(--font-mono);
+  font-size: 13.6px;
+  line-height: 1.6;
+  font-weight: 700;
+}
+
+.type-chip {
+  font-family: var(--font-mono);
+  font-size: 13.09px;
+  line-height: 1.6;
+  font-weight: 400;
+}
+
+.type-metric-formula {
+  font-family: var(--font-mono);
+  font-size: 8.96px;
+  line-height: 1.6;
+  font-weight: 400;
+}
+
+.type-equation {
+  font-family: var(--font-math);
+  font-size: 12.8px;
+  line-height: 1.6;
+  font-weight: 400;
+}
