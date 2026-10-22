@@ -13,6 +13,7 @@ To understand the core design of the inference engine, you **MUST** read the doc
 **Mandatory Reading for Architecture:**
 - **[core_architecture.md](file:///c:/Users/shoha/git/NVision/docs/core_architecture.md)**: Explains the Simulation Orchestration, the Sequential Monte Carlo (SMC) engine, the Bayesian SBED locator, and the critical **Unit-Cube Parameter Scaling** conventions.
 - **[caching.md](file:///c:/Users/shoha/git/NVision/docs/caching.md)**: Explains how the SQLite cache operates and the `--no-cache` / `--dry-run` flag behaviors.
+- **[evaluation_metrics.md](file:///c:/Users/shoha/git/NVision/docs/evaluation_metrics.md)**: Read before adding or changing any locator-comparison metric or results view: what each stage (search / focus / refine) is driven by, which axes to use, and the rules (no end-of-run accuracy as a quality metric, one shared budget, raw metrics before ranking).
 
 **Brief Repository Map**:
 - `nvision/sim/`: Generators, Noise Models, and Locators.
