@@ -120,12 +120,14 @@ Key sections inside `main()` (in order of appearance):
 7. **Bayesian rendering** — posterior heatmap, convergence, metrics, Fisher, covariance ellipses, jitter
 8. **Aggregate views** — the `#scan-view-mode` control's modes besides *Run*, each reading per-repeat fields
    for many repeats at once:
-   * **Step size** (`renderStepSizeTab`, `ss*` helpers) — chooses the plain sweep's spacing k. Reads
+   * **Locators** (`renderStepSizeTab`, `ss*` helpers) — every locator's measured metrics side by side, each
+     plain-sweep spacing k its own locator, with toggle chips to show or hide each one; nothing is ranked. Reads
      `/api/run-rows` (per-repeat scalars: measurements, final error and claimed σ, focus-found step, contrast,
-     noise σ, grid axes) for the spacings `/api/sweep-spacings` lists, over the loaded family or the current
-     selection. Shows per k the median and p75 cost, the capped share, the paired cost ratio against a reference
-     k (same true signal, geometric mean), the |z| scale at the stop, the cheapest k per SNR band, cost and search
-     cost against SNR = contrast / noise σ (optionally split by `sigma_inhom` or isotope), and a |z| Q-Q plot.
+     noise σ, grid axes) over the loaded family or the current selection; `/api/sweep-spacings` lists the sweep
+     spacings the current code studies, so older spacings left in the cache are hidden. Shows per locator the
+     median and p75 cost, the capped share, how often a dip was found, the search cost and the error and claimed σ
+     at the end, plus cost, search cost and error against SNR = contrast / noise σ (optionally split by
+     `sigma_inhom` or isotope).
    * **Stages** (`renderStagesTab`, `renderHlStages`) — the search / focus / refine comparison
      (`docs/locator_comparison.md`).
    * **Accuracy** (`renderAccuracyTab`) — whether the stop is reliable: true error at the stop in units of τ,

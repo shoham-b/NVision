@@ -6097,19 +6097,24 @@ function main() {
         paper_bgcolor: 'transparent',
     });
 
-    // ── Step size tab ────────────────────────────────────────────────────────
-    // Chooses the plain sweep's spacing (k points per prior FWHM) from /api/run-rows: the per-repeat scalars of
-    // every SimpleSweep-<k>perFWHM run, over every signal and noise level of the loaded family (or only the
-    // current selection). Repeat i has the same true signal for every k, so k is compared run by run against a
-    // reference k; cost and search cost are read against SNR = contrast / noise σ.
+    // ── Locators tab ─────────────────────────────────────────────────────────
+    // Every locator's measured metrics side by side (each plain-sweep spacing k is its own locator), from
+    // /api/run-rows: the per-repeat scalars of every run, over every signal and noise level of the loaded family
+    // (or only the current selection), read against SNR = contrast / noise σ. The chips choose which locators
+    // are shown; nothing is ranked.
     let ssRowsCache = null;   // { key, promise } of the last /api/run-rows request
     let ssScope = 'family';
-    let ssRefK = null;        // reference spacing of the paired ratios; null until the server names its default
+    const ssHidden = new Set();   // locators the user switched off (new locators are shown by default)
     let ssSplit = 'none';     // row field the SNR charts are split by: 'none' | 'grid_sigma_inhom' | 'grid_hyperfine'
 
     function ssSpacing(strategy) {
         const m = /^SimpleSweep-(\d+)perFWHM$/.exec(strategy || '');
         return m ? Number(m[1]) : null;
+    }
+
+    function ssLabel(strategy) {
+        const k = ssSpacing(strategy);
+        return k != null ? `Sweep k=${k}` : _shortStratLabel(strategy);
     }
 
     function ssFetchRows(strategies) {
@@ -6118,7 +6123,7 @@ function main() {
         const params = new URLSearchParams({ strategies: key });
         const promise = fetch(`${window.NVISION_ASSET_PREFIX || ''}api/run-rows?${params}`, { cache: 'no-store' })
             .then((r) => {
-                if (!r.ok) throw new Error(`/api/run-rows returned ${r.status} (the Step size view needs \`nv serve\`)`);
+                if (!r.ok) throw new Error(`/api/run-rows returned ${r.status} (the Locators view needs \`nv serve\`)`);
                 return r.json();
             });
         ssRowsCache = { key, promise };
@@ -6147,34 +6152,7 @@ function main() {
 
     function ssQuantiles(values) {
         const sorted = hlSorted(values);
-        return { n: sorted.length, q25: hlQuantileSorted(sorted, 0.25), med: hlQuantileSorted(sorted, 0.5), q75: hlQuantileSorted(sorted, 0.75) };
-    }
-
-    // Geometric mean of positive ratios with a normal-approximation 95% interval on the log scale.
-    function ssGeoMean(ratios) {
-        const logs = ratios.filter((r) => r > 0 && isFinite(r)).map(Math.log);
-        const n = logs.length;
-        if (!n) return null;
-        const mean = logs.reduce((a, b) => a + b, 0) / n;
-        const sd = n > 1 ? Math.sqrt(logs.reduce((a, b) => a + (b - mean) ** 2, 0) / (n - 1)) : 0;
-        const half = n > 1 ? 1.96 * sd / Math.sqrt(n) : 0;
-        return { n, gm: Math.exp(mean), lo: Math.exp(mean - half), hi: Math.exp(mean + half) };
-    }
-
-    // Inverse standard normal CDF (Acklam's rational approximation, |error| < 1.2e-9).
-    function ssNormInv(p) {
-        const a = [-39.69683028665376, 220.9460984245205, -275.9285104469687, 138.357751867269, -30.66479806614716, 2.506628277459239];
-        const b = [-54.47609879822406, 161.5858368580409, -155.6989798598866, 66.80131188771972, -13.28068155288572];
-        const c = [-0.007784894002430293, -0.3223964580411365, -2.400758277161838, -2.549732539343734, 4.374664141464968, 2.938163982698783];
-        const d = [0.007784695709041462, 0.3224671290700398, 2.445134137142996, 3.754408661907416];
-        const pl = 0.02425;
-        if (p < pl) {
-            const q = Math.sqrt(-2 * Math.log(p));
-            return (((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) * q + c[5]) / ((((d[0] * q + d[1]) * q + d[2]) * q + d[3]) * q + 1);
-        }
-        if (p > 1 - pl) return -ssNormInv(1 - p);
-        const q = p - 0.5, r = q * q;
-        return (((((a[0] * r + a[1]) * r + a[2]) * r + a[3]) * r + a[4]) * r + a[5]) * q / (((((b[0] * r + b[1]) * r + b[2]) * r + b[3]) * r + b[4]) * r + 1);
+        return { n: sorted.length, med: hlQuantileSorted(sorted, 0.5), q75: hlQuantileSorted(sorted, 0.75) };
     }
 
     function ssSegmented(group, onPick) {
@@ -6194,22 +6172,13 @@ function main() {
         group._hasListener = true;
     }
 
-    function ssRenderRefControl(ks) {
-        const group = document.getElementById('ss-ref');
-        group.innerHTML = ks.map((k) => {
-            const active = k === ssRefK;
-            return `<button type="button" role="radio" aria-checked="${active}" data-value="${k}" tabindex="${active ? 0 : -1}"${active ? ' class="is-active"' : ''}>k=${k}</button>`;
-        }).join('');
-        ssSegmented(group, (v) => { ssRefK = Number(v); });
-    }
-
-    // Spacings the current code studies and its default (/api/sweep-spacings); older spacings come from older code.
+    // Sweep spacings the current code studies (/api/sweep-spacings); older spacings in the cache come from older code.
     let ssSpacingsPromise = null;
     function ssCurrentSpacings() {
         if (!ssSpacingsPromise) {
             ssSpacingsPromise = fetch(`${window.NVISION_ASSET_PREFIX || ''}api/sweep-spacings`, { cache: 'no-store' })
                 .then((r) => {
-                    if (!r.ok) throw new Error(`/api/sweep-spacings returned ${r.status} (the Step size view needs \`nv serve\`)`);
+                    if (!r.ok) throw new Error(`/api/sweep-spacings returned ${r.status} (the Locators view needs \`nv serve\`)`);
                     return r.json();
                 });
             ssSpacingsPromise.catch(() => { ssSpacingsPromise = null; });
@@ -6217,7 +6186,7 @@ function main() {
         return ssSpacingsPromise;
     }
 
-    const SS_PANEL_IDS = ['ss-table', 'ss-bands', 'ss-cost-snr', 'ss-search-snr', 'ss-ratio', 'ss-honesty'];
+    const SS_PANEL_IDS = ['ss-table', 'ss-cost-snr', 'ss-search-snr', 'ss-error-snr'];
 
     function renderStepSizeTab() {
         ssSegmented(document.getElementById('ss-scope'), (v) => { ssScope = v; });
@@ -6228,29 +6197,22 @@ function main() {
             if (el) el.innerHTML = '';
         });
         ssCurrentSpacings()
-            .then((spacings) => renderStepSizeFor(spacings, notice, clear))
+            .then((current) => renderStepSizeFor(new Set(current), notice, clear))
             .catch((err) => {
                 clear();
-                notice.innerHTML = `<div style="padding:1em;color:#721c24;background:#f8d7da;border-radius:6px;"><strong>Step size:</strong> ${escapeHtml(String(err.message || err))}</div>`;
+                notice.innerHTML = `<div style="padding:1em;color:#721c24;background:#f8d7da;border-radius:6px;"><strong>Locators:</strong> ${escapeHtml(String(err.message || err))}</div>`;
             });
     }
 
-    function renderStepSizeFor(spacings, notice, clear) {
-        const current = new Set(spacings.strategies);
-        const cached = [...new Set(scanPlots.map((p) => p.strategy))].filter((s) => ssSpacing(s) != null);
-        const strategies = cached.filter((s) => current.has(s));
-        const older = cached.filter((s) => !current.has(s));
+    function renderStepSizeFor(currentSpacings, notice, clear) {
+        const cached = [...new Set(scanPlots.map((p) => p.strategy))].filter(Boolean);
+        const older = cached.filter((s) => ssSpacing(s) != null && !currentSpacings.has(s));
+        const strategies = cached.filter((s) => !older.includes(s)).sort(hlStrategyCompare);
         if (!strategies.length) {
             clear();
-            notice.innerHTML = '<div style="padding:2em;color:#64748b;text-align:center;background:#f8fafc;border:1px dashed #cbd5e1;border-radius:8px;">No SimpleSweep-&lt;k&gt;perFWHM runs in this family.</div>';
+            notice.innerHTML = '<div style="padding:2em;color:#64748b;text-align:center;background:#f8fafc;border:1px dashed #cbd5e1;border-radius:8px;">No runs in this family.</div>';
             return Promise.resolve();
         }
-        const ks = strategies.map(ssSpacing).sort((a, b) => a - b);
-        if (ssRefK == null || !ks.includes(ssRefK)) {
-            const def = ssSpacing(spacings.default);
-            ssRefK = ks.includes(def) ? def : ks[0];
-        }
-        ssRenderRefControl(ks);
         let genSet, noiseSet;
         if (ssScope === 'family') {
             genSet = new Set(scanPlots.map((p) => p.generator));
@@ -6263,112 +6225,103 @@ function main() {
         notice.innerHTML = '<div style="color:#64748b;font-size:0.85em;">Loading runs…</div>';
         return ssFetchRows(strategies).then((rows) => {
             const inScope = rows.filter((r) => genSet.has(r.generator) && (!noiseSet || noiseSet.has(r.noise)));
-            return ensurePlotly().then(() => renderStepSizeContent(inScope, ks, older));
+            return ensurePlotly().then(() => renderStepSizeContent(inScope, strategies, older));
         });
     }
 
-    function renderStepSizeContent(rows, ks, olderStrategies) {
+    // One toggle chip per locator; clicking shows or hides it in the table and every chart.
+    function ssRenderPicker(strategies, colorOf) {
+        const box = document.getElementById('ss-pick');
+        box.innerHTML = strategies.map((s) => {
+            const on = !ssHidden.has(s);
+            return `<button type="button" data-strategy="${escapeHtml(s)}" aria-pressed="${on}" title="${escapeHtml(s)}"
+                style="border:1px solid ${on ? colorOf(s) : '#cbd5e1'}; background:${on ? hlHexToRgba(colorOf(s), 0.12) : '#fff'};
+                color:${on ? '#0f172a' : '#94a3b8'}; border-radius:999px; padding:2px 10px; font-size:0.85em; cursor:pointer;">
+                <span style="color:${on ? colorOf(s) : '#cbd5e1'}">●</span> ${escapeHtml(ssLabel(s))}</button>`;
+        }).join('');
+        if (!box._hasListener) {
+            box.addEventListener('click', (e) => {
+                const btn = e.target.closest('button[data-strategy]');
+                if (!btn) return;
+                const s = btn.dataset.strategy;
+                if (ssHidden.has(s)) ssHidden.delete(s); else ssHidden.add(s);
+                renderStepSizeTab();
+            });
+            box._hasListener = true;
+        }
+    }
+
+    function renderStepSizeContent(rows, strategies, olderStrategies) {
         const notice = document.getElementById('ss-notice');
-        const ref = ssRefK;
-        const sweepNames = ks.map((k) => `SimpleSweep-${k}perFWHM`);
-        const colorOf = (k) => hlStratColor(sweepNames, `SimpleSweep-${k}perFWHM`);
-        const label = (k) => `k=${k}`;
+        const colorOf = (s) => hlStratColor(strategies, s);
         const config = { responsive: true, displaylogo: false };
+        ssRenderPicker(strategies, colorOf);
+        const shown = strategies.filter((s) => !ssHidden.has(s));
 
         const usable = rows.filter(ssUsable);
-        const byK = new Map(ks.map((k) => [k, usable.filter((r) => ssSpacing(r.strategy) === k)]));
+        const byS = new Map(strategies.map((s) => [s, usable.filter((r) => r.strategy === s)]));
         const failed = rows.length - usable.length;
         const noSnr = usable.filter((r) => ssSnr(r) == null).length;
+        const ended = (r) => !ssCapped(r);
 
-        // Pairs: the same (signal, noise, repeat) at this k and at the reference k.
-        const refCost = new Map(byK.get(ref).map((r) => [`${r.generator}|${r.noise}|${r.repeat}`, r.measurements]));
-        const pairsOf = (k, filter = () => true) => byK.get(k)
-            .filter(filter)
-            .map((r) => ({ r, ref: refCost.get(`${r.generator}|${r.noise}|${r.repeat}`) }))
-            .filter((p) => p.ref > 0)
-            .map((p) => ({ row: p.r, ratio: p.r.measurements / p.ref }));
-
-        // |z| = |estimate − truth| / claimed σ at the stop, over runs the stop rule ended.
-        const absZ = (k) => byK.get(k)
-            .filter((r) => !ssCapped(r) && r.final_err_primary != null && r.uncert > 0 && isFinite(r.uncert))
-            .map((r) => r.final_err_primary / r.uncert);
-
-        // Table: one line per k.
-        const fmtX = (v) => (v == null ? '–' : `${v.toFixed(2)}×`);
+        // Table: the measured metrics per shown locator.
         const fmtN = (v) => (v == null ? '–' : formatCount(Math.round(v)));
+        const fmtKHz = (v) => (v == null ? '–' : (v / 1e3).toFixed(v >= 1e5 ? 0 : 1));
         const th = (text, tip) => `<th title="${tip}">${text}</th>`;
-        const body = ks.map((k) => {
-            const runs = byK.get(k);
+        const body = shown.map((st) => {
+            const runs = byS.get(st);
             const cost = ssQuantiles(runs.map((r) => r.measurements));
             const capped = runs.filter(ssCapped).length;
-            const gm = k === ref ? null : ssGeoMean(pairsOf(k).map((p) => p.ratio));
-            const z = hlSorted(absZ(k));
-            // Scale of |z|: its median over the half-normal median 0.6745 (1 = σ is calibrated, 2 = errors twice σ).
-            const zScale = z.length ? hlQuantileSorted(z, 0.5) / 0.6745 : null;
-            const ratioCell = k === ref ? '<span style="color:#94a3b8">reference</span>'
-                : gm ? `<span title="95% interval ${gm.lo.toFixed(2)}–${gm.hi.toFixed(2)}× over ${formatCount(gm.n)} paired runs">${fmtX(gm.gm)}</span>` : '–';
+            const found = runs.filter((r) => r.focus_found_step != null);
+            const search = ssQuantiles(found.map((r) => r.focus_found_step));
+            const stopped = runs.filter(ended);
+            const err = ssQuantiles(stopped.map((r) => r.final_err_primary));
+            const sigma = ssQuantiles(stopped.map((r) => r.uncert));
             return `<tr>
-                <td style="text-align:left;font-weight:600;"><span style="color:${colorOf(k)}">●</span> ${label(k)}</td>
+                <td style="text-align:left;font-weight:600;" title="${escapeHtml(st)}"><span style="color:${colorOf(st)}">●</span> ${escapeHtml(ssLabel(st))}</td>
                 <td>${formatCount(runs.length)}</td>
                 <td>${fmtN(cost.med)}</td>
                 <td>${fmtN(cost.q75)}</td>
                 <td>${runs.length ? `${Math.round(100 * capped / runs.length)}%` : '–'}</td>
-                <td>${ratioCell}</td>
-                <td>${zScale == null ? '–' : `${zScale.toFixed(1)}×`}</td>
+                <td>${runs.length ? `${Math.round(100 * found.length / runs.length)}%` : '–'}</td>
+                <td>${fmtN(search.med)}</td>
+                <td>${fmtKHz(err.med)}</td>
+                <td>${fmtKHz(sigma.med)}</td>
             </tr>`;
         });
         const tableDiv = document.getElementById('ss-table');
-        tableDiv.innerHTML = `<table class="hl-stop-table" style="border-collapse:collapse;font-size:0.85em;text-align:right;">
+        tableDiv.innerHTML = shown.length ? `<table class="hl-stop-table" style="border-collapse:collapse;font-size:0.85em;text-align:right;">
             <thead><tr style="color:#64748b;border-bottom:1px solid #e2e8f0;">
-                <th style="text-align:left;">k</th>
+                <th style="text-align:left;">Locator</th>
                 ${th('Runs', 'Runs that ended by the stop rule or the budget')}
                 ${th('Median cost', 'Median measurements per run')}
-                ${th('p75 cost', '75th percentile of measurements per run: the expensive quarter')}
+                ${th('p75 cost', '75th percentile of measurements per run')}
                 ${th('Capped', 'Share of runs that hit the measurement budget before the stop rule fired')}
-                ${th(`vs k=${ref}`, `Geometric mean over paired runs (same true signal) of this k's measurements / k=${ref}'s; hover for the 95% interval`)}
-                ${th('|z| scale', 'Median |estimate − truth| / claimed σ at the stop, over the calibrated value 0.6745; 1 = honest σ, 2 = errors twice the claimed σ')}
-            </tr></thead><tbody>${body.join('')}</tbody></table>`;
+                ${th('Dip found', 'Share of runs whose data ever showed a dip')}
+                ${th('Search', 'Median measurements until a dip was seen')}
+                ${th('Error (kHz)', 'Median |reported estimate − truth| at the end, over runs the stop rule ended')}
+                ${th('Claimed σ (kHz)', 'Median claimed σ at the end, over runs the stop rule ended')}
+            </tr></thead><tbody>${body.join('')}</tbody></table>` : '';
         tableDiv.querySelectorAll('td, th').forEach((c) => { c.style.padding = '4px 12px'; });
-
-        // Best k per SNR band: tertiles of the finite cell SNRs, plus the noise-free cells.
-        const cellSnrs = hlSorted([...new Set(usable.map(ssSnr).filter((v) => v != null && isFinite(v)))]);
-        const cuts = cellSnrs.length >= 3 ? [hlQuantileSorted(cellSnrs, 1 / 3), hlQuantileSorted(cellSnrs, 2 / 3)] : [];
-        const fmtSnr = (v) => (v >= 10 ? v.toFixed(0) : v.toFixed(1));
-        const bands = cuts.length
-            ? [
-                { name: `SNR < ${fmtSnr(cuts[0])}`, test: (s) => isFinite(s) && s < cuts[0] },
-                { name: `${fmtSnr(cuts[0])}–${fmtSnr(cuts[1])}`, test: (s) => isFinite(s) && s >= cuts[0] && s < cuts[1] },
-                { name: `> ${fmtSnr(cuts[1])}`, test: (s) => isFinite(s) && s >= cuts[1] },
-                { name: 'no noise', test: (s) => s === Infinity },
-            ]
-            : [{ name: 'all', test: (s) => s != null }];
-        const bandText = bands.map((band) => {
-            const inBand = (r) => { const s = ssSnr(r); return s != null && band.test(s); };
-            const scores = ks.map((k) => ({ k, gm: k === ref ? (byK.get(ref).some(inBand) ? { gm: 1, n: 0 } : null) : ssGeoMean(pairsOf(k, inBand).map((p) => p.ratio)) }))
-                .filter((e) => e.gm);
-            if (!scores.length) return null;
-            const best = scores.reduce((a, b) => (b.gm.gm < a.gm.gm ? b : a));
-            return `<span title="${scores.map((e) => `k=${e.k}: ${e.gm.gm.toFixed(2)}×`).join(', ')} vs k=${ref}">${band.name}: <b>k=${best.k}</b></span>`;
-        }).filter(Boolean);
-        document.getElementById('ss-bands').innerHTML = bandText.length ? `Cheapest k by SNR — ${bandText.join(' · ')}` : '';
 
         const parts = [`${formatCount(usable.length)} runs`];
         if (failed) parts.push(`${formatCount(failed)} failed (left out)`);
-        if (noSnr) parts.push(`${formatCount(noSnr)} without contrast/noise (left out of SNR charts)`);
-        if (new Set(ks.map((k) => byK.get(k).length)).size > 1) parts.push('<b style="color:#b45309" title="The spacings have different numbers of runs; paired ratios use only shared runs">run in progress</b>');
+        if (noSnr) parts.push(`${formatCount(noSnr)} without contrast/noise (left out of the SNR charts)`);
+        if (new Set(strategies.map((s) => byS.get(s).length)).size > 1) parts.push('<b style="color:#b45309" title="The locators have different numbers of runs">run in progress</b>');
         if (olderStrategies.length) parts.push(`<span title="No longer a studied spacing: its cached results come from older code">hidden: ${olderStrategies.map(escapeHtml).join(', ')}</span>`);
         notice.innerHTML = `<div style="color:#64748b;font-size:0.85em;">${parts.join(' · ')}</div>`;
 
-        // SNR charts (one panel per value of the split field): median of `valueOf` per SNR value, one line per k.
-        const finiteSnrs = cellSnrs;
+        // SNR axis shared by the charts: log scale, with the noise-free runs at 2× the largest finite SNR as "∞".
+        const finiteSnrs = hlSorted([...new Set(usable.map(ssSnr).filter((v) => v != null && isFinite(v)))]);
         const xInf = finiteSnrs.length ? finiteSnrs[finiteSnrs.length - 1] * 2 : 1;
         const snrX = (s) => (s === Infinity ? xInf : s);
         const ticks = [];
         if (finiteSnrs.length) {
-            for (let e = Math.floor(Math.log10(finiteSnrs[0])); e <= Math.ceil(Math.log10(finiteSnrs[finiteSnrs.length - 1])); e++) {
+            const lo = finiteSnrs[0], hi = finiteSnrs[finiteSnrs.length - 1];
+            for (let e = Math.floor(Math.log10(lo)); e <= Math.ceil(Math.log10(hi)); e++) {
                 for (const m of [1, 2, 5]) {
                     const v = m * 10 ** e;
-                    if (v >= finiteSnrs[0] / 1.5 && v <= finiteSnrs[finiteSnrs.length - 1] * 1.2) ticks.push(v);
+                    if (v >= lo / 1.5 && v <= hi * 1.2) ticks.push(v);
                 }
             }
         }
@@ -6382,31 +6335,40 @@ function main() {
             ? [null]
             : [...new Set(usable.map((r) => r[ssSplit]))].filter((v) => v != null).sort(axisValueCompare);
         const splitLabel = (v) => (ssSplit === 'grid_sigma_inhom' ? `σ_inhom ${(v / 1e6).toFixed(1)} MHz` : `isotope ${v}`);
-        const snrPanels = (containerId, valueOf, filter, yTitle) => {
+
+        // One panel per split value; each series is { key, valueOf, filter, dash } and gets one line per shown locator
+        // (median of valueOf over the runs at each SNR value).
+        const snrPanels = (containerId, series, yTitle) => {
             const container = document.getElementById(containerId);
             container.innerHTML = '';
             for (const sv of splitValues) {
                 const div = document.createElement('div');
                 div.style.cssText = splitValues.length > 1 ? 'flex:1 1 30%; min-width:320px; height:300px;' : 'flex:1 1 100%; height:380px;';
                 container.appendChild(div);
-                const traces = ks.map((k) => {
-                    const bySnr = new Map();
-                    for (const r of byK.get(k)) {
-                        if (sv != null && r[ssSplit] !== sv) continue;
-                        if (filter && !filter(r)) continue;
-                        const s = ssSnr(r);
-                        if (s == null) continue;
-                        if (!bySnr.has(s)) bySnr.set(s, []);
-                        bySnr.get(s).push(valueOf(r));
+                const traces = [];
+                for (const s of series) {
+                    for (const st of shown) {
+                        const bySnr = new Map();
+                        for (const r of byS.get(st)) {
+                            if (sv != null && r[ssSplit] !== sv) continue;
+                            if (s.filter && !s.filter(r)) continue;
+                            const snr = ssSnr(r);
+                            const v = s.valueOf(r);
+                            if (snr == null || v == null) continue;
+                            if (!bySnr.has(snr)) bySnr.set(snr, []);
+                            bySnr.get(snr).push(v);
+                        }
+                        const xs = [...bySnr.keys()].sort((a, b) => a - b);
+                        const name = series.length > 1 ? `${ssLabel(st)} ${s.key}` : ssLabel(st);
+                        traces.push({
+                            type: 'scatter', mode: 'lines+markers', name, legendgroup: name, showlegend: sv === splitValues[0],
+                            x: xs.map(snrX), y: xs.map((x) => hlMedian(bySnr.get(x))),
+                            line: { color: colorOf(st), width: 2, dash: s.dash || 'solid' }, marker: { size: s.dash ? 4 : 6 },
+                            customdata: xs.map((x) => bySnr.get(x).length),
+                            hovertemplate: `${name}<br>SNR %{x:.3g}<br>median %{y:.3g}<br>n = %{customdata}<extra></extra>`,
+                        });
                     }
-                    const xs = [...bySnr.keys()].sort((a, b) => a - b);
-                    return {
-                        type: 'scatter', mode: 'lines+markers', name: label(k), legendgroup: label(k), showlegend: sv === splitValues[0],
-                        x: xs.map(snrX), y: xs.map((x) => hlMedian(bySnr.get(x))), line: { color: colorOf(k), width: 2 },
-                        customdata: xs.map((x) => bySnr.get(x).length),
-                        hovertemplate: `${label(k)}<br>SNR %{x:.3g}<br>median %{y:.0f}<br>n = %{customdata}<extra></extra>`,
-                    };
-                });
+                }
                 Plotly.react(div, traces, {
                     title: sv == null ? undefined : { text: splitLabel(sv), font: { size: 12 } },
                     margin: { l: 60, r: 10, t: sv == null ? 10 : 30, b: 50 },
@@ -6415,47 +6377,12 @@ function main() {
                 }, config);
             }
         };
-        snrPanels('ss-cost-snr', (r) => r.measurements, null, 'measurements per run');
-        snrPanels('ss-search-snr', (r) => r.focus_found_step, (r) => r.focus_found_step != null, 'measurements until a dip');
-
-        // Paired cost ratio vs the reference k: one box per k (the reference itself is 1 by definition).
-        const others = ks.filter((k) => k !== ref);
-        Plotly.react('ss-ratio', others.map((k) => ({
-            type: 'box', name: label(k), y: pairsOf(k).map((p) => p.ratio), marker: { color: colorOf(k) }, boxpoints: false,
-            hovertemplate: `${label(k)} / k=${ref}: %{y:.2f}×<extra></extra>`,
-        })), {
-            margin: { l: 60, r: 20, t: 10, b: 40 }, showlegend: false,
-            yaxis: { title: `measurements / k=${ref}'s (same signal)`, type: 'log' },
-            shapes: [{ type: 'line', xref: 'paper', x0: 0, x1: 1, y0: 1, y1: 1, line: { color: '#94a3b8', width: 1, dash: 'dash' } }],
-        }, config);
-
-        // Honesty: quantiles of |z| against the half-normal's (Q-Q); the calibrated line is y = x.
-        const qqTraces = [];
-        let qMax = 3;
-        for (const k of ks) {
-            const z = hlSorted(absZ(k));
-            const n = z.length;
-            if (!n) continue;
-            const step = Math.max(1, Math.floor(n / 200));
-            const xs = [], ys = [];
-            for (let i = 0; i < n; i += step) {
-                xs.push(ssNormInv(0.5 + 0.5 * (i + 0.5) / n));
-                ys.push(z[i]);
-            }
-            qMax = Math.max(qMax, xs[xs.length - 1]);
-            qqTraces.push({ type: 'scatter', mode: 'markers', name: label(k), x: xs, y: ys, marker: { color: colorOf(k), size: 4 },
-                hovertemplate: `${label(k)}<br>half-normal %{x:.2f}<br>|z| %{y:.2f}<extra></extra>` });
-        }
-        // y = x as a trace: a shape's straight segment would not follow y = x on the log y axis.
-        const diag = Array.from({ length: 60 }, (_, i) => 0.02 + (qMax - 0.02) * i / 59);
-        qqTraces.push({ type: 'scatter', mode: 'lines', name: 'calibrated', x: diag, y: diag, hoverinfo: 'skip',
-            line: { color: '#94a3b8', width: 1, dash: 'dash' } });
-        Plotly.react('ss-honesty', qqTraces, {
-            margin: { l: 60, r: 20, t: 10, b: 50 },
-            xaxis: { title: 'half-normal quantile', zeroline: false },
-            yaxis: { title: '|z| quantile', type: 'log' },
-            legend: { orientation: 'h', y: -0.25 },
-        }, config);
+        snrPanels('ss-cost-snr', [{ key: 'cost', valueOf: (r) => r.measurements }], 'measurements per run');
+        snrPanels('ss-search-snr', [{ key: 'search', valueOf: (r) => r.focus_found_step }], 'measurements until a dip');
+        snrPanels('ss-error-snr', [
+            { key: 'error', valueOf: (r) => (r.final_err_primary == null ? null : r.final_err_primary / 1e3), filter: ended },
+            { key: 'claimed σ', valueOf: (r) => (r.uncert > 0 && isFinite(r.uncert) ? r.uncert / 1e3 : null), filter: ended, dash: 'dot' },
+        ], 'kHz');
     }
 
     // ── Stages tab ───────────────────────────────────────────────────────────
@@ -7313,7 +7240,7 @@ function main() {
         if (mode === 'single') {
             if (repeatView) repeatView.style.display = 'block';
             updateStoppingCriteriaVisibility(currentPlot);
-        } else if (mode === 'step-size') {
+        } else if (mode === 'locators') {
             if (stoppingRow) stoppingRow.style.display = 'none';
             if (stepSizeView) {
                 stepSizeView.style.display = 'block';

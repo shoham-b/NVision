@@ -7,7 +7,6 @@ from nvision.cache import CacheBridge
 from nvision.cli.api_server import build_app
 from nvision.sim.combinations import SWEEP_SPACING_DIVISORS
 from nvision.sim.defaults import NVISION_SIMPLESWEEP_MAX_STEPS
-from nvision.sim.locs.search_grid import SWEEP_POINTS_PER_FWHM
 
 _MAIN_RESULT_ROW = {
     "generator": "NVCenter-lorentzian",
@@ -376,7 +375,5 @@ def test_sweep_spacings_lists_the_studied_sweep_strategies(tmp_path):
     cache_dir, static_dir = _build_client(tmp_path)
     client = TestClient(build_app(cache_dir, static_dir))
 
-    body = client.get("/api/sweep-spacings").json()
-    assert body["strategies"] == [f"SimpleSweep-{k}perFWHM" for k in SWEEP_SPACING_DIVISORS]
-    assert body["default"] == f"SimpleSweep-{SWEEP_POINTS_PER_FWHM}perFWHM"
-    assert body["default"] in body["strategies"]
+    names = client.get("/api/sweep-spacings").json()
+    assert names == [f"SimpleSweep-{k}perFWHM" for k in SWEEP_SPACING_DIVISORS]
