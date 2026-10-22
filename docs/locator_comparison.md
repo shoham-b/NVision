@@ -50,13 +50,19 @@ parameters, clipped to their bounds) -- never the true signal's width (`nvision/
   so they differ only in the acquisition after the dip is seen. 2 was chosen from the plain-sweep spacing study
   (k = 2 had the lowest median and p75 cost). A one-point-per-FWHM grid often leaves too few points in the dip for
   `find_dips`; a grid that misses the dip refines by halving.
+* Smart-Sweep's focus sweep uses a finer grid, FWHM/10 (`FOCUS_SWEEP_POINTS_PER_FWHM = 10`), laid fresh inside each
+  focus section from its lower edge. Lower bound, derived: a measurement eps from the max-information point keeps
+  eta ~ 1 - 4.5 (eps/HWHM)^2 of the optimal information, so eta >= 0.9 (the refine switch's
+  `SMART_SWEEP_REFINE_INFO_LOSS`) needs eps <= 0.15 HWHM, i.e. spacing 2 eps = FWHM/6.7, so 7 points per FWHM.
+  At 7, one pass over the focus occasionally ended before the posterior allowed the refine switch (1 of 8 test
+  runs), so 10 was chosen empirically (0 of 8). The focus grid is never refined: running out raises.
 
 ## Strategies
 
 | Strategy | Acquisition |
 |---|---|
 | `SimpleSweep-<k>perFWHM`, k = 2..4 | uniform grid over the whole axis with k points per FWHM (spacing FWHM/k), then a least-squares fit. k = 3 is the derived default; the rest are the spacing study |
-| `Smart-Sweep` | FWHM/2 sweep; once the data show a dip, sweep only inside the focus (finish FWHM/2 there, then halve the spacing) |
+| `Smart-Sweep` | FWHM/2 sweep; once the data show a dip, sweep only inside the focus on a FWHM/10 grid, then measure at the max-information points once the refine rule fires |
 | `Bayesian-SBED` | unchanged SBED |
 | `Smart-SBED` | EIG over the not-yet-measured points of a FWHM/2 grid until a dip is found, then ordinary SBED inside the focus |
 

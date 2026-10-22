@@ -8,6 +8,7 @@ import pytest
 from nvision.belief.focus_window import FocusRegion
 from nvision.sim.locs.search_grid import (
     SWEEP_POINTS_PER_FWHM,
+    FocusSweepGrid,
     RefiningGrid,
     max_sweep_points,
     prior_fwhm_phys,
@@ -59,6 +60,28 @@ def test_refining_grid_sweeps_leftmost_first_then_refines_by_halving():
     assert grid.level == 1  # level 0 exhausted -> spacing halves
     assert grid.spacing_phys == pytest.approx(1.0)
     assert list(nxt) == [1.0, 3.0, 5.0, 7.0]  # only the new midpoints are uncovered
+
+
+def test_focus_sweep_grid_starts_at_each_section_edge_and_ignores_unrecorded_measurements():
+    region = FocusRegion(sections=((3.1, 5.0), (7.0, 8.0)), full_lo=0.0, full_hi=10.0)
+    grid = FocusSweepGrid(0.5)
+    pts = grid.next_unmeasured(region)
+    assert pts[0] == pytest.approx(3.1)  # anchored at the lower edge, not on a global 0.5 lattice
+    assert pts.max() == pytest.approx(8.0)
+    assert np.all(np.diff(pts[pts < 6.0]) <= 0.5 + 1e-9)
+
+
+def test_focus_sweep_grid_sweeps_then_raises_when_the_focus_is_covered():
+    region = FocusRegion(sections=((0.0, 2.0),), full_lo=0.0, full_hi=10.0)
+    grid = FocusSweepGrid(1.0)  # 0, 1, 2
+    visited = []
+    for _ in range(3):
+        x = float(grid.next_unmeasured(region)[0])
+        visited.append(x)
+        grid.record(x)
+    assert visited == [0.0, 1.0, 2.0]
+    with pytest.raises(ValueError, match="already covers the focus"):
+        grid.next_unmeasured(region)
 
 
 def test_refining_grid_stays_inside_the_region():
