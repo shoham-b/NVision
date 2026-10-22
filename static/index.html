@@ -61,12 +61,10 @@
         <span class="control-label" style="margin-right: 0.5em;" id="scan-view-label">View:</span>
         <div class="segmented-control" id="scan-view-mode" role="radiogroup" aria-labelledby="scan-view-label">
             <button type="button" role="radio" aria-checked="true" data-value="single" class="is-active" tabindex="0" id="scan-view-single-btn">Run</button>
-            <button type="button" role="radio" aria-checked="false" data-value="speed" tabindex="-1">Speed</button>
+            <button type="button" role="radio" aria-checked="false" data-value="step-size" tabindex="-1">Step size</button>
             <button type="button" role="radio" aria-checked="false" data-value="accuracy" tabindex="-1">Accuracy</button>
             <button type="button" role="radio" aria-checked="false" data-value="stages" tabindex="-1">Stages</button>
-            <button type="button" role="radio" aria-checked="false" data-value="pooled" tabindex="-1">Pooled</button>
             <button type="button" role="radio" aria-checked="false" data-value="failed-runs" tabindex="-1" id="scan-view-failed-runs-btn" style="display:none;">Failed Runs</button>
-            <button type="button" role="radio" aria-checked="false" data-value="grid-stats" tabindex="-1" id="scan-view-grid-stats-btn" style="display:none;">Grid Stats</button>
         </div>
     </div>
     <div id="scan-repeat-view">
@@ -180,53 +178,48 @@
     </div>
     
     
-    <!-- ── Speed tab: measurement efficiency ─────────────────────────────── -->
-    <div id="speed-view" style="display:none; margin-top:1em; padding-top:1em; border-top:1px solid #eee;">
-        <div id="speed-debug-banner" style="padding:4px 10px;background:#dbeafe;border-radius:4px;font-size:11px;color:#1e40af;margin-bottom:8px;">Speed view active</div>
-        <div id="compare-tau-controls" style="margin:0 0 0.75em;">
-            <div style="display:flex; align-items:center; gap:0.5em;">
-                <span class="control-label" style="font-size:0.85em; font-weight:600; color:#334155;">Convergence threshold (&tau;):</span>
-                <div class="segmented-control" id="hl-tau-select" role="radiogroup">
-                    <button type="button" role="radio" aria-checked="false" data-value="0.5" tabindex="-1">&tau; &times;0.5</button>
-                    <button type="button" role="radio" aria-checked="true" data-value="1" class="is-active" tabindex="0">&tau; &times;1</button>
-                    <button type="button" role="radio" aria-checked="false" data-value="2" tabindex="-1">&tau; &times;2</button>
-                </div>
+    <!-- ── Step size tab: choosing the plain sweep's spacing ─────────────── -->
+    <div id="stepsize-view" style="display:none; margin-top:1em; padding-top:1em; border-top:1px solid #eee;">
+        <h2 style="margin:0 0 0.4em;">Step size — which sweep spacing?</h2>
+        <p style="margin:0 0 0.8em; font-size:0.9em; color:#475569; max-width:62em;">
+            <code>SimpleSweep-kperFWHM</code> measures a uniform grid with <b>k points per prior FWHM</b>, repeating and
+            averaging whole passes until the shared stop rule fires (or its measurement budget runs out).
+            A <b>cell</b> is one signal at one noise level; repeat <i>i</i> has the same true signal for every k, so cells are
+            compared k against k.
+            <b>Cost</b> = measurements the run took. <b>Error at stop</b> = |reported estimate − truth| in units of the stop
+            target τ, over runs the stop rule ended. <b>Search</b> = measurements until the data first showed a dip.
+            <b>Cost / best</b> = a cell's median cost at this k divided by the cheapest k's median cost in the same cell
+            (1 = this k was the best there).
+        </p>
+        <div style="display:flex; align-items:center; gap:0.5em; margin:0 0 0.6em;">
+            <span class="control-label" style="font-size:0.85em; font-weight:600; color:#334155;">Runs from:</span>
+            <div class="segmented-control" id="ss-scope" role="radiogroup">
+                <button type="button" role="radio" aria-checked="true" data-value="family" class="is-active" tabindex="0">Every signal and noise level in this family</button>
+                <button type="button" role="radio" aria-checked="false" data-value="selection" tabindex="-1">Selected signals and noise levels</button>
             </div>
         </div>
-
-        <!-- Section A: Over time (filtered: generator + noise) -->
-        <h2 style="margin:0 0 0.4em;">Speed — Measurement Efficiency</h2>
-        <h3 style="margin:0.8em 0 0.3em; color:#475569; font-size:0.95em; font-weight:600; text-transform:uppercase; letter-spacing:0.04em;">Over time</h3>
-        <div id="hl-headline" style="display:flex; flex-wrap:wrap; gap:1em; margin:0.5em 0 1em;"></div>
-        <div id="hl-warning"></div>
+        <div id="ss-notice" style="margin:0 0 0.8em;"></div>
+        <div id="ss-table" style="margin:0.5em 0 1em; overflow-x:auto;"></div>
         <div style="display:flex; flex-wrap:wrap; gap:1.5em;">
             <div style="flex:1 1 46%; min-width:420px; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px;">
-                <h3 style="margin-left:10px;">Error vs measurements <span tabindex="0" class="help-icon-visible" title="Anytime performance: median absolute primary-parameter error across repeats if the run were stopped at each measurement count, with interquartile band and CRLB bound.">?</span></h3>
-                <div id="hl-error-curves" style="height:420px; width:100%;"></div>
+                <h3 style="margin-left:10px;">Cost relative to the best spacing, per cell <span tabindex="0" class="help-icon-visible" title="One point per cell (signal x noise level) with at least two spacings: that spacing's median measurements divided by the cheapest spacing's median measurements in the same cell. 1 = best in that cell. A spacing whose box sits near 1 everywhere is generally best; a long upper tail means it is much worse in some cells. Log scale.">?</span></h3>
+                <div id="ss-regret" style="height:380px; width:100%;"></div>
             </div>
             <div style="flex:1 1 46%; min-width:420px; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px;">
-                <h3 style="margin-left:10px;">Convergence vs measurements <span tabindex="0" class="help-icon-visible" title="Survival view: fraction of repeats whose claimed primary-parameter uncertainty crossed the threshold by each measurement count.">?</span></h3>
-                <div id="hl-survival" style="height:380px; width:100%;"></div>
+                <h3 style="margin-left:10px;">Cost vs noise <span tabindex="0" class="help-icon-visible" title="Median measurements per run against the noise standard deviation, one line per spacing, with the interquartile band. Runs that hit the measurement budget count at the budget (a lower bound on their true cost).">?</span></h3>
+                <div id="ss-cost-noise" style="height:380px; width:100%;"></div>
             </div>
         </div>
-
-        <!-- Section B: vs Noise (generator; all noise levels) -->
-        <h3 style="margin:1.4em 0 0.3em; color:#475569; font-size:0.95em; font-weight:600; text-transform:uppercase; letter-spacing:0.04em;">vs Noise</h3>
-        <div id="speed-noise-content" style="display:flex; flex-wrap:wrap; gap:1.2em;"></div>
-
-        <!-- Section C: vs Signal Span (pooled) -->
-        <h3 style="margin:1.4em 0 0.3em; color:#475569; font-size:0.95em; font-weight:600; text-transform:uppercase; letter-spacing:0.04em;">vs Signal Span</h3>
-        <div id="speed-span-content" style="margin-bottom:1em;"></div>
-        <div style="background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px; margin-bottom:1em;">
-            <h3 style="margin-left:10px;">When does it pay — savings vs signal span <span tabindex="0" class="help-icon-visible" title="Per-repeat paired difference in steps-to-convergence (SimpleSweep − locator, same ground truth), against the fractional signal span. Matched-promise pairs only.">?</span></h3>
-            <div id="hl-span" style="height:340px; width:100%;"></div>
-            <h4 style="margin:1em 0 0.2em 10px; font-size:0.85em; color:#475569;">Search vs refine decomposition — by noise <span tabindex="0" class="help-icon-visible" title="Each run splits into search (steps until first signal contact) and refine (steps from contact to convergence). Log-binned median per noise facet.">?</span></h4>
-            <div id="hl-firstsignal" style="width:100%;"></div>
+        <div style="display:flex; flex-wrap:wrap; gap:1.5em; margin-top:1em;">
+            <div style="flex:1 1 46%; min-width:420px; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px;">
+                <h3 style="margin-left:10px;">Search: measurements until a dip is seen <span tabindex="0" class="help-icon-visible" title="Median measurements until the data first show a dip (the stage metrics' focus-found step), against noise, one line per spacing. This is what the coarse stage of Smart-Sweep and Smart-SBED spends. A plain sweep that misses the dip in its first pass finds it by repeating the pass, which the coarse stages do not do (they halve their grid instead), so read high-noise points with that in mind.">?</span></h3>
+                <div id="ss-search-noise" style="height:360px; width:100%;"></div>
+            </div>
+            <div style="flex:1 1 46%; min-width:420px; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px;">
+                <h3 style="margin-left:10px;">Error at stop <span tabindex="0" class="help-icon-visible" title="Distribution of |estimate - truth| / τ over runs the stop rule ended, per spacing (log scale). Dashed lines at 1, 2 and 3 τ. A spacing is only cheap if its stops are as trustworthy as the others'.">?</span></h3>
+                <div id="ss-quality" style="height:360px; width:100%;"></div>
+            </div>
         </div>
-
-        <!-- Section E: Step distributions (per-locator histograms) -->
-        <h3 style="margin:1.4em 0 0.3em; color:#475569; font-size:0.95em; font-weight:600; text-transform:uppercase; letter-spacing:0.04em;">Distributions</h3>
-        <div id="speed-subjects-container"></div>
     </div>
 
     <!-- ── Stages tab: locators compared stage by stage ───────────────────── -->
@@ -284,10 +277,7 @@
 
     <!-- ── Accuracy tab: uncertainty quality ──────────────────────────────── -->
     <div id="accuracy-view" style="display:none; margin-top:1em; padding-top:1em; border-top:1px solid #eee;">
-        <h2 style="margin:0 0 0.4em;">Accuracy — Uncertainty Quality</h2>
-
-        <!-- Section A: Per condition (filtered: generator + noise) -->
-        <h3 style="margin:0.8em 0 0.3em; color:#475569; font-size:0.95em; font-weight:600; text-transform:uppercase; letter-spacing:0.04em;">Per Condition</h3>
+        <h2 style="margin:0 0 0.4em;">Accuracy — is the stop reliable?</h2>
         <div style="background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px; margin-bottom:1em;">
             <h3 style="margin-left:10px;">Was the stop right? <span tabindex="0" class="help-icon-visible" title="True error of the primary parameter at the step each run stopped, in units of the stop target τ (the σ threshold the run stopped on). Only runs that reached the target are counted (Stopped / runs). The fractions give how many repeats ended more than 1×, 2× and 3× τ from the truth, with Wilson 95% intervals in brackets. Reference: if the error were N(0, τ²), 32% / 4.6% / 0.3% would exceed 1× / 2× / 3×; extra spread from the model or locator raises these, so read them as a cost, not a pass/fail.">?</span></h3>
             <div id="hl-stop-table" style="margin:0.5em 0; overflow-x:auto;"></div>
@@ -305,32 +295,6 @@
                 <div id="hl-sigma-reality" style="height:380px; width:100%;"></div>
             </div>
         </div>
-
-        <!-- Section B: vs Noise (generator; all noise levels) -->
-        <h3 style="margin:1.4em 0 0.3em; color:#475569; font-size:0.95em; font-weight:600; text-transform:uppercase; letter-spacing:0.04em;">vs Noise</h3>
-        <div id="acc-noise-content" style="display:flex; flex-wrap:wrap; gap:1.2em; margin-bottom:1em;"></div>
-
-        <!-- Section C: vs Signal Span (pooled) -->
-        <h3 style="margin:1.4em 0 0.3em; color:#475569; font-size:0.95em; font-weight:600; text-transform:uppercase; letter-spacing:0.04em;">vs Signal Span</h3>
-        <div id="acc-span-content" style="margin-bottom:1em;"></div>
-        <div style="background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px; margin-bottom:1em;">
-            <h4 style="margin:0 0 0.2em 10px; font-size:0.85em; color:#475569;">Uncertainty at convergence vs signal span — by noise <span tabindex="0" class="help-icon-visible" title="The claimed primary-parameter σ at convergence against fractional signal span, faceted by noise level. Log-binned median lines with IQR band.">?</span></h4>
-            <div id="hl-uncert-span" style="width:100%;"></div>
-        </div>
-
-        <!-- Section D: Distributions (per-locator histograms) -->
-        <h3 style="margin:1.4em 0 0.3em; color:#475569; font-size:0.95em; font-weight:600; text-transform:uppercase; letter-spacing:0.04em;">Distributions</h3>
-        <div id="summary-comparison-selector"></div>
-        <div id="summary-subjects-container"></div>
-        <div id="summary-span-container" style="margin-top:2em; display:none;">
-            <h3>Savings vs Signal Span <span tabindex="0" class="help-icon-visible" title="Absolute steps saved by comparing the two strategies as a function of the fractional signal width.">?</span></h3>
-            <div id="summary-span-plot-div" style="width:100%; height:400px;"></div>
-        </div>
-    </div>
-
-    <!-- ── Pooled tab: aggregated across ALL generators/noise levels ─────── -->
-    <div id="pooled-view" style="display:none; margin-top:1em; padding-top:1em; border-top:1px solid #eee;">
-        <div id="dashboard-content"></div>
     </div>
 
     <!-- ── Failed Runs tab ────────────────────────────────────────────── -->
@@ -340,21 +304,6 @@
         <div id="failed-runs-table-container"></div>
     </div>
 
-    <!-- ── Grid Stats tab: pick a scan axis, hold the rest fixed ────────── -->
-    <div id="grid-stats-view" style="display:none; margin-top:1em; padding-top:1em; border-top:1px solid #eee;">
-        <h2 style="margin:0 0 0.4em;">Grid Stats <span tabindex="0" class="help-icon-visible" title="Pick which swept parameter is the scan axis; the rest stay fixed at the chosen values. Shows censored median/IQR steps-to-convergence and convergence rate across the scanned axis, computed from already-run repeats.">?</span></h2>
-        <div class="control-row" id="grid-stats-axis-row">
-            <span class="control-label">Scan axis:</span>
-            <select aria-label="Grid stats scan axis" class="control-select" id="grid-stats-scan-axis"></select>
-        </div>
-        <div class="control-row" id="grid-stats-fixed-row" style="align-items:flex-start;">
-            <span class="control-label">Fixed:</span>
-            <span id="grid-stats-fixed-selects"></span>
-        </div>
-        <div id="grid-stats-empty-message" style="display:none; padding:1.5em; color:#64748b; text-align:center;">No data for this combination.</div>
-        <div id="grid-stats-plot-div" style="width:100%;min-height:420px;"></div>
-        <div id="grid-stats-table-container" style="margin-top:1em;"></div>
-    </div>
 </div>
 
 <script src="app.js"></script>

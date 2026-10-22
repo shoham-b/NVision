@@ -27,7 +27,7 @@ regex/substring). Only the sweeps, on every scenario: `--run-group all --filter-
 ```bash
 uv run nv run --run-group voigt-grid --filter-strategy "Sweep,SBED" --repeats 30 --runners 8
 uv run nv compare            # stage-by-stage table from artifacts/ (or --out DIR)
-uv run nv serve              # Speed tab -> "Stages"; Compare A/B pickers (Sweep -> spacing)
+uv run nv serve              # View: "Step size" (sweep spacing), "Stages" (stage by stage)
 ```
 
 `nv compare` prints three tables (accuracy; stage boundaries and reach rates; per-stage duration and
@@ -102,8 +102,8 @@ uses the true signal, not the belief (whose own precision is overconfident), so 
 
 Per run (results-row columns): `focus_found_step`, `max_info_step`, `stage{1,2,3}_steps`,
 `stage{1,2,3}_unc_start|unc_end|unc_ratio|sens_eff` (shot-weighted mean $\eta$ per stage). A stage a run never reached is `None` -- a plain sweep, which
-keeps moving across the dip, has no refine stage, which is a result, not missing data. The Speed tab's "Stages"
-section and the `model_comparison` box plots show them.
+keeps moving across the dip, has no refine stage, which is a result, not missing data. The UI's "Stages" view
+shows them.
 
 ## Invalidation
 
@@ -112,7 +112,7 @@ enough). The Sobol locators, the Sobol baseline inside SBED runs, and the "Sobol
 
 ## The comparison report in the web UI
 
-`nv compare` has a counterpart in the results UI: Speed tab → *Stages* lists the same three tables (accuracy,
+`nv compare` has a counterpart in the results UI: the *Stages* view lists the same three tables (accuracy,
 stage boundaries, per-stage measurements and uncertainty ratio) for the selected generator(s) and noise levels,
 one row per strategy (each `SimpleSweep-<k>perFWHM` spacing is its own row). The per-run fields come from
 `/api/scan-fields` (`compare`), and runs are filtered as in `metrics/compare.py` `usable_runs`.
@@ -122,5 +122,5 @@ Manual check that UI and CLI agree on a tiny run:
 ```bash
 NVISION_SBED_NOISE_STEPS=1 uv run nv run --run-group voigt-grid --filter-signal c0.25 --repeats 3 --runners 2 --out scratch/x
 uv run nv compare --out scratch/x --filter-signal w2.75MHz --filter-noise "Gauss(0.01)"
-uv run nv serve --dir scratch/x   # Speed tab, generator w2.75MHz-c0.25, noise Gauss(0.01), compare the tables
+uv run nv serve --dir scratch/x   # Stages view, generator w2.75MHz-c0.25, noise Gauss(0.01), compare the tables
 ```
