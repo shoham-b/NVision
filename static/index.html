@@ -180,33 +180,44 @@
     
     <!-- ── Step size tab: choosing the plain sweep's spacing ─────────────── -->
     <div id="stepsize-view" style="display:none; margin-top:1em; padding-top:1em; border-top:1px solid #eee;">
-        <h2 style="margin:0 0 0.4em;">Step size <span tabindex="0" class="help-icon-visible" title="SimpleSweep-kperFWHM measures a uniform grid with k points per prior FWHM, repeating and averaging whole passes until the shared stop rule fires or its measurement budget runs out. A cell is one signal at one noise level; repeat i has the same true signal for every k. Cost = measurements the run took. Cost / best = a cell's median cost at this k divided by the cheapest k's in the same cell (1 = best there). Error at stop = |reported estimate − truth| / τ, over runs the stop rule ended. Search = measurements until the data first showed a dip.">?</span></h2>
-        <div style="display:flex; align-items:center; gap:0.5em; margin:0 0 0.6em;">
+        <h2 style="margin:0 0 0.4em;">Step size <span tabindex="0" class="help-icon-visible" title="SimpleSweep-kperFWHM measures a uniform grid with k points per prior FWHM, repeating and averaging whole passes until the claimed σ stays below the stop target τ (or its measurement budget runs out). Every k is compared at the same τ. Cost = measurements the run took. Repeat i has the same true signal for every k, so k is compared to the reference k run by run. SNR = dip contrast / noise σ.">?</span></h2>
+        <div style="display:flex; flex-wrap:wrap; align-items:center; gap:0.5em 1.5em; margin:0 0 0.6em;">
             <div class="segmented-control" id="ss-scope" role="radiogroup" aria-label="Runs from">
                 <button type="button" role="radio" aria-checked="true" data-value="family" class="is-active" tabindex="0">Whole family</button>
                 <button type="button" role="radio" aria-checked="false" data-value="selection" tabindex="-1">Selection</button>
             </div>
+            <span style="display:inline-flex; align-items:center; gap:0.4em;">
+                <span class="control-label" style="font-size:0.85em; color:#334155;">Compare to</span>
+                <div class="segmented-control" id="ss-ref" role="radiogroup" aria-label="Reference spacing"></div>
+            </span>
+            <span style="display:inline-flex; align-items:center; gap:0.4em;">
+                <span class="control-label" style="font-size:0.85em; color:#334155;">Split by</span>
+                <div class="segmented-control" id="ss-split" role="radiogroup" aria-label="Split the SNR charts by">
+                    <button type="button" role="radio" aria-checked="true" data-value="none" class="is-active" tabindex="0">—</button>
+                    <button type="button" role="radio" aria-checked="false" data-value="grid_sigma_inhom" tabindex="-1">σ_inhom</button>
+                    <button type="button" role="radio" aria-checked="false" data-value="grid_hyperfine" tabindex="-1">Isotope</button>
+                </div>
+            </span>
         </div>
         <div id="ss-notice" style="margin:0 0 0.6em;"></div>
-        <div id="ss-table" style="margin:0.5em 0 1em; overflow-x:auto;"></div>
+        <div id="ss-table" style="margin:0.5em 0 0.4em; overflow-x:auto;"></div>
+        <div id="ss-bands" style="margin:0 0 1em; font-size:0.9em; color:#334155;"></div>
+        <div style="background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px; margin-bottom:1em;">
+            <h3 style="margin-left:10px;">Cost vs SNR <span tabindex="0" class="help-icon-visible" title="Median measurements per run against SNR = contrast / noise σ, one line per k (log axes). ∞ = no noise. Runs that hit the budget count at the budget, a lower bound.">?</span></h3>
+            <div id="ss-cost-snr" style="display:flex; flex-wrap:wrap; gap:0.5em;"></div>
+        </div>
+        <div style="background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px; margin-bottom:1em;">
+            <h3 style="margin-left:10px;">Search cost vs SNR <span tabindex="0" class="help-icon-visible" title="Median measurements until the data first show a dip: what the coarse stage of Smart-Sweep and Smart-SBED spends at this spacing. A plain sweep that misses the dip repeats its pass; the coarse stages halve their grid instead.">?</span></h3>
+            <div id="ss-search-snr" style="display:flex; flex-wrap:wrap; gap:0.5em;"></div>
+        </div>
         <div style="display:flex; flex-wrap:wrap; gap:1.5em;">
             <div style="flex:1 1 46%; min-width:420px; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px;">
-                <h3 style="margin-left:10px;">Cost / best, per cell <span tabindex="0" class="help-icon-visible" title="One point per cell measured at two or more spacings: this spacing's median measurements divided by the cheapest spacing's in the same cell (1 = best there). Log scale.">?</span></h3>
-                <div id="ss-regret" style="height:380px; width:100%;"></div>
+                <h3 style="margin-left:10px;">Paired cost ratio <span tabindex="0" class="help-icon-visible" title="Per repeat: this k's measurements divided by the reference k's on the same true signal (log scale). Below 1 = cheaper than the reference.">?</span></h3>
+                <div id="ss-ratio" style="height:360px; width:100%;"></div>
             </div>
             <div style="flex:1 1 46%; min-width:420px; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px;">
-                <h3 style="margin-left:10px;">Cost vs noise <span tabindex="0" class="help-icon-visible" title="Median measurements per run (IQR band) against the noise σ. Runs that hit the budget count at the budget, a lower bound.">?</span></h3>
-                <div id="ss-cost-noise" style="height:380px; width:100%;"></div>
-            </div>
-        </div>
-        <div style="display:flex; flex-wrap:wrap; gap:1.5em; margin-top:1em;">
-            <div style="flex:1 1 46%; min-width:420px; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px;">
-                <h3 style="margin-left:10px;">Search vs noise <span tabindex="0" class="help-icon-visible" title="Median measurements until the data first show a dip, the cost of the coarse stage of Smart-Sweep and Smart-SBED. A plain sweep that misses the dip repeats its pass; the coarse stages halve their grid instead.">?</span></h3>
-                <div id="ss-search-noise" style="height:360px; width:100%;"></div>
-            </div>
-            <div style="flex:1 1 46%; min-width:420px; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px;">
-                <h3 style="margin-left:10px;">Error at stop <span tabindex="0" class="help-icon-visible" title="|estimate − truth| / τ over runs the stop rule ended (log scale); dashed lines at 1, 2 and 3 τ.">?</span></h3>
-                <div id="ss-quality" style="height:360px; width:100%;"></div>
+                <h3 style="margin-left:10px;">Is the stop honest? <span tabindex="0" class="help-icon-visible" title="Quantiles of |z| = |estimate − truth| / claimed σ at the stop against a half-normal (dashed line = calibrated). Points above the line = the run claimed more precision than it had. A cheap k only counts if it stops as honestly as the others. Sweep runs from before the sweep-fit fix report a wrong estimate, so their |z| is meaningless.">?</span></h3>
+                <div id="ss-honesty" style="height:360px; width:100%;"></div>
             </div>
         </div>
     </div>

@@ -28,6 +28,7 @@ from nvision.runner.cache import _decompress_text
 from nvision.sim.combinations import SWEEP_SPACING_DIVISORS, CombinationGrid
 from nvision.sim.defaults import PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS
 from nvision.sim.grid_enums import sweep_strategy_name
+from nvision.sim.locs.search_grid import SWEEP_POINTS_PER_FWHM
 from nvision.tools.artifacts import _slim_manifest_entry
 from nvision.tools.json_sanitize import sanitize_non_finite
 
@@ -570,10 +571,14 @@ def build_app(cache_dir: Path, run_dir: Path) -> FastAPI:
             bridge.close()
 
     @app.get("/api/sweep-spacings")
-    def sweep_spacings() -> list[str]:
-        """Strategy names of the plain-sweep spacings the current code studies (``SWEEP_SPACING_DIVISORS``).
-        The Step size view compares only these: older spacings left in the cache come from older code."""
-        return [sweep_strategy_name(k) for k in SWEEP_SPACING_DIVISORS]
+    def sweep_spacings() -> dict:
+        """Strategy names of the plain-sweep spacings the current code studies (``SWEEP_SPACING_DIVISORS``) and
+        the derived default spacing (``SWEEP_POINTS_PER_FWHM``). The Step size view compares only these (older
+        spacings left in the cache come from older code) and uses the default as its paired-ratio reference."""
+        return {
+            "strategies": [sweep_strategy_name(k) for k in SWEEP_SPACING_DIVISORS],
+            "default": sweep_strategy_name(SWEEP_POINTS_PER_FWHM),
+        }
 
     @app.get("/api/run-rows")
     def run_rows(strategies: str) -> list[dict]:

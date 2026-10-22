@@ -120,11 +120,12 @@ Key sections inside `main()` (in order of appearance):
 7. **Bayesian rendering** — posterior heatmap, convergence, metrics, Fisher, covariance ellipses, jitter
 8. **Aggregate views** — the `#scan-view-mode` control's modes besides *Run*, each reading per-repeat fields
    for many repeats at once:
-   * **Step size** (`renderStepSizeTab`, `ss*` helpers) — chooses the plain sweep's spacing. Reads
-     `/api/run-rows` (per-repeat scalars: measurements, final error, stop target `tau`, focus-found step, grid
-     axes) for the spacings `/api/sweep-spacings` lists, over every signal and noise level of the loaded family or
-     only the current selection: per-spacing cost, cost relative to the best spacing in the same cell, error at
-     the stop in units of τ, and the search stage.
+   * **Step size** (`renderStepSizeTab`, `ss*` helpers) — chooses the plain sweep's spacing k. Reads
+     `/api/run-rows` (per-repeat scalars: measurements, final error and claimed σ, focus-found step, contrast,
+     noise σ, grid axes) for the spacings `/api/sweep-spacings` lists, over the loaded family or the current
+     selection. Shows per k the median and p75 cost, the capped share, the paired cost ratio against a reference
+     k (same true signal, geometric mean), the |z| scale at the stop, the cheapest k per SNR band, cost and search
+     cost against SNR = contrast / noise σ (optionally split by `sigma_inhom` or isotope), and a |z| Q-Q plot.
    * **Stages** (`renderStagesTab`, `renderHlStages`) — the search / focus / refine comparison
      (`docs/locator_comparison.md`).
    * **Accuracy** (`renderAccuracyTab`) — whether the stop is reliable: true error at the stop in units of τ,
