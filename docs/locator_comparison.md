@@ -54,7 +54,7 @@ parameters, clipped to their bounds) -- never the true signal's width (`nvision/
 
 | Strategy | Acquisition |
 |---|---|
-| `SimpleSweep-<k>perFWHM`, k = 1..5 | uniform grid over the whole axis with k points per FWHM (spacing FWHM/k), then a least-squares fit. k = 3 is the derived default; the rest are the spacing study |
+| `SimpleSweep-<k>perFWHM`, k = 1..4 | uniform grid over the whole axis with k points per FWHM (spacing FWHM/k), then a least-squares fit. k = 3 is the derived default; the rest are the spacing study |
 | `Smart-Sweep` | FWHM/3 sweep; once the data show a dip, sweep only inside the focus (finish FWHM/3 there, then halve the spacing) |
 | `Bayesian-SBED` | unchanged SBED |
 | `Smart-SBED` | EIG over the not-yet-measured points of a FWHM/3 grid until a dip is found, then ordinary SBED inside the focus |

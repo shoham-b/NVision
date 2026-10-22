@@ -48,7 +48,7 @@ def test_compare_tolerates_missing_stage_columns():
 
 
 def test_sweep_strategies_are_named_by_points_per_fwhm():
-    assert SWEEP_SPACING_DIVISORS == (1, 2, 3, 4, 5)
+    assert SWEEP_SPACING_DIVISORS == (1, 2, 3, 4)
     names = [n for n, _ in CombinationGrid().strategies_for("NVCenter-lorentzian")]
     for k in SWEEP_SPACING_DIVISORS:
         assert sweep_strategy_name(k) in names
