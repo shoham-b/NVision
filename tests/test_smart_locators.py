@@ -22,7 +22,7 @@ from nvision.sim.locs.bayesian.sbed_locator import (
     SmartSBEDLocator,
     SmartSweepLocator,
 )
-from nvision.sim.locs.search_grid import COARSE_SEARCH_POINTS_PER_FWHM
+from nvision.sim.locs.search_grid import COARSE_SEARCH_POINTS_PER_FWHM, FOCUS_SWEEP_POINTS_PER_FWHM
 from tests.noise import gaussian_noise
 
 NOISE_SIGMA = 0.01
@@ -82,6 +82,27 @@ def test_smart_sweep_sweeps_its_coarse_grid_then_stays_in_the_focus():
         assert focus.contains(np.array([x]))[0], f"step {i + 1} measured {x:g} outside the focus {focus.sections}"
     assert focus_steps[0] > 0
     assert all(trace[i][0].is_full_domain() for i in range(focus_steps[0]))
+
+
+def test_smart_sweep_sweeps_a_fwhm_over_7_grid_inside_the_focus():
+    exp, bounds = _experiment()
+    loc = _locator(SmartSweepLocator, bounds, max_steps=200)
+    fine_spacing = loc._fwhm_prior_phys / FOCUS_SWEEP_POINTS_PER_FWHM
+    assert loc._focus_grid.spacing_phys <= fine_spacing * (1 + 1e-9)
+    assert fine_spacing < loc._fwhm_prior_phys / COARSE_SEARCH_POINTS_PER_FWHM
+
+    trace = _drive(loc, exp, random.Random(11), 200)
+    refine = set(loc.refine_steps)
+    sweep_x = np.array([x for i, (focus, x) in enumerate(trace) if not focus.is_full_domain() and i not in refine])
+    assert sweep_x.size >= 5, "a focus sweep must have run before refine mode"
+    grid = np.linspace(
+        exp.drive_freq_min_phys,
+        exp.drive_freq_max_phys,
+        loc._focus_grid._base_intervals * 2**loc._focus_grid.level + 1,
+    )
+    on_grid = np.min(np.abs(sweep_x[:, None] - grid[None, :]), axis=1) < 1.0
+    assert on_grid.all(), "inside the focus every sweep measurement is a point of the FWHM/7 grid (or its halvings)"
+    assert len(set(np.round(sweep_x, 0))) == sweep_x.size, "no focus-grid point is measured twice"
 
 
 def test_smart_sbed_searches_its_coarse_grid_by_information_gain_then_runs_sbed_in_the_focus():

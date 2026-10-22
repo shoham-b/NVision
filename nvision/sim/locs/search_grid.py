@@ -13,6 +13,9 @@ grid spacing is not a tuning knob but follows from how many points must land ins
   after the dip is seen. 2 was chosen from the plain-sweep spacing study (k = 2 had the lowest median and p75 cost
   and a short search). A one-point-per-FWHM grid often puts only one or two points in the dip, too few for
   ``find_dips``; a grid that misses the dip is refined by halving.
+* Smart-Sweep's focus sweep uses a finer grid, ``FOCUS_SWEEP_POINTS_PER_FWHM`` = 7 points per FWHM: dense enough
+  that a grid point lies within the refine-mode efficiency tolerance of the max-information point, so the sweep
+  measures near-optimally until the refine switch rule fires.
 
 Widths come from the locator's *prior* (``2 * effective_hwhm(belief.estimates())`` at construction),
 never from the true signal.
@@ -33,6 +36,13 @@ from nvision.spectra.nv_center import effective_hwhm
 SWEEP_POINTS_PER_FWHM: int = 3
 # Coarse search grid of Smart-Sweep and Smart-SBED before the focus (Smart-SBED's EIG picks among its points).
 COARSE_SEARCH_POINTS_PER_FWHM: int = 2
+
+# Grid of Smart-Sweep's focus sweep: fine enough that wherever the max-information point x* lies, a grid point is
+# within the refine-mode efficiency tolerance of it. A measurement offset eps from x* keeps eta ~ 1 - 4.5 (eps/HWHM)^2
+# of the optimal information (Lorentzian slope maximum x0 +- HWHM/sqrt(3)); eta >= 0.9 needs eps <= 0.15 HWHM, and the
+# worst case x* halfway between grid points gives spacing 2 eps = 0.30 HWHM = FWHM/6.7. 7 is that rounded up
+# (eta ~ 0.91).
+FOCUS_SWEEP_POINTS_PER_FWHM: int = 7
 
 # Refusing to build grids denser than this: it means the refinement ran far past any useful resolution.
 _MAX_GRID_POINTS: int = 2_000_000

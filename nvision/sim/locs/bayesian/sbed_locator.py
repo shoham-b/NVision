@@ -20,6 +20,7 @@ from nvision.sim.locs.bayesian.sequential_bayesian_locator import (
 )
 from nvision.sim.locs.search_grid import (
     COARSE_SEARCH_POINTS_PER_FWHM,
+    FOCUS_SWEEP_POINTS_PER_FWHM,
     RefiningGrid,
     prior_fwhm_phys,
 )
@@ -316,12 +317,14 @@ _REFINE_EXPECTATION_PARTICLES: int = 256
 
 
 class SmartSweepLocator(_SearchThenFocusMixin, SequentialBayesianExperimentDesignLocator):
-    """A FWHM/2 sweep over the axis, a sweep inside the focus, then measurements at the max-information points.
+    """A FWHM/2 sweep over the axis, a FWHM/7 sweep inside the focus, then measurements at the max-information points.
 
-    **Search / focus.** Each step measures the lowest-frequency grid point not yet measured inside the current
-    focus. With the focus still the whole axis that is a plain FWHM/2 sweep (``COARSE_SEARCH_POINTS_PER_FWHM``).
-    Once the data show one, the focus narrows to it and the sweep continues there (finishing the FWHM/2 grid
-    across the dip, then halving the spacing).
+    **Search / focus.** Each step measures the lowest-frequency grid point not yet measured. With the focus still
+    the whole axis that is a plain FWHM/2 sweep (``COARSE_SEARCH_POINTS_PER_FWHM``). Once the data show a dip, the
+    focus narrows to it and the sweep switches to a finer grid, FWHM/7 (``FOCUS_SWEEP_POINTS_PER_FWHM``): fine
+    enough that a grid point lies within the refine efficiency tolerance of each max-information point (see
+    ``search_grid``). Points already measured, search points included, cover the focus-grid points within half a
+    spacing of them. If the focus grid is exhausted before the refine rule fires, its spacing is halved.
 
     **Refine.** A sweep keeps spending measurements across the whole dip, most of them far from where the
     signal is sensitive to the primary parameter ``theta`` (``zeeman_shift``). Once the dip is located the
@@ -348,6 +351,9 @@ class SmartSweepLocator(_SearchThenFocusMixin, SequentialBayesianExperimentDesig
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self._init_search_grid(COARSE_SEARCH_POINTS_PER_FWHM)
+        self._focus_grid = RefiningGrid(
+            self._drive_freq_min_phys, self._drive_freq_max_phys, self._fwhm_prior_phys / FOCUS_SWEEP_POINTS_PER_FWHM
+        )
         if self._primary_param is None:
             raise ValueError("SmartSweepLocator needs a primary parameter for its max-information refine mode.")
         if self.belief.model.controls_drive:
@@ -356,15 +362,21 @@ class SmartSweepLocator(_SearchThenFocusMixin, SequentialBayesianExperimentDesig
         # 0-based index of each measurement refine mode chose (`next` has already counted it when `_pick` runs).
         self.refine_steps: list[int] = []
 
+    def _acquire(self) -> float:
+        drive_freq_phys = super()._acquire()
+        self._focus_grid.record(drive_freq_phys)  # every measurement, search points included, covers focus-grid points
+        return drive_freq_phys
+
     def _pick(self, *, focus_changed: bool) -> float:
-        if not self._focus.is_full_domain():
-            points_phys = self._refine_points_phys()
-            if points_phys is not None:
-                self.refine_steps.append(self.inference_step_count - 1)
-                pick_phys = float(points_phys[self._refine_count % points_phys.size])
-                self._refine_count += 1
-                return pick_phys
-        return float(self._grid.next_unmeasured(self._focus)[0])
+        if self._focus.is_full_domain():
+            return float(self._grid.next_unmeasured(self._focus)[0])
+        points_phys = self._refine_points_phys()
+        if points_phys is not None:
+            self.refine_steps.append(self.inference_step_count - 1)
+            pick_phys = float(points_phys[self._refine_count % points_phys.size])
+            self._refine_count += 1
+            return pick_phys
+        return float(self._focus_grid.next_unmeasured(self._focus)[0])
 
     def _primary_sensitivity_sq(self, xs_unit: np.ndarray, part_cols: list[np.ndarray]) -> np.ndarray:
         """``(d signal / d theta_unit)^2`` at ``xs_unit`` for each particle, by central differences.
