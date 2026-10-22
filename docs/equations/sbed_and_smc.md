@@ -298,7 +298,7 @@ The locator has exactly one noise estimate: the belief's Inverse-Gamma posterior
 
 ### 3.4 Step Budget
 
-**Default SBED step budget.** Unless overridden, the SBED locator's `max_steps` is `ceil(N_simplesweep × f)` with f = `NVISION_SBED_STEPS_FRACTION` = 1.0 (previously 0.5, and 0.32 before that), so it is capped at the full uniform-sweep budget it is compared against. (An earlier "theoretical step budget" backstop, `max(max_steps, K·n_theory)`, was removed: it was never below `max_steps`, so it could not fire.)
+**Measurement budget.** Every locator in a run has the same budget, `NVISION_MAX_MEASUREMENTS` (default 2500): it is the SBED family's `max_steps` and caps a plain sweep's total measurements (in whole passes), so no locator is compared on a longer leash than another. (It replaced the domain-derived SBED budget `ceil(domain / min_hwhm) × NVISION_SBED_STEPS_FRACTION`, 750 on the standard grid, which left the sweeps 2500.)
 
 ### 3.5 Dip Detection (`find_dips`, `belief/dip_detection.py`)
 
@@ -440,7 +440,7 @@ with K_safety = `NVISION_ZERO_FIELD_FREQ_CRLB_SAFETY_FACTOR` = 4.0.
 SBED and the sweeps share one stopping rule (`sequential_bayesian_locator.py`, `ConvergenceStopRules`): stop once
 every target parameter's uncertainty has stayed under its ceiling (§5.1-§5.3) for `convergence_patience_steps`
 consecutive checks, or when the step budget is spent. A sweep checks every step but only stops at the end of a
-pass (the passes are averaged, capped at `NVISION_SWEEP_MAX_MEASUREMENTS` measurements).
+pass (the passes are averaged, capped at `NVISION_MAX_MEASUREMENTS` measurements).
 
 There is deliberately no CRLB stop and no estimate-plateau stop. A plateau stop ends a run when the estimate
 stops moving, which is exactly the behaviour the stage metrics measure (the move into the refine stage); stopping

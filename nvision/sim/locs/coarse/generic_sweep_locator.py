@@ -14,8 +14,8 @@ from nvision.models.fisher_information import lorentzian_zero_field_freq_crlb
 from nvision.models.observation import Observation, ObservationHistory
 from nvision.sim.defaults import (
     NVISION_CONVERGENCE_THRESHOLD,
+    NVISION_MAX_MEASUREMENTS,
     NVISION_SWEEP_FIT_EARLY_STOP_SIGMAS,
-    NVISION_SWEEP_MAX_MEASUREMENTS,
 )
 from nvision.sim.locs.bayesian.sequential_bayesian_locator import NVISION_CONVERGENCE_PATIENCE, ConvergenceStopRules
 from nvision.sim.locs.coarse.sweep_locator import SweepingLocator
@@ -101,7 +101,7 @@ class GenericSweepLocator(ConvergenceStopRules, SweepingLocator):
     spacing_divisor : int | None, default 3
         Grid points per FWHM (spacing = FWHM / spacing_divisor). ``None`` selects a fixed-count sweep of exactly
         ``max_steps`` evenly spaced points instead (for models without a hwhm prior).
-    max_measurements : int, default NVISION_SWEEP_MAX_MEASUREMENTS
+    max_measurements : int, default NVISION_MAX_MEASUREMENTS
         Cap on the total measurements. The sweep repeats whole passes over the grid while they fit, so it makes
         ``max(1, max_measurements // grid points)`` passes (1 = a single pass, no averaging).
     noise_std : float, default 0.01
@@ -135,7 +135,7 @@ class GenericSweepLocator(ConvergenceStopRules, SweepingLocator):
         center_param: str | None = None,
         parameter_bounds: dict[str, tuple[float, float]] | None = None,
         spacing_divisor: int | None = SWEEP_POINTS_PER_FWHM,
-        max_measurements: int = NVISION_SWEEP_MAX_MEASUREMENTS,
+        max_measurements: int = NVISION_MAX_MEASUREMENTS,
         **kwargs: Any,
     ) -> GenericSweepLocator:
         domain_lo = kwargs.pop("domain_lo", None)
@@ -187,7 +187,7 @@ class GenericSweepLocator(ConvergenceStopRules, SweepingLocator):
         domain_lo: float = 0.0,
         domain_hi: float = 1.0,
         spacing_divisor: int | None = SWEEP_POINTS_PER_FWHM,
-        max_measurements: int = NVISION_SWEEP_MAX_MEASUREMENTS,
+        max_measurements: int = NVISION_MAX_MEASUREMENTS,
     ):
         if max_measurements < 1:
             raise ValueError(f"max_measurements must be >= 1, got {max_measurements!r}")

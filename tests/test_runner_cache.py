@@ -2,13 +2,13 @@ import logging
 from pathlib import Path
 
 from nvision.runner.cache import _decompress_text, embed_graph_content
+from nvision.sim.defaults import NVISION_MAX_MEASUREMENTS
 from nvision.sim.locs.bayesian.belief_builders import nv_center_smc_belief
-from nvision.sim.locs.search_grid import SWEEP_POINTS_PER_FWHM, max_sweep_points
-from nvision.spectra.nv_center import MIN_HWHM
+from nvision.sim.locs.search_grid import SWEEP_POINTS_PER_FWHM
 
-# The step budget (cache-key component) the runner resolves for a plain sweep over the 2.6-3.1 GHz test axis:
-# the grid size at the narrowest dip the hwhm prior allows.
-SIMPLESWEEP_EFFECTIVE_MAX_STEPS = max_sweep_points(2.6e9, 3.1e9, MIN_HWHM, SWEEP_POINTS_PER_FWHM)
+# The step budget (cache-key component) the runner resolves for a plain sweep: the measurement budget every
+# locator shares.
+SIMPLESWEEP_EFFECTIVE_MAX_STEPS = NVISION_MAX_MEASUREMENTS
 
 
 def _sweep_strategy():

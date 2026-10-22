@@ -16,7 +16,7 @@ group                 generators                            noise               
 ``all``               the two above                         the two above           each scenario's own set
 ====================  ====================================  ==================  ===========================
 
-The locator study is SimpleSweep-<k>perFWHM (k = 1..4), Smart-Sweep, Bayesian-SBED and Smart-SBED.
+The locator study is SimpleSweep-<k>perFWHM (k = 2..4), Smart-Sweep, Bayesian-SBED and Smart-SBED.
 """
 
 from __future__ import annotations

@@ -39,6 +39,7 @@ from nvision.runner.sweep_cache import (
 from nvision.sim.combinations import CombinationGrid
 from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBayesianLocator
 from nvision.sim.locs.coarse import SweepingLocator
+from nvision.sim.locs.coarse.generic_sweep_locator import GenericSweepLocator
 from nvision.spectra.drive import DriveSetting
 from nvision.tools import stall_watch
 from nvision.tools.log_context import reset_combination_log_initials, set_combination_log_initials
@@ -1073,7 +1074,6 @@ class _TaskRunner:
 
         from nvision.runner.convert import belief_mode_estimates
         from nvision.sim.locs.bayesian.belief_builders import nv_center_smc_belief, nv_lineshape_for_model
-        from nvision.sim.locs.coarse.generic_sweep_locator import GenericSweepLocator
 
         sweep_rng = self._rng_for_simplesweep_baseline(rid)
         parameter_bounds = self._injected_parameter_bounds(experiment)
@@ -1237,45 +1237,26 @@ class _TaskRunner:
             return None, None
         return (drive_freq_min_phys, drive_freq_max_phys) if drive_freq_max_phys > drive_freq_min_phys else (None, None)
 
-    def _sbed_step_budget(self, experiment: CoreExperiment) -> int:
-        """``ceil(domain / min_hwhm)`` times ``NVISION_SBED_STEPS_FRACTION``: the SBED family's step budget.
+    @staticmethod
+    def _measurement_budget() -> int:
+        """Every locator's measurement budget, ``NVISION_MAX_MEASUREMENTS``: the same for all, so costs compare."""
+        from nvision.sim.defaults import NVISION_MAX_MEASUREMENTS
 
-        Also the budget the pre-run CRLB feasibility gate assumes for *every* strategy, so a repeat is gated (or
-        not) identically whichever locator would run it -- a gate keyed to each locator's own budget would drop
-        different repeats for different strategies and bias their comparison.
-        """
-        import numpy as np
-
-        from nvision.sim.defaults import NVISION_SBED_STEPS_FRACTION
-
-        width = float(experiment.drive_freq_max_phys - experiment.drive_freq_min_phys)
-        min_hwhm = min_hwhm_hz(self._injected_parameter_bounds(experiment))
-        return max(1, int(np.ceil(width / min_hwhm * NVISION_SBED_STEPS_FRACTION)))
+        return NVISION_MAX_MEASUREMENTS
 
     def _resolve_sweep_max_steps(self, experiment: CoreExperiment) -> int:
-        """Return the step budget for this experiment, derived from the signal model's prior bounds.
+        """Return the step budget for this experiment (also part of the combination's cache key).
 
-        * Plain sweeps (:class:`GenericSweepLocator`): the number of grid points needed at the narrowest
-          dip the prior allows. The sweep derives its actual (smaller or equal) step count from its own
-          prior FWHM; this is the cap, and a stable cache key across repeats.
-        * Bayesian-SBED family: ``ceil(domain / min_hwhm)`` times ``NVISION_SBED_STEPS_FRACTION``.
+        * Plain sweeps (:class:`GenericSweepLocator`) and the Bayesian-SBED family: the shared measurement budget
+          (:meth:`_measurement_budget`). A sweep also takes it as its total-measurement cap.
         * Any other locator: ``compute_sweep_max_steps`` (coverage factor and env-var caps).
         """
         from nvision.sim.locs.bayesian.sbed_locator import SequentialBayesianExperimentDesignLocator
-        from nvision.sim.locs.coarse.generic_sweep_locator import GenericSweepLocator
-        from nvision.sim.locs.search_grid import SWEEP_POINTS_PER_FWHM, max_sweep_points
 
-        bounds = self._injected_parameter_bounds(experiment)
         lo, hi = float(experiment.drive_freq_min_phys), float(experiment.drive_freq_max_phys)
-        min_hwhm = min_hwhm_hz(bounds)
-
         locator_class = self.task.strategy_spec.locator_class
-        if issubclass(locator_class, GenericSweepLocator):
-            divisor = int(self.task.strategy_spec.locator_config.get("spacing_divisor", SWEEP_POINTS_PER_FWHM))
-            return max_sweep_points(lo, hi, min_hwhm, divisor)
-
-        if issubclass(locator_class, SequentialBayesianExperimentDesignLocator):
-            return self._sbed_step_budget(experiment)
+        if issubclass(locator_class, (GenericSweepLocator, SequentialBayesianExperimentDesignLocator)):
+            return self._measurement_budget()
 
         from nvision.sim.locs.coarse.sweep_steps import compute_sweep_max_steps
 
@@ -1324,6 +1305,9 @@ class _TaskRunner:
             **({} if signal_min_span is None else {"signal_min_span": signal_min_span}),
             **({} if signal_max_span is None else {"signal_max_span": signal_max_span}),
         }
+
+        if issubclass(locator_class, GenericSweepLocator):
+            cfg["max_measurements"] = max_steps  # the shared budget caps a sweep's total measurements
 
         # Locators given a belief builder make their own belief; otherwise hand them one.
         if requires_belief and "builder" not in cfg:
@@ -1398,6 +1382,8 @@ class _TaskRunner:
             "max_steps": max_steps,
             "parameter_bounds": self._injected_parameter_bounds(experiment),
         }
+        if issubclass(locator_class, GenericSweepLocator):
+            cfg["max_measurements"] = max_steps  # the shared budget caps a sweep's total measurements
         if is_bayesian and experiment.true_signal.model.controls_drive and not locator_class.CHOOSES_DRIVE:
             # A Bayesian locator that does not choose the drive models the signal at the baseline drive
             # every one of its measurements is taken at.
@@ -1460,7 +1446,6 @@ class _TaskRunner:
         # match.
         if result.snapshots:
             result.snapshots[-1].belief = locator_instance.belief.copy()
-        from nvision.sim.locs.coarse.generic_sweep_locator import GenericSweepLocator
 
         if isinstance(locator_instance, GenericSweepLocator):
             # Prefer the actual least-squares model fit over the SMC belief
@@ -1476,7 +1461,6 @@ class _TaskRunner:
         # true-vs-converged value for SimpleSweep the same way they already do for
         # Bayesian locators -- result() on its own only reports zero_field_freq/uncert.
         # The locator's own result() values win on key conflicts.
-        from nvision.sim.locs.coarse.generic_sweep_locator import GenericSweepLocator
 
         if isinstance(locator_instance, GenericSweepLocator):
             fitted_estimates = locator_instance.fitted_estimates()

@@ -22,13 +22,6 @@ reject_renamed_env_vars()
 
 NVISION_DEFAULT_LOC_MAX_STEPS: int = int(os.getenv("NVISION_DEFAULT_LOC_MAX_STEPS", "1500"))
 
-# Fraction of SimpleSweep max_steps allocated to the SBED locator.
-# SBED's effective budget is ceil(domain_width / min_hwhm) * this fraction. Raised
-# 0.5 -> 1.0 (0.32 before that): at 0.5 (450 steps) a large share of wide-hwhm, noisy
-# Voigt repeats ran the whole budget without meeting the stop gate even though their
-# estimates were accurate (median |err| ~0.3 sigma), i.e. budget-limited rather than wrong.
-NVISION_SBED_STEPS_FRACTION: float = float(os.getenv("NVISION_SBED_STEPS_FRACTION", "1.0"))
-
 # Actual step count SimpleSweep itself runs with. Kept independent of the
 # domain/min_hwhm figure (e.g. ~2500) that the SBED fraction is still
 # computed against — only SimpleSweep's own budget is capped here.
@@ -71,9 +64,9 @@ NVISION_DIP_SCAN_EVERY: int = max(1, int(os.getenv("NVISION_DIP_SCAN_EVERY", "10
 NVISION_SWEEP_COVERAGE_FACTOR: float = float(os.getenv("NVISION_SWEEP_COVERAGE_FACTOR", "3.0"))
 NVISION_SWEEP_MIN_STEPS: int = int(os.getenv("NVISION_SWEEP_MIN_STEPS", "50"))
 NVISION_SWEEP_MAX_STEPS: int = int(os.getenv("NVISION_SWEEP_MAX_STEPS", "500"))
-# Plain sweeps repeat their grid and average the passes until the stopping rules fire (uncertainty target met and
-# a dip found); this caps the total measurements, in whole passes (GenericSweepLocator).
-NVISION_SWEEP_MAX_MEASUREMENTS: int = int(os.getenv("NVISION_SWEEP_MAX_MEASUREMENTS", "2500"))
+# Measurement budget of every locator in a run (the SBED family's max_steps, the plain sweeps' total measurements,
+# capped in whole passes): one shared budget, so no locator is compared on a longer leash than another.
+NVISION_MAX_MEASUREMENTS: int = int(os.getenv("NVISION_MAX_MEASUREMENTS", "2500"))
 
 # Step budget for the Bayesian-SBED locator (nvision/sim/combinations.py).
 # Read through the module (``sim_defaults.NVISION_SBED_MAX_STEPS``) rather than
