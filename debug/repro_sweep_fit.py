@@ -1,4 +1,5 @@
 """Repro: SimpleSweep's final fit lands at the zeeman_shift bound midpoint."""
+
 import sys
 
 import numpy as np
@@ -27,6 +28,7 @@ def run(curve_fn, x, ys, cands, make_p0, lo, hi, xtol, **kw):
 G._seed_zero_field_freq_and_splits = seed
 G._run_curve_fit_candidates = staticmethod(run)
 from nvision.models import observer as _obs
+
 TRUTH = []
 _oi = _obs.Observer.__init__
 
@@ -50,6 +52,17 @@ def fin(self):
 G.finalize = fin
 from nvision.__main__ import main  # noqa: E402
 
-sys.argv = ["nv", "run-single", "NVCenter-voigt-w0.50MHz-c0.10-si0.30MHz-hfunresolved", "Gauss(0.004)",
-            "SimpleSweep-3perFWHM", "--repeats", "8", "--runners", "1", "--dry-run", "--no-progress"]
+sys.argv = [
+    "nv",
+    "run-single",
+    "NVCenter-voigt-w0.50MHz-c0.10-si0.30MHz-hfunresolved",
+    "Gauss(0.004)",
+    "SimpleSweep-3perFWHM",
+    "--repeats",
+    "8",
+    "--runners",
+    "1",
+    "--dry-run",
+    "--no-progress",
+]
 main()
