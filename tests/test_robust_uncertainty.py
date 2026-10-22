@@ -378,3 +378,12 @@ class TestDipScanInterval:
             loc._update_stop_rules()
         assert loc._is_converged
         assert len(scans) == n_scans
+
+    def test_focus_dips_share_the_stop_rules_scan(self, monkeypatch) -> None:
+        loc = self._locator(monkeypatch)
+        scans: list[int] = []
+        loc.belief.current_dips = lambda: scans.append(1) or [object()]
+        for _ in range(25):
+            loc._update_stop_rules()
+            loc._scanned_dips()  # what the search/focus locators' _focus_dips reads before each acquisition
+        assert len(scans) == 3  # at measurements 1, 11 and 21: the focus read adds no scan of its own

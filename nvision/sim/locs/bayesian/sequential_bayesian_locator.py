@@ -47,9 +47,9 @@ class ConvergenceStopRules:
         # configs. See resolve_primary_param.
         self._primary_param: str | None = resolve_primary_param(self.belief.model.parameter_names())
         self._is_converged: bool = False
-        # Dip-scan cache: the scan is re-run at most every NVISION_DIP_SCAN_EVERY measurements (see _data_show_dip).
+        # Dip-scan cache: the scan is re-run at most every NVISION_DIP_SCAN_EVERY measurements (see _scanned_dips).
         self._checks_since_dip_scan: int = NVISION_DIP_SCAN_EVERY - 1  # so the first scan happens at the first check
-        self._dip_seen: bool = False
+        self._scanned_dips_cache: list = []
 
     def _update_stop_rules(self) -> None:
         """Run the stopping rules once, after the belief has absorbed the latest measurement.
@@ -60,9 +60,9 @@ class ConvergenceStopRules:
         without the dip requirement a run could stop having never located the resonance. This is the only
         stopping rule besides the step budget. Once it has fired it stays fired, so later checks do nothing.
         """
+        self._checks_since_dip_scan += 1  # one check per measurement, whether or not the scan runs
         if self._is_converged:
             return
-        self._checks_since_dip_scan += 1  # one check per measurement, whether or not the scan runs
         # The raw belief uncertainty -- the same measure the convergence milestones are read from
         # (nvision/metrics/milestones.py), so the stop rule and the recorded milestones can never disagree.
         uncertainties = self.belief.uncertainty()
@@ -74,19 +74,26 @@ class ConvergenceStopRules:
         else:
             self._convergence_streak = 0
 
-    def _data_show_dip(self) -> bool:
-        """Whether the data show a dip, re-scanned at most every ``NVISION_DIP_SCAN_EVERY`` measurements.
+    def _scanned_dips(self) -> list:
+        """The dips the data show, re-scanned at most every ``NVISION_DIP_SCAN_EVERY`` measurements.
 
         The scan costs more the more measurements there are, and a dip does not appear or vanish between two
-        consecutive measurements, so the last result is reused in between. Only the SMC belief models dips (a grid
-        belief has no focus to find), so the requirement applies to it alone.
+        consecutive measurements, so the last result is reused in between. The one cache serves both the stop
+        rules and the search/focus locators' focus decision, so a step never scans twice.
+        """
+        if self._checks_since_dip_scan >= NVISION_DIP_SCAN_EVERY:
+            self._checks_since_dip_scan = 0
+            self._scanned_dips_cache = self.belief.current_dips()
+        return self._scanned_dips_cache
+
+    def _data_show_dip(self) -> bool:
+        """Whether the data show a dip (see :meth:`_scanned_dips`).
+
+        Only the SMC belief models dips (a grid belief has no focus to find), so the requirement applies to it alone.
         """
         if not isinstance(self.belief, SMCMarginalDistribution):
             return True
-        if self._checks_since_dip_scan >= NVISION_DIP_SCAN_EVERY:
-            self._checks_since_dip_scan = 0
-            self._dip_seen = bool(self.belief.current_dips())
-        return self._dip_seen
+        return bool(self._scanned_dips())
 
     def _target_params_converged(self, physical_uncertainties=None) -> bool:
         """Whether every target parameter's uncertainty is under its ceiling (see :func:`target_params_converged`).
