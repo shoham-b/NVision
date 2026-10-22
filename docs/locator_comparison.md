@@ -46,18 +46,19 @@ parameters, clipped to their bounds) -- never the true signal's width (`nvision/
 * A dip is seen only if several measurements fall inside it. Three points per FWHM
   (`SWEEP_POINTS_PER_FWHM = 3`) cannot step over a dip and give `find_dips` the cluster it needs. It is derived,
   not a tuning knob, so it is a module constant and not an env var.
-* Smart-Sweep and Smart-SBED start from the same FWHM/3 grid (`SBED_COARSE_POINTS_PER_FWHM = 3`, kept as its own
-  constant so it can be tuned separately, e.g. to 4). A one-point-per-FWHM grid often leaves too few points in the
-  dip for `find_dips`, so the grid had to refine before the focus appeared.
+* Smart-Sweep and Smart-SBED start from one shared coarse grid, FWHM/2 (`COARSE_SEARCH_POINTS_PER_FWHM = 2`),
+  so they differ only in the acquisition after the dip is seen. 2 was chosen from the plain-sweep spacing study
+  (k = 2 had the lowest median and p75 cost). A one-point-per-FWHM grid often leaves too few points in the dip for
+  `find_dips`; a grid that misses the dip refines by halving.
 
 ## Strategies
 
 | Strategy | Acquisition |
 |---|---|
 | `SimpleSweep-<k>perFWHM`, k = 2..4 | uniform grid over the whole axis with k points per FWHM (spacing FWHM/k), then a least-squares fit. k = 3 is the derived default; the rest are the spacing study |
-| `Smart-Sweep` | FWHM/3 sweep; once the data show a dip, sweep only inside the focus (finish FWHM/3 there, then halve the spacing) |
+| `Smart-Sweep` | FWHM/2 sweep; once the data show a dip, sweep only inside the focus (finish FWHM/2 there, then halve the spacing) |
 | `Bayesian-SBED` | unchanged SBED |
-| `Smart-SBED` | EIG over the not-yet-measured points of a FWHM/3 grid until a dip is found, then ordinary SBED inside the focus |
+| `Smart-SBED` | EIG over the not-yet-measured points of a FWHM/2 grid until a dip is found, then ordinary SBED inside the focus |
 
 `Smart-Sweep` and `Smart-SBED` are subclasses of the SBED locator: same belief, uncertainty-convergence stop,
 and focus rule (`next_focus_region`), but the focus is re-decided after every measurement (from

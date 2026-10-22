@@ -22,7 +22,7 @@ from nvision.sim.locs.bayesian.sbed_locator import (
     SmartSBEDLocator,
     SmartSweepLocator,
 )
-from nvision.sim.locs.search_grid import SBED_COARSE_POINTS_PER_FWHM, SWEEP_POINTS_PER_FWHM
+from nvision.sim.locs.search_grid import COARSE_SEARCH_POINTS_PER_FWHM
 from tests.noise import gaussian_noise
 
 NOISE_SIGMA = 0.01
@@ -65,10 +65,10 @@ def _drive(locator, exp, rng, n_steps: int):
     return trace
 
 
-def test_smart_sweep_sweeps_at_fwhm_over_three_then_stays_in_the_focus():
+def test_smart_sweep_sweeps_its_coarse_grid_then_stays_in_the_focus():
     exp, bounds = _experiment()
     loc = _locator(SmartSweepLocator, bounds)
-    spacing = loc._fwhm_prior_phys / SWEEP_POINTS_PER_FWHM
+    spacing = loc._fwhm_prior_phys / COARSE_SEARCH_POINTS_PER_FWHM
     trace = _drive(loc, exp, random.Random(11), 100)
 
     first = np.array([x for _, x in trace[:6]])
@@ -84,10 +84,10 @@ def test_smart_sweep_sweeps_at_fwhm_over_three_then_stays_in_the_focus():
     assert all(trace[i][0].is_full_domain() for i in range(focus_steps[0]))
 
 
-def test_smart_sbed_searches_a_fwhm_over_three_grid_by_information_gain_then_runs_sbed_in_the_focus():
+def test_smart_sbed_searches_its_coarse_grid_by_information_gain_then_runs_sbed_in_the_focus():
     exp, bounds = _experiment()
     loc = _locator(SmartSBEDLocator, bounds)
-    coarse_spacing = loc._fwhm_prior_phys / SBED_COARSE_POINTS_PER_FWHM
+    coarse_spacing = loc._fwhm_prior_phys / COARSE_SEARCH_POINTS_PER_FWHM
     trace = _drive(loc, exp, random.Random(11), 60)
 
     search = [x for focus, x in trace if focus.is_full_domain()]
@@ -139,11 +139,12 @@ def test_smart_sweep_refines_at_both_steepest_slopes_once_the_dip_is_known():
 
     # Lorentzian: the d signal / d zeeman_shift maxima are x0 +- HWHM / sqrt(3). The locator finds them
     # numerically from its own estimate. The standard priors leave hwhm itself uncertain, so the picks only
-    # land within half an HWHM of the true optima (a tight-nuisance prior would give 0.15 HWHM).
+    # land within about half an HWHM of the true optima (a tight-nuisance prior would give 0.15 HWHM); with the
+    # FWHM/2 coarse grid the switch to refine comes a few measurements earlier and the first picks reach 0.50 HWHM.
     x0 = _true_dip_center_phys(exp.true_signal, exp.drive_freq_min_phys, exp.drive_freq_max_phys)
     optima = np.array([x0 - hwhm / np.sqrt(3.0), x0 + hwhm / np.sqrt(3.0)])
     offset = np.min(np.abs(refine_x[:, None] - optima[None, :]), axis=1)
-    assert np.all(offset < 0.5 * hwhm)
+    assert np.all(offset < 0.55 * hwhm)
     sides = refine_x > x0
     assert sides.any(), "the upper slope is measured"
     assert (~sides).any(), "the lower slope is measured"
