@@ -13,9 +13,10 @@ grid spacing is not a tuning knob but follows from how many points must land ins
   after the dip is seen. 2 was chosen from the plain-sweep spacing study (k = 2 had the lowest median and p75 cost
   and a short search). A one-point-per-FWHM grid often puts only one or two points in the dip, too few for
   ``find_dips``; a grid that misses the dip is refined by halving.
-* Smart-Sweep's focus sweep uses a finer grid, ``FOCUS_SWEEP_POINTS_PER_FWHM`` = 7 points per FWHM: dense enough
-  that a grid point lies within the refine-mode efficiency tolerance of the max-information point, so the sweep
-  measures near-optimally until the refine switch rule fires.
+* Smart-Sweep's focus sweep uses a finer grid, ``FOCUS_SWEEP_POINTS_PER_FWHM`` = 10 points per FWHM, laid fresh
+  inside each focus section. At least 7 points per FWHM are needed for a grid point to lie within the refine-mode
+  efficiency tolerance of the max-information point; 10 also gives the posterior enough measurements to reach the
+  refine switch within one pass (see the constant).
 
 Widths come from the locator's *prior* (``2 * effective_hwhm(belief.estimates())`` at construction),
 never from the true signal.
@@ -37,12 +38,14 @@ SWEEP_POINTS_PER_FWHM: int = 3
 # Coarse search grid of Smart-Sweep and Smart-SBED before the focus (Smart-SBED's EIG picks among its points).
 COARSE_SEARCH_POINTS_PER_FWHM: int = 2
 
-# Grid of Smart-Sweep's focus sweep: fine enough that wherever the max-information point x* lies, a grid point is
-# within the refine-mode efficiency tolerance of it. A measurement offset eps from x* keeps eta ~ 1 - 4.5 (eps/HWHM)^2
-# of the optimal information (Lorentzian slope maximum x0 +- HWHM/sqrt(3)); eta >= 0.9 needs eps <= 0.15 HWHM, and the
-# worst case x* halfway between grid points gives spacing 2 eps = 0.30 HWHM = FWHM/6.7. 7 is that rounded up
-# (eta ~ 0.91).
-FOCUS_SWEEP_POINTS_PER_FWHM: int = 7
+# Grid of Smart-Sweep's focus sweep. Lower bound: fine enough that wherever the max-information point x* lies, a grid
+# point is within the refine-mode efficiency tolerance of it. A measurement offset eps from x* keeps
+# eta ~ 1 - 4.5 (eps/HWHM)^2 of the optimal information (Lorentzian slope maximum x0 +- HWHM/sqrt(3)); eta >= 0.9
+# needs eps <= 0.15 HWHM, and the worst case x* halfway between grid points gives spacing 2 eps = 0.30 HWHM =
+# FWHM/6.7, i.e. 7 points per FWHM. That is not enough points, though: at 7 one sweep over the focus ended before the
+# posterior was tight enough to switch to refine (1 of 8 Lorentzian/Voigt test runs). 10 is the empirical choice
+# (0 of 8; 14 also 0 of 8, so it only adds measurements).
+FOCUS_SWEEP_POINTS_PER_FWHM: int = 10
 
 # Refusing to build grids denser than this: it means the refinement ran far past any useful resolution.
 _MAX_GRID_POINTS: int = 2_000_000
@@ -157,3 +160,43 @@ class RefiningGrid:
                 return candidates
             self._level += 1
             self._grid = self._build_grid()
+
+
+class FocusSweepGrid:
+    """A fresh uniform grid laid inside each focus section, independent of the search measurements.
+
+    Every section ``[lo, hi]`` of a :class:`FocusRegion` gets its own grid starting at ``lo`` with spacing
+    ``<= spacing_phys`` (both ends included). Only measurements recorded here (the focus sweep's own) cover a
+    grid point -- those within half a spacing of it; the coarser search measurements that located the dip do not.
+    The grid is rebuilt from the current sections on every call, so it follows the focus as it moves.
+    """
+
+    def __init__(self, spacing_phys: float) -> None:
+        if not (spacing_phys > 0.0) or not math.isfinite(spacing_phys):
+            raise ValueError(f"FocusSweepGrid: spacing must be positive and finite, got {spacing_phys!r} Hz.")
+        self._spacing = float(spacing_phys)
+        self._measured: list[float] = []
+
+    def record(self, drive_freq_phys: float) -> None:
+        """Note that the focus sweep measured ``drive_freq_phys`` (Hz)."""
+        bisect.insort(self._measured, float(drive_freq_phys))
+
+    def next_unmeasured(self, region: FocusRegion) -> NDArray[np.float64]:
+        """Grid points of ``region`` not yet covered by a focus-sweep measurement.
+
+        Returns:
+            Ascending Hz positions. shape: (n_candidates,). Raises ``ValueError`` if the sweep already covers
+            the whole focus: nothing is refined.
+        """
+        points = np.concatenate([uniform_grid_phys(lo, hi, self._spacing) for lo, hi in region.sections])
+        if self._measured:
+            measured = np.asarray(self._measured, dtype=np.float64)
+            idx = np.searchsorted(measured, points)
+            left = np.abs(points - measured[np.clip(idx - 1, 0, len(measured) - 1)])
+            right = np.abs(points - measured[np.clip(idx, 0, len(measured) - 1)])
+            points = points[np.minimum(left, right) > 0.5 * self._spacing * (1.0 - 1e-9)]
+        if points.size == 0:
+            raise ValueError(
+                f"FocusSweepGrid: the sweep (spacing {self._spacing:g} Hz) already covers the focus {region.sections}."
+            )
+        return points

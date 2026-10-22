@@ -21,6 +21,7 @@ from nvision.sim.locs.bayesian.sequential_bayesian_locator import (
 from nvision.sim.locs.search_grid import (
     COARSE_SEARCH_POINTS_PER_FWHM,
     FOCUS_SWEEP_POINTS_PER_FWHM,
+    FocusSweepGrid,
     RefiningGrid,
     prior_fwhm_phys,
 )
@@ -317,14 +318,15 @@ _REFINE_EXPECTATION_PARTICLES: int = 256
 
 
 class SmartSweepLocator(_SearchThenFocusMixin, SequentialBayesianExperimentDesignLocator):
-    """A FWHM/2 sweep over the axis, a FWHM/7 sweep inside the focus, then measurements at the max-information points.
+    """A FWHM/2 sweep over the axis, a FWHM/10 sweep inside the focus, then measurements at the max-information points.
 
     **Search / focus.** Each step measures the lowest-frequency grid point not yet measured. With the focus still
     the whole axis that is a plain FWHM/2 sweep (``COARSE_SEARCH_POINTS_PER_FWHM``). Once the data show a dip, the
-    focus narrows to it and the sweep switches to a finer grid, FWHM/7 (``FOCUS_SWEEP_POINTS_PER_FWHM``): fine
-    enough that a grid point lies within the refine efficiency tolerance of each max-information point (see
-    ``search_grid``). Points already measured, search points included, cover the focus-grid points within half a
-    spacing of them. If the focus grid is exhausted before the refine rule fires, its spacing is halved.
+    focus narrows to it and a fresh grid of spacing FWHM/10 (``FOCUS_SWEEP_POINTS_PER_FWHM``) is laid inside each
+    focus section, starting at its lower edge and ignoring the coarser search measurements: fine enough that a
+    grid point lies within the refine efficiency tolerance of each max-information point (see ``search_grid``).
+    The grid is never refined: if it is exhausted before the refine rule fires, the locator raises. The run may
+    also converge (the stop rule) without ever reaching refine mode; that is fine.
 
     **Refine.** A sweep keeps spending measurements across the whole dip, most of them far from where the
     signal is sensitive to the primary parameter ``theta`` (``zeeman_shift``). Once the dip is located the
@@ -351,9 +353,7 @@ class SmartSweepLocator(_SearchThenFocusMixin, SequentialBayesianExperimentDesig
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self._init_search_grid(COARSE_SEARCH_POINTS_PER_FWHM)
-        self._focus_grid = RefiningGrid(
-            self._drive_freq_min_phys, self._drive_freq_max_phys, self._fwhm_prior_phys / FOCUS_SWEEP_POINTS_PER_FWHM
-        )
+        self._focus_grid = FocusSweepGrid(self._fwhm_prior_phys / FOCUS_SWEEP_POINTS_PER_FWHM)
         if self._primary_param is None:
             raise ValueError("SmartSweepLocator needs a primary parameter for its max-information refine mode.")
         if self.belief.model.controls_drive:
@@ -361,11 +361,6 @@ class SmartSweepLocator(_SearchThenFocusMixin, SequentialBayesianExperimentDesig
         self._refine_count: int = 0
         # 0-based index of each measurement refine mode chose (`next` has already counted it when `_pick` runs).
         self.refine_steps: list[int] = []
-
-    def _acquire(self) -> float:
-        drive_freq_phys = super()._acquire()
-        self._focus_grid.record(drive_freq_phys)  # every measurement, search points included, covers focus-grid points
-        return drive_freq_phys
 
     def _pick(self, *, focus_changed: bool) -> float:
         if self._focus.is_full_domain():
@@ -376,7 +371,9 @@ class SmartSweepLocator(_SearchThenFocusMixin, SequentialBayesianExperimentDesig
             pick_phys = float(points_phys[self._refine_count % points_phys.size])
             self._refine_count += 1
             return pick_phys
-        return float(self._focus_grid.next_unmeasured(self._focus)[0])
+        pick_phys = float(self._focus_grid.next_unmeasured(self._focus)[0])
+        self._focus_grid.record(pick_phys)
+        return pick_phys
 
     def _primary_sensitivity_sq(self, xs_unit: np.ndarray, part_cols: list[np.ndarray]) -> np.ndarray:
         """``(d signal / d theta_unit)^2`` at ``xs_unit`` for each particle, by central differences.

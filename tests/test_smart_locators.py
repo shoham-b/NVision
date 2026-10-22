@@ -88,21 +88,17 @@ def test_smart_sweep_sweeps_a_fwhm_over_7_grid_inside_the_focus():
     exp, bounds = _experiment()
     loc = _locator(SmartSweepLocator, bounds, max_steps=200)
     fine_spacing = loc._fwhm_prior_phys / FOCUS_SWEEP_POINTS_PER_FWHM
-    assert loc._focus_grid.spacing_phys <= fine_spacing * (1 + 1e-9)
     assert fine_spacing < loc._fwhm_prior_phys / COARSE_SEARCH_POINTS_PER_FWHM
 
     trace = _drive(loc, exp, random.Random(11), 200)
     refine = set(loc.refine_steps)
-    sweep_x = np.array([x for i, (focus, x) in enumerate(trace) if not focus.is_full_domain() and i not in refine])
-    assert sweep_x.size >= 5, "a focus sweep must have run before refine mode"
-    grid = np.linspace(
-        exp.drive_freq_min_phys,
-        exp.drive_freq_max_phys,
-        loc._focus_grid._base_intervals * 2**loc._focus_grid.level + 1,
-    )
-    on_grid = np.min(np.abs(sweep_x[:, None] - grid[None, :]), axis=1) < 1.0
-    assert on_grid.all(), "inside the focus every sweep measurement is a point of the FWHM/7 grid (or its halvings)"
-    assert len(set(np.round(sweep_x, 0))) == sweep_x.size, "no focus-grid point is measured twice"
+    sweep = [(focus, x) for i, (focus, x) in enumerate(trace) if not focus.is_full_domain() and i not in refine]
+    assert len(sweep) >= 5, "a focus sweep must have run before refine mode"
+    first_focus, first_x = sweep[0]
+    assert abs(first_x - first_focus.sections[0][0]) < 1.0, "the fresh focus grid starts at the focus's lower edge"
+    sweep_x = np.array([x for _, x in sweep])
+    gaps = np.abs(sweep_x[:, None] - sweep_x[None, :])[np.triu_indices(len(sweep_x), k=1)]
+    assert gaps.min() > 0.5 * fine_spacing * (1 - 1e-6), "no point is measured within half a spacing of another"
 
 
 def test_smart_sbed_searches_its_coarse_grid_by_information_gain_then_runs_sbed_in_the_focus():
