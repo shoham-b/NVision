@@ -180,43 +180,32 @@
     
     <!-- ── Step size tab: choosing the plain sweep's spacing ─────────────── -->
     <div id="stepsize-view" style="display:none; margin-top:1em; padding-top:1em; border-top:1px solid #eee;">
-        <h2 style="margin:0 0 0.4em;">Step size — which sweep spacing?</h2>
-        <p style="margin:0 0 0.8em; font-size:0.9em; color:#475569; max-width:62em;">
-            <code>SimpleSweep-kperFWHM</code> measures a uniform grid with <b>k points per prior FWHM</b>, repeating and
-            averaging whole passes until the shared stop rule fires (or its measurement budget runs out).
-            A <b>cell</b> is one signal at one noise level; repeat <i>i</i> has the same true signal for every k, so cells are
-            compared k against k.
-            <b>Cost</b> = measurements the run took. <b>Error at stop</b> = |reported estimate − truth| in units of the stop
-            target τ, over runs the stop rule ended. <b>Search</b> = measurements until the data first showed a dip.
-            <b>Cost / best</b> = a cell's median cost at this k divided by the cheapest k's median cost in the same cell
-            (1 = this k was the best there).
-        </p>
+        <h2 style="margin:0 0 0.4em;">Step size <span tabindex="0" class="help-icon-visible" title="SimpleSweep-kperFWHM measures a uniform grid with k points per prior FWHM, repeating and averaging whole passes until the shared stop rule fires or its measurement budget runs out. A cell is one signal at one noise level; repeat i has the same true signal for every k. Cost = measurements the run took. Cost / best = a cell's median cost at this k divided by the cheapest k's in the same cell (1 = best there). Error at stop = |reported estimate − truth| / τ, over runs the stop rule ended. Search = measurements until the data first showed a dip.">?</span></h2>
         <div style="display:flex; align-items:center; gap:0.5em; margin:0 0 0.6em;">
-            <span class="control-label" style="font-size:0.85em; font-weight:600; color:#334155;">Runs from:</span>
-            <div class="segmented-control" id="ss-scope" role="radiogroup">
-                <button type="button" role="radio" aria-checked="true" data-value="family" class="is-active" tabindex="0">Every signal and noise level in this family</button>
-                <button type="button" role="radio" aria-checked="false" data-value="selection" tabindex="-1">Selected signals and noise levels</button>
+            <div class="segmented-control" id="ss-scope" role="radiogroup" aria-label="Runs from">
+                <button type="button" role="radio" aria-checked="true" data-value="family" class="is-active" tabindex="0">Whole family</button>
+                <button type="button" role="radio" aria-checked="false" data-value="selection" tabindex="-1">Selection</button>
             </div>
         </div>
-        <div id="ss-notice" style="margin:0 0 0.8em;"></div>
+        <div id="ss-notice" style="margin:0 0 0.6em;"></div>
         <div id="ss-table" style="margin:0.5em 0 1em; overflow-x:auto;"></div>
         <div style="display:flex; flex-wrap:wrap; gap:1.5em;">
             <div style="flex:1 1 46%; min-width:420px; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px;">
-                <h3 style="margin-left:10px;">Cost relative to the best spacing, per cell <span tabindex="0" class="help-icon-visible" title="One point per cell (signal x noise level) with at least two spacings: that spacing's median measurements divided by the cheapest spacing's median measurements in the same cell. 1 = best in that cell. A spacing whose box sits near 1 everywhere is generally best; a long upper tail means it is much worse in some cells. Log scale.">?</span></h3>
+                <h3 style="margin-left:10px;">Cost / best, per cell <span tabindex="0" class="help-icon-visible" title="One point per cell measured at two or more spacings: this spacing's median measurements divided by the cheapest spacing's in the same cell (1 = best there). Log scale.">?</span></h3>
                 <div id="ss-regret" style="height:380px; width:100%;"></div>
             </div>
             <div style="flex:1 1 46%; min-width:420px; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px;">
-                <h3 style="margin-left:10px;">Cost vs noise <span tabindex="0" class="help-icon-visible" title="Median measurements per run against the noise standard deviation, one line per spacing, with the interquartile band. Runs that hit the measurement budget count at the budget (a lower bound on their true cost).">?</span></h3>
+                <h3 style="margin-left:10px;">Cost vs noise <span tabindex="0" class="help-icon-visible" title="Median measurements per run (IQR band) against the noise σ. Runs that hit the budget count at the budget, a lower bound.">?</span></h3>
                 <div id="ss-cost-noise" style="height:380px; width:100%;"></div>
             </div>
         </div>
         <div style="display:flex; flex-wrap:wrap; gap:1.5em; margin-top:1em;">
             <div style="flex:1 1 46%; min-width:420px; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px;">
-                <h3 style="margin-left:10px;">Search: measurements until a dip is seen <span tabindex="0" class="help-icon-visible" title="Median measurements until the data first show a dip (the stage metrics' focus-found step), against noise, one line per spacing. This is what the coarse stage of Smart-Sweep and Smart-SBED spends. A plain sweep that misses the dip in its first pass finds it by repeating the pass, which the coarse stages do not do (they halve their grid instead), so read high-noise points with that in mind.">?</span></h3>
+                <h3 style="margin-left:10px;">Search vs noise <span tabindex="0" class="help-icon-visible" title="Median measurements until the data first show a dip, the cost of the coarse stage of Smart-Sweep and Smart-SBED. A plain sweep that misses the dip repeats its pass; the coarse stages halve their grid instead.">?</span></h3>
                 <div id="ss-search-noise" style="height:360px; width:100%;"></div>
             </div>
             <div style="flex:1 1 46%; min-width:420px; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px;">
-                <h3 style="margin-left:10px;">Error at stop <span tabindex="0" class="help-icon-visible" title="Distribution of |estimate - truth| / τ over runs the stop rule ended, per spacing (log scale). Dashed lines at 1, 2 and 3 τ. A spacing is only cheap if its stops are as trustworthy as the others'.">?</span></h3>
+                <h3 style="margin-left:10px;">Error at stop <span tabindex="0" class="help-icon-visible" title="|estimate − truth| / τ over runs the stop rule ended (log scale); dashed lines at 1, 2 and 3 τ.">?</span></h3>
                 <div id="ss-quality" style="height:360px; width:100%;"></div>
             </div>
         </div>
@@ -224,14 +213,7 @@
 
     <!-- ── Stages tab: locators compared stage by stage ───────────────────── -->
     <div id="stages-view" style="display:none; margin-top:1em; padding-top:1em; border-top:1px solid #eee;">
-        <h2 style="margin:0 0 0.4em;">Stages — search, focus, refine</h2>
-        <p style="margin:0 0 0.8em; font-size:0.9em; color:#475569; max-width:60em;">
-            Every run of every locator is cut into three stages by the same detector.
-            <b>1. Search</b>: before the focus — until the measurements first show a dip.
-            <b>2. Focus</b>: from the dip being found until the measurements are near the steepest point of the dip (maximum information per measurement).
-            <b>3. Refine</b>: the rest, measuring near the steepest point.
-            A stage a run never reached is left out of that stage's median; the "Reached" column says how many did (a plain sweep never refines).
-        </p>
+        <h2 style="margin:0 0 0.4em;">Stages — search, focus, refine <span tabindex="0" class="help-icon-visible" title="Every run is cut into three stages by the same detector. 1. Search: until the measurements first show a dip. 2. Focus: until the measurements are near the steepest point of the dip (maximum information per measurement). 3. Refine: the rest. A stage a run never reached is left out of that stage's median; Reached says how many did (a plain sweep never refines).">?</span></h2>
         <div style="display:flex; align-items:center; gap:0.5em; margin:0 0 0.6em;">
             <span class="control-label" style="font-size:0.85em; font-weight:600; color:#334155;">Show:</span>
             <div class="segmented-control" id="hl-stages-from" role="radiogroup">

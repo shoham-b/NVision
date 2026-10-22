@@ -6215,7 +6215,7 @@ function main() {
         const strategyOf = new Map(rows.map((r) => [ssSpacing(r.strategy), r.strategy]));
         const sweepNames = ks.map((k) => strategyOf.get(k));
         const colorOf = (k) => hlStratColor(sweepNames, strategyOf.get(k));
-        const label = (k) => `k = ${k} (FWHM/${k})`;
+        const label = (k) => `k=${k}`;
 
         // Per k: usable runs, excluded failures, and per-cell cost medians.
         const byK = new Map(ks.map((k) => [k, { usable: [], failed: 0, cells: new Map(), written: [] }]));
@@ -6257,9 +6257,10 @@ function main() {
         }
 
         const fmtX = (v) => (v == null ? '–' : `${v.toFixed(2)}×`);
+        // A share, with its Wilson 95% interval on hover.
         const fmtPct = (k, n) => {
             const w = hlWilson(k, n);
-            return w ? `${(w.p * 100).toFixed(0)}% <span style="color:#94a3b8">[${(w.lo * 100).toFixed(0)}–${(w.hi * 100).toFixed(0)}]</span>` : '–';
+            return w ? `<span title="95% interval ${(w.lo * 100).toFixed(0)}–${(w.hi * 100).toFixed(0)}% (n = ${n})">${(w.p * 100).toFixed(0)}%</span>` : '–';
         };
         const fmtN = (v) => (v == null ? '–' : formatCount(Math.round(v)));
         const body = [];
@@ -6278,46 +6279,51 @@ function main() {
             const found = g.usable.filter((r) => r.focus_found_step != null);
             const search = ssQuantiles(found.map((r) => r.focus_found_step));
             const regret = ssQuantiles(ratiosByK.get(k));
+            const best = bestCount.get(k);
             body.push(`<tr>
                 <td style="text-align:left;font-weight:600;"><span style="color:${colorOf(k)}">●</span> ${label(k)}</td>
-                <td>${formatCount(g.usable.length)}${g.failed ? ` <span style="color:#b45309">(+${g.failed} failed)</span>` : ''}</td>
-                <td>${formatCount(g.cells.size)}</td>
+                <td title="${formatCount(g.cells.size)} cells${g.failed ? `; ${g.failed} failed runs left out` : ''}">${formatCount(g.usable.length)}</td>
                 <td>${fmtPct(capped, g.usable.length)}</td>
-                <td>${fmtN(cost.med)} <span style="color:#94a3b8">[${fmtN(cost.q25)}–${fmtN(cost.q75)}]</span></td>
+                <td title="IQR ${fmtN(cost.q25)}–${fmtN(cost.q75)}">${fmtN(cost.med)}</td>
                 <td>${fmtX(regret.med)}</td>
                 <td>${fmtX(regret.q90)}</td>
-                <td>${Number.isInteger(bestCount.get(k)) ? formatCount(bestCount.get(k)) : bestCount.get(k).toFixed(1)} / ${formatCount(comparedCells)}</td>
+                <td title="of ${formatCount(comparedCells)} cells">${Number.isInteger(best) ? formatCount(best) : best.toFixed(1)}</td>
                 <td>${fmtX(err.med)}</td>
                 <td>${fmtPct(over(2), err.n)}</td>
-                <td>${fmtPct(over(3), err.n)}</td>
                 <td>${fmtPct(found.length, g.usable.length)}</td>
                 <td>${fmtN(search.med)}</td>
             </tr>`);
         }
+        const th = (text, tip) => `<th title="${tip}">${text}</th>`;
         const tableDiv = document.getElementById('ss-table');
         tableDiv.innerHTML = `<table class="hl-stop-table" style="border-collapse:collapse;font-size:0.85em;width:100%;text-align:right;">
             <thead><tr style="color:#64748b;border-bottom:1px solid #e2e8f0;">
-                <th style="text-align:left;">Spacing</th><th>Runs</th><th>Cells</th><th>Hit budget</th>
-                <th>Cost: median measurements [IQR]</th><th>Cost / best: median</th><th>Cost / best: 90th pct</th><th>Best in cells</th>
-                <th>Error at stop: median</th><th>&gt; 2× τ</th><th>&gt; 3× τ</th>
-                <th>Dip found</th><th>Search: median measurements</th>
+                <th style="text-align:left;">k</th>
+                ${th('Runs', 'Usable runs (hover a value for the number of cells)')}
+                ${th('Capped', 'Share of runs that hit the measurement budget before the stop rule fired')}
+                ${th('Cost', 'Median measurements per run (hover a value for the IQR)')}
+                ${th('Cost / best', 'Median over cells of this k\'s cost divided by the cheapest k\'s in the same cell')}
+                ${th('p90', '90th percentile of cost / best')}
+                ${th('Best in', 'Cells where this k was cheapest (ties share)')}
+                ${th('Error / τ', 'Median |estimate − truth| / τ at the stop')}
+                ${th('&gt; 2τ', 'Share of stopped runs ending more than 2τ from the truth')}
+                ${th('Dip found', 'Share of runs whose data ever showed a dip')}
+                ${th('Search', 'Median measurements until a dip was seen')}
             </tr></thead><tbody>${body.join('')}</tbody></table>`;
         tableDiv.querySelectorAll('td, th').forEach((c) => { c.style.padding = '4px 10px'; });
 
-        // Notice: what the numbers are built from, so a half-finished or mixed run is visible.
+        // Notice: one line on what the numbers are built from; result dates on hover.
         const span = (g) => {
             if (!g.written.length) return '';
             const sorted = [...g.written].sort();
             return `${sorted[0].slice(0, 16)} – ${sorted[sorted.length - 1].slice(0, 16)}`;
         };
         const unevenCells = new Set(ks.map((k) => byK.get(k).cells.size)).size > 1;
-        notice.innerHTML = `<div style="padding:0.6em 1em;color:#475569;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;font-size:0.85em;">
-            ${formatCount(comparedCells)} cells are measured at two or more spacings and enter the cost / best columns${censoredCells ? `; ${formatCount(censoredCells)} more are left out because the cheapest spacing there mostly hit its measurement budget, so the spacings cannot be ranked` : ''}.
-            Results written (UTC): ${ks.map((k) => `k = ${k}: ${span(byK.get(k))}`).join('; ')}.
-            ${unevenCells ? '<br><b style="color:#b45309">The spacings cover different numbers of cells (a run still in progress?): compare the cost / best columns, which use only shared cells.</b>' : ''}
-            ${olderStrategies.length ? `<br>Not shown: ${olderStrategies.map(escapeHtml).join(', ')} — no longer a studied spacing, so its cached results come from older code.` : ''}
-            Runs that hit their budget count at the budget, a lower bound on their cost; error at stop uses only runs the stop rule ended.
-        </div>`;
+        const parts = [`${formatCount(comparedCells)} cells compared`];
+        if (censoredCells) parts.push(`<span title="The cheapest spacing there mostly hit its measurement budget, so the spacings cannot be ranked">${formatCount(censoredCells)} skipped (capped)</span>`);
+        if (unevenCells) parts.push('<b style="color:#b45309" title="The spacings cover different numbers of cells; cost / best uses only shared cells">run in progress</b>');
+        if (olderStrategies.length) parts.push(`<span title="No longer a studied spacing: its cached results come from older code">hidden: ${olderStrategies.map(escapeHtml).join(', ')}</span>`);
+        notice.innerHTML = `<div style="color:#64748b;font-size:0.85em;" title="Results written (UTC): ${ks.map((k) => `k=${k}: ${span(byK.get(k))}`).join('; ')}">${parts.join(' · ')}</div>`;
 
         const baseLayout = (yTitle, extra = {}) => ({
             margin: { l: 60, r: 20, t: 10, b: 50 },
