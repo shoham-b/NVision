@@ -2,6 +2,8 @@
 
 The UI is a single-page application with no build step. All files are served directly from `static/` (dev server) or `artifacts/` (static export). Both directories are kept in sync.
 
+Its colours, type, spacing and component markup are documented as a design system in [design_system/README.md](design_system/README.md). Read it before adding or restyling UI.
+
 ## File map
 
 | File | Lines | Responsibility |

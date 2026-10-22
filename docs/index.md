@@ -21,3 +21,4 @@ Welcome to the NVision documentation.
 -   [Microwave Drive Control (CW / pulsed, Bayesian-SBED-Drive)](amplitude_control.md)
 -   [Equations Reference (SBED/SMC inference stack + metrics)](equations/README.md)
 -   [UI Architecture (`static/` frontend)](ui_architecture.md)
+-   [UI Design System (tokens, components, page skeleton for agents)](design_system/README.md)

@@ -1,0 +1,156 @@
+<!-- @dsCard group="Pages" page height=1960 width=1200 subtitle="The full results page (Run view), structure from static/index.html — copy this skeleton" -->
+<!doctype html>
+<html><head><link rel="stylesheet" href="../../tokens.css"><link rel="stylesheet" href="../bundle.css"><meta charset="utf-8"><title>ResultsPage</title>
+<style>
+/* Preview-only: body margin is the page's own (space-8); the SVG stands in for Plotly. */
+body{margin:2em}
+.plot-stub{display:block;width:100%;height:100%}
+.plot-stub .grid{stroke:var(--chart-grid)}
+.plot-stub .truth{stroke:var(--trace-true-signal);stroke-width:2;fill:none}
+.plot-stub .noisy{stroke:var(--trace-noisy);stroke-dasharray:2 3;fill:none}
+.plot-stub .band{fill:var(--trace-noisy-band-1)}
+.plot-stub .mode{stroke:var(--trace-mode);stroke-width:2;stroke-dasharray:7 5;fill:none}
+.plot-stub .coarse{fill:var(--trace-coarse);stroke:var(--trace-coarse-edge);stroke-width:.6}
+.plot-stub .sec{fill:var(--trace-secondary);stroke:var(--trace-secondary-edge);stroke-width:.6}
+.plot-stub .ter{fill:var(--trace-tertiary);stroke:var(--trace-tertiary-edge);stroke-width:.6}
+.plot-stub .lbl{font:12px var(--font-sans);fill:var(--ink-muted)}
+.heat{height:100%;background:linear-gradient(90deg,var(--slate-50),var(--blue-100) 45%,var(--primary) 50%,var(--blue-100) 55%,var(--slate-50))}
+</style></head>
+<body>
+
+<!-- 1. Page header -->
+<h1 style="margin-top:0">NVision results <span id="out-dir-display"></span></h1>
+<div id="run-status-banner"><div class="run-status-banner run-status-running" role="status"><span class="run-status-spinner" aria-hidden="true"></span>Running — 41 / 120 repeats done<button type="button" class="run-status-refresh-btn">Refresh</button></div></div>
+<p class="last-run" id="last-run-time">Last run: 2026-10-22 10:45</p>
+<div class="header-actions">
+  <a download href="#" class="link-button">Download locator_results.parquet</a>
+  <button type="button" class="link-button" title="Keyboard shortcut: r">Recalculate results</button>
+</div>
+
+<!-- 2. Top-level tabs -->
+<div class="tab-bar" role="tablist">
+  <button type="button" class="tab-button is-active" role="tab" id="tab-scan" aria-controls="scan-section" aria-selected="true">Scan measurements</button>
+</div>
+
+<!-- 3. The tab panel -->
+<div aria-labelledby="tab-scan" class="section tab-panel" id="scan-section" role="tabpanel">
+  <h2 style="margin-top:0">Scan measurements <span tabindex="0" class="help-icon-visible" title="Individual scan showing measured points (colored by phase) and the inferred signal location.">?</span></h2>
+
+  <!-- 3a. What to show: signal + locator panels -->
+  <div class="scan-controls-split">
+    <div class="panel panel-signal">
+      <h3 class="panel-title">Signal (pl_normalized)</h3>
+      <div class="control-row"><span class="control-label">Generator:</span>
+        <div aria-label="Scan generator" class="segmented-control" role="radiogroup">
+          <button type="button" role="radio" aria-checked="true" class="is-active" tabindex="0">NVCenter-lorentzian</button>
+          <button type="button" role="radio" aria-checked="false" tabindex="-1">NVCenter-voigt</button>
+        </div>
+      </div>
+      <div class="signal-equation-panel">
+        <div class="signal-equation-title">Signal model — Lorentzian</div>
+        <div class="signal-equation-formula">PL(f) = 1 − <b>C</b> · L(f; D ± <b>Δ</b>, Γ)</div>
+      </div>
+      <div aria-label="Scan noise" class="segmented-control" role="radiogroup">
+        <button type="button" class="noise-btn">Gauss(0.001)</button>
+        <button type="button" class="noise-btn is-active">Gauss(0.01)</button>
+        <button type="button" class="noise-btn">Gauss(0.05)</button>
+        <button type="button" class="noise-btn">Poisson</button>
+      </div>
+    </div>
+    <div class="panel panel-locator">
+      <h3 class="panel-title">Locator</h3>
+      <div class="control-row"><span class="control-label">View at:</span>
+        <div aria-label="Stopping criteria" class="segmented-control" role="radiogroup">
+          <button type="button" role="radio" aria-checked="false" tabindex="-1">Full</button>
+          <button type="button" role="radio" aria-checked="true" class="is-active" tabindex="0">Primary converged</button>
+          <button type="button" role="radio" aria-checked="false" tabindex="-1">Converged</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 3b. Which view -->
+  <div class="control-row" style="margin-top:1em"><span class="control-label" id="scan-view-label">View:</span>
+    <div class="segmented-control" role="radiogroup" aria-labelledby="scan-view-label">
+      <button type="button" role="radio" aria-checked="true" class="is-active" tabindex="0">Run</button>
+      <button type="button" role="radio" aria-checked="false" tabindex="-1">Speed</button>
+      <button type="button" role="radio" aria-checked="false" tabindex="-1">Accuracy</button>
+      <button type="button" role="radio" aria-checked="false" tabindex="-1">Stages</button>
+      <button type="button" role="radio" aria-checked="false" tabindex="-1">Pooled</button>
+    </div>
+  </div>
+
+  <!-- 3c. Run view: repeat picker, summary, metrics, plot -->
+  <div class="repeat-row">
+    <div class="control-row"><span class="control-label">Repeat:</span>
+      <div aria-label="Scan repeat navigation" class="repeat-picker" role="group">
+        <button aria-label="Previous repeat" class="control-button" type="button">Previous</button>
+        <select aria-label="Scan repeat" class="control-select"><option>repeat 3 / 25</option></select>
+        <button aria-label="Next repeat" class="control-button" type="button">Next</button>
+      </div>
+      <label class="control-row" style="margin-left:1.5em;display:inline-flex;align-items:center;gap:0.4em"><input type="checkbox"> <span>Flip view (fold by Zeeman group)</span></label>
+    </div>
+  </div>
+  <div class="metrics" id="scan-metrics">abs_err_x = 1.2 kHz · 84 measurements · primary converged at step 61</div>
+  <div class="sweep-metrics-panel" id="scan-sweep-metrics">
+    <div class="metric-item"><div class="metric-header"><span class="metric-label">Measurements</span></div><span class="metric-value">84</span></div>
+    <div class="metric-item efficiency-good"><div class="metric-header"><span class="metric-label">Efficiency</span></div><span class="metric-value">0.94</span><span class="metric-formula">CRLB / σ²</span></div>
+    <div class="metric-item"><div class="metric-header"><span class="metric-label">Found zero_field_freq</span></div><span class="metric-value">2.8701 GHz</span></div>
+    <div class="metric-item efficiency-medium"><div class="metric-header"><span class="metric-label">Efficiency (width)</span></div><span class="metric-value">0.61</span></div>
+  </div>
+  <div class="narrowed-bounds-panel" id="narrowed-bounds-panel">
+    <span class="param-bound-label">Narrowed bounds:</span>
+    <span class="param-bound-chip"><strong>zeeman_split</strong> 3.10 – 4.70 MHz</span>
+    <span class="param-bound-chip"><strong>linewidth</strong> 0.42 – 1.10 MHz</span>
+  </div>
+  <div id="scan-plot-div" class="plotly-json-plot" style="min-height:0;height:360px">
+    <svg class="plot-stub" viewBox="0 0 1000 360" preserveAspectRatio="none" aria-label="Plotly scan plot renders here">
+      <g class="grid"><line x1="60" y1="60" x2="980" y2="60"/><line x1="60" y1="140" x2="980" y2="140"/><line x1="60" y1="220" x2="980" y2="220"/><line x1="60" y1="300" x2="980" y2="300"/></g>
+      <path class="band" d="M60 74 L420 76 Q500 280 580 76 L980 74 L980 98 L580 100 Q500 312 420 100 L60 98Z"/>
+      <path class="noisy" d="M60 86 L200 84 L330 88 L420 87 Q500 300 580 87 L720 85 L860 88 L980 86"/>
+      <path class="truth" d="M60 86 L420 88 Q500 292 580 88 L980 86"/>
+      <path class="mode" d="M60 87 L424 89 Q504 288 584 89 L980 87"/>
+      <circle class="coarse" cx="110" cy="84" r="5"/><circle class="coarse" cx="250" cy="90" r="5"/><circle class="coarse" cx="390" cy="86" r="5"/><circle class="coarse" cx="680" cy="85" r="5"/><circle class="coarse" cx="860" cy="88" r="5"/>
+      <circle class="sec" cx="450" cy="140" r="5"/><circle class="sec" cx="550" cy="146" r="5"/><circle class="sec" cx="472" cy="182" r="5"/>
+      <circle class="ter" cx="496" cy="196" r="5"/><circle class="ter" cx="503" cy="190" r="5"/><circle class="ter" cx="510" cy="198" r="5"/>
+      <text class="lbl" x="520" y="345" text-anchor="middle">drive_freq (Hz)</text>
+    </svg>
+  </div>
+  <div class="scan-view-at-caption" style="margin-top:0.5em">Viewing at step 61 — primary converged.</div>
+
+  <!-- 3d. Bayesian analysis for the same repeat -->
+  <div id="bayes-section-container" style="margin-top:2em;border-top:1px solid var(--divider-soft);padding-top:1em">
+    <h2>Bayesian Analysis <span tabindex="0" class="help-icon-visible" title="Bayesian inference visualizations showing how beliefs evolve as measurements accumulate.">?</span></h2>
+    <div class="global-timeline-controls" style="position:relative">
+      <button type="button" class="timeline-btn">▶ Play</button>
+      <div class="timeline-slider-container">
+        <div style="position:relative;flex:1;display:flex;align-items:center;margin-right:8px">
+          <input type="range" class="timeline-slider" min="0" max="84" value="61" style="width:100%;margin:0" aria-label="Measurement step">
+          <div class="timeline-ticks-container">
+            <span class="timeline-tick" style="left:22%"></span><span class="timeline-tick" style="left:47%"></span>
+            <button type="button" class="timeline-milestone milestone-primary" style="left:72%" aria-label="Jump to primary converged"></button>
+            <button type="button" class="timeline-milestone milestone-full" style="left:100%" aria-label="Jump to full run"></button>
+          </div>
+        </div>
+        <span class="timeline-label">Step: 61 / 84</span>
+      </div>
+      <select class="speed-select" aria-label="Playback speed"><option>Speed: 1x</option></select>
+    </div>
+    <div class="bayes-tab-bar" role="tablist">
+      <button type="button" class="bayes-tab-button is-active" role="tab" aria-selected="true">Posterior Evolution</button>
+      <button type="button" class="bayes-tab-button" role="tab" aria-selected="false">Convergence</button>
+      <button type="button" class="bayes-tab-button" role="tab" aria-selected="false">Fisher Bounds</button>
+      <button type="button" class="bayes-tab-button" role="tab" aria-selected="false">CRLB Pairs</button>
+      <button type="button" class="bayes-tab-button" role="tab" aria-selected="false">Covariance</button>
+      <button type="button" class="bayes-tab-button" role="tab" aria-selected="false">Statistics</button>
+    </div>
+    <div class="bayes-tab-panel is-active" role="tabpanel">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:0.5em;flex-wrap:wrap;gap:8px">
+        <h3 style="margin:0">Posterior Evolution <span tabindex="0" class="help-icon-visible" title="Animated heatmap showing how the posterior updates as each new measurement is taken.">?</span></h3>
+        <button type="button" class="control-button" style="padding:0.25em 0.75em;font-size:0.8em">Disable Autoscale</button>
+      </div>
+      <div class="plot-frame" style="min-height:0;height:180px;margin-top:0.5em"><div class="heat" aria-label="Posterior heatmap renders here"></div></div>
+    </div>
+  </div>
+</div>
+</body></html>

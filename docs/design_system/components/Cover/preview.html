@@ -1,0 +1,40 @@
+<!-- @dsCard height=288 -->
+<!doctype html>
+<html><head><link rel="stylesheet" href="../../tokens.css"><link rel="stylesheet" href="../bundle.css"><meta charset="utf-8"><title>Cover</title>
+<style>
+html,body{margin:0;height:100%}
+body{background:var(--page);position:relative;overflow:hidden}
+svg{position:absolute;inset:0;width:960px;height:288px}
+.primary{fill:var(--primary)}
+.violet{fill:var(--violet-800)}
+.emerald{fill:var(--emerald-500)}
+.orange{fill:var(--series-2)}
+.tint{fill:var(--blue-200)}
+.tile{rx:var(--radius-lg)}
+.dot{fill:var(--surface)}
+.text{position:absolute;left:40px;bottom:32px;max-width:440px}
+.name{font-family:var(--font-sans);font-weight:700;font-size:96px;line-height:.95;color:var(--ink);margin:0;letter-spacing:-.01em}
+.tag{font-family:var(--font-sans);font-size:14px;line-height:1.4;color:var(--ink-muted);margin:12px 0 0}
+</style></head>
+<body>
+<svg viewBox="0 0 960 288" aria-hidden="true">
+  <!--
+    blocks: primary 416x208 slab (bleeds top/right) · violet-800 48x208 pillar · emerald-500 96x88 · series-2 48x48 · blue-200 240x88 — all radius-lg
+    arrangement: one big slab, a tall pillar to its left, a strip of unequal satellites under it bleeding off right and bottom
+    pattern: "precise, technical, mono" row — a row of 23 measurement dots at space-4 (16px) pitch that dips like an ODMR resonance, cut out of the primary slab in surface
+    scales: pitch 16px (space-4), gaps 16px, radius-lg 8px corners
+  -->
+  <rect class="primary tile" x="552" y="-8" width="416" height="208"/>
+  <rect class="violet tile" x="488" y="96" width="48" height="208"/>
+  <rect class="emerald tile" x="552" y="216" width="96" height="88"/>
+  <rect class="orange tile" x="664" y="216" width="48" height="48"/>
+  <rect class="tint tile" x="728" y="216" width="240" height="88"/>
+  <g class="dots">
+    <circle class="dot" cx="584" cy="56.6" r="3.5"/><circle class="dot" cx="600" cy="57" r="3.5"/><circle class="dot" cx="616" cy="57.4" r="3.5"/><circle class="dot" cx="632" cy="58" r="3.5"/><circle class="dot" cx="648" cy="58.7" r="3.5"/><circle class="dot" cx="664" cy="59.8" r="3.5"/><circle class="dot" cx="680" cy="61.4" r="3.5"/><circle class="dot" cx="696" cy="64.2" r="3.5"/><circle class="dot" cx="712" cy="69.3" r="3.5"/><circle class="dot" cx="728" cy="80" r="3.5"/><circle class="dot" cx="744" cy="104.3" r="3.5"/><circle class="dot" cx="760" cy="136" r="3.5"/><circle class="dot" cx="776" cy="104.3" r="3.5"/><circle class="dot" cx="792" cy="80" r="3.5"/><circle class="dot" cx="808" cy="69.3" r="3.5"/><circle class="dot" cx="824" cy="64.2" r="3.5"/><circle class="dot" cx="840" cy="61.4" r="3.5"/><circle class="dot" cx="856" cy="59.8" r="3.5"/><circle class="dot" cx="872" cy="58.7" r="3.5"/><circle class="dot" cx="888" cy="58" r="3.5"/><circle class="dot" cx="904" cy="57.4" r="3.5"/><circle class="dot" cx="920" cy="57" r="3.5"/><circle class="dot" cx="936" cy="56.6" r="3.5"/>
+  </g>
+</svg>
+<div class="text">
+  <div class="name" role="heading" aria-level="1">NVision</div>
+  <p class="tag">Data-first results UI for NV-centre resonance locators.</p>
+</div>
+</body></html>
