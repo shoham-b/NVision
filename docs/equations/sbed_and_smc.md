@@ -199,31 +199,12 @@ The unit-space std σᵘ_j is scaled by the physical range:
 
 $$\sigma^{\rm phys}_j = \sigma^u_j \cdot (h_j - l_j)$$
 
-#### Per-parameter CRLB floor (`reported_uncertainty`)
+#### Reported uncertainty (`reported_uncertainty`)
 
-`reported_uncertainty()` floors every parameter — including zero_field_freq — at its own CRLB,
-unconditionally, at 1× (no safety factor): zero_field_freq uses the closed-form `crlb_zero_field_freq()`
-(§2.3); every other parameter uses its marginal CRLB from the cumulative FIM (§4.3's
-`crlb_per_param()`, i.e. $\sqrt{\operatorname{diag}(\operatorname{pinv}(\mathbf I_{\rm cum}))}$,
-profiling out the other parameters rather than holding them fixed). This floor is independent of the stop rule in §5.5, which gates only the primary parameter
-(its marginal CRLB, additionally required to be below that parameter's convergence threshold):
-
-$$\sigma^{\rm reported}_j = \max\!\left(\sigma^{\rm phys}_j,\; \text{CRLB}_j\right), \qquad \forall j$$
-
-The particle spread alone understates uncertainty exactly where it matters: when two parameters
-trade off along a near-flat ridge (`zeeman_shift` against the width pair below dip-resolution is
-the standard case), the SMC posterior can be narrow and *wrong*, while the marginal CRLB
-correctly blows up because the FIM is near-singular in that direction. Measured over 120 mixed
-repeats (56 deliberately degenerate configs), flooring moves the median `error/reported σ` for
-`zeeman_shift` from 1.21 to 0.90 and cuts the fraction beyond 3σ from 8.3% to 2.5%; `contrast_total`
-goes 1.61→0.96 and 18.3%→3.3%. The width pair becomes ~2–3× conservative (medians 1.03/1.38 →
-0.36/0.49) since both sit *in* the degenerate direction even though their sum stays well
-determined — accepted, since overstating precision is the dangerous direction. No safety factor
-is applied to this floor: the CRLB is already a hard lower bound on any unbiased estimator's
-variance, so 1× is the principled choice — a 4× factor was measured to over-correct badly
-(medians drop to 0.09–0.25). $K_{\rm safety}$ (§5.5) governs only *when `_check_crlb_early_stop`
-declares a run converged* — it is a stopping-decision margin, not a property of the CRLB itself,
-so it must not scale a value this method reports.
+`reported_uncertainty()` is the physical particle spread $\sigma^{\rm phys}_j$ above, for every locator,
+with no floor. (A CRLB floor, $\max(\sigma^{\rm phys}_j, \text{CRLB}_j)$, was removed on 2026-10-22: the CRLB
+ignores the prior, so before a dip was seen it reported σ far beyond the prior range, and only the SBED family
+accumulated the Fisher information it needed, so locators reported σ under different rules.)
 
 ### 2.3 Analytical CRLB for zero_field_freq (Lorentzian, Gaussian noise)
 
@@ -339,8 +320,7 @@ $$\text{CRLB}_j = \sqrt{\left[(\mathbf{I}_{\rm cum} + \epsilon \mathbf{I})^+\rig
 `fisher_information_matrix` needs `∇_θ S`; none of the NV-center models (`NVCenterVoigtModel`,
 `NVCenterLorentzianModel`, `NVCenterSaturationVoigtModel`) define an analytical `gradient`, so
 until this fallback existed `crlb_per_param()` always returned `{}` for every NV-center run and
-the cumulative FIM was never built — the primary-parameter CRLB stop (§5.5) and
-`reported_uncertainty`'s CRLB floor (§2.2) were both dead code.
+the cumulative FIM was never built — the primary-parameter CRLB stop (§5.5) was dead code.
 
 When no analytical gradient is available, `fisher_information_matrix` falls back to a central
 difference per parameter j:
