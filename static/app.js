@@ -6106,7 +6106,7 @@ function main() {
     let ssScope = 'family';
     const ssHidden = new Set();   // locators the user switched off (new locators are shown by default)
     let ssSplit = 'none';     // row field the SNR charts are split by: 'none' | 'grid_sigma_inhom' | 'grid_hyperfine'
-    let ssSigmaK = 1;         // the σ chart counts runs with |error| <= ssSigmaK × claimed σ
+    let ssSigmaK = 'all';     // the σ chart counts runs with |error| <= k × claimed σ: 1, 2, 3 or 'all' together
     // Share of a Gaussian within k standard deviations: what a correct claimed σ gives at k = 1, 2, 3.
     const SS_GAUSS_WITHIN = { 1: 0.6827, 2: 0.9545, 3: 0.9973 };
 
@@ -6200,7 +6200,7 @@ function main() {
     function renderStepSizeTab() {
         ssSegmented(document.getElementById('ss-scope'), (v) => { ssScope = v; });
         ssSegmented(document.getElementById('ss-split'), (v) => { ssSplit = v; });
-        ssSegmented(document.getElementById('ss-sigma-k'), (v) => { ssSigmaK = Number(v); });
+        ssSegmented(document.getElementById('ss-sigma-k'), (v) => { ssSigmaK = v === 'all' ? 'all' : Number(v); });
         const notice = document.getElementById('ss-notice');
         const clear = () => SS_PANEL_IDS.forEach((id) => {
             const el = document.getElementById(id);
@@ -6295,6 +6295,7 @@ function main() {
                 <td>${fmtN(search.med)}</td>
                 <td>${within(1)}</td>
                 <td>${within(2)}</td>
+                <td>${within(3)}</td>
             </tr>`;
         });
         const tableDiv = document.getElementById('ss-table');
@@ -6309,6 +6310,7 @@ function main() {
                 ${th('Search', 'Median measurements until a dip was seen')}
                 ${th('|error| ≤ 1σ', 'Share of runs the stop rule ended whose real error is within the claimed σ; a correct σ gives 68%')}
                 ${th('|error| ≤ 2σ', 'Same within 2σ; a correct σ gives 95%')}
+                ${th('|error| ≤ 3σ', 'Same within 3σ; a correct σ gives 99.7%')}
             </tr></thead><tbody>${body.join('')}</tbody></table>` : '';
         tableDiv.querySelectorAll('td, th').forEach((c) => { c.style.padding = '4px 12px'; });
 
@@ -6345,8 +6347,9 @@ function main() {
         const splitLabel = (v) => (ssSplit === 'grid_sigma_inhom' ? `σ_inhom ${(v / 1e6).toFixed(1)} MHz` : `isotope ${v}`);
 
         // One panel per split value; each series is { key, valueOf, filter, dash, agg } and gets one line per shown
-        // locator (agg = 'median' (default) or 'mean' of valueOf over the runs at each SNR value).
-        const snrPanels = (containerId, series, yaxis, refLine = null) => {
+        // locator (agg = 'median' (default) or 'mean' of valueOf over the runs at each SNR value). With several series a
+        // locator's lines share one legend entry. refLines: [{ y, label }] faint horizontal references.
+        const snrPanels = (containerId, series, yaxis, refLines = []) => {
             const container = document.getElementById(containerId);
             container.innerHTML = '';
             for (const sv of splitValues) {
@@ -6369,7 +6372,8 @@ function main() {
                         const xs = [...bySnr.keys()].sort((a, b) => a - b);
                         const name = series.length > 1 ? `${ssLabel(st)} ${s.key}` : ssLabel(st);
                         traces.push({
-                            type: 'scatter', mode: 'lines+markers', name, legendgroup: name, showlegend: sv === splitValues[0],
+                            type: 'scatter', mode: 'lines+markers', name: ssLabel(st), legendgroup: st,
+                            showlegend: sv === splitValues[0] && s === series[0],
                             x: xs.map(snrX), y: xs.map((x) => (s.agg === 'mean' ? bySnr.get(x).reduce((a, b) => a + b, 0) / bySnr.get(x).length : hlMedian(bySnr.get(x)))),
                             line: { color: colorOf(st), width: 2, dash: s.dash || 'solid' }, marker: { size: s.dash ? 4 : 6 },
                             customdata: xs.map((x) => bySnr.get(x).length),
@@ -6381,17 +6385,22 @@ function main() {
                     title: sv == null ? undefined : { text: splitLabel(sv), font: { size: 12 } },
                     margin: { l: 60, r: 10, t: sv == null ? 10 : 30, b: 50 },
                     xaxis, yaxis,
-                    shapes: refLine == null ? [] : [{ type: 'line', xref: 'paper', x0: 0, x1: 1, y0: refLine, y1: refLine, line: { color: '#94a3b8', width: 1, dash: 'dash' } }],
+                    shapes: refLines.map((ref) => ({ type: 'line', xref: 'paper', x0: 0, x1: 1, y0: ref.y, y1: ref.y, line: { color: '#94a3b8', width: 1, dash: 'dash' } })),
+                    annotations: refLines.map((ref) => ({ xref: 'paper', x: 1, xanchor: 'right', y: ref.y, yanchor: 'bottom', text: ref.label, showarrow: false, font: { size: 10, color: '#94a3b8' } })),
                     legend: { orientation: 'h', y: -0.3 },
                 }, config);
             }
         };
         snrPanels('ss-cost-snr', [{ key: 'cost', valueOf: (r) => r.measurements }], { title: 'measurements per run', type: 'log' });
         snrPanels('ss-search-snr', [{ key: 'search', valueOf: (r) => r.focus_found_step }], { title: 'measurements until a dip', type: 'log' });
-        const kSigma = ssSigmaK === 1 ? 'σ' : `${ssSigmaK}σ`;
-        const withinKSigma = (r) => { const z = ssAbsZ(r); return z == null ? null : (z <= ssSigmaK ? 1 : 0); };
-        snrPanels('ss-sigma-snr', [{ key: `within ${kSigma}`, valueOf: withinKSigma, filter: ended, agg: 'mean' }],
-            { title: `share with |error| ≤ ${kSigma} claimed`, range: [0, 1] }, SS_GAUSS_WITHIN[ssSigmaK]);
+        // 1σ solid, 2σ dashed, 3σ dotted; each against the share a correct σ gives.
+        const sigmaKs = ssSigmaK === 'all' ? [1, 2, 3] : [ssSigmaK];
+        const SIGMA_DASH = { 1: 'solid', 2: 'dash', 3: 'dot' };
+        const within = (k) => (r) => { const z = ssAbsZ(r); return z == null ? null : (z <= k ? 1 : 0); };
+        snrPanels('ss-sigma-snr',
+            sigmaKs.map((k) => ({ key: `${k}σ`, valueOf: within(k), filter: ended, agg: 'mean', dash: k === 1 ? undefined : SIGMA_DASH[k] })),
+            { title: sigmaKs.length > 1 ? 'share with |error| ≤ 1σ (solid), 2σ (dashed), 3σ (dotted)' : `share with |error| ≤ ${sigmaKs[0]}σ claimed`, range: [0, 1.02] },
+            sigmaKs.map((k) => ({ y: SS_GAUSS_WITHIN[k], label: `${k}σ: ${(100 * SS_GAUSS_WITHIN[k]).toFixed(k === 3 ? 1 : 0)}%` })));
     }
 
     // ── Stages tab ───────────────────────────────────────────────────────────
