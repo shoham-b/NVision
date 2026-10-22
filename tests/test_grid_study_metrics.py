@@ -1,18 +1,13 @@
 """Metrics updates for the parameter-grid execution approach.
 
 Covers: derived-quantity helpers (Jacobian propagation), derived convergence gating,
-parse_gauss_sigma, milestone shift_param selection, and grid-study summary plots
-(censored aggregation + convergence rates).
+parse_gauss_sigma and milestone shift_param selection.
 """
 
 from __future__ import annotations
 
-import gzip
-import json
 import math
-from pathlib import Path
 
-import polars as pl
 import pytest
 
 from nvision.sim.combinations import parse_gauss_sigma
@@ -245,101 +240,3 @@ def test_default_shift_param_prefers_zeeman_shift():
     assert default_shift_param(_RR({"zero_field_freq": 1.0, "zeeman_shift": 2.0})) == "zeeman_shift"
     assert default_shift_param(_RR({"zero_field_freq": 1.0, "hyperfine_shift": 2.0})) == "hyperfine_shift"
     assert default_shift_param(_RR({"zero_field_freq": 1.0})) == "hyperfine_shift"
-
-
-# ---------------------------------------------------------------------------
-# Grid-study summary plots (censoring + rates)
-# ---------------------------------------------------------------------------
-
-
-def _grid_rows():
-    rows = []
-    for s in (1.0, 10.0):
-        for si in (0.0, 5e5):
-            for ns in (0.02, 0.06):
-                for rep in range(4):
-                    # One cell systematically infeasible; one repeat elsewhere unconverged.
-                    infeasible_cell = s == 1.0 and si == 0.0 and ns == 0.06
-                    lone_failure = s == 10.0 and si == 5e5 and ns == 0.02 and rep == 0
-                    converged = not infeasible_cell and not lone_failure
-                    rows.append(
-                        {
-                            "generator": f"NVCenter-saturation_voigt-s{s:.2f}-si{si / 1e6:.2f}MHz",
-                            "noise": f"Gauss({ns})",
-                            "strategy": "Bayesian-SBED",
-                            "grid_saturation": s,
-                            "grid_sigma_inhom": si,
-                            "noise_sigma": ns,
-                            "primary_converged_step": (40 + rep * 10) if converged else None,
-                            "failure_reason": None
-                            if converged
-                            else ("infeasible_crlb" if infeasible_cell else "max_steps"),
-                        }
-                    )
-    return rows
-
-
-def _load_gz_entry(viz, entry: dict) -> dict:
-    """Decompress a plot entry's payload from Viz's in-memory store.
-
-    Viz._emit() never touches disk (see nvision/viz/base.py) -- the gzip bytes
-    for a manifest entry's "path" live in ``viz.collected_bytes`` for an API
-    endpoint to serve on demand, so tests read from there instead of the
-    filesystem.
-    """
-    return json.loads(gzip.decompress(viz.collected_bytes[entry["path"]]))
-
-
-def test_grid_study_heatmap_censoring_and_rates(tmp_path: Path):
-    from nvision.viz import Viz
-
-    df = pl.DataFrame(_grid_rows())
-    viz = Viz(tmp_path)
-    entries = viz.plot_grid_study(df)
-
-    heatmaps = [e for e in entries if e["kind"] == "heatmap"]
-    assert len(heatmaps) == 2  # one per noise level
-    assert all(e["type"] == "grid_summary" for e in entries)
-
-    by_noise = {e["noise"]: e for e in heatmaps}
-    hi_noise = _load_gz_entry(viz, by_noise["0.06"])
-    # Infeasible cell: x=1.0 (index 0), y=0.0 (index 0) -> censored median, rate 0, 4 infeasible
-    assert hi_noise["z"][0][0] is None
-    assert hi_noise["convergence_rate"][0][0] == 0.0
-    assert hi_noise["n_infeasible"][0][0] == 4
-
-    lo_noise = _load_gz_entry(viz, by_noise["0.02"])
-    # Lone-failure cell: x=10.0 (index 1), y=5e5 (index 1) -> 3/4 converged, median over converged only
-    assert lo_noise["convergence_rate"][1][1] == pytest.approx(0.75)
-    assert lo_noise["z"][1][1] == pytest.approx(60.0)  # median of 50, 60, 70
-    assert lo_noise["n_infeasible"][1][1] == 0
-
-
-def test_grid_study_vs_noise_series(tmp_path: Path):
-    from nvision.viz import Viz
-
-    df = pl.DataFrame(_grid_rows())
-    viz = Viz(tmp_path)
-    entries = viz.plot_grid_study(df)
-    vs = [e for e in entries if e["kind"] == "vs_noise"]
-    assert len(vs) == 1
-    payload = _load_gz_entry(viz, vs[0])
-    assert payload["_graph_type"] == "chart"
-    assert len(payload["series"]) == 4  # one per grid point
-    for series in payload["series"]:
-        assert series["x"] == [0.02, 0.06]
-        assert len(series["convergence_rate"]) == 2
-
-
-def test_grid_study_noop_without_grid_columns(tmp_path: Path):
-    from nvision.viz import Viz
-
-    df = pl.DataFrame(
-        {
-            "generator": ["NVCenter-lorentzian"],
-            "noise": ["Gauss(0.01)"],
-            "strategy": ["SimpleSweep"],
-            "primary_converged_step": [10],
-        }
-    )
-    assert Viz(tmp_path).plot_grid_study(df) == []

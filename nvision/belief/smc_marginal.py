@@ -1682,52 +1682,6 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             self.model.inner, self.estimates(), self.estimated_noise_std(), self._obs_count, hi - lo
         )
 
-    def reported_uncertainty(self) -> ParameterValues[float]:
-        """Physical uncertainty, floored so it never claims impossible precision.
-
-        Two floors, both applied at 1× (no safety factor on either — see below):
-
-        * ``zero_field_freq`` — the closed-form ``crlb_zero_field_freq()``.
-        * every other parameter — its own **marginal** CRLB from the cumulative
-          FIM (``crlb_per_param()``, i.e. ``sqrt(diag(pinv(FIM)))``, so nuisance
-          parameters are profiled out rather than held fixed).
-
-        ``NVISION_ZERO_FIELD_FREQ_CRLB_SAFETY_FACTOR`` (used by the locator's
-        ``_check_crlb_early_stop`` to gate *when to stop*) does not apply here —
-        that factor governs a stopping decision, not what uncertainty value is
-        reported once stopped. Applying it to this floor would inflate the
-        reported number past what the CRLB actually requires.
-
-        The per-parameter floor exists because the particle spread alone
-        understates the uncertainty exactly where it matters most. When two
-        parameters trade off along a near-flat ridge — ``zeeman_shift`` against
-        the width pair below the dip-resolution threshold is the standard case —
-        the SMC posterior can be narrow and *wrong*, while the marginal CRLB
-        correctly blows up because the FIM is near-singular in that direction.
-        Measured over 120 mixed repeats (56 deliberately degenerate), flooring
-        moves the median ``error / reported σ`` for ``zeeman_shift`` from 1.21 to
-        0.90 and cuts the fraction beyond 3σ from 8.3% to 2.5%; ``contrast_total`` goes
-        1.61 -> 0.96 and 18.3% -> 3.3%. The width pair becomes ~2-3× conservative
-        (medians 1.03/1.38 -> 0.36/0.49) because both sit *in* the degenerate
-        direction even though their sum stays well determined -- an accepted
-        trade: overstating precision is the dangerous direction.
-
-        No safety factor is applied to either floor deliberately: the CRLB is
-        already a hard lower bound on any unbiased estimator's variance, so 1×
-        is the principled choice, and 4× (``NVISION_ZERO_FIELD_FREQ_CRLB_SAFETY_FACTOR``)
-        over-corrects badly (medians drop to 0.09-0.25). Control-flow paths must
-        use :meth:`uncertainty` instead.
-        """
-        data = dict(self.uncertainty().items())
-        crlb = self.crlb_zero_field_freq()
-        if math.isfinite(crlb) and "zero_field_freq" in data:
-            data["zero_field_freq"] = max(data["zero_field_freq"], crlb)
-
-        for name, floor in self.crlb_per_param().items():
-            if name != "zero_field_freq" and name in data and math.isfinite(floor) and floor > 0:
-                data[name] = max(data[name], floor)
-        return ParameterValues.from_mapping(list(data.keys()), data)
-
     def marginal_pdf(self, param_name: str, x: np.ndarray) -> np.ndarray:
         from scipy.stats import gaussian_kde, norm
 

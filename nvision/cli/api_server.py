@@ -12,7 +12,6 @@ import base64
 import gzip
 import logging
 import threading
-import urllib.parse
 from pathlib import Path
 from typing import Any
 
@@ -26,10 +25,11 @@ from nvision.cache.hashing import stable_config_hash
 from nvision.cache.locator_keys import MIN_VIEWABLE_CACHE_SCHEMA_VERSION, combination_base_cache_config
 from nvision.gui.report import _STATIC_DIR, render_index_html
 from nvision.runner.cache import _decompress_text
-from nvision.sim.combinations import CombinationGrid
+from nvision.sim.combinations import SWEEP_SPACING_DIVISORS, CombinationGrid
+from nvision.sim.defaults import PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS
+from nvision.sim.grid_enums import sweep_strategy_name
 from nvision.tools.artifacts import _slim_manifest_entry
 from nvision.tools.json_sanitize import sanitize_non_finite
-from nvision.viz import Viz
 
 # JS/CSS assets served straight from the repo's static/ directory — no per-run
 # copy needed, since these never vary by run (see task discussion: nv run used
@@ -109,32 +109,6 @@ def _drop_unviewable_combos(combos: list[dict]) -> list[dict]:
             MIN_VIEWABLE_CACHE_SCHEMA_VERSION,
         )
     return viewable
-
-
-def _build_aggregate_entries(result_rows: list[dict]) -> tuple[list[dict], dict[str, bytes]]:
-    """Comparisons/grid-study/experiment summary views computed from every combo's flat
-    result row -- (entries with /api/aggregate/... paths, their collected gzip bytes).
-
-    Module-level (not a build_app closure) because it needs none of build_app's shared
-    server state, only result_rows -- keeping it out of build_app's own body is what
-    keeps that function's branch count (mccabe complexity) down as endpoints are added.
-    Best-effort: a column-shape surprise in one aggregate view (e.g. a locator that
-    never recorded acquisition_hi) must not take down the per-repeat graph entries this
-    feeds into, same as render.py's _run_summary guard.
-    """
-    import polars as pl
-
-    viz = Viz(Path("."))
-    try:
-        df = pl.from_dicts(result_rows, infer_schema_length=None) if result_rows else pl.DataFrame()
-        aggregate_entries = viz.plot_locator_summary(df) if not df.is_empty() else []
-    except Exception:
-        log.exception("Failed to build aggregate views; serving per-repeat graphs only.")
-        aggregate_entries = []
-    for entry in aggregate_entries:
-        original_path = entry["path"]
-        entry["path"] = "/api/aggregate/" + urllib.parse.quote(original_path, safe="")
-    return aggregate_entries, dict(viz.collected_bytes)
 
 
 class _NoCacheStaticFiles(StaticFiles):
@@ -276,11 +250,49 @@ def _generator_grid_info_for(bridge: CacheBridge, combo: dict) -> dict | None:
     return {k: v for k, v in metrics.items() if k.startswith("grid_") and v is not None}
 
 
-def _load_combo(bridge: CacheBridge, combo: dict) -> tuple[list[dict], list[dict]]:
-    """One combo's (graph manifest entries, flat locator-result rows) — a single
-    cache read per combo feeds both, instead of scanning the whole cache twice.
+# Per-repeat scalars served by /api/run-rows (the Step size view): flat result-row fields, no arrays.
+_RUN_ROW_FIELDS = (
+    "failure_reason",
+    "stop_reason",
+    "measurements",
+    "primary_converged_step",
+    "final_err_primary",
+    "uncert",
+    "stage_primary_param",
+    "focus_found_step",
+    "max_info_step",
+    "stage1_steps",
+    "stage2_steps",
+    "stage3_steps",
+    "noise_sigma",
+)
 
-    Module-level (not a build_app closure), like _build_aggregate_entries: it only
+
+def _run_row(combo: dict, main_row: dict) -> dict:
+    """One repeat's scalar row for /api/run-rows: identity, the ``_RUN_ROW_FIELDS`` and the ``grid_*`` axes.
+
+    ``tau`` is the absolute convergence threshold of the run's primary parameter (Hz), the stop target the
+    stop rule compares the claimed uncertainty against; None when the primary has no absolute threshold.
+    """
+    primary = main_row.get("stage_primary_param")
+    row = {
+        "generator": combo["generator"],
+        "noise": combo["noise"],
+        "strategy": combo["strategy"],
+        "updated_at": combo.get("updated_at"),
+        "repeat": main_row.get("attempt"),
+        "tau": PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS.get(primary) if primary else None,
+        **{k: main_row.get(k) for k in _RUN_ROW_FIELDS},
+    }
+    row.update({k: v for k, v in main_row.items() if k.startswith("grid_")})
+    return row
+
+
+def _load_combo(bridge: CacheBridge, combo: dict) -> tuple[list[dict], list[dict]]:
+    """One combo's (graph manifest entries, per-repeat scalar rows) — a single cache read
+    per combo feeds both the manifest and /api/run-rows.
+
+    Module-level (not a build_app closure): it only
     needs its own arguments, and keeping it out of build_app's body is what keeps
     that function's mccabe complexity down as more endpoints are added there.
     """
@@ -294,9 +306,9 @@ def _load_combo(bridge: CacheBridge, combo: dict) -> tuple[list[dict], list[dict
     if meta is None:
         meta = repo._repeats.load_repeats(combo_key, achieved)
     graph_entries: list[dict] = []
-    result_rows: list[dict] = []
+    run_rows: list[dict] = []
     for repeat_idx, (repeat_entries, main_row) in enumerate(meta):
-        result_rows.append(main_row)
+        run_rows.append(_run_row(combo, main_row))
         if repeat_entries is None:
             continue
         for entry in repeat_entries:
@@ -310,7 +322,7 @@ def _load_combo(bridge: CacheBridge, combo: dict) -> tuple[list[dict], list[dict
                 # have no graph to serve yet, so get no path.
                 slim["path"] = f"/api/graph/{combo_key}/{repeat_idx}/{gtype}.json.gz"
             graph_entries.append(slim)
-    return graph_entries, result_rows
+    return graph_entries, run_rows
 
 
 def _load_combo_memo(memo: dict, bridge: CacheBridge, combo: dict) -> tuple[list[dict], list[dict]]:
@@ -356,14 +368,13 @@ def build_app(cache_dir: Path, run_dir: Path) -> FastAPI:
     # cheap enough to redo on every page load, so we cache it until told otherwise.
     cache: dict[str, Any] = {
         "manifest": None,
-        "aggregate_bytes": {},
         "combos": None,
         "generator_grid_info": None,
         # (combo_key, repeats) -> _load_combo result; keyed on the repeat count so a growing
         # combo is re-read, cleared on /api/reload so edited repeats are picked up too.
         "combo_memo": {},
     }
-    # RLock, not Lock: _get_manifest/aggregate hold `lock` while calling
+    # RLock, not Lock: _get_manifest holds `lock` while calling
     # _build_manifest, which calls _get_combos -- itself a `with lock:` block.
     # A plain Lock would deadlock on that same-thread re-acquisition.
     lock = threading.RLock()
@@ -432,16 +443,13 @@ def build_app(cache_dir: Path, run_dir: Path) -> FastAPI:
 
         When *full_generators* is given, only those generators keep their non-scan entries
         (bayesian_* plots etc.); every other generator contributes just its ``scan`` entries,
-        which is all the family-wide views (Highlights, grid stats, speed/accuracy) read.
+        which is all the family-wide views (Stages, Accuracy, Step size) read.
         Non-scan entries are ~85% of a study family's manifest.
 
         Scoping to a subset of generators is what keeps a page load on a large
         shared cache from having to scan every repeat of every combo up front
         (see nvision-ui's generator picker, which only loads the currently
-        selected generator's data this way). Aggregate views (comparisons/
-        grid-study/experiment summaries) need every combo's result rows to be
-        meaningful, so they're only computed for the unscoped (full) build --
-        callers that need them (the Dashboard tab) must request the full manifest.
+        selected generator's data this way).
         """
         import concurrent.futures
         import os
@@ -452,24 +460,14 @@ def build_app(cache_dir: Path, run_dir: Path) -> FastAPI:
             if generators is not None:
                 combos = [c for c in combos if c["generator"] in generators]
             entries: list[dict] = []
-            result_rows: list[dict] = []
             n_workers = min(os.cpu_count() or 4, max(len(combos), 1), 12)
             with concurrent.futures.ThreadPoolExecutor(max_workers=n_workers) as pool:
-                for combo, (combo_entries, combo_rows) in zip(
+                for combo, (combo_entries, _run_rows) in zip(
                     combos, pool.map(lambda c: _load_combo_memo(cache["combo_memo"], bridge, c), combos), strict=True
                 ):
                     if full_generators is not None and combo["generator"] not in full_generators:
                         combo_entries = [e for e in combo_entries if e.get("type") == "scan"]
                     entries.extend(combo_entries)
-                    result_rows.extend(combo_rows)
-
-            if generators is not None:
-                return entries
-
-            aggregate_entries, aggregate_bytes = _build_aggregate_entries(result_rows)
-            # Caller (_get_manifest / reload) already holds `lock` while this runs.
-            cache["aggregate_bytes"] = aggregate_bytes
-            entries.extend(aggregate_entries)
             return entries
         finally:
             bridge.close()
@@ -511,7 +509,7 @@ def build_app(cache_dir: Path, run_dir: Path) -> FastAPI:
     @app.get("/api/manifest")
     def manifest(generators: str | None = None, full: str | None = None) -> list[dict]:
         """Full manifest by default; pass ``?generators=a,b`` to scope the build
-        to only those generators (skips the aggregate views -- see _build_manifest).
+        to only those generators (see _build_manifest).
         Scoped requests aren't cached: each one only touches a handful of combos,
         so recomputing per request is cheap and avoids per-scope cache invalidation.
         """
@@ -571,6 +569,31 @@ def build_app(cache_dir: Path, run_dir: Path) -> FastAPI:
         finally:
             bridge.close()
 
+    @app.get("/api/sweep-spacings")
+    def sweep_spacings() -> list[str]:
+        """Strategy names of the plain-sweep spacings the current code studies (``SWEEP_SPACING_DIVISORS``).
+        The Step size view shows only these: older spacings left in the cache come from older code."""
+        return [sweep_strategy_name(k) for k in SWEEP_SPACING_DIVISORS]
+
+    @app.get("/api/run-rows")
+    def run_rows(strategies: str) -> list[dict]:
+        """Per-repeat scalar rows (see ``_run_row``) for every cached combo of the given
+        strategies (comma-separated exact names), across all generators and noise levels.
+        Powers the Step size view; read from the combo memo the manifest shares."""
+        import concurrent.futures
+        import os
+
+        wanted = set(strategies.split(","))
+        combos = [c for c in _get_combos() if c["strategy"] in wanted]
+        bridge = _bridge()
+        try:
+            n_workers = min(os.cpu_count() or 4, max(len(combos), 1), 12)
+            with concurrent.futures.ThreadPoolExecutor(max_workers=n_workers) as pool:
+                loaded = pool.map(lambda c: _load_combo_memo(cache["combo_memo"], bridge, c), combos)
+                return [row for _entries, rows in loaded for row in rows]
+        finally:
+            bridge.close()
+
     @app.get("/api/scan-fields")
     def scan_fields(generator: str, noise: str) -> list[dict]:
         """Bulk series/true_params for every scan repeat matching the given
@@ -603,24 +626,6 @@ def build_app(cache_dir: Path, run_dir: Path) -> FastAPI:
         finally:
             bridge.close()
 
-    @app.get("/api/aggregate/{encoded_path}")
-    def aggregate(encoded_path: str) -> Response:
-        key = urllib.parse.unquote(encoded_path)
-        with lock:
-            if cache["manifest"] is None:
-                cache["manifest"] = _build_manifest()
-            payload = cache["aggregate_bytes"].get(key)
-        if payload is None:
-            raise HTTPException(status_code=404, detail="No such aggregate view")
-        return Response(
-            content=payload,
-            media_type="application/json",
-            # See /api/graph's identical fix: "identity", not "gzip" — the
-            # payload is already-gzipped and must reach the client's own
-            # DecompressionStream untouched.
-            headers={"Content-Encoding": "identity", "Cache-Control": "no-store"},
-        )
-
     @app.post("/api/reload")
     def reload_endpoint() -> dict:
         if reload_state.running:
@@ -632,7 +637,6 @@ def build_app(cache_dir: Path, run_dir: Path) -> FastAPI:
             try:
                 with lock:
                     cache["manifest"] = None
-                    cache["aggregate_bytes"] = {}
                     cache["combos"] = None
                     cache["generator_grid_info"] = None
                     cache["combo_memo"] = {}

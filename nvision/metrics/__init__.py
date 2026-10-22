@@ -1,36 +1,16 @@
-"""NVision metrics package for strategy performance analysis.
+"""NVision metrics package: per-run metrics computed identically for every locator.
 
-This package provides tools to calculate, aggregate, and analyze metrics
-across multiple localization repeats, including convergence tracking
-and error distribution analysis.
+Per-step series (:mod:`nvision.metrics.series`), convergence milestones (:mod:`nvision.metrics.milestones`),
+the search/focus/refine stage decomposition (:mod:`nvision.metrics.stages`) and the stage-by-stage
+locator comparison table (:mod:`nvision.metrics.compare`).
 """
 
-from nvision.metrics.calculator import (
-    calculate_strategy_metrics,
-    compute_error_histogram,
-)
-from nvision.metrics.convergence import (
-    analyze_run_convergence,
-    get_convergence_summary,
-)
 from nvision.metrics.series import (
     effective_convergence_threshold,
     extract_step_series,
 )
-from nvision.metrics.types import (
-    ParameterConvergence,
-    RepeatMetrics,
-    StrategyMetrics,
-)
 
 __all__ = [
-    "ParameterConvergence",
-    "RepeatMetrics",
-    "StrategyMetrics",
-    "analyze_run_convergence",
-    "calculate_strategy_metrics",
-    "compute_error_histogram",
     "effective_convergence_threshold",
     "extract_step_series",
-    "get_convergence_summary",
 ]

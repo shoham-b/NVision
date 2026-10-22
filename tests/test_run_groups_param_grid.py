@@ -20,7 +20,6 @@ def test_voigt_grid_group_uses_voigt_inhom_grid_and_all_locators():
     assert group.extra_generators is not None
     assert set(group.extra_generators.keys()) == set(group.generator_names)
     assert set(group.strategy_names) == {
-        "SimpleSweep-1perFWHM",
         "SimpleSweep-2perFWHM",
         "SimpleSweep-3perFWHM",
         "SimpleSweep-4perFWHM",

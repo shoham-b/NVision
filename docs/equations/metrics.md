@@ -142,7 +142,7 @@ Computed elsewhere and passed through `metrics.py` for reporting:
 
 - **`measurements`** — total observations recorded for the repeat.
 - **`final_est_<param>`** — final posterior-mean estimate for each parameter (`zero_field_freq`, `hwhm`/`hwhm_lorentz`, `hyperfine_shift`, `sigma_inhom`, `contrast_total`, `k_np`), populated dynamically off whatever `parameter_names()` the model returns rather than a hardcoded list.
-- **`uncert`** — reported zero_field_freq uncertainty (see `reported_uncertainty` in [sbed_and_smc.md](sbed_and_smc.md) §2; floored at 1× CRLB_f, no safety factor).
+- **`uncert`** — reported uncertainty: the belief's particle spread (see `reported_uncertainty` in [sbed_and_smc.md](sbed_and_smc.md) §2; no CRLB floor).
 - **Oracle CRLB** (plot overlay only, not a stored metric) — `_compute_oracle_crlb_history` in `runner/plots.py`: the best-achievable CRLB after `step + 1` ideal, uniformly placed measurements at the *true* parameters.  It is the hard floor no acquisition strategy could beat with the same number of measurements, and complements the data-driven CRLB curve, which shows how close the actual acquisition got to the information limit.  Because CRLB scales as 1/√N, the mean single-measurement Fisher information over a uniform x-grid is computed once and scaled by `step + 1`.
 - **`primary_converged_step` / `all_converged_step`** — first step at which the primary parameter (`zeeman_shift`/`hyperfine_shift` when present, else `zero_field_freq`) / all target parameters converged.
 - **`duration_ms`** — wall-clock runtime of the repeat.

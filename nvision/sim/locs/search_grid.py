@@ -7,11 +7,12 @@ grid spacing is not a tuning knob but follows from how many points must land ins
   points per full width at half maximum (FWHM), the grid cannot step over a dip, and the three
   points are what the binomial test in :func:`nvision.belief.dip_detection.find_dips` needs to call
   a cluster of low points a dip rather than noise. This is the spacing of every sweep.
-* The adaptive locators (Smart-Sweep, Smart-SBED) start from the same FWHM/3 grid: Smart-Sweep measures it in
-  order, Smart-SBED lets expected information gain pick among its unmeasured points. A coarser SBED grid (one
-  point per FWHM) often puts only one or two points in the dip, too few for ``find_dips``, so the grid had to be
-  refined before the focus appeared. ``SBED_COARSE_POINTS_PER_FWHM`` is kept separate so it can be changed
-  (e.g. to 4) on its own.
+* The adaptive locators (Smart-Sweep, Smart-SBED) start from one shared coarse grid,
+  ``COARSE_SEARCH_POINTS_PER_FWHM`` = 2 points per prior FWHM: Smart-Sweep measures it in order, Smart-SBED lets
+  expected information gain pick among its unmeasured points; sharing it keeps their difference to the acquisition
+  after the dip is seen. 2 was chosen from the plain-sweep spacing study (k = 2 had the lowest median and p75 cost
+  and a short search). A one-point-per-FWHM grid often puts only one or two points in the dip, too few for
+  ``find_dips``; a grid that misses the dip is refined by halving.
 
 Widths come from the locator's *prior* (``2 * effective_hwhm(belief.estimates())`` at construction),
 never from the true signal.
@@ -30,8 +31,8 @@ from nvision.spectra.nv_center import effective_hwhm
 
 # Points per FWHM so a dip cannot be stepped over and ``find_dips`` has the cluster it needs.
 SWEEP_POINTS_PER_FWHM: int = 3
-# Candidate grid points per FWHM for SBED's pre-focus search (EIG picks among them).
-SBED_COARSE_POINTS_PER_FWHM: int = 3
+# Coarse search grid of Smart-Sweep and Smart-SBED before the focus (Smart-SBED's EIG picks among its points).
+COARSE_SEARCH_POINTS_PER_FWHM: int = 2
 
 # Refusing to build grids denser than this: it means the refinement ran far past any useful resolution.
 _MAX_GRID_POINTS: int = 2_000_000

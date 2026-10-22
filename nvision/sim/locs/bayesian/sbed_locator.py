@@ -19,8 +19,7 @@ from nvision.sim.locs.bayesian.sequential_bayesian_locator import (
     SequentialBayesianLocator,
 )
 from nvision.sim.locs.search_grid import (
-    SBED_COARSE_POINTS_PER_FWHM,
-    SWEEP_POINTS_PER_FWHM,
+    COARSE_SEARCH_POINTS_PER_FWHM,
     RefiningGrid,
     prior_fwhm_phys,
 )
@@ -286,7 +285,7 @@ class SmartSBEDLocator(_SearchThenFocusMixin, SequentialBayesianExperimentDesign
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
-        self._init_search_grid(SBED_COARSE_POINTS_PER_FWHM)
+        self._init_search_grid(COARSE_SEARCH_POINTS_PER_FWHM)
 
     def _pick(self, *, focus_changed: bool) -> float:
         if self._focus.is_full_domain():
@@ -313,11 +312,11 @@ _REFINE_EXPECTATION_PARTICLES: int = 256
 
 
 class SmartSweepLocator(_SearchThenFocusMixin, SequentialBayesianExperimentDesignLocator):
-    """A FWHM/3 sweep over the axis, a sweep inside the focus, then measurements at the max-information points.
+    """A FWHM/2 sweep over the axis, a sweep inside the focus, then measurements at the max-information points.
 
     **Search / focus.** Each step measures the lowest-frequency grid point not yet measured inside the current
-    focus. With the focus still the whole axis that is a plain FWHM/3 sweep, so a dip cannot be stepped over.
-    Once the data show one, the focus narrows to it and the sweep continues there (finishing the FWHM/3 grid
+    focus. With the focus still the whole axis that is a plain FWHM/2 sweep (``COARSE_SEARCH_POINTS_PER_FWHM``).
+    Once the data show one, the focus narrows to it and the sweep continues there (finishing the FWHM/2 grid
     across the dip, then halving the spacing).
 
     **Refine.** A sweep keeps spending measurements across the whole dip, most of them far from where the
@@ -344,7 +343,7 @@ class SmartSweepLocator(_SearchThenFocusMixin, SequentialBayesianExperimentDesig
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
-        self._init_search_grid(SWEEP_POINTS_PER_FWHM)
+        self._init_search_grid(COARSE_SEARCH_POINTS_PER_FWHM)
         if self._primary_param is None:
             raise ValueError("SmartSweepLocator needs a primary parameter for its max-information refine mode.")
         if self.belief.model.controls_drive:

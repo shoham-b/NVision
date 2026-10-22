@@ -16,6 +16,7 @@ Welcome to the NVision documentation.
 -   [Caching & Interruption Salvaging](caching.md)
 -   [Deferred Graph Generation (graph workers, `nv graphs`)](graph_queue.md)
 -   [Locator comparison: sweeps, Smart-Sweep/Smart-SBED, search/focus/refine stages](locator_comparison.md)
+-   [Evaluation metrics: what to measure per stage, and the rules that keep it meaningful](evaluation_metrics.md)
 -   [Classmethod Pattern](classmethod_pattern.md)
 -   [Amplitude Reparametrization (contrast → contrast_total)](contrast_reparametrization.md)
 -   [Microwave Drive Control (CW / pulsed, Bayesian-SBED-Drive)](amplitude_control.md)

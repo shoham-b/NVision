@@ -32,12 +32,22 @@ RENAMED_ENV_VARS: dict[str, str] = {
     "NVISION_MAX_SPLIT": "NVISION_MAX_HYPERFINE_SHIFT",
     "NVISION_NV_GRID_LINEWIDTH": "NVISION_NV_GRID_HWHM",
     "NVISION_SIGNAL_LINEWIDTH": "NVISION_SIGNAL_HWHM",
+    "NVISION_SWEEP_MAX_MEASUREMENTS": "NVISION_MAX_MEASUREMENTS",
+}
+
+# Removed variables, with what replaced them; still set, they would be silently ignored.
+REMOVED_ENV_VARS: dict[str, str] = {
+    "NVISION_SBED_STEPS_FRACTION": "every locator now shares the absolute budget NVISION_MAX_MEASUREMENTS",
 }
 
 
 def reject_renamed_env_vars() -> None:
     """Raise if any renamed environment variable is still set under its old name."""
     load_dotenv()
+    removed = {name: why for name, why in REMOVED_ENV_VARS.items() if name in os.environ}
+    if removed:
+        listing = "; ".join(f"{name} ({why})" for name, why in removed.items())
+        raise RuntimeError(f"Removed environment variable(s) still set: {listing}. Remove them from your .env / shell.")
     stale = {old: new for old, new in RENAMED_ENV_VARS.items() if old in os.environ}
     if stale:
         listing = ", ".join(f"{old} -> {new}" for old, new in stale.items())

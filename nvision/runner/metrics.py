@@ -239,12 +239,7 @@ def generate_attempt_metrics(
         duration_ms_value = (time.perf_counter() - repeat_start_times[attempt_idx_in_combo]) * 1000
     metrics_serialized["duration_ms"] = _maybe_finite(duration_ms_value)
 
-    # Convergence step milestones — pre-existing gap: these were computed above and
-    # forwarded to entry_base (plot-manifest rows) but never to main_result_row, so
-    # locator_results.parquet never had them and every summary plot that checks for
-    # "primary_converged_step"/"all_converged_step" (plot_experiment_summary,
-    # plot_savings_vs_span_per_noise, plot_model_comparisons, plot_grid_study) was
-    # silently skipping that metric.
+    # Convergence step milestones, also on main_result_row so locator_results.parquet carries them.
     metrics_serialized["primary_converged_step"] = primary_converged_step
     metrics_serialized["all_converged_step"] = all_converged_step
 

@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 
 from nvision.cache import CacheBridge
 from nvision.cli.api_server import build_app
+from nvision.sim.combinations import SWEEP_SPACING_DIVISORS
 from nvision.sim.defaults import NVISION_SIMPLESWEEP_MAX_STEPS
 
 _MAIN_RESULT_ROW = {
@@ -148,57 +149,6 @@ def test_manifest_does_not_write_any_files(tmp_path):
     assert not (tmp_path / "plots_manifest.json").exists()
     assert not (static_dir / "plots_manifest.json").exists()
     assert not (static_dir / "graphs").exists()
-
-
-def test_manifest_includes_aggregate_view_with_working_path(tmp_path):
-    cache_dir, static_dir = _build_client(tmp_path)
-    _seed_one_repeat(cache_dir)
-    client = TestClient(build_app(cache_dir, static_dir))
-
-    manifest = client.get("/api/manifest").json()
-    agg = next((e for e in manifest if e["type"] != "scan"), None)
-    assert agg is not None
-    assert agg["path"].startswith("/api/aggregate/")
-
-    r = client.get(agg["path"])
-    assert r.status_code == 200
-    assert len(r.content) > 0
-
-
-def test_aggregate_endpoint_matches_direct_viz_call(tmp_path):
-    """The API's aggregate bytes must be identical to calling the viz function
-    directly — proof no aggregate computation changed."""
-    import urllib.parse
-    from pathlib import Path
-
-    from nvision.cache.aggregate import build_locator_results_df
-    from nvision.viz import Viz
-
-    cache_dir, static_dir = _build_client(tmp_path)
-    _seed_one_repeat(cache_dir)
-    client = TestClient(build_app(cache_dir, static_dir))
-
-    manifest = client.get("/api/manifest").json()
-    agg = next((e for e in manifest if e["type"] != "scan"), None)
-    assert agg is not None
-    api_bytes = client.get(agg["path"]).content
-
-    bridge = CacheBridge(cache_dir)
-    try:
-        df = build_locator_results_df(bridge)
-    finally:
-        bridge.close()
-    # Viz never touches disk (see VizBase._emit's docstring) -- collected_bytes
-    # is always the in-memory store, so no extra flag is needed here.
-    viz = Viz(Path("."))
-    direct_entries = viz.plot_locator_summary(df)
-    original_key = urllib.parse.unquote(agg["path"].removeprefix("/api/aggregate/"))
-    direct_entry = next(e for e in direct_entries if e["path"] == original_key)
-    direct_bytes = viz.collected_bytes[direct_entry["path"]]
-
-    # "identity" encoding means the test client does NOT auto-decompress —
-    # api_bytes is the same raw gzip bytes dump_gz/write_plotly_gz produced.
-    assert api_bytes == direct_bytes
 
 
 def test_reload_invalidates_manifest_cache(tmp_path):
@@ -359,12 +309,9 @@ def test_manifest_scoped_by_generators_excludes_other_generators(tmp_path):
     scoped = r.json()
     assert {e["generator"] for e in scoped if e.get("type") == "scan"} == {"NVCenter-lorentzian"}
 
-    # Scoped requests skip the cross-combo aggregate views entirely (they need
-    # every combo's result rows to be meaningful) -- unlike the full manifest,
-    # which does include one (see test_manifest_includes_aggregate_view_with_working_path).
     assert all(e.get("type") == "scan" for e in scoped)
 
-    # The unscoped manifest still returns both generators plus the aggregate view.
+    # The unscoped manifest still returns both generators.
     full = client.get("/api/manifest").json()
     assert {e["generator"] for e in full if e.get("type") == "scan"} == {
         "NVCenter-lorentzian",
@@ -399,3 +346,34 @@ def test_scan_fields_carries_compare_fields(tmp_path):
     assert compare["focus_found_step"] == 3
     assert compare["stage2_unc_ratio"] == 0.5
     assert compare["max_info_step"] is None
+
+
+def test_run_rows_serves_scalar_rows_for_the_requested_strategies(tmp_path):
+    """/api/run-rows (the Step size view) returns one scalar row per repeat of the requested strategies,
+    with the primary parameter's stop target as ``tau``; other strategies are left out."""
+    cache_dir, static_dir = _build_client(tmp_path)
+    _seed_one_repeat(cache_dir)
+    client = TestClient(build_app(cache_dir, static_dir))
+
+    rows = client.get("/api/run-rows", params={"strategies": "SimpleSweep"}).json()
+    assert len(rows) == 1
+    row = rows[0]
+    assert (row["generator"], row["noise"], row["strategy"], row["repeat"]) == (
+        "NVCenter-lorentzian",
+        "Gauss(0.01)",
+        "SimpleSweep",
+        1,
+    )
+    assert row["measurements"] == 10
+    assert row["tau"] is None  # the seeded row names no primary parameter
+    assert "series" not in row
+
+    assert client.get("/api/run-rows", params={"strategies": "Bayesian-SBED"}).json() == []
+
+
+def test_sweep_spacings_lists_the_studied_sweep_strategies(tmp_path):
+    cache_dir, static_dir = _build_client(tmp_path)
+    client = TestClient(build_app(cache_dir, static_dir))
+
+    names = client.get("/api/sweep-spacings").json()
+    assert names == [f"SimpleSweep-{k}perFWHM" for k in SWEEP_SPACING_DIVISORS]

@@ -118,12 +118,28 @@ Key sections inside `main()` (in order of appearance):
 5. **Scan plot rendering** — `renderPlotFromJson` (calls `ensurePlotly` + `_fetchJson`); measurement distribution legend sync
 6. **Comparison cards** — head-to-head scan comparison; trace building for sampled-measurement plot
 7. **Bayesian rendering** — posterior heatmap, convergence, metrics, Fisher, covariance ellipses, jitter
-8. **Summary view** — repeats-summary charts, noise-metrics iframes, milestone plots
-9. **Highlights view** — curated quick view (`renderHighlights` + `hl*` helpers): anytime error curves (median + IQR) with the full sweep as the emphasized practical baseline, convergence survival curves at ×0.5/×1/×2 of the shared threshold (sweep excluded — its convergence step reflects dip position in the scan order, not efficiency), coverage of the claimed uncertainty vs the 68/95% Gaussian nominals with Wilson intervals, and paired matched-promise savings vs `f_span` with a search/refine decomposition. Reads the per-step `series` field (`{s, e, u, tau}`) written by `nvision.metrics.series.extract_step_series` onto each scan manifest entry; entries from older cached runs lack it and degrade gracefully.
-10. **Narrowed bounds panel** — reads `layout.meta.narrowed_param_bounds` from the scan figure
-11. **Pooled view** — `renderDashboard` (+ `renderPooledMeasurements`/`renderPooledUncertainty`, sharing the `dashCell`/`dashPanelDiv` helpers used by the Speed/Accuracy "vs Noise" panels): a `pooled` mode of the Scan Compare `#scan-view-mode` control (not a top-level tab — see §12), so it aggregates across ALL generators and noise levels regardless of the current generator/noise selection. Two sections, each rendered per-generator as line charts plus one pooled-across-everything panel: Measurement Savings (steps-to-convergence vs noise, k× savings vs noise vs the sweep baseline, and steps vs `f_span` pooled) and Uncertainty Quality (1σ calibration vs noise, final claimed uncertainty vs noise, and calibration vs `f_span` pooled). Rendered lazily when the Pooled button is clicked (`showScanViewPanels('pooled')`).
-12. **Tabs setup** — top-level tab bar (currently just "Scan measurements"; the old Dashboard tab was folded into the Pooled view mode described in §11 above)
-13. **Event listeners** — wires all control-change and click events
+8. **Aggregate views** — the `#scan-view-mode` control's modes besides *Run*, each reading per-repeat fields
+   for many repeats at once:
+   * **Locators** (`renderStepSizeTab`, `ss*` helpers) — every locator's measured metrics side by side, each
+     plain-sweep spacing k its own locator, with toggle chips to show or hide each one; nothing is ranked. Reads
+     `/api/run-rows` (per-repeat scalars: measurements, final error and claimed σ, focus-found step, contrast,
+     noise σ, grid axes) over the loaded family or the current selection; `/api/sweep-spacings` lists the sweep
+     spacings the current code studies, so older spacings left in the cache are hidden. Shows per locator the
+     median and p75 cost, the capped share, how often a dip was found, the search cost, and whether the claimed σ
+     is right (share of runs with |error| ≤ 1σ / 2σ, nominal 68% / 95%), plus cost, search cost and that 1σ share
+     against SNR = contrast / noise σ (optionally split by `sigma_inhom` or isotope). Runs stop once σ is below
+     the target, so the error at the end is not shown: only whether σ is honest.
+   * **Stages** (`renderStagesTab`, `renderHlStages`) — the search / focus / refine comparison
+     (`docs/locator_comparison.md`).
+   * **Accuracy** (`renderAccuracyTab`) — whether the stop is reliable: true error at the stop in units of τ,
+     claimed σ against the true error over measurements, and claimed σ against the true error.
+   * **Failed Runs** (`renderFailedRunsTab`).
+
+   Stages and Accuracy read `series`/`true_params`/stage fields from `/api/scan-fields` (`ensureScanFieldsFor`),
+   scoped to the current generator/noise selection.
+9. **Narrowed bounds panel** — reads `layout.meta.narrowed_param_bounds` from the scan figure
+10. **Tabs setup** — top-level tab bar (just "Scan measurements")
+11. **Event listeners** — wires all control-change and click events
 
 ## Data formats
 
