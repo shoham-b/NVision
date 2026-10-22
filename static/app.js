@@ -6150,6 +6150,12 @@ function main() {
         return s > 0 ? c / s : Infinity;
     }
 
+    // |z| = |reported estimate − truth| / claimed σ at the end of the run; null without a usable σ.
+    function ssAbsZ(row) {
+        const e = row.final_err_primary, u = row.uncert;
+        return e != null && u > 0 && isFinite(u) && isFinite(e) ? e / u : null;
+    }
+
     function ssQuantiles(values) {
         const sorted = hlSorted(values);
         return { n: sorted.length, med: hlQuantileSorted(sorted, 0.5), q75: hlQuantileSorted(sorted, 0.75) };
@@ -6186,7 +6192,7 @@ function main() {
         return ssSpacingsPromise;
     }
 
-    const SS_PANEL_IDS = ['ss-table', 'ss-cost-snr', 'ss-search-snr', 'ss-error-snr'];
+    const SS_PANEL_IDS = ['ss-table', 'ss-cost-snr', 'ss-search-snr', 'ss-sigma-snr'];
 
     function renderStepSizeTab() {
         ssSegmented(document.getElementById('ss-scope'), (v) => { ssScope = v; });
@@ -6266,7 +6272,6 @@ function main() {
 
         // Table: the measured metrics per shown locator.
         const fmtN = (v) => (v == null ? '–' : formatCount(Math.round(v)));
-        const fmtKHz = (v) => (v == null ? '–' : (v / 1e3).toFixed(v >= 1e5 ? 0 : 1));
         const th = (text, tip) => `<th title="${tip}">${text}</th>`;
         const body = shown.map((st) => {
             const runs = byS.get(st);
@@ -6274,9 +6279,8 @@ function main() {
             const capped = runs.filter(ssCapped).length;
             const found = runs.filter((r) => r.focus_found_step != null);
             const search = ssQuantiles(found.map((r) => r.focus_found_step));
-            const stopped = runs.filter(ended);
-            const err = ssQuantiles(stopped.map((r) => r.final_err_primary));
-            const sigma = ssQuantiles(stopped.map((r) => r.uncert));
+            const z = runs.filter(ended).map(ssAbsZ).filter((v) => v != null);
+            const within = (m) => (z.length ? `${Math.round(100 * z.filter((v) => v <= m).length / z.length)}%` : '–');
             return `<tr>
                 <td style="text-align:left;font-weight:600;" title="${escapeHtml(st)}"><span style="color:${colorOf(st)}">●</span> ${escapeHtml(ssLabel(st))}</td>
                 <td>${formatCount(runs.length)}</td>
@@ -6285,8 +6289,8 @@ function main() {
                 <td>${runs.length ? `${Math.round(100 * capped / runs.length)}%` : '–'}</td>
                 <td>${runs.length ? `${Math.round(100 * found.length / runs.length)}%` : '–'}</td>
                 <td>${fmtN(search.med)}</td>
-                <td>${fmtKHz(err.med)}</td>
-                <td>${fmtKHz(sigma.med)}</td>
+                <td>${within(1)}</td>
+                <td>${within(2)}</td>
             </tr>`;
         });
         const tableDiv = document.getElementById('ss-table');
@@ -6299,8 +6303,8 @@ function main() {
                 ${th('Capped', 'Share of runs that hit the measurement budget before the stop rule fired')}
                 ${th('Dip found', 'Share of runs whose data ever showed a dip')}
                 ${th('Search', 'Median measurements until a dip was seen')}
-                ${th('Error (kHz)', 'Median |reported estimate − truth| at the end, over runs the stop rule ended')}
-                ${th('Claimed σ (kHz)', 'Median claimed σ at the end, over runs the stop rule ended')}
+                ${th('|error| ≤ 1σ', 'Share of runs the stop rule ended whose real error is within the claimed σ; a correct σ gives 68%')}
+                ${th('|error| ≤ 2σ', 'Same within 2σ; a correct σ gives 95%')}
             </tr></thead><tbody>${body.join('')}</tbody></table>` : '';
         tableDiv.querySelectorAll('td, th').forEach((c) => { c.style.padding = '4px 12px'; });
 
@@ -6336,9 +6340,9 @@ function main() {
             : [...new Set(usable.map((r) => r[ssSplit]))].filter((v) => v != null).sort(axisValueCompare);
         const splitLabel = (v) => (ssSplit === 'grid_sigma_inhom' ? `σ_inhom ${(v / 1e6).toFixed(1)} MHz` : `isotope ${v}`);
 
-        // One panel per split value; each series is { key, valueOf, filter, dash } and gets one line per shown locator
-        // (median of valueOf over the runs at each SNR value).
-        const snrPanels = (containerId, series, yTitle) => {
+        // One panel per split value; each series is { key, valueOf, filter, dash, agg } and gets one line per shown
+        // locator (agg = 'median' (default) or 'mean' of valueOf over the runs at each SNR value).
+        const snrPanels = (containerId, series, yaxis, refLine = null) => {
             const container = document.getElementById(containerId);
             container.innerHTML = '';
             for (const sv of splitValues) {
@@ -6362,27 +6366,27 @@ function main() {
                         const name = series.length > 1 ? `${ssLabel(st)} ${s.key}` : ssLabel(st);
                         traces.push({
                             type: 'scatter', mode: 'lines+markers', name, legendgroup: name, showlegend: sv === splitValues[0],
-                            x: xs.map(snrX), y: xs.map((x) => hlMedian(bySnr.get(x))),
+                            x: xs.map(snrX), y: xs.map((x) => (s.agg === 'mean' ? bySnr.get(x).reduce((a, b) => a + b, 0) / bySnr.get(x).length : hlMedian(bySnr.get(x)))),
                             line: { color: colorOf(st), width: 2, dash: s.dash || 'solid' }, marker: { size: s.dash ? 4 : 6 },
                             customdata: xs.map((x) => bySnr.get(x).length),
-                            hovertemplate: `${name}<br>SNR %{x:.3g}<br>median %{y:.3g}<br>n = %{customdata}<extra></extra>`,
+                            hovertemplate: `${name}<br>SNR %{x:.3g}<br>${s.agg === 'mean' ? 'share' : 'median'} %{y:.3g}<br>n = %{customdata}<extra></extra>`,
                         });
                     }
                 }
                 Plotly.react(div, traces, {
                     title: sv == null ? undefined : { text: splitLabel(sv), font: { size: 12 } },
                     margin: { l: 60, r: 10, t: sv == null ? 10 : 30, b: 50 },
-                    xaxis, yaxis: { title: yTitle, type: 'log' },
+                    xaxis, yaxis,
+                    shapes: refLine == null ? [] : [{ type: 'line', xref: 'paper', x0: 0, x1: 1, y0: refLine, y1: refLine, line: { color: '#94a3b8', width: 1, dash: 'dash' } }],
                     legend: { orientation: 'h', y: -0.3 },
                 }, config);
             }
         };
-        snrPanels('ss-cost-snr', [{ key: 'cost', valueOf: (r) => r.measurements }], 'measurements per run');
-        snrPanels('ss-search-snr', [{ key: 'search', valueOf: (r) => r.focus_found_step }], 'measurements until a dip');
-        snrPanels('ss-error-snr', [
-            { key: 'error', valueOf: (r) => (r.final_err_primary == null ? null : r.final_err_primary / 1e3), filter: ended },
-            { key: 'claimed σ', valueOf: (r) => (r.uncert > 0 && isFinite(r.uncert) ? r.uncert / 1e3 : null), filter: ended, dash: 'dot' },
-        ], 'kHz');
+        snrPanels('ss-cost-snr', [{ key: 'cost', valueOf: (r) => r.measurements }], { title: 'measurements per run', type: 'log' });
+        snrPanels('ss-search-snr', [{ key: 'search', valueOf: (r) => r.focus_found_step }], { title: 'measurements until a dip', type: 'log' });
+        const withinOneSigma = (r) => { const z = ssAbsZ(r); return z == null ? null : (z <= 1 ? 1 : 0); };
+        snrPanels('ss-sigma-snr', [{ key: 'within 1σ', valueOf: withinOneSigma, filter: ended, agg: 'mean' }],
+            { title: 'share with |error| ≤ claimed σ', range: [0, 1] }, 0.6827);
     }
 
     // ── Stages tab ───────────────────────────────────────────────────────────
@@ -6423,46 +6427,24 @@ function main() {
         return byStrategy;
     }
 
-    // True error of the primary parameter after a stage's last measurement. Runs made since stages.py records it
-    // exactly (stage{n}_err_end); for older results it is read from the run's stored per-step error series at the
-    // stage's last step (the series is downsampled, so this is approximate). null when the stage was not reached.
-    function hlStageErrEnd(p, n) {
-        const exact = _mv(p, `stage${n}_err_end`);
-        if (exact != null) return exact;
-        const steps = _mv(p, `stage${n}_steps`);
-        if (!(steps > 0) || !p.series || !p.series.e || !p.series.s.length) return null;
-        const last = p.series.s[p.series.s.length - 1];
-        const focus = _mv(p, 'focus_found_step'), refine = _mv(p, 'max_info_step');
-        const end = n === 1 ? (focus ?? last) : n === 2 ? (refine != null ? refine - 1 : last) : last;
-        return hlSeriesValueAt(p.series, 'e', end);
-    }
-
-    // Polars' default quantile interpolation ("nearest"), so the p90 matches `nv compare` exactly.
-    function hlQuantileNearest(sorted, q) {
-        return sorted.length ? sorted[Math.round((sorted.length - 1) * q)] : null;
-    }
-
     // One strategy's row of the `nv compare` tables (nvision/metrics/compare.py compare_locators).
     function hlCompareRow(strat, runs) {
         const vals = (key) => runs.map(p => _mv(p, key));
         const med = (key) => hlMedian(vals(key));
         const share = (key) => runs.length ? vals(key).filter(v => v != null).length / runs.length : null;
-        const errs = hlSorted(vals('final_err_primary'));
+        // Does the claimed σ cover the real error? Share of runs with |error| <= 1σ / 2σ (Gaussian: 68% / 95%).
         const paired = runs.map(p => [_mv(p, 'final_err_primary'), _mv(p, 'uncert')])
-            .filter(([e, u]) => e != null && u != null && isFinite(e) && isFinite(u));
+            .filter(([e, u]) => e != null && u != null && isFinite(e) && isFinite(u) && u > 0);
+        const cover = (m) => (paired.length ? paired.filter(([e, u]) => e <= m * u).length / paired.length : null);
         const row = {
             strat, runs: runs.length,
             measurements: med('measurements'),
-            errMedian: hlQuantileSorted(errs, 0.5),
-            errP90: hlQuantileNearest(errs, 0.9),
-            uncMedian: med('uncert'),
-            cover2: paired.length ? paired.filter(([e, u]) => e <= 2 * u).length / paired.length : null,
+            cover1: cover(1), cover2: cover(2),
             focusFound: share('focus_found_step'), focusStep: med('focus_found_step'),
             maxInfo: share('max_info_step'), maxInfoStep: med('max_info_step'),
-            stageSteps: {}, stageRatio: {}, stageErr: {},
+            stageSteps: {}, stageRatio: {},
         };
         for (const st of HL_STAGES) {
-            row.stageErr[st.n] = hlMedian(runs.map(p => hlStageErrEnd(p, st.n)));
             row.stageSteps[st.n] = med(`stage${st.n}_steps`);
             row.stageRatio[st.n] = med(`stage${st.n}_unc_ratio`);
         }
@@ -6481,7 +6463,7 @@ function main() {
             const runs = byStrategy.get(strat);
             const x = [], y = [], up = [], down = [], text = [];
             for (const st of HL_STAGES) {
-                const vals = hlSorted(runs.map(p => (field === 'err_end' ? hlStageErrEnd(p, st.n) : _mv(p, `stage${st.n}_${field}`))));
+                const vals = hlSorted(runs.map(p => _mv(p, `stage${st.n}_${field}`)));
                 if (!vals.length) continue;
                 const med = hlQuantileSorted(vals, 0.5);
                 x.push(st.label);
@@ -6516,16 +6498,14 @@ function main() {
             const runs = byStrategy.get(strat);
             const steps = runs.map(p => _mv(p, `stage${n}_steps`));
             const sens = runs.map(p => _mv(p, `stage${n}_sens_eff`));
-            const errs = runs.map(p => hlStageErrEnd(p, n));
             return {
                 strat, reached: steps.filter(v => v != null).length, total: runs.length,
-                stepsMed: hlMedian(steps), sensMed: hlMedian(sens), errMed: hlMedian(errs),
+                stepsMed: hlMedian(steps), sensMed: hlMedian(sens),
                 stepsHtml: iqr(steps), sensHtml: iqr(sens),
-                errHtml: iqr(errs.map(v => (v == null ? null : v / 1e3))),
             };
         });
         const best = (key) => Math.min(...rows.map(r => r[key]).filter(v => v != null));
-        const bestSteps = best('stepsMed'), bestErr = best('errMed');
+        const bestSteps = best('stepsMed');
         const bestSens = Math.max(...rows.map(r => r.sensMed).filter(v => v != null));
         rows.sort((a, b) => (a.stepsMed ?? Infinity) - (b.stepsMed ?? Infinity));
         const td = (v, bold) => `<td style="padding:2px 8px;text-align:right;${bold ? 'font-weight:700;color:#047857' : ''}">${v}</td>`;
@@ -6533,14 +6513,13 @@ function main() {
         box.innerHTML =
             '<h4 style="margin:0.8em 0 0.2em;font-size:0.85em;color:#475569;">Compare locators within one stage ' +
             `<select id="hl-stage-compare-pick" class="control-select">${opts}</select>` +
-            '<span tabindex="0" class="help-icon-visible" title="Only runs that reached this stage count. Cells show median (interquartile range). Error at stage end = true |estimate - truth| of the primary parameter after the last measurement of the stage (lower = more accurate by then). Sensitivity = how close the stage measured to the steepest point of the dip (1 = at it, 0 = on the flat baseline or dip centre; simulation ground truth). Best values in green (lowest steps and error, highest sensitivity); rows sorted by measurements spent.">?</span></h4>' +
+            '<span tabindex="0" class="help-icon-visible" title="Only runs that reached this stage count. Cells show median (interquartile range). Sensitivity = how close the stage measured to the steepest point of the dip (1 = at it, 0 = on the flat baseline or dip centre; simulation ground truth). Best values in green (lowest steps, highest sensitivity); rows sorted by measurements spent.">?</span></h4>' +
             '<table class="metric-table" style="border-collapse:collapse;font-size:0.85em;"><thead><tr>' +
             '<th style="text-align:left;padding:2px 12px 2px 0">Strategy</th>' +
-            ['Reached', 'Speed: measurements', 'Accuracy: error at stage end (kHz)', 'Sensitivity (1 = steepest point)']
+            ['Reached', 'Measurements', 'Sensitivity (1 = steepest point)']
                 .map(h => `<th style="padding:2px 8px;text-align:right">${h}</th>`).join('') +
             `</tr></thead><tbody>${rows.map(r => `<tr><td style="padding:2px 12px 2px 0">${_shortStratLabel(r.strat)}</td>` +
                 td(`${r.reached}/${r.total}`) + td(r.stepsHtml, r.stepsMed != null && r.stepsMed === bestSteps) +
-                td(r.errHtml, r.errMed != null && r.errMed === bestErr) +
                 td(r.sensHtml, r.sensMed != null && r.sensMed === bestSens) + '</tr>').join('')}</tbody></table>`;
         document.getElementById('hl-stage-compare-pick').addEventListener('change', (e) => {
             hlCmpStage = Number(e.target.value);
@@ -6678,15 +6657,15 @@ function main() {
             `<tbody>${rows.map(r => `<tr><td style="padding:2px 12px 2px 0">${_shortStratLabel(r.strat)}</td>${cell(r).map(td).join('')}</tr>`).join('')}</tbody></table>`;
         const f = HL_CMP_FMT;
         tableDiv.innerHTML =
-            section('Accuracy (final primary-parameter error vs reported uncertainty)',
-                ['Runs', 'Measurements', 'Error median', 'Error p90', 'Uncertainty median', 'Error ≤ 2σ'],
-                r => [r.runs, f.count(r.measurements), f.khz(r.errMedian), f.khz(r.errP90), f.khz(r.uncMedian), f.pct(r.cover2)]) +
+            section('Is the claimed σ right? (share of runs whose real error is within it; a correct σ gives 68% / 95%)',
+                ['Runs', 'Measurements', '|error| ≤ 1σ', '|error| ≤ 2σ'],
+                r => [r.runs, f.count(r.measurements), f.pct(r.cover1), f.pct(r.cover2)]) +
             section('Stage boundaries (share of runs that reached them, median step)',
                 ['Focus found', 'Median step', 'Max information', 'Median step'],
                 r => [f.pct(r.focusFound), f.count(r.focusStep), f.pct(r.maxInfo), f.count(r.maxInfoStep)]) +
-            section('Per stage (reached runs only): speed = median measurements; accuracy = median true error at stage end',
-                HL_STAGES.flatMap(st => [`${st.label} steps`, `${st.label} error`]),
-                r => HL_STAGES.flatMap(st => [f.count(r.stageSteps[st.n]), f.khz(r.stageErr[st.n])]));
+            section('Per stage (reached runs only): median measurements',
+                HL_STAGES.map(st => `${st.label} steps`),
+                r => HL_STAGES.map(st => f.count(r.stageSteps[st.n])));
 
         renderHlStageCompare(byStrategy, strategies);
 
@@ -6700,14 +6679,6 @@ function main() {
         setupStagesFromControl();
         renderHlStageCurves();
 
-        const errDiv = document.getElementById('hl-stages-err');
-        if (errDiv) {
-            const errLayout = hlBaseLayout();
-            errLayout.barmode = 'group';
-            errLayout.yaxis = { ...errLayout.yaxis, type: 'log', title: { text: 'True error at stage end, Hz (median)', font: { size: 11 } } };
-            Plotly.react(errDiv, hlStageBarTraces(byStrategy, strategies, 'err_end', 'Hz'), errLayout,
-                { displayModeBar: false, responsive: true });
-        }
         renderHlRefineCurves(byStrategy, strategies);
     }
 

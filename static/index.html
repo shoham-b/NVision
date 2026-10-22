@@ -207,8 +207,8 @@
             <div id="ss-search-snr" style="display:flex; flex-wrap:wrap; gap:0.5em;"></div>
         </div>
         <div style="background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px; margin-bottom:1em;">
-            <h3 style="margin-left:10px;">Error at stop vs SNR <span tabindex="0" class="help-icon-visible" title="Median |reported estimate − truth| (solid) and median claimed σ (dotted) at the end of the run, in kHz, against SNR. Sweep runs from before the sweep-fit fix report a wrong estimate.">?</span></h3>
-            <div id="ss-error-snr" style="display:flex; flex-wrap:wrap; gap:0.5em;"></div>
+            <h3 style="margin-left:10px;">Is the claimed σ right? <span tabindex="0" class="help-icon-visible" title="Share of runs (ended by the stop rule) whose real error is within the claimed σ, against SNR. Runs stop once σ is below the target, so the error itself says little; what matters is that σ is honest: a correct σ gives 68% (dashed). Below = overconfident. Sweep runs from before the sweep-fit fix report a wrong estimate.">?</span></h3>
+            <div id="ss-sigma-snr" style="display:flex; flex-wrap:wrap; gap:0.5em;"></div>
         </div>
     </div>
 
@@ -240,10 +240,6 @@
             <div style="flex:1 1 46%; min-width:420px; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px;">
                 <h3 style="margin-left:10px;">Measurements spent in each stage <span tabindex="0" class="help-icon-visible" title="Median measurements per stage over the repeats that reached it; whiskers are the interquartile range.">?</span></h3>
                 <div id="hl-stages-steps" style="height:360px; width:100%;"></div>
-            </div>
-            <div style="flex:1 1 46%; min-width:420px; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px;">
-                <h3 style="margin-left:10px;">Accuracy at the end of each stage <span tabindex="0" class="help-icon-visible" title="Median true error |estimate - truth| of the primary parameter after the stage's last measurement, over the repeats that reached it; whiskers are the interquartile range.">?</span></h3>
-                <div id="hl-stages-err" style="height:360px; width:100%;"></div>
             </div>
         </div>
         <div style="display:flex; flex-wrap:wrap; gap:1.5em; margin-top:1em;">

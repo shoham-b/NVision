@@ -125,9 +125,10 @@ Key sections inside `main()` (in order of appearance):
      `/api/run-rows` (per-repeat scalars: measurements, final error and claimed σ, focus-found step, contrast,
      noise σ, grid axes) over the loaded family or the current selection; `/api/sweep-spacings` lists the sweep
      spacings the current code studies, so older spacings left in the cache are hidden. Shows per locator the
-     median and p75 cost, the capped share, how often a dip was found, the search cost and the error and claimed σ
-     at the end, plus cost, search cost and error against SNR = contrast / noise σ (optionally split by
-     `sigma_inhom` or isotope).
+     median and p75 cost, the capped share, how often a dip was found, the search cost, and whether the claimed σ
+     is right (share of runs with |error| ≤ 1σ / 2σ, nominal 68% / 95%), plus cost, search cost and that 1σ share
+     against SNR = contrast / noise σ (optionally split by `sigma_inhom` or isotope). Runs stop once σ is below
+     the target, so the error at the end is not shown: only whether σ is honest.
    * **Stages** (`renderStagesTab`, `renderHlStages`) — the search / focus / refine comparison
      (`docs/locator_comparison.md`).
    * **Accuracy** (`renderAccuracyTab`) — whether the stop is reliable: true error at the stop in units of τ,
