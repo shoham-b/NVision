@@ -721,3 +721,44 @@ def test_sweep_fit_fixed_center_half_window_finds_zeeman_shift(true_zeeman_shift
         f"fitted zeeman_shift {fit['zeeman_shift'] / 1e6:.2f} MHz, truth {true_zeeman_shift / 1e6:.2f} MHz "
         f"(bounds midpoint is 30 MHz)"
     )
+
+
+def _fixed_center_voigt_locator(true_zeeman_shift: float | None, noise_std: float = 0.001):
+    """Fixed-centre half-window Voigt locator with sweep data injected (``None`` = no dip, noise only)."""
+    from nvision.spectra.nv_center import NVCenterVoigtModel, NVCenterVoigtZeemanSpectrum
+
+    domain_lo, domain_hi = 2.87e9, 3.02e9
+    model = NVCenterVoigtModel(hyperfine="unresolved", with_zeeman_splitting=True)
+    bounds = {
+        "hwhm_lorentz": (2.0e5, 7.5e6),
+        "sigma_inhom": (0.0, 3.0e6),
+        "zeeman_shift": (0.0, 60.0e6),
+        "contrast_total": (0.1, 0.4),
+    }
+    locator = _build_locator_for(model, bounds, domain_lo, domain_hi, n_steps=300, noise_std=noise_std)
+    # A dip placed off the sweep's far end contributes nothing, i.e. the data is a flat baseline plus noise.
+    zeeman_shift = 1.0e12 if true_zeeman_shift is None else true_zeeman_shift
+    true_params = NVCenterVoigtZeemanSpectrum(
+        zero_field_freq=domain_lo, hwhm_lorentz=0.5e6, sigma_inhom=0.3e6, zeeman_shift=zeeman_shift, contrast_total=0.2
+    )
+    _inject_sweep_data_for(locator, model, true_params, noise_std=noise_std, seed=3)
+    return locator
+
+
+def test_sweep_fit_raises_when_data_has_no_dip():
+    """Pure noise: the fit can only chase noise, so finalize() must raise rather than report a fit."""
+    locator = _fixed_center_voigt_locator(None)
+    with pytest.raises(RuntimeError, match="no better than a flat baseline"):
+        locator.finalize()
+
+
+def test_sweep_fit_raises_when_fit_is_stuck_at_a_bad_start(monkeypatch):
+    """Re-create the bounds-midpoint start (no ``zeeman_shift`` seed): the stalled fit must raise, not report ~30 MHz."""
+    monkeypatch.setattr(
+        GenericSweepLocator,
+        "_anchor_zeeman_seeds_to_fixed_center",
+        staticmethod(lambda seeds, *_args: seeds),
+    )
+    locator = _fixed_center_voigt_locator(18.15e6)
+    with pytest.raises(RuntimeError, match="no better than a flat baseline"):
+        locator.finalize()
