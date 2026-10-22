@@ -6106,6 +6106,9 @@ function main() {
     let ssScope = 'family';
     const ssHidden = new Set();   // locators the user switched off (new locators are shown by default)
     let ssSplit = 'none';     // row field the SNR charts are split by: 'none' | 'grid_sigma_inhom' | 'grid_hyperfine'
+    let ssSigmaK = 1;         // the σ chart counts runs with |error| <= ssSigmaK × claimed σ
+    // Share of a Gaussian within k standard deviations: what a correct claimed σ gives at k = 1, 2, 3.
+    const SS_GAUSS_WITHIN = { 1: 0.6827, 2: 0.9545, 3: 0.9973 };
 
     function ssSpacing(strategy) {
         const m = /^SimpleSweep-(\d+)perFWHM$/.exec(strategy || '');
@@ -6197,6 +6200,7 @@ function main() {
     function renderStepSizeTab() {
         ssSegmented(document.getElementById('ss-scope'), (v) => { ssScope = v; });
         ssSegmented(document.getElementById('ss-split'), (v) => { ssSplit = v; });
+        ssSegmented(document.getElementById('ss-sigma-k'), (v) => { ssSigmaK = Number(v); });
         const notice = document.getElementById('ss-notice');
         const clear = () => SS_PANEL_IDS.forEach((id) => {
             const el = document.getElementById(id);
@@ -6384,9 +6388,10 @@ function main() {
         };
         snrPanels('ss-cost-snr', [{ key: 'cost', valueOf: (r) => r.measurements }], { title: 'measurements per run', type: 'log' });
         snrPanels('ss-search-snr', [{ key: 'search', valueOf: (r) => r.focus_found_step }], { title: 'measurements until a dip', type: 'log' });
-        const withinOneSigma = (r) => { const z = ssAbsZ(r); return z == null ? null : (z <= 1 ? 1 : 0); };
-        snrPanels('ss-sigma-snr', [{ key: 'within 1σ', valueOf: withinOneSigma, filter: ended, agg: 'mean' }],
-            { title: 'share with |error| ≤ claimed σ', range: [0, 1] }, 0.6827);
+        const kSigma = ssSigmaK === 1 ? 'σ' : `${ssSigmaK}σ`;
+        const withinKSigma = (r) => { const z = ssAbsZ(r); return z == null ? null : (z <= ssSigmaK ? 1 : 0); };
+        snrPanels('ss-sigma-snr', [{ key: `within ${kSigma}`, valueOf: withinKSigma, filter: ended, agg: 'mean' }],
+            { title: `share with |error| ≤ ${kSigma} claimed`, range: [0, 1] }, SS_GAUSS_WITHIN[ssSigmaK]);
     }
 
     // ── Stages tab ───────────────────────────────────────────────────────────

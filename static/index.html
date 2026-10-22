@@ -207,7 +207,14 @@
             <div id="ss-search-snr" style="display:flex; flex-wrap:wrap; gap:0.5em;"></div>
         </div>
         <div style="background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px; margin-bottom:1em;">
-            <h3 style="margin-left:10px;">Is the claimed σ right? <span tabindex="0" class="help-icon-visible" title="Share of runs (ended by the stop rule) whose real error is within the claimed σ, against SNR. Runs stop once σ is below the target, so the error itself says little; what matters is that σ is honest: a correct σ gives 68% (dashed). Below = overconfident. Sweep runs from before the sweep-fit fix report a wrong estimate.">?</span></h3>
+            <div style="display:flex; flex-wrap:wrap; align-items:center; gap:0.5em 1em;">
+                <h3 style="margin-left:10px;">Is the claimed σ right? <span tabindex="0" class="help-icon-visible" title="Share of runs (ended by the stop rule) whose real error is within 1, 2 or 3 claimed σ, against SNR. Runs stop once σ is below the target, so the error itself says little; what matters is that σ is honest: a correct σ gives 68% / 95% / 99.7% (dashed). Below = overconfident. Sweep runs from before the sweep-fit fix report a wrong estimate.">?</span></h3>
+                <div class="segmented-control" id="ss-sigma-k" role="radiogroup" aria-label="Within how many claimed σ">
+                    <button type="button" role="radio" aria-checked="true" data-value="1" class="is-active" tabindex="0">1σ</button>
+                    <button type="button" role="radio" aria-checked="false" data-value="2" tabindex="-1">2σ</button>
+                    <button type="button" role="radio" aria-checked="false" data-value="3" tabindex="-1">3σ</button>
+                </div>
+            </div>
             <div id="ss-sigma-snr" style="display:flex; flex-wrap:wrap; gap:0.5em;"></div>
         </div>
     </div>
