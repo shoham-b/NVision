@@ -62,6 +62,13 @@ _FIT_ZEEMAN_STARTS: int = int(os.getenv("NVISION_SWEEP_FIT_ZEEMAN_STARTS", "4"))
 # landing in wrong basins and the grid is needed.
 _FIT_GRID_SNR: float = float(os.getenv("NVISION_SWEEP_FIT_GRID_SNR", "6.0"))
 
+# Minimum chi-square gain of the winning fit over the best flat baseline (a constant at the data's mean), in
+# units of the measurement noise. curve_fit can "converge" on a plateau where the model does not touch the
+# dip (a start far from it): such a fit is no better than a flat line, and reporting its parameters would pass
+# the start point off as an estimate. A dip the stop rule accepted gains far more than this (the boxcar scan
+# fires at z > ~4.6, i.e. a gain above ~20), while fitting noise alone gains about the parameter count.
+_FIT_MIN_CHI2_GAIN: float = float(os.getenv("NVISION_SWEEP_FIT_MIN_CHI2_GAIN", "9.0"))
+
 # Experimental: evaluate curve_fn via the model's vectorized float32 Numba kernel
 # instead of a per-point Python loop in float64. Off by default -- needs an A/B
 # against the float64 path (see NVISION_SWEEP_FIT_FLOAT32_DIFF_STEP below for why
@@ -514,6 +521,8 @@ class GenericSweepLocator(ConvergenceStopRules, SweepingLocator):
             data_noise_std=max(float(self._noise_std), 1e-12),
         )
 
+        self._require_fit_beats_flat_baseline(curve_fn(xs_fit, *best_popt)[:n_pts], ys, best_popt, param_names)
+
         zero_field_freq_phys = float(best_popt[center_idx]) if center_idx is not None else fixed_center_value
         if not (domain_lo <= zero_field_freq_phys <= domain_hi):
             raise RuntimeError(
@@ -541,6 +550,27 @@ class GenericSweepLocator(ConvergenceStopRules, SweepingLocator):
             else 0.0
         )
         return zero_field_freq_phys, uncert_phys
+
+    def _require_fit_beats_flat_baseline(
+        self, model_ys: np.ndarray, ys: np.ndarray, popt: np.ndarray, param_names: list[str]
+    ) -> None:
+        """Raise if the winning fit explains the data no better than a constant.
+
+        ``model_ys`` is the fitted model at the sweep's points and ``ys`` the measured signal (both
+        shape ``(n_pts,)``, signal units); the chi-square gain over a flat line at ``mean(ys)`` is measured in
+        units of the measurement noise. A fit that did not reach the dip leaves the gain near zero, and
+        reporting it would present its start point as the estimate.
+        """
+        noise = max(float(self._noise_std), 1e-12)
+        chi2_fit = float(np.sum(((model_ys - ys) / noise) ** 2))
+        chi2_flat = float(np.sum(((ys - float(np.mean(ys))) / noise) ** 2))
+        if chi2_flat - chi2_fit < _FIT_MIN_CHI2_GAIN:
+            fitted = dict(zip(param_names, (float(v) for v in popt), strict=True))
+            raise RuntimeError(
+                f"sweep fit is no better than a flat baseline (chi2 gain {chi2_flat - chi2_fit:.1f} < "
+                f"{_FIT_MIN_CHI2_GAIN:g}; chi2 fit {chi2_fit:.1f}, flat {chi2_flat:.1f}): the fit did not reach a "
+                f"dip, so its parameters {fitted} are not an estimate."
+            )
 
     def _resolve_physical_bounds(self, param_names: list[str]) -> dict[str, tuple[float, float]]:
         """Resolve physical parameter bounds for the fit.
