@@ -18,10 +18,12 @@ if (!window.NVISION_ASSET_PREFIX) {
 // pickers), so there is exactly one implementation instead of two independent
 // name-regex parsers that had to be manually kept in sync (see git history --
 // that used to be a real drift hazard, not a hypothetical one).
-window.NVISION_GRID_AXIS_ORDER = ['drive_mode', 'width', 'contrast', 'saturation', 'sigma_inhom', 'hyperfine'];
+window.NVISION_GRID_AXIS_ORDER = ['drive_mode', 'window', 'width', 'contrast', 'saturation', 'sigma_inhom', 'hyperfine'];
 window.NVISION_GRID_AXIS_INFO = {
     // Derived from grid_variant ("cw_drive"/"pulsed_drive"), not a recorded grid_* field.
     drive_mode: { label: 'Drive', short: 'drive', metricsKey: 'grid_drive_mode', scaleToMHz: false },
+    // Drive-frequency window as a multiple of the signal's total FWHM (the SNR x window study grid).
+    window: { label: 'Window (FWHM)', short: 'window', metricsKey: 'grid_window_fwhm', scaleToMHz: false },
     width: { label: 'HWHM (MHz)', short: 'hwhm', metricsKey: 'grid_hwhm', scaleToMHz: true },
     contrast: { label: 'Contrast', short: 'contrast', metricsKey: 'grid_contrast_total', scaleToMHz: false },
     saturation: { label: 'Saturation', short: 'saturation', metricsKey: 'grid_saturation', scaleToMHz: false },

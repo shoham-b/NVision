@@ -103,7 +103,7 @@ uv run nv groups drive-control --repeats 5
 ```
 
 The `drive-control` run group compares `Bayesian-SBED` (fixed baseline drive) with
-`Bayesian-SBED-Drive` on both generators over the SBED noise grid. In the results UI the measurement
+`Bayesian-SBED-Drive` on both generators over the SNR grid (nominal: the contrast of a drive-controlled signal comes from the drive). In the results UI the measurement
 points of a drive-choosing run are coloured by **drive amplitude**, so the high-then-low pattern is
 visible. The dense true-signal and belief curves are drawn at the baseline drive.
 

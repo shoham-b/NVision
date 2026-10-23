@@ -207,7 +207,7 @@ def test_target_params_converged_lorentzian_path_unchanged():
 def test_parse_gauss_sigma_roundtrips_preset_names():
     from nvision.sim import presets
 
-    for name, _ in presets.sbed_study_noises():
+    for name, _ in presets.snr_study_noises():
         sigma = parse_gauss_sigma(name)
         assert sigma is not None
         assert name == f"Gauss({sigma})"

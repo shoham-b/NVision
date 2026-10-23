@@ -291,6 +291,71 @@ def voigt_sigma_inhom_param_grid_generators() -> list[tuple[str, object]]:
     return generators
 
 
+def _fmt_window(window_fwhm: float) -> str:
+    return f"fw{window_fwhm:g}"
+
+
+def voigt_snr_window_param_grid_generators() -> list[tuple[str, object]]:
+    """Window-in-FWHM x sigma_inhom x hyperfine grid of named plain-Voigt generators (the SNR study's signals).
+
+    The grid is posed in the dimensionless numbers that decide how hard the search is, rather than in Hz:
+
+    * **Window / FWHM** (``fw<N>`` in the name): the drive-frequency window is ``N`` times the signal's total FWHM.
+      The linewidth itself is held fixed (``NVISION_SBED_FIXED_HWHM`` plus the ``sigma_inhom`` axis), so it is the
+      window that is stretched. That keeps everything with a physical scale (hyperfine offsets, the absolute
+      convergence thresholds, the candidate step) meaningful across the axis, which sweeping the width in Hz
+      against a fixed window did not. The window is ``[D, D + N * fwhm_total]``, and the Zeeman range follows it
+      (:func:`~nvision.spectra.nv_center.max_zeeman_shift_for_window`).
+    * **SNR** is not a generator axis: every generator carries the same ``contrast_total``
+      (``NVISION_SBED_SNR_CONTRAST``), and :func:`snr_study_noises` sets the noise to ``contrast_total / SNR``.
+
+    ``sigma_inhom`` and ``hyperfine`` are the same axes as in :func:`voigt_sigma_inhom_param_grid_generators`.
+    """
+    import numpy as np
+
+    from nvision.sim.defaults import (
+        NVISION_SBED_FIXED_HWHM,
+        NVISION_SBED_HYPERFINE_VALUES,
+        NVISION_SBED_SIGMA_INHOM_MAX,
+        NVISION_SBED_SIGMA_INHOM_MIN,
+        NVISION_SBED_SIGMA_INHOM_STEPS,
+        NVISION_SBED_SNR_CONTRAST,
+        NVISION_SBED_WINDOW_FWHM_VALUES,
+    )
+    from nvision.spectra.nv_center import NV_ZERO_FIELD_SPLITTING_HZ, _voigt_reparam_scalar
+
+    sigma_inhoms = np.linspace(
+        NVISION_SBED_SIGMA_INHOM_MIN, NVISION_SBED_SIGMA_INHOM_MAX, NVISION_SBED_SIGMA_INHOM_STEPS
+    )
+
+    generators: list[tuple[str, object]] = []
+    for window_fwhm in NVISION_SBED_WINDOW_FWHM_VALUES:
+        for sigma_inhom in sigma_inhoms:
+            sigma_inhom = float(sigma_inhom)
+            fwhm_total, _ = _voigt_reparam_scalar(NVISION_SBED_FIXED_HWHM, sigma_inhom)
+            for hyperfine in NVISION_SBED_HYPERFINE_VALUES:
+                name = (
+                    f"NVCenter-voigt-{_fmt_window(window_fwhm)}-"
+                    f"{_fmt_sigma_inhom(sigma_inhom)}-{_fmt_hyperfine(hyperfine)}"
+                )
+                generators.append(
+                    (
+                        name,
+                        NVCenterCoreGenerator(
+                            drive_freq_min_phys=NV_ZERO_FIELD_SPLITTING_HZ,
+                            drive_freq_max_phys=NV_ZERO_FIELD_SPLITTING_HZ + window_fwhm * fwhm_total,
+                            variant="voigt",
+                            hwhm=NVISION_SBED_FIXED_HWHM,
+                            contrast_total=NVISION_SBED_SNR_CONTRAST,
+                            sigma_inhom=sigma_inhom,
+                            hyperfine=hyperfine,
+                            window_fwhm=window_fwhm,
+                        ),
+                    )
+                )
+    return generators
+
+
 def saturation_voigt_param_grid_generators() -> list[tuple[str, object]]:
     """Full contrast x sigma_inhom grid of named saturation-Voigt generators.
 
@@ -393,28 +458,21 @@ def noises_single_each() -> list[tuple[str, CompositeNoise | None]]:
     return noises
 
 
-def sbed_study_noises() -> list[tuple[str, CompositeNoise | None]]:
-    """Noise grid for the SBED run-groups — swept like width/contrast via its own
-    dedicated (smaller) range, independent of the generic NVISION_NOISE_* config
-    used by plain ``nvision run``."""
-    import numpy as np
+def snr_study_noises() -> list[tuple[str, CompositeNoise | None]]:
+    """Noise grid of the SNR x window study: ``Gauss(NVISION_SBED_SNR_CONTRAST / SNR)`` per SNR level.
 
-    from nvision.sim.defaults import (
-        NVISION_SBED_NOISE_MAX,
-        NVISION_SBED_NOISE_MIN,
-        NVISION_SBED_NOISE_STEPS,
-    )
-
-    if NVISION_SBED_NOISE_STEPS > 1:
-        sigmas = np.linspace(NVISION_SBED_NOISE_MIN, NVISION_SBED_NOISE_MAX, NVISION_SBED_NOISE_STEPS)
-    elif NVISION_SBED_NOISE_STEPS == 1:
-        sigmas = [NVISION_SBED_NOISE_MAX]
-    else:
-        sigmas = []
+    SNR = ``contrast_total`` / per-shot Gaussian sigma, with the contrast shared by every generator of
+    :func:`voigt_snr_window_param_grid_generators`. The sigma is not rounded below micro-units, so the SNR read
+    back from the noise name (``contrast_total / noise_sigma``) is the grid value. The ``drive-control`` group uses
+    the same levels, where the SNR is nominal: the contrast of a drive-controlled signal comes from the drive.
+    """
+    from nvision.sim.defaults import NVISION_SBED_SNR_CONTRAST, NVISION_SBED_SNR_VALUES
 
     noises = []
-    for sigma in sigmas:
-        sigma_val = float(round(sigma, 4))
+    for snr in NVISION_SBED_SNR_VALUES:
+        if snr <= 0:
+            raise ValueError(f"SNR levels must be positive, got {snr}")
+        sigma_val = float(round(NVISION_SBED_SNR_CONTRAST / snr, 6))
         noises.append(
             (
                 f"Gauss({sigma_val})",
@@ -423,7 +481,6 @@ def sbed_study_noises() -> list[tuple[str, CompositeNoise | None]]:
                 ),
             )
         )
-
     return noises
 
 
@@ -533,10 +590,12 @@ def drift_noise_name(sigma: float, label: str) -> str:
 
 
 def drift_study_noises() -> list[tuple[str, CompositeNoise | None]]:
-    """A no-drift control plus every drift scenario, all at NVISION_DRIFT_GAUSS_SIGMA."""
-    from nvision.sim.defaults import NVISION_DRIFT_GAUSS_SIGMA
+    """A no-drift control plus every drift scenario, all at one SNR (NVISION_DRIFT_SNR against the study contrast)."""
+    from nvision.sim.defaults import NVISION_DRIFT_SNR, NVISION_SBED_SNR_CONTRAST
 
-    sigma = float(round(NVISION_DRIFT_GAUSS_SIGMA, 4))
+    if NVISION_DRIFT_SNR <= 0:
+        raise ValueError(f"NVISION_DRIFT_SNR must be positive, got {NVISION_DRIFT_SNR}")
+    sigma = float(round(NVISION_SBED_SNR_CONTRAST / NVISION_DRIFT_SNR, 6))
     noises: list[tuple[str, CompositeNoise | None]] = [(f"Gauss({sigma})", gauss_with_drift(sigma, None))]
     for spec in drift_scenarios():
         noises.append((drift_noise_name(sigma, spec.label), gauss_with_drift(sigma, spec)))

@@ -212,7 +212,7 @@ def generate_attempt_metrics(
     # per repeat). Gives summary plots numeric axes instead of opaque generator names, and
     # lets the UI build its width/contrast/sigma_inhom/... facet selectors from these
     # structured values instead of parsing them back out of the generator name string.
-    for grid_field in ("saturation", "sigma_inhom", "hwhm", "contrast_total", "hyperfine"):
+    for grid_field in ("saturation", "sigma_inhom", "hwhm", "contrast_total", "hyperfine", "window_fwhm"):
         val = getattr(generator_obj, grid_field, None)
         metrics_serialized[f"grid_{grid_field}"] = (
             _maybe_finite(val) if val is not None and not isinstance(val, str) else val
@@ -225,6 +225,13 @@ def generate_attempt_metrics(
     from nvision.sim.combinations import parse_gauss_sigma
 
     metrics_serialized["noise_sigma"] = parse_gauss_sigma(noise_name)
+    # SNR = contrast_total / noise sigma, the axis the SNR x window study is posed in (the UI's SNR charts use
+    # the same quotient). None without a fixed contrast, a Gauss noise, or with a noiseless (sigma 0) run.
+    grid_contrast = metrics_serialized["grid_contrast_total"]
+    noise_sigma = metrics_serialized["noise_sigma"]
+    metrics_serialized["snr"] = (
+        float(grid_contrast) / noise_sigma if grid_contrast is not None and noise_sigma else None
+    )
 
     # Ground-truth signal parameters for this repeat. zero_field_freq/zeeman_shift vary per
     # repeat (fixed params equal their grid_ columns) — recording them lets analysis

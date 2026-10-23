@@ -141,6 +141,7 @@ class CombinationGrid:
         # strategies_for() has no generator object to read the real hyperfine value
         # off of for this grid and has to fall back to parsing it out of the name.
         self._resolve_generators.update(dict(sim_presets.voigt_sigma_inhom_param_grid_generators()))
+        self._resolve_generators.update(dict(sim_presets.voigt_snr_window_param_grid_generators()))
         self._resolve_generators.update(dict(sim_presets.drive_controlled_generators()))
         if extra_generators:
             self._resolve_generators.update(extra_generators)
@@ -174,6 +175,15 @@ class CombinationGrid:
             nv_smc_config["lineshape"] = drive_lineshape
         elif generator_name.startswith("NVCenter-saturation_voigt"):
             nv_smc_config["lineshape"] = "saturation_voigt"
+        elif generator_name.startswith("NVCenter-voigt-fw"):
+            # voigt_snr_window_param_grid_generators(): a fixed-isotope Voigt signal whose window is N FWHM.
+            # The belief must resolve the same isotope as the signal, so it is read off the generator object.
+            # infer_hyperfine stays False: the isotope is a grid coordinate here, not something to infer.
+            resolved = self._resolve_generators.get(generator_name)
+            if resolved is None:
+                raise ValueError(f"unknown SNR-window generator {generator_name!r}")
+            nv_smc_config["lineshape"] = "voigt"
+            nv_smc_config["hyperfine"] = resolved.hyperfine
         elif generator_name.startswith("NVCenter-voigt-w"):
             nv_smc_config["lineshape"] = "voigt"
             # param_grid_generators(variant="voigt") (names WITHOUT a "-si" suffix)

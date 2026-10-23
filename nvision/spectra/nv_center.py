@@ -202,6 +202,18 @@ NV_DRIVE_FREQ_DELTA_HZ: float = float(os.getenv("NVISION_NV_DRIVE_FREQ_DELTA_HZ"
 DEFAULT_NV_DRIVE_FREQ_MIN_PHYS = NV_ZERO_FIELD_SPLITTING_HZ
 DEFAULT_NV_DRIVE_FREQ_MAX_PHYS = NV_ZERO_FIELD_SPLITTING_HZ + NV_DRIVE_FREQ_DELTA_HZ
 
+# Largest Zeeman half-splitting as a fraction of the drive-frequency window: the default window
+# is 2.5 x MAX_ZEEMAN_SHIFT, i.e. 0.4. Generators that set their own window (the SNR x window
+# study grid) scale the Zeeman range with it through :func:`max_zeeman_shift_for_window`, so a
+# narrow window still holds its dips and a wide one is not mostly empty. Not part of
+# :func:`physics_config_fingerprint`: at the default window it reproduces MAX_ZEEMAN_SHIFT exactly.
+NV_ZEEMAN_WINDOW_FRACTION: float = 0.4
+
+
+def max_zeeman_shift_for_window(window_width_phys: float) -> float:
+    """Largest ``zeeman_shift`` (Hz) a window of width ``window_width_phys`` (Hz) is sized for."""
+    return NV_ZEEMAN_WINDOW_FRACTION * float(window_width_phys)
+
 
 def physics_config_fingerprint() -> str:
     """Short hash of every physical bound/constant that affects what
@@ -1231,8 +1243,14 @@ class NVCenterVoigtModel(
         hf_hi = MAX_HYPERFINE_SHIFT if self._infer_hyperfine else self._hf_offset
         if self._with_zeeman_splitting:
             # Mirror nv_center_voigt_bounds_for_domain exactly or the placement margin
-            # stops covering what the prior/fit is allowed to represent.
-            return 2.0 * MAX_ZEEMAN_SHIFT + 2.0 * hf_hi + 4.0 * VOIGT_FWHM_TOTAL_HI
+            # stops covering what the prior/fit is allowed to represent. A window wider than the
+            # default one holds a proportionally larger Zeeman range (max_zeeman_shift_for_window);
+            # a narrower one keeps the default margin, which only over-covers.
+            return (
+                2.0 * max(MAX_ZEEMAN_SHIFT, max_zeeman_shift_for_window(domain_width))
+                + 2.0 * hf_hi
+                + 4.0 * VOIGT_FWHM_TOTAL_HI
+            )
         return 2.0 * hf_hi + 4.0 * VOIGT_FWHM_TOTAL_HI
 
     def expected_dip_count(self) -> int:
@@ -2262,8 +2280,16 @@ def nv_center_voigt_bounds_for_domain(
     hyperfine: str = "unresolved",
     infer_hyperfine: bool = False,
     with_zeeman_splitting: bool = False,
+    max_zeeman_shift: float = MAX_ZEEMAN_SHIFT,
+    reference_width: float | None = None,
 ) -> dict[str, tuple[float, float]]:
     """Physical parameter bounds for NV Voigt signals over ``[drive_freq_min_phys, drive_freq_max_phys]``.
+
+    ``max_zeeman_shift`` (Hz) is the upper ``zeeman_shift`` bound; the default is the module constant,
+    a window-scaled generator passes :func:`max_zeeman_shift_for_window`.
+    ``reference_width`` (Hz) is the window width the width bounds (``hwhm_lorentz``, ``sigma_inhom``,
+    ``hyperfine_shift``) are sized off; the default is the actual window, a generator that stretches the
+    window while holding the linewidth fixed passes the default window so those bounds do not move with it.
 
     Mirrors ``nv_center_lorentzian_bounds_for_domain``'s structure exactly:
     ``with_zeeman_splitting=True`` adds ``zeeman_shift`` and narrows the drive-frequency range so
@@ -2276,9 +2302,10 @@ def nv_center_voigt_bounds_for_domain(
     width = float(drive_freq_max_phys - drive_freq_min_phys)
     if width <= 0:
         raise ValueError("drive_freq_max_phys must exceed drive_freq_min_phys")
+    ref_width = width if reference_width is None else float(reference_width)
 
-    hwhm_bounds = (MIN_HWHM, max(MAX_HWHM, width * 0.05))
-    sigma_inhom_hi = max(1.2e6, width * 0.02)
+    hwhm_bounds = (MIN_HWHM, max(MAX_HWHM, ref_width * 0.05))
+    sigma_inhom_hi = max(1.2e6, ref_width * 0.02)
     sigma_inhom_bounds = (0.0, sigma_inhom_hi)
 
     # Outermost hyperfine line offset: the whole searched range when hyperfine_shift is a
@@ -2297,11 +2324,11 @@ def nv_center_voigt_bounds_for_domain(
         # Zeeman group is out of range and only the upper one is measured.
         f_lo = float(drive_freq_min_phys)
         f_hi = float(drive_freq_max_phys)
-        zeeman_bounds = (MIN_ZEEMAN_SHIFT, MAX_ZEEMAN_SHIFT)
-        max_span = 2.0 * MAX_ZEEMAN_SHIFT + 2.0 * hf_hi + 4.0 * VOIGT_FWHM_TOTAL_HI
+        zeeman_bounds = (MIN_ZEEMAN_SHIFT, max_zeeman_shift)
+        max_span = 2.0 * max_zeeman_shift + 2.0 * hf_hi + 4.0 * VOIGT_FWHM_TOTAL_HI
 
         if infer_hyperfine:
-            hyperfine_shift_bounds = (MIN_HYPERFINE_SHIFT, max(MAX_HYPERFINE_SHIFT, width * 0.02))
+            hyperfine_shift_bounds = (MIN_HYPERFINE_SHIFT, max(MAX_HYPERFINE_SHIFT, ref_width * 0.02))
             return {
                 "zero_field_freq": (f_lo, f_hi),
                 "hwhm_lorentz": hwhm_bounds,
@@ -2323,7 +2350,7 @@ def nv_center_voigt_bounds_for_domain(
 
     # Non-Zeeman cases (existing behaviour preserved).
     if infer_hyperfine:
-        hyperfine_shift_bounds = (MIN_HYPERFINE_SHIFT, max(MAX_HYPERFINE_SHIFT, width * 0.02))
+        hyperfine_shift_bounds = (MIN_HYPERFINE_SHIFT, max(MAX_HYPERFINE_SHIFT, ref_width * 0.02))
         return {
             "zero_field_freq": (float(drive_freq_min_phys), float(drive_freq_max_phys)),
             "hwhm_lorentz": hwhm_bounds,

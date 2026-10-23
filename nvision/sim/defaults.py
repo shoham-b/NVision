@@ -67,6 +67,10 @@ NVISION_SWEEP_MAX_STEPS: int = int(os.getenv("NVISION_SWEEP_MAX_STEPS", "500"))
 # Measurement budget of every locator in a run (the SBED family's max_steps, the plain sweeps' total measurements,
 # capped in whole passes): one shared budget, so no locator is compared on a longer leash than another.
 NVISION_MAX_MEASUREMENTS: int = int(os.getenv("NVISION_MAX_MEASUREMENTS", "2500"))
+# The same budget, for signals whose window is N FWHM wide (the SNR x window study): N x this many
+# measurements, so a narrow window is not given the leash of a wide one. Still one budget per signal
+# for every locator. The default makes a 20-FWHM window match NVISION_MAX_MEASUREMENTS.
+NVISION_MEASUREMENTS_PER_FWHM: float = float(os.getenv("NVISION_MEASUREMENTS_PER_FWHM", "125"))
 
 # Step budget for the Bayesian-SBED locator (nvision/sim/combinations.py).
 # Read through the module (``sim_defaults.NVISION_SBED_MAX_STEPS``) rather than
@@ -199,24 +203,31 @@ NVISION_SBED_HYPERFINE_VALUES: tuple[str, ...] = tuple(
     v.strip() for v in os.getenv("NVISION_SBED_HYPERFINE_VALUES", "unresolved,n14,n15").split(",") if v.strip()
 )
 
-# Noise is swept the same way as width/contrast above — its own dedicated range,
-# independent of the generic NVISION_NOISE_MAX_GAUSS/NVISION_NOISE_GAUSS_STEPS
-# (which are shared by every other run path, e.g. `nvision run` without a group,
-# and often tuned via .env for unrelated purposes).
-NVISION_SBED_NOISE_MIN: float = float(os.getenv("NVISION_SBED_NOISE_MIN", "0.0"))
-# Capped at 0.01: the lowest contrast any grid point targets is
-# NVISION_SBED_CONTRAST_MIN (0.1 default, shared across all three lineshape study
-# grids -- see above), so a noise ceiling of 0.1 would leave the worst grid point
-# at SNR ~= 1 (undetectable in practice). 0.01 keeps SNR >= ~10 even there.
-NVISION_SBED_NOISE_MAX: float = float(os.getenv("NVISION_SBED_NOISE_MAX", "0.01"))
-# Denser than the minimum needed, so metrics-vs-noise plots show a clear trend
-# as noise grows across the feasible range rather than just a few points.
-NVISION_SBED_NOISE_STEPS: int = int(os.getenv("NVISION_SBED_NOISE_STEPS", "6"))
+# --- SNR x window study (sim.presets.voigt_snr_window_param_grid_generators) --------------------
+#
+# The grid is posed in the two dimensionless numbers that decide how hard a search is, instead of
+# in Hz and absolute noise:
+#   * SNR = contrast_total / noise sigma. Every generator carries the same contrast_total
+#     (NVISION_SBED_SNR_CONTRAST); the noise axis sets sigma = contrast / SNR.
+#   * window = N x the signal's total FWHM. The linewidth is held fixed (NVISION_SBED_FIXED_HWHM,
+#     plus the sigma_inhom axis) and the drive-frequency window is stretched to N FWHM, so the
+#     hyperfine offsets, absolute convergence thresholds and candidate step stay physically meaningful.
+#     A window of 5-20 FWHM is what the study needs: the search is hard when the dips are a sizeable
+#     part of it, not only when the window is orders of magnitude wider than the line.
+NVISION_SBED_SNR_VALUES: tuple[float, ...] = tuple(
+    float(v) for v in os.getenv("NVISION_SBED_SNR_VALUES", "5,10,20,50,100").split(",") if v.strip()
+)
+NVISION_SBED_WINDOW_FWHM_VALUES: tuple[float, ...] = tuple(
+    float(v) for v in os.getenv("NVISION_SBED_WINDOW_FWHM_VALUES", "5,10,20").split(",") if v.strip()
+)
+NVISION_SBED_FIXED_HWHM: float = float(os.getenv("NVISION_SBED_FIXED_HWHM", "1e6"))
+NVISION_SBED_SNR_CONTRAST: float = float(os.getenv("NVISION_SBED_SNR_CONTRAST", "0.25"))
+# The noise axes of the other studies are SNR levels against the same contrast: drive-control uses
+# NVISION_SBED_SNR_VALUES (a nominal SNR there: its contrast comes from the drive, not a fixed value).
 
-# Gaussian noise level every drift scenario in the drift run-groups is paired with
-# (sim.presets.drift_study_noises). One of the NVISION_SBED_NOISE_* grid points by
-# default, so the no-drift control row matches an existing SBED-study noise level.
-NVISION_DRIFT_GAUSS_SIGMA: float = float(os.getenv("NVISION_DRIFT_GAUSS_SIGMA", "0.006"))
+# SNR (against NVISION_SBED_SNR_CONTRAST) every drift scenario in the drift run-groups is paired with
+# (sim.presets.drift_study_noises); the Gaussian noise is NVISION_SBED_SNR_CONTRAST / this.
+NVISION_DRIFT_SNR: float = float(os.getenv("NVISION_DRIFT_SNR", "40"))
 
 
 # Convergence targets for the NV shape parameters, in the units of each parameter.
