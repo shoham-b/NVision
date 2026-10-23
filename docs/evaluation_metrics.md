@@ -58,15 +58,20 @@ dip. k = 1 is therefore not studied; compare spacings by points per true FWHM.
    (`signal_repeat_key`), so per-repeat comparisons are valid; measurement noise differs, as it must.
 6. **Stops are compared only at matched reliability.** Comparing measurements-to-stop is fair only if the locators'
    claimed σ are equally honest (rule 1); otherwise one could look faster by stopping riskier.
-7. **Medians hide the tail.** Show p75 and the capped share next to the median cost; the spacings differ more in the
+7. **Metrics are per use case.** A use case is one signal at one noise level: window, line shape and SNR (generator ×
+   noise for other studies). Compute every headline number (median and p75 cost, capped share, σ coverage, stage
+   durations) within one use case; never pool across windows, shapes or SNRs, since the cost spans orders of
+   magnitude between them. Trends across use cases are shown as curves, one point per use case, never as a single
+   pooled number.
+8. **Medians hide the tail.** Show p75 and the capped share next to the median cost; the spacings differ more in the
    tail than at the median.
 
 ## Where it lives
 
 * Per-run metrics: `nvision/metrics/stages.py` (stage boundaries, η), `nvision/metrics/milestones.py` (stop step),
   `nvision/metrics/series.py` (per-step series), `nvision/metrics/compare.py` (`nv compare` tables).
-* Results UI views: **Locators** (every locator side by side, chips to show/hide, cost, search, σ coverage vs SNR;
-  `/api/run-rows`), **Stages**, **Accuracy** (stop-quality panels), **Failed Runs**, and **Run** for one repeat.
+* Results UI views: **Locators** (every locator side by side, chips to show/hide; a table per selected use case, and
+  cost, search, σ coverage vs SNR across use cases; `/api/run-rows`), **Stages**, **Accuracy** (stop-quality panels), **Failed Runs**, and **Run** for one repeat.
   See [ui_architecture.md](ui_architecture.md).
 
 ## Not done yet
