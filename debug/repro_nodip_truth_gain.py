@@ -31,13 +31,26 @@ def req(self, model_ys, ys, popt, names):
     flat = float(np.sum(((ys - ys.mean()) / noise) ** 2))
     chi_truth = float(np.sum(((truth - ys) / noise) ** 2))
     chi_fit = float(np.sum(((model_ys - ys) / noise) ** 2))
-    print(f"GAIN truth={flat - chi_truth:7.1f} fit={flat - chi_fit:7.1f} n={n} (gate {g._FIT_MIN_CHI2_GAIN})", flush=True)
+    print(
+        f"GAIN truth={flat - chi_truth:7.1f} fit={flat - chi_fit:7.1f} n={n} (gate {g._FIT_MIN_CHI2_GAIN})", flush=True
+    )
     return orig_req(self, model_ys, ys, popt, names)
 
 
 G._require_fit_beats_flat_baseline = req
 from nvision.__main__ import main  # noqa: E402
 
-sys.argv = ["nv", "run-single", sys.argv[1], sys.argv[2], sys.argv[3], "--repeats", "10", "--runners", "1",
-            "--dry-run", "--no-progress"]
+sys.argv = [
+    "nv",
+    "run-single",
+    sys.argv[1],
+    sys.argv[2],
+    sys.argv[3],
+    "--repeats",
+    "10",
+    "--runners",
+    "1",
+    "--dry-run",
+    "--no-progress",
+]
 main()
