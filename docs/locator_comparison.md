@@ -49,13 +49,13 @@ parameters, clipped to their bounds) -- never the true signal's width (`nvision/
 * Smart-Sweep and Smart-SBED start from one shared coarse grid, FWHM/2 (`COARSE_SEARCH_POINTS_PER_FWHM = 2`),
   so they differ only in the acquisition after the dip is seen. 2 was chosen from the plain-sweep spacing study
   (k = 2 had the lowest median and p75 cost). A one-point-per-FWHM grid often leaves too few points in the dip for
-  `find_dips`; a grid that misses the dip refines by halving.
+  `find_dips`; a grid that misses the dip is swept again.
 * Smart-Sweep's focus sweep uses a finer grid, FWHM/10 (`FOCUS_SWEEP_POINTS_PER_FWHM = 10`), laid fresh inside each
   focus section from its lower edge. Lower bound, derived: a measurement eps from the max-information point keeps
   eta ~ 1 - 4.5 (eps/HWHM)^2 of the optimal information, so eta >= 0.9 (the refine switch's
   `SMART_SWEEP_REFINE_INFO_LOSS`) needs eps <= 0.15 HWHM, i.e. spacing 2 eps = FWHM/6.7, so 7 points per FWHM.
   At 7, one pass over the focus occasionally ended before the posterior allowed the refine switch (1 of 8 test
-  runs), so 10 was chosen empirically (0 of 8). The focus grid is never refined: running out raises.
+  runs), so 10 was chosen empirically (0 of 8). A grid that is fully measured is swept again at the same spacing, never refined and never an error (the stop rules end the run).
 
 ## Strategies
 

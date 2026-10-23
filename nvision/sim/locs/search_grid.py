@@ -12,7 +12,7 @@ grid spacing is not a tuning knob but follows from how many points must land ins
   expected information gain pick among its unmeasured points; sharing it keeps their difference to the acquisition
   after the dip is seen. 2 was chosen from the plain-sweep spacing study (k = 2 had the lowest median and p75 cost
   and a short search). A one-point-per-FWHM grid often puts only one or two points in the dip, too few for
-  ``find_dips``; a grid that misses the dip is refined by halving.
+  ``find_dips``; a grid that misses the dip is swept again.
 * Smart-Sweep's focus sweep uses a finer grid, ``FOCUS_SWEEP_POINTS_PER_FWHM`` = 10 points per FWHM, laid fresh
   inside each focus section. At least 7 points per FWHM are needed for a grid point to lie within the refine-mode
   efficiency tolerance of the max-information point; 10 also gives the posterior enough measurements to reach the
@@ -47,7 +47,7 @@ COARSE_SEARCH_POINTS_PER_FWHM: int = 2
 # (0 of 8; 14 also 0 of 8, so it only adds measurements).
 FOCUS_SWEEP_POINTS_PER_FWHM: int = 10
 
-# Refusing to build grids denser than this: it means the refinement ran far past any useful resolution.
+# Refusing to build grids denser than this: it means the spacing is far below any useful resolution.
 _MAX_GRID_POINTS: int = 2_000_000
 
 
@@ -100,115 +100,120 @@ def uniform_grid_phys(lo_phys: float, hi_phys: float, max_spacing_phys: float) -
     return np.linspace(lo_phys, hi_phys, max(n_points, 2))
 
 
-class RefiningGrid:
-    """Nested uniform grids over the drive-frequency axis, refined by halving the spacing.
+def _nearest_distance(sorted_points: NDArray[np.float64], values: NDArray[np.float64]) -> NDArray[np.float64]:
+    """Distance (Hz) from each of ``values`` to the closest of ``sorted_points``.
 
-    Level ``j`` is a uniform grid with spacing ``<= base_spacing / 2**j`` that contains every point of level
-    ``j - 1``. :meth:`next_unmeasured` returns the grid points inside a :class:`FocusRegion` that are not yet
-    covered by a measurement at the current level, moving to the next level only once the current one is
-    exhausted inside that region. Positions are Hz (physical); every array is ascending, shape (n_points,).
+    shape of ``sorted_points``: (n_points,), ascending and non-empty; shape of ``values``: (n_values,).
+    Returns shape: (n_values,).
+    """
+    idx = np.searchsorted(sorted_points, values)
+    left = np.abs(values - sorted_points[np.clip(idx - 1, 0, len(sorted_points) - 1)])
+    right = np.abs(values - sorted_points[np.clip(idx, 0, len(sorted_points) - 1)])
+    return np.minimum(left, right)
+
+
+class _PassGrid:
+    """Shared bookkeeping of the grids that sweep their points and, once all are measured, sweep them again.
+
+    A grid point is covered by a recorded measurement within half a spacing of it. When every point of the
+    region asked about is covered, the measurements covering those points are forgotten and a new pass over the
+    same points begins (same spacing, same points), so the grid never runs out; the run's own stopping rules
+    end it. Positions are Hz (physical); every array is ascending, shape (n_points,).
     """
 
-    def __init__(self, lo_phys: float, hi_phys: float, base_spacing_phys: float) -> None:
-        self._lo, self._hi = float(lo_phys), float(hi_phys)
-        # Intervals at level 0; level j has m * 2**j intervals, so each level contains the one before it.
-        self._base_intervals = len(uniform_grid_phys(self._lo, self._hi, float(base_spacing_phys))) - 1
-        self._level = 0
+    _spacing: float
+
+    def __init__(self) -> None:
         self._measured: list[float] = []
-        self._grid = self._build_grid()
+        self._passes = 0
 
     @property
-    def level(self) -> int:
-        """Current refinement level (0 = the base spacing)."""
-        return self._level
-
-    @property
-    def spacing_phys(self) -> float:
-        """Actual spacing (Hz) of the current level's grid."""
-        return float(self._grid[1] - self._grid[0])
-
-    def _build_grid(self) -> NDArray[np.float64]:
-        n_points = self._base_intervals * 2**self._level + 1
-        if n_points > _MAX_GRID_POINTS:
-            raise ValueError(f"RefiningGrid: level {self._level} needs {n_points} points (> {_MAX_GRID_POINTS}).")
-        return np.linspace(self._lo, self._hi, n_points)
+    def passes(self) -> int:
+        """Number of complete passes over the grid so far (0 while the first pass is still running)."""
+        return self._passes
 
     def record(self, drive_freq_phys: float) -> None:
         """Note that ``drive_freq_phys`` (Hz) was measured."""
         bisect.insort(self._measured, float(drive_freq_phys))
 
+    def _half_spacing(self) -> float:
+        return 0.5 * self._spacing * (1.0 - 1e-9)
+
     def _uncovered(self, points: NDArray[np.float64]) -> NDArray[np.bool_]:
         """Mask over ``points`` (Hz): no measurement lies within half a spacing of the point."""
         if not self._measured:
             return np.ones(points.shape, dtype=bool)
+        return _nearest_distance(np.asarray(self._measured, dtype=np.float64), points) > self._half_spacing()
+
+    def _candidates(self, points: NDArray[np.float64]) -> NDArray[np.float64]:
+        """The uncovered ``points``, starting a new pass over them when none is left.
+
+        Raises ``ValueError`` if ``points`` is empty: there is nothing to repeat.
+        """
+        if points.size == 0:
+            raise ValueError(f"{type(self).__name__}: the region holds no grid point.")
+        candidates = points[self._uncovered(points)]
+        if candidates.size:
+            return candidates
         measured = np.asarray(self._measured, dtype=np.float64)
-        idx = np.searchsorted(measured, points)
-        left = np.abs(points - measured[np.clip(idx - 1, 0, len(measured) - 1)])
-        right = np.abs(points - measured[np.clip(idx, 0, len(measured) - 1)])
-        return np.minimum(left, right) > 0.5 * self.spacing_phys * (1.0 - 1e-9)
+        self._measured = measured[_nearest_distance(points, measured) > self._half_spacing()].tolist()
+        self._passes += 1
+        return points
+
+
+class RepeatingGrid(_PassGrid):
+    """A uniform grid over the drive-frequency axis, swept again from the start once every point is measured.
+
+    :meth:`next_unmeasured` returns the grid points inside a :class:`FocusRegion` not yet covered by a
+    measurement in the current pass; when the region is exhausted the pass repeats over the same points.
+    """
+
+    def __init__(self, lo_phys: float, hi_phys: float, spacing_phys: float) -> None:
+        super().__init__()
+        self._grid = uniform_grid_phys(float(lo_phys), float(hi_phys), float(spacing_phys))
+        self._spacing = float(self._grid[1] - self._grid[0])
+
+    @property
+    def spacing_phys(self) -> float:
+        """Actual spacing (Hz) of the grid."""
+        return self._spacing
 
     def next_unmeasured(self, region: FocusRegion) -> NDArray[np.float64]:
-        """Grid points inside ``region`` still uncovered, refining the grid until some exist.
+        """Grid points inside ``region`` still uncovered, repeating the pass when none is.
 
         Returns:
             Ascending Hz positions. shape: (n_candidates,), never empty.
         """
-        while True:
-            in_region = self._grid[region.contains(self._grid)]
-            candidates = in_region[self._uncovered(in_region)]
-            if candidates.size:
-                return candidates
-            self._level += 1
-            self._grid = self._build_grid()
+        return self._candidates(self._grid[region.contains(self._grid)])
 
 
-class FocusSweepGrid:
+class FocusSweepGrid(_PassGrid):
     """A fresh uniform grid laid inside each focus section, independent of the search measurements.
 
     Every section ``[lo, hi]`` of a :class:`FocusRegion` gets its own grid starting at ``lo`` with spacing
     ``<= spacing_phys`` (both ends included). Only measurements recorded here (the focus sweep's own) cover a
     grid point -- those within half a spacing of it; the coarser search measurements that located the dip do not.
     The grid is rebuilt from the current sections on every call, so it follows the focus as it moves. Once the
-    sweep has covered the whole focus the spacing is halved (as :class:`RefiningGrid` does) and stays halved.
+    sweep has covered the whole focus it sweeps it again, from the lower edge, at the same spacing.
     """
 
     def __init__(self, spacing_phys: float) -> None:
         if not (spacing_phys > 0.0) or not math.isfinite(spacing_phys):
             raise ValueError(f"FocusSweepGrid: spacing must be positive and finite, got {spacing_phys!r} Hz.")
+        super().__init__()
         self._spacing = float(spacing_phys)
-        self._level = 0
-        self._measured: list[float] = []
-
-    @property
-    def level(self) -> int:
-        """Number of times the spacing has been halved (0 = the base spacing)."""
-        return self._level
 
     @property
     def spacing_phys(self) -> float:
-        """Current maximum spacing (Hz) of the grid laid in each section."""
+        """Maximum spacing (Hz) of the grid laid in each section."""
         return self._spacing
 
-    def record(self, drive_freq_phys: float) -> None:
-        """Note that the focus sweep measured ``drive_freq_phys`` (Hz)."""
-        bisect.insort(self._measured, float(drive_freq_phys))
-
     def next_unmeasured(self, region: FocusRegion) -> NDArray[np.float64]:
-        """Grid points of ``region`` not yet covered by a focus-sweep measurement, refining until some exist.
+        """Grid points of ``region`` not yet covered by a focus-sweep measurement, repeating the pass when none is.
 
         Returns:
-            Ascending Hz positions. shape: (n_candidates,), never empty. ``uniform_grid_phys`` raises
-            ``ValueError`` if the refinement would need more than ``_MAX_GRID_POINTS`` points.
+            Ascending Hz positions. shape: (n_candidates,), never empty.
         """
-        while True:
-            points = np.concatenate([uniform_grid_phys(lo, hi, self._spacing) for lo, hi in region.sections])
-            if self._measured:
-                measured = np.asarray(self._measured, dtype=np.float64)
-                idx = np.searchsorted(measured, points)
-                left = np.abs(points - measured[np.clip(idx - 1, 0, len(measured) - 1)])
-                right = np.abs(points - measured[np.clip(idx, 0, len(measured) - 1)])
-                points = points[np.minimum(left, right) > 0.5 * self._spacing * (1.0 - 1e-9)]
-            if points.size:
-                return points
-            self._spacing /= 2.0
-            self._level += 1
+        return self._candidates(
+            np.concatenate([uniform_grid_phys(lo, hi, self._spacing) for lo, hi in region.sections])
+        )

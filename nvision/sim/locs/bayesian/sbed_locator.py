@@ -22,7 +22,7 @@ from nvision.sim.locs.search_grid import (
     COARSE_SEARCH_POINTS_PER_FWHM,
     FOCUS_SWEEP_POINTS_PER_FWHM,
     FocusSweepGrid,
-    RefiningGrid,
+    RepeatingGrid,
     prior_fwhm_phys,
 )
 from nvision.spectra.nv_center import effective_hwhm
@@ -243,13 +243,13 @@ class _SearchThenFocusMixin:
     measurement is chosen. Neither makes SBED's random exploration probe: the grid is the exploration.
     """
 
-    _grid: RefiningGrid
+    _grid: RepeatingGrid
     _last_focus: object
 
     def _init_search_grid(self, points_per_fwhm: int) -> None:
         """Size the search grid from the prior FWHM: ``points_per_fwhm`` grid points per FWHM."""
         self._fwhm_prior_phys = prior_fwhm_phys(self.belief)
-        self._grid = RefiningGrid(
+        self._grid = RepeatingGrid(
             self._drive_freq_min_phys, self._drive_freq_max_phys, self._fwhm_prior_phys / points_per_fwhm
         )
         self._last_focus = self._focus
@@ -283,7 +283,7 @@ class SmartSBEDLocator(_SearchThenFocusMixin, SequentialBayesianExperimentDesign
     """SBED that searches a coarse FWHM-spaced grid first, then runs ordinary SBED inside the focus.
 
     Before the data show a dip, the candidates are the not-yet-measured points of a uniform grid with one
-    point per prior FWHM (refined by halving if the whole axis is covered without a dip) and the
+    point per prior FWHM (swept again if the whole axis is covered without a dip) and the
     expected-information-gain maximiser among them is measured. Once a dip is found the focus narrows to it
     and acquisition is plain SBED: the EIG maximiser over the epoch's slope-targeted candidates inside the
     focus. Intended for a resonance whose width is already known and whose position moved.
@@ -325,8 +325,8 @@ class SmartSweepLocator(_SearchThenFocusMixin, SequentialBayesianExperimentDesig
     focus narrows to it and a fresh grid of spacing FWHM/10 (``FOCUS_SWEEP_POINTS_PER_FWHM``) is laid inside each
     focus section, starting at its lower edge and ignoring the coarser search measurements: fine enough that a
     grid point lies within the refine efficiency tolerance of each max-information point (see ``search_grid``).
-    The grid is never refined: if it is exhausted before the refine rule fires, the locator raises. The run may
-    also converge (the stop rule) without ever reaching refine mode; that is fine.
+    If the focus grid is exhausted before the refine rule fires, it is swept again from the focus's lower edge at
+    the same spacing. The run may also converge (the stop rule) without ever reaching refine mode; that is fine.
 
     **Refine.** A sweep keeps spending measurements across the whole dip, most of them far from where the
     signal is sensitive to the primary parameter ``theta`` (``zeeman_shift``). Once the dip is located the
