@@ -168,35 +168,47 @@ class FocusSweepGrid:
     Every section ``[lo, hi]`` of a :class:`FocusRegion` gets its own grid starting at ``lo`` with spacing
     ``<= spacing_phys`` (both ends included). Only measurements recorded here (the focus sweep's own) cover a
     grid point -- those within half a spacing of it; the coarser search measurements that located the dip do not.
-    The grid is rebuilt from the current sections on every call, so it follows the focus as it moves.
+    The grid is rebuilt from the current sections on every call, so it follows the focus as it moves. Once the
+    sweep has covered the whole focus the spacing is halved (as :class:`RefiningGrid` does) and stays halved.
     """
 
     def __init__(self, spacing_phys: float) -> None:
         if not (spacing_phys > 0.0) or not math.isfinite(spacing_phys):
             raise ValueError(f"FocusSweepGrid: spacing must be positive and finite, got {spacing_phys!r} Hz.")
         self._spacing = float(spacing_phys)
+        self._level = 0
         self._measured: list[float] = []
+
+    @property
+    def level(self) -> int:
+        """Number of times the spacing has been halved (0 = the base spacing)."""
+        return self._level
+
+    @property
+    def spacing_phys(self) -> float:
+        """Current maximum spacing (Hz) of the grid laid in each section."""
+        return self._spacing
 
     def record(self, drive_freq_phys: float) -> None:
         """Note that the focus sweep measured ``drive_freq_phys`` (Hz)."""
         bisect.insort(self._measured, float(drive_freq_phys))
 
     def next_unmeasured(self, region: FocusRegion) -> NDArray[np.float64]:
-        """Grid points of ``region`` not yet covered by a focus-sweep measurement.
+        """Grid points of ``region`` not yet covered by a focus-sweep measurement, refining until some exist.
 
         Returns:
-            Ascending Hz positions. shape: (n_candidates,). Raises ``ValueError`` if the sweep already covers
-            the whole focus: nothing is refined.
+            Ascending Hz positions. shape: (n_candidates,), never empty. ``uniform_grid_phys`` raises
+            ``ValueError`` if the refinement would need more than ``_MAX_GRID_POINTS`` points.
         """
-        points = np.concatenate([uniform_grid_phys(lo, hi, self._spacing) for lo, hi in region.sections])
-        if self._measured:
-            measured = np.asarray(self._measured, dtype=np.float64)
-            idx = np.searchsorted(measured, points)
-            left = np.abs(points - measured[np.clip(idx - 1, 0, len(measured) - 1)])
-            right = np.abs(points - measured[np.clip(idx, 0, len(measured) - 1)])
-            points = points[np.minimum(left, right) > 0.5 * self._spacing * (1.0 - 1e-9)]
-        if points.size == 0:
-            raise ValueError(
-                f"FocusSweepGrid: the sweep (spacing {self._spacing:g} Hz) already covers the focus {region.sections}."
-            )
-        return points
+        while True:
+            points = np.concatenate([uniform_grid_phys(lo, hi, self._spacing) for lo, hi in region.sections])
+            if self._measured:
+                measured = np.asarray(self._measured, dtype=np.float64)
+                idx = np.searchsorted(measured, points)
+                left = np.abs(points - measured[np.clip(idx - 1, 0, len(measured) - 1)])
+                right = np.abs(points - measured[np.clip(idx, 0, len(measured) - 1)])
+                points = points[np.minimum(left, right) > 0.5 * self._spacing * (1.0 - 1e-9)]
+            if points.size:
+                return points
+            self._spacing /= 2.0
+            self._level += 1

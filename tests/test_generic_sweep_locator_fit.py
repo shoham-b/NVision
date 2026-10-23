@@ -753,12 +753,58 @@ def test_sweep_fit_raises_when_data_has_no_dip():
 
 
 def test_sweep_fit_raises_when_fit_is_stuck_at_a_bad_start(monkeypatch):
-    """Re-create the bounds-midpoint start (no ``zeeman_shift`` seed): the stalled fit must raise, not give ~30 MHz."""
+    """Re-create the bounds-midpoint start (no ``zeeman_shift`` seed): the stalled fit must raise, not give ~30 MHz.
+
+    The rescue starts of ``_zeeman_profile_starts`` would find the dip from here, so they are switched off to keep
+    the fit stuck.
+    """
     monkeypatch.setattr(
         GenericSweepLocator,
         "_anchor_zeeman_seeds_to_fixed_center",
         staticmethod(lambda seeds, *_args: seeds),
     )
+    monkeypatch.setattr(GenericSweepLocator, "_zeeman_profile_starts", staticmethod(lambda *_args: []))
     locator = _fixed_center_voigt_locator(18.15e6)
     with pytest.raises(RuntimeError, match="no better than a flat baseline"):
         locator.finalize()
+
+
+@pytest.mark.parametrize("true_zeeman_shift", [0.5e6, 1.0e6, 2.0e6])
+def test_sweep_fit_fixed_center_dip_at_domain_edge_coarse_sweep(true_zeeman_shift):
+    """A small ``zeeman_shift`` puts the visible dip at the domain's lower edge, between coarse sweep points.
+
+    Regression guard for the run that aborted on "sweep fit is no better than a flat baseline". With the centre
+    fixed at the edge ``D`` of the half-window ``[D, D + Delta]``, the deepest sample is the first one, so every
+    seed asked for ``zeeman_shift = 0``, the bound. The sweep step (about 1.9 MHz) is wider than the 0.5 MHz
+    linewidth, so the stalled fit sat at ``(zeeman_shift, hwhm) = (0, 0.2 MHz)`` with chi-square above the flat
+    baseline although the model reproduces the data: the dip was reachable, the start was not.
+    """
+    from nvision.spectra.nv_center import NVCenterVoigtModel, NVCenterVoigtZeemanSpectrum
+
+    domain_lo, domain_hi = 2.87e9, 3.02e9
+    model = NVCenterVoigtModel(hyperfine="n14", with_zeeman_splitting=True)
+    assert "zero_field_freq" not in model.parameter_names(), "this test needs the fixed-center model"
+    bounds = {
+        "hwhm_lorentz": (2.0e5, 7.5e6),
+        "sigma_inhom": (0.0, 3.0e6),
+        "zeeman_shift": (0.0, 60.0e6),
+        "contrast_total": (0.1, 0.4),
+    }
+    true_params = NVCenterVoigtZeemanSpectrum(
+        zero_field_freq=domain_lo,
+        hwhm_lorentz=0.5e6,
+        sigma_inhom=0.0,
+        zeeman_shift=true_zeeman_shift,
+        contrast_total=0.1,
+    )
+    noise_std = 5e-5  # dip depth ~0.013: peak SNR ~250, so a failure is the start, not the noise
+
+    locator = _build_locator_for(model, bounds, domain_lo, domain_hi, n_steps=79, noise_std=noise_std)
+    _inject_sweep_data_for(locator, model, true_params, noise_std=noise_std, seed=3)
+    locator.finalize()
+
+    fit = locator.fit_mode_estimates()
+    assert fit is not None
+    assert abs(fit["zeeman_shift"] - true_zeeman_shift) < 0.3e6, (
+        f"fitted zeeman_shift {fit['zeeman_shift'] / 1e6:.2f} MHz, truth {true_zeeman_shift / 1e6:.2f} MHz"
+    )
