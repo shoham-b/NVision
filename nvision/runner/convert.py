@@ -114,7 +114,11 @@ def run_result_to_finalize_record(
     """
     record: dict[str, Any] = {"repeat_id": repeat_id}
 
-    belief_estimates = result.final_estimates()
+    # A sweep whose fit found no dip reports no estimate: its belief is the un-updated prior, and passing that
+    # off as the estimate would score the sweep on a number it never measured. The repeat stays, flagged
+    # ``fit_failed``, with its estimate and uncertainty columns empty.
+    fit_failed = bool(locator_result.get("fit_failed"))
+    belief_estimates = {} if fit_failed else result.final_estimates()
     if result.fit_mode_estimates:
         # Sweep locators (GenericSweepLocator) batch-update their belief
         # without resampling during the sweep, so it can collapse — the same
@@ -136,7 +140,7 @@ def run_result_to_finalize_record(
         # Same marginal stds as :meth:`AbstractMarginalDistribution.uncertainty` (and as the
         # parameter convergence plot): physical units for unit-cube beliefs, grid/particle
         # empirical std otherwise — no extra domain scaling.
-        for param_name, uncert in last_belief.reported_uncertainty().items():
+        for param_name, uncert in {} if fit_failed else last_belief.reported_uncertainty().items():
             record[f"uncert_{param_name}"] = uncert
         # A locator whose reported estimate is a fit (sweeps) reports the fit's own uncertainty for the
         # parameters it fitted, so estimate and uncertainty describe the same quantity.

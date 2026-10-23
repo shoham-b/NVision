@@ -1118,6 +1118,11 @@ class _TaskRunner:
         # finalize() flushes the deferred belief updates and runs the dip fit;
         # without it the belief is still the prior.
         locator.finalize()
+        sweep_result = locator.result()
+        if sweep_result["fit_failed"]:
+            # No fit, and the belief's mode is the un-updated prior: there is no baseline curve to draw
+            # (the caller logs this and skips the overlay).
+            raise RuntimeError(f"SimpleSweep baseline found no dip (chi2 gain {sweep_result['fit_chi2_gain']:.1f})")
         # Prefer the actual least-squares model fit over the SMC belief marginal
         # mode: during a sweep the belief is batch-updated without resampling and
         # can collapse, drawing a garbage "most likely signal" curve.

@@ -77,6 +77,22 @@ _FIT_GRID_SNR: float = float(os.getenv("NVISION_SWEEP_FIT_GRID_SNR", "6.0"))
 # fires at z > ~4.6, i.e. a gain above ~20), while fitting noise alone gains about the parameter count.
 _FIT_MIN_CHI2_GAIN: float = float(os.getenv("NVISION_SWEEP_FIT_MIN_CHI2_GAIN", "9.0"))
 
+
+class SweepFitNoDipError(RuntimeError):
+    """The sweep's best fit explains the data no better than a flat line: the sweep holds no detectable dip.
+
+    At low SNR on a coarse grid this is a measured outcome, not a bug (the model evaluated at the *true*
+    parameters can itself gain less than ``_FIT_MIN_CHI2_GAIN`` over flat). ``GenericSweepLocator.finalize``
+    records it (``fit_failed``) and reports no estimate; every other fit failure still raises.
+
+    ``chi2_gain`` is the chi-square gain over the flat baseline, in units of the measurement noise.
+    """
+
+    def __init__(self, message: str, chi2_gain: float) -> None:
+        super().__init__(message)
+        self.chi2_gain = chi2_gain
+
+
 # Experimental: evaluate curve_fn via the model's vectorized float32 Numba kernel
 # instead of a per-point Python loop in float64. Off by default -- needs an A/B
 # against the float64 path (see NVISION_SWEEP_FIT_FLOAT32_DIFF_STEP below for why
@@ -226,6 +242,9 @@ class GenericSweepLocator(ConvergenceStopRules, SweepingLocator):
         # Fit results set by finalize() — reported via result().
         self._zero_field_freq_estimate_phys: float | None = None
         self._zero_field_freq_uncert_phys: float | None = None
+        # Set by finalize() when the fit found no dip (SweepFitNoDipError): True, and the chi-square gain over flat.
+        self._fit_failed: bool = False
+        self._fit_chi2_gain: float | None = None
 
         # Full fitted physical parameter vector from the model fit (set by
         # _fit_model).  Used to draw the actual fit in the visualization
@@ -578,7 +597,7 @@ class GenericSweepLocator(ConvergenceStopRules, SweepingLocator):
     def _require_fit_beats_flat_baseline(
         self, model_ys: np.ndarray, ys: np.ndarray, popt: np.ndarray, param_names: list[str]
     ) -> None:
-        """Raise if the winning fit explains the data no better than a constant.
+        """Raise ``SweepFitNoDipError`` if the winning fit explains the data no better than a constant.
 
         ``model_ys`` is the fitted model at the sweep's points and ``ys`` the measured signal (both
         shape ``(n_pts,)``, signal units); the chi-square gain over a flat line at ``mean(ys)`` is measured in
@@ -590,10 +609,11 @@ class GenericSweepLocator(ConvergenceStopRules, SweepingLocator):
         chi2_flat = float(np.sum(((ys - float(np.mean(ys))) / noise) ** 2))
         if chi2_flat - chi2_fit < _FIT_MIN_CHI2_GAIN:
             fitted = dict(zip(param_names, (float(v) for v in popt), strict=True))
-            raise RuntimeError(
+            raise SweepFitNoDipError(
                 f"sweep fit is no better than a flat baseline (chi2 gain {chi2_flat - chi2_fit:.1f} < "
                 f"{_FIT_MIN_CHI2_GAIN:g}; chi2 fit {chi2_fit:.1f}, flat {chi2_flat:.1f}): the fit did not reach a "
-                f"dip, so its parameters {fitted} are not an estimate."
+                f"dip, so its parameters {fitted} are not an estimate.",
+                chi2_gain=chi2_flat - chi2_fit,
             )
 
     def _resolve_physical_bounds(self, param_names: list[str]) -> dict[str, tuple[float, float]]:
@@ -1308,7 +1328,8 @@ class GenericSweepLocator(ConvergenceStopRules, SweepingLocator):
         The fit uses only the recorded measurements, never the belief (which was updated step by step
         and is what the stage metrics read); it supplies the reported estimate.
 
-        Raises if the fit fails — see ``_fit_model``.
+        A fit that finds no dip (``SweepFitNoDipError``) is recorded, not raised: ``fit_failed`` is set and no
+        estimate is reported. Any other fit failure raises — see ``_fit_model``.
 
         No-ops if no measurements were taken (e.g. the run was skipped
         outright by the pre-run CRLB feasibility gate in ``executor.py``,
@@ -1319,21 +1340,27 @@ class GenericSweepLocator(ConvergenceStopRules, SweepingLocator):
             return
         domain_width = self._domain_hi - self._domain_lo
         passes = self.passes_done
-        if passes <= 1:
-            zero_field_freq_phys, uncert_phys = self._fit_model(self.history.drive_freqs_unit, self.history.ys)
-        else:
-            # Fit the per-grid-point mean over the passes (the fit helpers expect one ordered pass), whose
-            # noise is noise_std / sqrt(passes). Only whole passes exist: done() stops on a pass boundary.
-            n = self.max_steps
-            assert self.history.count == n * passes, "averaged sweep must hold whole passes"
-            grid_unit = self.history.drive_freqs_unit[:n]
-            mean_ys = self.history.ys.reshape(passes, n).mean(axis=0)
-            single_pass_noise_std = self._noise_std
-            self._noise_std = single_pass_noise_std / np.sqrt(passes)
-            try:
-                zero_field_freq_phys, uncert_phys = self._fit_model(grid_unit, mean_ys)
-            finally:
-                self._noise_std = single_pass_noise_std
+        try:
+            if passes <= 1:
+                zero_field_freq_phys, uncert_phys = self._fit_model(self.history.drive_freqs_unit, self.history.ys)
+            else:
+                # Fit the per-grid-point mean over the passes (the fit helpers expect one ordered pass), whose
+                # noise is noise_std / sqrt(passes). Only whole passes exist: done() stops on a pass boundary.
+                n = self.max_steps
+                assert self.history.count == n * passes, "averaged sweep must hold whole passes"
+                grid_unit = self.history.drive_freqs_unit[:n]
+                mean_ys = self.history.ys.reshape(passes, n).mean(axis=0)
+                single_pass_noise_std = self._noise_std
+                self._noise_std = single_pass_noise_std / np.sqrt(passes)
+                try:
+                    zero_field_freq_phys, uncert_phys = self._fit_model(grid_unit, mean_ys)
+                finally:
+                    self._noise_std = single_pass_noise_std
+        except SweepFitNoDipError as exc:
+            # A measured outcome (no estimate, window stays the whole domain), not a crash of every repeat.
+            self._fit_failed = True
+            self._fit_chi2_gain = exc.chi2_gain
+            return
 
         self._zero_field_freq_estimate_phys = zero_field_freq_phys
         self._zero_field_freq_uncert_phys = uncert_phys
@@ -1355,6 +1382,9 @@ class GenericSweepLocator(ConvergenceStopRules, SweepingLocator):
         if self._center_fitted and self._zero_field_freq_uncert_phys is not None:
             res["uncert"] = self._zero_field_freq_uncert_phys
         res.update(self._compute_sweep_metrics())
+        # fit_failed: the sweep found no dip, so it reports no estimate (and fit_chi2_gain says how little it gained).
+        res["fit_failed"] = self._fit_failed
+        res["fit_chi2_gain"] = self._fit_chi2_gain if self._fit_failed else float("nan")
         return res
 
     def _compute_sweep_metrics(self) -> dict[str, float | int]:
