@@ -1,4 +1,6 @@
-from nvision.runner.convert import extract_peak_estimates
+from types import SimpleNamespace
+
+from nvision.runner.convert import extract_peak_estimates, run_result_to_finalize_record
 
 
 def test_extract_peak_estimates_passes_locator_values_through_unchanged():
@@ -58,3 +60,32 @@ def test_extract_peak_estimates_split_mapping():
     result = extract_peak_estimates({"hyperfine_shift": 15.0}, {"hyperfine_shift": 20.0})
 
     assert result == {"hyperfine_shift": 15.0}
+
+
+def _stub_run_result():
+    belief = SimpleNamespace(
+        reported_uncertainty=lambda: {"zeeman_shift": 3.0},
+        entropy=lambda: 1.5,
+        converged=lambda threshold: False,
+    )
+    return SimpleNamespace(
+        final_estimates=lambda: {"zeeman_shift": 30.0e6, "zero_field_freq": 2.9e9},
+        fit_mode_estimates=None,
+        fit_mode_uncertainties=None,
+        snapshots=[SimpleNamespace(belief=belief)],
+    )
+
+
+def test_finalize_record_without_fit_reports_no_estimate():
+    """A sweep whose fit found no dip must not pass its un-updated belief off as an estimate."""
+    record = run_result_to_finalize_record(_stub_run_result(), {"fit_failed": True, "fit_chi2_gain": 4.5}, 7)
+    assert record["fit_failed"] is True
+    assert record["measurements"] == 1  # the repeat is kept, not dropped
+    for key in ("zeeman_shift", "zero_field_freq", "peak_x", "x1_hat", "uncert_zeeman_shift"):
+        assert key not in record
+
+
+def test_finalize_record_with_fit_keeps_belief_fallbacks():
+    record = run_result_to_finalize_record(_stub_run_result(), {"fit_failed": False}, 7)
+    assert record["zeeman_shift"] == 30.0e6
+    assert record["uncert_zeeman_shift"] == 3.0
