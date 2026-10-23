@@ -4,6 +4,8 @@ The locator uses a full model fit (scipy curve_fit) rather than centroid heurist
 These tests verify accuracy in physically realistic regimes.
 """
 
+import math
+
 import numpy as np
 import pytest
 from numpy.random import default_rng
@@ -745,15 +747,46 @@ def _fixed_center_voigt_locator(true_zeeman_shift: float | None, noise_std: floa
     return locator
 
 
-def test_sweep_fit_raises_when_data_has_no_dip():
-    """Pure noise: the fit can only chase noise, so finalize() must raise rather than report a fit."""
+def _assert_fit_failed_without_estimate(locator):
+    """finalize() recorded a no-dip fit: flagged in result(), no fitted parameters, window still the whole domain."""
+    locator.finalize()
+    res = locator.result()
+    assert res["fit_failed"] is True
+    assert res["fit_chi2_gain"] < 9.0
+    assert res["signal_found"] is False
+    assert locator.fit_mode_estimates() is None
+    assert locator.fitted_estimates() is None
+    assert (res["acquisition_lo"], res["acquisition_hi"]) == (res["domain_lo"], res["domain_hi"])
+
+
+def test_sweep_fit_reports_no_estimate_when_data_has_no_dip():
+    """Pure noise: the fit can only chase noise, so finalize() records a failed fit rather than report one."""
+    _assert_fit_failed_without_estimate(_fixed_center_voigt_locator(None))
+
+
+def test_sweep_fit_no_dip_error_is_a_runtime_error_carrying_the_gain():
+    """The gate raises a RuntimeError subclass with the chi-square gain; other fit failures stay plain RuntimeErrors."""
+    from nvision.sim.locs.coarse.generic_sweep_locator import SweepFitNoDipError
+
     locator = _fixed_center_voigt_locator(None)
-    with pytest.raises(RuntimeError, match="no better than a flat baseline"):
-        locator.finalize()
+    ys = locator.history.ys
+    with pytest.raises(SweepFitNoDipError, match="no better than a flat baseline") as err:
+        locator._require_fit_beats_flat_baseline(np.full_like(ys, ys.mean()), ys, np.array([1.0]), ["p"])
+    assert isinstance(err.value, RuntimeError)
+    assert err.value.chi2_gain == pytest.approx(0.0)
 
 
-def test_sweep_fit_raises_when_fit_is_stuck_at_a_bad_start(monkeypatch):
-    """Re-create the bounds-midpoint start (no ``zeeman_shift`` seed): the stalled fit must raise, not give ~30 MHz.
+def test_sweep_fit_successful_fit_is_not_flagged_failed():
+    locator = _fixed_center_voigt_locator(18.15e6)
+    locator.finalize()
+    res = locator.result()
+    assert res["fit_failed"] is False
+    assert math.isnan(res["fit_chi2_gain"])
+    assert locator.fit_mode_estimates() is not None
+
+
+def test_sweep_fit_flags_failure_when_fit_is_stuck_at_a_bad_start(monkeypatch):
+    """Re-create the bounds-midpoint start (no ``zeeman_shift`` seed): the stalled fit is flagged failed, not ~30 MHz.
 
     The rescue starts of ``_zeeman_profile_starts`` would find the dip from here, so they are switched off to keep
     the fit stuck.
@@ -764,9 +797,7 @@ def test_sweep_fit_raises_when_fit_is_stuck_at_a_bad_start(monkeypatch):
         staticmethod(lambda seeds, *_args: seeds),
     )
     monkeypatch.setattr(GenericSweepLocator, "_zeeman_profile_starts", staticmethod(lambda *_args: []))
-    locator = _fixed_center_voigt_locator(18.15e6)
-    with pytest.raises(RuntimeError, match="no better than a flat baseline"):
-        locator.finalize()
+    _assert_fit_failed_without_estimate(_fixed_center_voigt_locator(18.15e6))
 
 
 @pytest.mark.parametrize("true_zeeman_shift", [0.5e6, 1.0e6, 2.0e6])
