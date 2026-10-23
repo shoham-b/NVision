@@ -16,7 +16,7 @@ from nvision import CoreExperiment, NVCenterCoreGenerator
 from nvision.belief.focus_window import FocusRegion
 from nvision.models.noise import CompositeNoise, CompositeOverFrequencyNoise
 from nvision.noises import OverFrequencyGaussianNoise
-from nvision.sim.locs.bayesian.belief_builders import nv_center_smc_belief
+from nvision.sim.locs.bayesian.belief_builders import nv_center_smc_belief, nv_lineshape_for_model
 from nvision.sim.locs.bayesian.sbed_locator import (
     SequentialBayesianExperimentDesignLocator,
     SmartSBEDLocator,
@@ -41,7 +41,9 @@ def _experiment(seed: int = 3, hwhm: float = 2.75e6, contrast: float = 0.4):
     return exp, true_signal.bounds
 
 
-def _locator(cls, bounds, max_steps: int = 120):
+def _locator(cls, bounds, max_steps: int = 120, lineshape: str = "lorentzian"):
+    """``lineshape`` must match the true signal's (``nv_lineshape_for_model(true_signal.model)``): a Voigt signal
+    needs a Voigt belief, or the fit runs on the wrong parameters (``hwhm``, not ``hwhm_lorentz``/``sigma_inhom``)."""
     return cls.create(
         builder=nv_center_smc_belief,
         max_steps=max_steps,
@@ -49,6 +51,7 @@ def _locator(cls, bounds, max_steps: int = 120):
         noise_model=gaussian_noise(),
         num_particles=400,
         seed=7,
+        lineshape=lineshape,
     )
 
 
@@ -180,7 +183,10 @@ def test_smart_sweep_refine_points_come_from_the_model_not_a_lorentzian_formula(
         drive_freq_min_phys=gen.drive_freq_min_phys,
         drive_freq_max_phys=gen.drive_freq_max_phys,
     )
-    loc = _locator(SmartSweepLocator, true_signal.bounds, max_steps=200)
+    loc = _locator(
+        SmartSweepLocator, true_signal.bounds, max_steps=200, lineshape=nv_lineshape_for_model(true_signal.model)
+    )
+    assert {"hwhm_lorentz", "sigma_inhom", "zeeman_shift", "contrast_total"} <= set(loc.belief.model.parameter_names())
     trace = _drive(loc, exp, random.Random(11), 200)
     assert loc.refine_steps, "the Voigt dip must also reach refine mode"
     refine_x = np.array([trace[i][1] for i in loc.refine_steps])
