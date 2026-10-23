@@ -137,8 +137,13 @@ Key sections inside `main()` (in order of appearance):
      spacings the current code studies, so older spacings left in the cache are hidden. Shows per locator the
      median and p75 cost, the capped share, how often a dip was found, the search cost, and whether the claimed σ
      is right (share of runs with |error| ≤ 1σ / 2σ, nominal 68% / 95%), plus cost, search cost and that 1σ share
-     against SNR = contrast / noise σ (optionally split by `sigma_inhom` or isotope). Runs stop once σ is below
-     the target, so the error at the end is not shown: only whether σ is honest.
+     against SNR = contrast / noise σ. The SNR charts follow the SNR x window study: x = SNR (log), one panel per
+     window (`grid_window_fwhm`, absolute MHz in the tooltip), lines = locators at ONE line shape chosen by a button
+     group (default the middle share; the shape is named by its Lorentzian share of the FWHM, `1 - grid_gaussian_share`,
+     with `hwhm_lorentz` / `sigma_inhom` in the tooltip). "Compare shapes" turns the lines into the shapes of one
+     chosen locator. The table follows the chosen shape. Runs without `grid_window_fwhm` / `grid_gaussian_share`
+     (older caches) get one panel and no shape controls. Runs stop once σ is below the target, so the error at the
+     end is not shown: only whether σ is honest.
    * **Stages** (`renderStagesTab`, `renderHlStages`) — the search / focus / refine comparison
      (`docs/locator_comparison.md`).
    * **Accuracy** (`renderAccuracyTab`) — whether the stop is reliable: true error at the stop in units of τ,
