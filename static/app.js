@@ -2351,8 +2351,8 @@ function main() {
         }
     }
 
-    // The shared contrast_total of the selected generators, when they all record one (the SNR study fixes it): the
-    // noise buttons then read as SNR = contrast / sigma, in ascending SNR order, the Gauss(sigma) name in the tooltip.
+    // The shared contrast_total of the selected generators, when they all record one: an older Gauss(sigma) run of
+    // a fixed contrast is then labelled by its SNR = contrast / sigma too.
     function selectedSharedContrast() {
         const info = window.NVISION_GENERATOR_GRID_INFO || {};
         const contrasts = getSelectedScanGenerators().map((g) => info[g] && info[g].grid_contrast_total);
@@ -2360,21 +2360,30 @@ function main() {
         return new Set(contrasts).size === 1 ? contrasts[0] : null;
     }
 
+    // The noise buttons: one per SNR for the SNR studies (`SNR(x)` names), ascending, the name as the tooltip; an
+    // older `Gauss(sigma)` name keeps its sigma order unless the selected signals share a contrast (then SNR order).
     function renderMultiSelectNoiseControl(control, items, previousValues) {
+        const snrOf = (name) => {
+            const m = name.match(/^SNR\(([\d.e+-]+)\)/);
+            return m ? parseFloat(m[1]) : null;
+        };
         const sigmaOf = (name) => {
             const m = name.match(/Gauss\(([\d.]+)\)/);
             return m ? parseFloat(m[1]) : null;
         };
         const contrast = selectedSharedContrast();
         const bySigma = (a, b) => {
+            const na = snrOf(a);
+            const nb = snrOf(b);
+            if (na != null && nb != null) return na - nb;
             const sa = sigmaOf(a);
             const sb = sigmaOf(b);
             if (sa != null && sb != null) return contrast != null ? sb - sa : sa - sb;
-            if (sa != null) return -1;
-            if (sb != null) return 1;
+            if (sa != null || na != null) return -1;
+            if (sb != null || nb != null) return 1;
             return a.localeCompare(b);
         };
-        const label = contrast != null ? (name) => window.nvisionNoiseSnrLabel(name, contrast) || name : null;
+        const label = (name) => window.nvisionNoiseSnrLabel(name, contrast) || name;
         return renderMultiSelectButtonControl(control, items, previousValues, bySigma, label);
     }
 
@@ -6017,6 +6026,9 @@ function main() {
     }
     function sortNoiseLabels(noises) {
         return [...noises].sort((a, b) => {
+            const sa = String(a).match(/^SNR\(([\d.e+-]+)\)/);
+            const sb = String(b).match(/^SNR\(([\d.e+-]+)\)/);
+            if (sa && sb) return parseFloat(sa[1]) - parseFloat(sb[1]);
             const ga = String(a).match(/Gauss\(([\d.]+)\)/);
             const gb = String(b).match(/Gauss\(([\d.]+)\)/);
             if (ga && gb) return parseFloat(ga[1]) - parseFloat(gb[1]);
@@ -6184,6 +6196,7 @@ function main() {
 
     // SNR = dip contrast / noise σ; Infinity without noise, null when the run records no contrast or noise.
     function ssSnr(row) {
+        if (row.snr != null) return row.snr;
         const c = row.grid_contrast_total;
         const s = row.noise_sigma;
         if (c == null || s == null) return null;

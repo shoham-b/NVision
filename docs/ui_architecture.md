@@ -92,8 +92,10 @@ the `voigt-grid` generator and the `lorentzian-drift` generator, so their repeat
 
 The pickers follow the SNR x window study: the window axis (`window`, `grid_window_fwhm`, in FWHM) sits first, an
 axis with a single value in the family (the study's fixed HWHM and contrast) is listed as "fixed: ..." instead of
-getting a one-button picker, and when every selected generator records one `contrast_total` the noise buttons read
-`SNR <contrast / sigma>` (`nvisionNoiseSnrLabel`, ascending SNR) with the `Gauss(sigma)` name as the tooltip.
+getting a one-button picker. A run of the SNR studies is picked by SNR alone: the noise buttons are its `SNR(x)`
+names (`SNR x`, ascending), and the study's fixed linewidth and contrast are not axes at all
+(`nvisionGeneratorAxes` drops them for a generator with a `grid_window_fwhm`). An older `Gauss(sigma)` run of a fixed
+contrast is labelled by its SNR as well (`nvisionNoiseSnrLabel`).
 
 `app.js`'s generator/study picker (`updateScanSignalControls`) still builds its options from
 *every* generator in the cache (`window.NVISION_ALL_GENERATORS`), not just the loaded ones, so

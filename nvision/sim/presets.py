@@ -458,13 +458,19 @@ def noises_single_each() -> list[tuple[str, CompositeNoise | None]]:
     return noises
 
 
-def snr_study_noises() -> list[tuple[str, CompositeNoise | None]]:
-    """Noise grid of the SNR x window study: ``Gauss(NVISION_SBED_SNR_CONTRAST / SNR)`` per SNR level.
+def snr_noise_name(snr: float, drift_label: str | None = None) -> str:
+    """The name of the noise level of a given SNR: ``SNR(20)`` (``SNR(20)+Drift(label)`` with a drift scenario)."""
+    name = f"SNR({snr:g})"
+    return name if drift_label is None else f"{name}+Drift({drift_label})"
 
-    SNR = ``contrast_total`` / per-shot Gaussian sigma, with the contrast shared by every generator of
-    :func:`voigt_snr_window_param_grid_generators`. The sigma is not rounded below micro-units, so the SNR read
-    back from the noise name (``contrast_total / noise_sigma``) is the grid value. The ``drive-control`` group uses
-    the same levels, where the SNR is nominal: the contrast of a drive-controlled signal comes from the drive.
+
+def snr_study_noises() -> list[tuple[str, CompositeNoise | None]]:
+    """Noise grid of the SNR studies: one ``SNR(x)`` per level of ``NVISION_SBED_SNR_VALUES``.
+
+    A run is identified by its SNR; the Gaussian sigma (``contrast / SNR``) is derived per signal when the
+    combination is resolved (``CombinationGrid.resolve``), so the objects returned here are at the reference contrast
+    ``NVISION_SBED_SNR_CONTRAST``, only for listing. The ``drive-control`` group uses the same levels, where the SNR is
+    nominal: the contrast of a drive-controlled signal comes from the drive.
     """
     from nvision.sim.defaults import NVISION_SBED_SNR_CONTRAST, NVISION_SBED_SNR_VALUES
 
@@ -472,15 +478,7 @@ def snr_study_noises() -> list[tuple[str, CompositeNoise | None]]:
     for snr in NVISION_SBED_SNR_VALUES:
         if snr <= 0:
             raise ValueError(f"SNR levels must be positive, got {snr}")
-        sigma_val = float(round(NVISION_SBED_SNR_CONTRAST / snr, 6))
-        noises.append(
-            (
-                f"Gauss({sigma_val})",
-                CompositeNoise(
-                    over_frequency_noise=CompositeOverFrequencyNoise([OverFrequencyGaussianNoise(sigma_val)])
-                ),
-            )
-        )
+        noises.append((snr_noise_name(snr), gauss_with_drift(NVISION_SBED_SNR_CONTRAST / snr, None)))
     return noises
 
 
@@ -585,20 +583,26 @@ def drift_scenario(label: str) -> DriftSpec | None:
     return None
 
 
-def drift_noise_name(sigma: float, label: str) -> str:
-    return f"Gauss({sigma})+Drift({label})"
+def drift_noise_name(snr: float, label: str) -> str:
+    return snr_noise_name(snr, label)
 
 
 def drift_study_noises() -> list[tuple[str, CompositeNoise | None]]:
-    """A no-drift control plus every drift scenario, all at one SNR (NVISION_DRIFT_SNR against the study contrast)."""
+    """A no-drift control plus every drift scenario, all at one SNR (``NVISION_DRIFT_SNR``).
+
+    Named ``SNR(x)`` / ``SNR(x)+Drift(label)``; as in :func:`snr_study_noises` the sigma is derived per signal at
+    resolve time and the objects here are at the reference contrast.
+    """
     from nvision.sim.defaults import NVISION_DRIFT_SNR, NVISION_SBED_SNR_CONTRAST
 
     if NVISION_DRIFT_SNR <= 0:
         raise ValueError(f"NVISION_DRIFT_SNR must be positive, got {NVISION_DRIFT_SNR}")
-    sigma = float(round(NVISION_SBED_SNR_CONTRAST / NVISION_DRIFT_SNR, 6))
-    noises: list[tuple[str, CompositeNoise | None]] = [(f"Gauss({sigma})", gauss_with_drift(sigma, None))]
+    sigma = NVISION_SBED_SNR_CONTRAST / NVISION_DRIFT_SNR
+    noises: list[tuple[str, CompositeNoise | None]] = [
+        (snr_noise_name(NVISION_DRIFT_SNR), gauss_with_drift(sigma, None))
+    ]
     for spec in drift_scenarios():
-        noises.append((drift_noise_name(sigma, spec.label), gauss_with_drift(sigma, spec)))
+        noises.append((drift_noise_name(NVISION_DRIFT_SNR, spec.label), gauss_with_drift(sigma, spec)))
     return noises
 
 

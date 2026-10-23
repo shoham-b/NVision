@@ -221,17 +221,23 @@ def generate_attempt_metrics(
     # kept separate from the numeric grid_* loop above.
     metrics_serialized["grid_variant"] = getattr(generator_obj, "variant", None)
 
-    # Numeric noise level for trend-vs-noise analysis (None for non-Gauss noises).
-    from nvision.sim.combinations import parse_gauss_sigma
+    # Numeric noise level for trend-vs-noise analysis (None for non-Gaussian noises). An ``SNR(x)`` run has no sigma
+    # in its name: it is the one derived for this signal, ``contrast / x``.
+    from nvision.sim.combinations import noise_sigma_for, parse_snr
 
-    metrics_serialized["noise_sigma"] = parse_gauss_sigma(noise_name)
-    # SNR = contrast_total / noise sigma, the axis the SNR x window study is posed in (the UI's SNR charts use
-    # the same quotient). None without a fixed contrast, a Gauss noise, or with a noiseless (sigma 0) run.
+    metrics_serialized["noise_sigma"] = noise_sigma_for(generator_obj, noise_name)
+    # SNR = contrast_total / noise sigma, the axis the SNR studies are posed in (the UI's SNR charts use the same
+    # quotient). An ``SNR(x)`` run is x by its name; an older ``Gauss(sigma)`` run gets it from its fixed contrast,
+    # None without one, and for a noiseless (sigma 0) run.
     grid_contrast = metrics_serialized["grid_contrast_total"]
     noise_sigma = metrics_serialized["noise_sigma"]
-    metrics_serialized["snr"] = (
-        float(grid_contrast) / noise_sigma if grid_contrast is not None and noise_sigma else None
-    )
+    named_snr = parse_snr(noise_name)
+    if named_snr is not None:
+        metrics_serialized["snr"] = named_snr
+    else:
+        metrics_serialized["snr"] = (
+            float(grid_contrast) / noise_sigma if grid_contrast is not None and noise_sigma else None
+        )
 
     # Ground-truth signal parameters for this repeat. zero_field_freq/zeeman_shift vary per
     # repeat (fixed params equal their grid_ columns) — recording them lets analysis

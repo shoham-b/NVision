@@ -58,7 +58,10 @@ window.nvisionGeneratorAxes = function (rawGridInfo) {
         variant = 'drive';
     }
     const axes = [];
+    // The SNR study fixes the linewidth and the contrast; a run is picked by SNR and window, so neither is an axis.
+    const studyFixed = gridInfo.grid_window_fwhm != null ? new Set(['width', 'contrast']) : new Set();
     for (const key of window.NVISION_GRID_AXIS_ORDER) {
+        if (studyFixed.has(key)) continue;
         const info = window.NVISION_GRID_AXIS_INFO[key];
         const raw = gridInfo[info.metricsKey];
         if (raw == null) continue;
@@ -73,9 +76,12 @@ window.nvisionGeneratorAxes = function (rawGridInfo) {
     };
 };
 
-// "SNR 20" for a Gauss(sigma) noise name when the signal's contrast_total is fixed (SNR = contrast / sigma, the
-// quotient the study is posed in and the SNR charts use); "no noise" for sigma 0; null when the name is not Gauss(sigma).
+// "SNR 20" for an `SNR(20)` noise name (the name of a run of the SNR studies, which carries no sigma); for an older
+// `Gauss(sigma)` name only when the signal's contrast_total is given (SNR = contrast / sigma, "no noise" for sigma 0);
+// null otherwise.
 window.nvisionNoiseSnrLabel = function (noiseName, contrastTotal) {
+    const snr = /^SNR\(([0-9]*\.?[0-9]+(?:e[+-]?[0-9]+)?)\)/.exec(noiseName);
+    if (snr) return `SNR ${Number(snr[1])}`;
     const m = /^Gauss\(([0-9]*\.?[0-9]+(?:e[+-]?[0-9]+)?)\)/.exec(noiseName);
     if (!m || !(contrastTotal > 0)) return null;
     const sigma = parseFloat(m[1]);

@@ -207,10 +207,12 @@ def test_target_params_converged_lorentzian_path_unchanged():
 def test_parse_gauss_sigma_roundtrips_preset_names():
     from nvision.sim import presets
 
-    for name, _ in presets.snr_study_noises():
+    for name in ("Gauss(0.0)", "Gauss(0.002)", "Gauss(0.0125)", "Gauss(0.2)"):
         sigma = parse_gauss_sigma(name)
         assert sigma is not None
         assert name == f"Gauss({sigma})"
+    assert presets.snr_study_noises()
+    assert all(parse_gauss_sigma(name) is None for name, _ in presets.snr_study_noises())
 
 
 def test_parse_gauss_sigma_non_gauss():

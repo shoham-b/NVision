@@ -26,9 +26,11 @@ The `voigt-grid` signals and noise are posed in the two dimensionless numbers th
 not in contrast, noise sigma and linewidth separately:
 
 - **SNR = `contrast_total` / noise sigma.** Every signal carries the same `contrast_total`
-  (`NVISION_SBED_SNR_CONTRAST`, 0.25) and each noise level is `Gauss(contrast_total / SNR)` for the SNR values in
-  `NVISION_SBED_SNR_VALUES`. How noise and contrast combine into the SNR does not matter to the study, so only the
-  quotient is varied. Results record it as `snr` (and the contrast as `grid_contrast_total`). `contrast_total` is
+  (`NVISION_SBED_SNR_CONTRAST`, 0.25) and a run is named by its SNR, `SNR(20)`, for the SNR values in
+  `NVISION_SBED_SNR_VALUES`. How noise and contrast combine into the SNR does not matter to the study, so the
+  runs are not a grid of noise levels and contrasts: the name carries only the SNR, and the Gaussian sigma
+  (`contrast_total / SNR`) is derived for each signal when the run is resolved. The name therefore keeps its meaning
+  if the contrast constant is changed. Results record it as `snr` (and the contrast as `grid_contrast_total`). `contrast_total` is
   shared among the Zeeman groups and, for a resolved isotope, the hyperfine lines, so one dip is shallower than
   the SNR suggests: half of it for a merged line, and (measured at hwhm 1 MHz) roughly a quarter to a third for a
   resolved N-14 or N-15 multiplet.
@@ -175,6 +177,6 @@ Manual check that UI and CLI agree on a tiny run:
 
 ```bash
 NVISION_SBED_SNR_VALUES=20 uv run nv run --run-group voigt-grid --filter-signal fw10 --repeats 3 --runners 2 --out scratch/x
-uv run nv compare --out scratch/x --filter-signal fw10 --filter-noise "Gauss(0.0125)"
-uv run nv serve --dir scratch/x   # Stages view, a fw10 generator, noise Gauss(0.0125), compare the tables
+uv run nv compare --out scratch/x --filter-signal fw10 --filter-noise "SNR(20)"
+uv run nv serve --dir scratch/x   # Stages view, a fw10 generator, noise SNR(20), compare the tables
 ```

@@ -13,8 +13,15 @@ from nvision.noises.drift import (
     DriftSpec,
     attach_drift_for_repeat,
 )
+from nvision.sim import defaults as sim_defaults
 from nvision.sim import presets
-from nvision.sim.combinations import _parse_noise, parse_drift_label, parse_gauss_sigma
+from nvision.sim.combinations import (
+    CombinationGrid,
+    _parse_noise,
+    parse_drift_label,
+    parse_gauss_sigma,
+    parse_snr,
+)
 from nvision.sim.gen.nv_center_generator import NVCenterCoreGenerator
 
 
@@ -175,12 +182,24 @@ def test_splitting_drift_on_a_single_dip_signal_fails_loudly():
 def test_drift_noise_names_round_trip():
     names = [name for name, _ in presets.drift_study_noises()]
     assert len(names) == 1 + len(presets.drift_scenarios())
+    grid = CombinationGrid()
+    generator = next(iter(presets.voigt_snr_window_param_grid_generators()))[0]
     for name, noise in presets.drift_study_noises():
-        parsed = _parse_noise(name)
-        assert parsed is not None
-        assert parse_gauss_sigma(name) == noise.over_frequency_noise._parts[0].std
+        assert parse_snr(name) == sim_defaults.NVISION_DRIFT_SNR
+        assert parse_gauss_sigma(name) is None
         assert parse_drift_label(name) == (None if noise.drift is None else noise.drift.label)
-        assert parsed.drift == noise.drift
+        combo = grid.resolve(generator, name, "Bayesian-SBED")
+        assert combo is not None
+        assert combo.noise.drift == noise.drift
+        assert combo.noise.over_frequency_noise._parts[0].std == pytest.approx(
+            sim_defaults.NVISION_SBED_SNR_CONTRAST / sim_defaults.NVISION_DRIFT_SNR
+        )
+    # The older Gauss(sigma) names still resolve.
+    for gauss in ("Gauss(0.006)+Drift(warmup)", "Gauss(0.006)"):
+        parsed = _parse_noise(gauss)
+        assert parsed is not None
+        assert parse_drift_label(gauss) == (None if "Drift" not in gauss else "warmup")
+        assert parsed.drift == (None if "Drift" not in gauss else presets.drift_scenario("warmup"))
     assert _parse_noise("Gauss(0.01)+Drift(no-such-scenario)") is None
     assert parse_gauss_sigma("Gauss(0.01)") == 0.01
 

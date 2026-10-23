@@ -87,7 +87,7 @@ def _voigt_snr_window_param_grid() -> dict[str, object]:
 
 
 def _snr_noise_names() -> list[str]:
-    """Noise grid of the SNR study: one Gauss(sigma) per SNR level (see sim.presets.snr_study_noises)."""
+    """Noise grid of the SNR studies: one SNR(x) per level (see sim.presets.snr_study_noises)."""
     return [name for name, _ in sim_presets.snr_study_noises()]
 
 
@@ -205,12 +205,10 @@ def get_run_group(name: str) -> RunGroup:
 
 
 def snr_of_noise(noise_name: str) -> float | None:
-    """The SNR (``NVISION_SBED_SNR_CONTRAST`` / sigma) of a ``Gauss(sigma)`` noise name; ``None`` if it has none."""
-    from nvision.sim.combinations import parse_gauss_sigma
-    from nvision.sim.defaults import NVISION_SBED_SNR_CONTRAST
+    """The SNR of an ``SNR(x)`` noise name; ``None`` for any other name."""
+    from nvision.sim.combinations import parse_snr
 
-    sigma = parse_gauss_sigma(noise_name)
-    return NVISION_SBED_SNR_CONTRAST / sigma if sigma else None
+    return parse_snr(noise_name)
 
 
 def select_snr_window(

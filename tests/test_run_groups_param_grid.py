@@ -79,16 +79,41 @@ def test_voigt_grid_group_noise_axis_is_snr(monkeypatch):
     sim_run_groups.clear_run_group_cache()
     group = sim_run_groups.get_run_group("voigt-grid")
 
-    assert group.noise_names == ["Gauss(0.05)", "Gauss(0.025)", "Gauss(0.005)"]
+    assert group.noise_names == ["SNR(5)", "SNR(10)", "SNR(50)"]
     sim_run_groups.clear_run_group_cache()
 
 
-def test_snr_noise_names_read_back_as_the_grid_snr():
-    from nvision.sim.combinations import parse_gauss_sigma
+def test_snr_noise_names_are_the_grid_snr_and_sigma_is_derived_per_signal():
+    """A run is named by its SNR; the sigma is the signal's contrast / SNR, not part of the name."""
+    from nvision.sim.combinations import noise_sigma_for, parse_snr
 
     snrs = sim_defaults.NVISION_SBED_SNR_VALUES
-    sigmas = [parse_gauss_sigma(name) for name, _ in sim_presets.snr_study_noises()]
-    assert [sim_defaults.NVISION_SBED_SNR_CONTRAST / s for s in sigmas] == pytest.approx(list(snrs), rel=1e-9)
+    names = [name for name, _ in sim_presets.snr_study_noises()]
+    assert [parse_snr(n) for n in names] == list(snrs)
+    gen = next(g for _, g in sim_presets.voigt_snr_window_param_grid_generators())
+    assert [noise_sigma_for(gen, n) for n in names] == pytest.approx([gen.contrast_total / s for s in snrs])
+
+
+def test_snr_noise_resolves_to_the_sigma_of_each_signal(monkeypatch):
+    """The same name is the same SNR for a signal with another contrast, and keeps it if the constant moves."""
+    from nvision.sim.gen.nv_center_generator import NVCenterCoreGenerator
+
+    grid = CombinationGrid(
+        extra_generators={
+            "NVCenter-voigt-fw10-test-c0.2": NVCenterCoreGenerator(variant="voigt", contrast_total=0.2),
+            "NVCenter-voigt-fw10-test-free": NVCenterCoreGenerator(variant="voigt"),
+        }
+    )
+
+    def sigma(gen: str) -> float:
+        return grid.resolve(gen, "SNR(20)", "Bayesian-SBED").noise.over_frequency_noise._parts[0].std
+
+    assert sigma("NVCenter-voigt-fw10-test-c0.2") == pytest.approx(0.2 / 20)
+    # A signal with no fixed contrast: the SNR is nominal, against the study contrast.
+    assert sigma("NVCenter-voigt-fw10-test-free") == pytest.approx(sim_defaults.NVISION_SBED_SNR_CONTRAST / 20)
+    monkeypatch.setattr(sim_defaults, "NVISION_SBED_SNR_CONTRAST", 0.5)
+    assert sigma("NVCenter-voigt-fw10-test-free") == pytest.approx(0.5 / 20)
+    assert grid.resolve("NVCenter-voigt-fw10-test-c0.2", "SNR(20)+Drift(no-such)", "Bayesian-SBED") is None
 
 
 def test_snr_noises_reject_non_positive_snr(monkeypatch):
@@ -339,5 +364,6 @@ def test_drift_study_noise_is_posed_as_an_snr(monkeypatch):
     monkeypatch.setattr(sim_defaults, "NVISION_DRIFT_SNR", 50.0)
     monkeypatch.setattr(sim_defaults, "NVISION_SBED_SNR_CONTRAST", 0.25)
     names = [n for n, _ in sim_presets.drift_study_noises()]
-    assert names[0] == "Gauss(0.005)"
-    assert all(n.startswith("Gauss(0.005)") for n in names)
+    assert names[0] == "SNR(50)"
+    assert all(n.startswith("SNR(50)") for n in names)
+    assert names[1:] == [f"SNR(50)+Drift({spec.label})" for spec in sim_presets.drift_scenarios()]
