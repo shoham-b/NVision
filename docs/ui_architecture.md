@@ -133,21 +133,34 @@ Key sections inside `main()` (in order of appearance):
    * **Locators** (`renderStepSizeTab`, `ss*` helpers) — every locator's measured metrics side by side, each
      plain-sweep spacing k its own locator, with toggle chips to show or hide each one; nothing is ranked. Reads
      `/api/run-rows` (per-repeat scalars: measurements, final error and claimed σ, focus-found step, contrast,
-     noise σ, grid axes) over the loaded family or the current selection; `/api/sweep-spacings` lists the sweep
-     spacings the current code studies, so older spacings left in the cache are hidden. Shows per locator the
-     median and p75 cost, the capped share, how often a dip was found, the search cost, and whether the claimed σ
-     is right (share of runs with |error| ≤ 1σ / 2σ, nominal 68% / 95%), plus cost, search cost and that 1σ share
-     against SNR = contrast / noise σ. The SNR charts follow the SNR x window study: x = SNR (log), one panel per
-     window (`grid_window_fwhm`, absolute MHz in the tooltip), lines = locators at ONE line shape chosen by a button
-     group (default the middle share; the shape is named by its Lorentzian share of the FWHM, `1 - grid_gaussian_share`,
-     with `hwhm_lorentz` / `sigma_inhom` in the tooltip). "Compare shapes" turns the lines into the shapes of one
-     chosen locator. The table follows the chosen shape. Runs without `grid_window_fwhm` / `grid_gaussian_share`
-     (older caches) get one panel and no shape controls. Runs stop once σ is below the target, so the error at the
-     end is not shown: only whether σ is honest.
+     noise σ, grid axes) over the loaded family; `/api/sweep-spacings` lists the sweep
+     spacings the current code studies, so older spacings left in the cache are hidden. A **use case** is one signal
+     at one noise level (window x line shape x SNR in the SNR x window study; generator x noise elsewhere). The
+     **table** is per use case: one block per use case of the current Signal / Noise selection (the pickers above
+     the view), never pooled, because a cost, capped share or σ coverage over mixed windows and SNRs means nothing.
+     Per locator it shows the median and p75 cost, the capped share, how often a dip was found, the search cost, and
+     whether the claimed σ is right (share of runs with |error| ≤ 1σ / 2σ / 3σ, nominal 68% / 95% / 99.7%). Selecting
+     several noise levels or windows gives several blocks. The **charts** ("Across use cases") span the whole family:
+     cost, search cost and the 1σ share against SNR = contrast / noise σ, each point one use case, with a dotted
+     vertical line at the SNR of the selected use case in the panel of its window. They follow the SNR x window study:
+     x = SNR (log), one panel per window (`grid_window_fwhm`, absolute MHz in the tooltip), lines = locators at ONE
+     line shape chosen by a button group (default the selected use case's shape; the shape is named by its Lorentzian
+     share of the FWHM, `1 - grid_gaussian_share`, with `hwhm_lorentz` / `sigma_inhom` in the tooltip). "Compare
+     shapes" turns the lines into the shapes of one chosen locator. Runs without `grid_window_fwhm` /
+     `grid_gaussian_share` (older caches) get one panel and no shape controls. Runs stop once σ is below the target,
+     so the error at the end is not shown: only whether σ is honest.
    * **Stages** (`renderStagesTab`, `renderHlStages`) — the search / focus / refine comparison
      (`docs/locator_comparison.md`).
    * **Accuracy** (`renderAccuracyTab`) — whether the stop is reliable: true error at the stop in units of τ,
      claimed σ against the true error over measurements, and claimed σ against the true error.
+
+   Stages and Accuracy, like the Locators table, are **one block per selected use case** (generator x noise): the
+   markup inside `#stages-body` / `#accuracy-body` is a template that `ucRenderBlocks` clones once per use case of
+   the Signal / Noise selection (`ucList`), titled with the use case and with every element id suffixed
+   `--uc<i>`; the render functions take that suffix (`renderHlStages(gen, noises, sfx)`, `renderHlStopQuality(...,
+   sfx)`). Nothing is pooled across use cases. The controls that are one setting for the view (Stages "Show:", the
+   Accuracy deviation-band toggle) redraw every block. New elements inside either body must therefore be looked up
+   by `id + sfx`.
    * **Failed Runs** (`renderFailedRunsTab`).
 
    Stages and Accuracy read `series`/`true_params`/stage fields from `/api/scan-fields` (`ensureScanFieldsFor`),
