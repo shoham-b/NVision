@@ -67,10 +67,6 @@ NVISION_SWEEP_MAX_STEPS: int = int(os.getenv("NVISION_SWEEP_MAX_STEPS", "500"))
 # Measurement budget of every locator in a run (the SBED family's max_steps, the plain sweeps' total measurements,
 # capped in whole passes): one shared budget, so no locator is compared on a longer leash than another.
 NVISION_MAX_MEASUREMENTS: int = int(os.getenv("NVISION_MAX_MEASUREMENTS", "2500"))
-# The same budget, for signals whose window is N FWHM wide (the SNR x window study): N x this many
-# measurements, so a narrow window is not given the leash of a wide one. Still one budget per signal
-# for every locator. The default makes a 20-FWHM window match NVISION_MAX_MEASUREMENTS.
-NVISION_MEASUREMENTS_PER_FWHM: float = float(os.getenv("NVISION_MEASUREMENTS_PER_FWHM", "125"))
 
 # Step budget for the Bayesian-SBED locator (nvision/sim/combinations.py).
 # Read through the module (``sim_defaults.NVISION_SBED_MAX_STEPS``) rather than

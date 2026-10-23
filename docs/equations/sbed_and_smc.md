@@ -279,7 +279,7 @@ The locator has exactly one noise estimate: the belief's Inverse-Gamma posterior
 
 ### 3.4 Step Budget
 
-**Measurement budget.** Every locator in a run has the same budget, `NVISION_MAX_MEASUREMENTS` (default 2500): it is the SBED family's `max_steps` and caps a plain sweep's total measurements (in whole passes), so no locator is compared on a longer leash than another. For a signal whose window is a stated number N of FWHM wide (the SNR x window study) it is N × `NVISION_MEASUREMENTS_PER_FWHM` (default 125), the same for every locator on that signal. (It replaced the domain-derived SBED budget `ceil(domain / min_hwhm) × NVISION_SBED_STEPS_FRACTION`, 750 on the standard grid, which left the sweeps 2500.)
+**Measurement budget.** Every locator in a run has the same budget, `NVISION_MAX_MEASUREMENTS` (default 2500): it is the SBED family's `max_steps` and caps a plain sweep's total measurements (in whole passes), so no locator is compared on a longer leash than another. It is the same for every signal and every window of the SNR x window study, so censored runs at different windows are on one scale. (It replaced the domain-derived SBED budget `ceil(domain / min_hwhm) × NVISION_SBED_STEPS_FRACTION`, 750 on the standard grid, which left the sweeps 2500.)
 
 ### 3.5 Dip Detection (`find_dips`, `belief/dip_detection.py`)
 

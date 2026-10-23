@@ -42,6 +42,7 @@ REMOVED_ENV_VARS: dict[str, str] = {
     "NVISION_SBED_NOISE_MAX": "the study noise axis is SNR levels: NVISION_SBED_SNR_VALUES (sigma = contrast / SNR)",
     "NVISION_SBED_NOISE_STEPS": "the study noise axis is SNR levels: NVISION_SBED_SNR_VALUES (sigma = contrast / SNR)",
     "NVISION_DRIFT_GAUSS_SIGMA": "the drift study noise is posed as an SNR: NVISION_DRIFT_SNR (sigma = contrast / SNR)",
+    "NVISION_MEASUREMENTS_PER_FWHM": "the budget is the same for every window: NVISION_MAX_MEASUREMENTS",
 }
 
 

@@ -366,18 +366,26 @@ def test_drive_control_noise_axis_is_the_snr_grid():
     assert sim_run_groups.get_run_group("drive-control").noise_names == names
 
 
-def test_measurement_budget_scales_with_the_window_fwhm():
+def test_measurement_budget_is_the_same_for_every_window():
     from types import SimpleNamespace
 
     from nvision.runner.executor import _TaskRunner
     from nvision.sim.gen.nv_center_generator import NVCenterCoreGenerator
+    from nvision.sim.locs.bayesian.sbed_locator import SequentialBayesianExperimentDesignLocator
 
     def budget(generator) -> int:
-        return _TaskRunner._measurement_budget(SimpleNamespace(task=SimpleNamespace(generator=generator)))
+        runner = SimpleNamespace(
+            task=SimpleNamespace(
+                generator=generator,
+                strategy_spec=SimpleNamespace(locator_class=SequentialBayesianExperimentDesignLocator),
+            )
+        )
+        experiment = SimpleNamespace(drive_freq_min_phys=2.8e9, drive_freq_max_phys=2.9e9)
+        return _TaskRunner._resolve_sweep_max_steps(runner, experiment)
 
     by_window = {g.window_fwhm: budget(g) for _, g in sim_presets.voigt_snr_window_param_grid_generators()}
-    assert by_window == {n: round(sim_defaults.NVISION_MEASUREMENTS_PER_FWHM * n) for n in by_window}
-    assert len(set(by_window.values())) == len(by_window)  # one budget per window, narrower = smaller
+    assert len(by_window) > 1
+    assert set(by_window.values()) == {sim_defaults.NVISION_MAX_MEASUREMENTS}
     assert budget(NVCenterCoreGenerator()) == sim_defaults.NVISION_MAX_MEASUREMENTS
 
 

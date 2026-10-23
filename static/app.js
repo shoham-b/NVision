@@ -6154,7 +6154,25 @@ function main() {
     let ssRowsCache = null;   // { key, promise } of the last /api/run-rows request
     let ssScope = 'family';
     const ssHidden = new Set();   // locators the user switched off (new locators are shown by default)
-    let ssSplit = 'none';     // row field the SNR charts are split by: 'none' | 'grid_sigma_inhom' | 'grid_hyperfine'
+    // SNR x window study (rows carrying grid_window_fwhm and grid_gaussian_share): one panel per window, ONE line
+    // shape (Gaussian share) shown at a time, or with ssCompare one locator's lines for every shape.
+    let ssShare = null;       // Gaussian share (rounded, see ssShareKey) the charts show; null = the middle share
+    let ssCompare = false;    // "Compare shapes": the lines are the shapes of ssCompareLoc instead of the locators
+    let ssCompareLoc = null;  // locator whose shapes are compared; null = the first shown one
+    const SS_FWHM_PER_SIGMA = 2 * Math.sqrt(2 * Math.LN2);   // Gaussian FWHM = this x sigma_inhom
+
+    function ssShareKey(row) {
+        return row.grid_gaussian_share == null ? null : Math.round(row.grid_gaussian_share * 1e6) / 1e6;
+    }
+
+    // Total FWHM (Hz) of a study row: Lorentzian 2 x hwhm_lorentz + Gaussian 2.355 x sigma_inhom.
+    function ssTotalFwhm(row) {
+        if (row.grid_hwhm == null || row.grid_sigma_inhom == null) return null;
+        return 2 * row.grid_hwhm + SS_FWHM_PER_SIGMA * row.grid_sigma_inhom;
+    }
+
+    // A shape is named by its Lorentzian share of the FWHM (= 1 - Gaussian share).
+    const ssShapeLabel = (share) => `${Math.round(100 * (1 - share))}% Lorentzian`;
     let ssSigmaK = 'all';     // the σ chart counts runs with |error| <= k × claimed σ: 1, 2, 3 or 'all' together
     // Share of a Gaussian within k standard deviations: what a correct claimed σ gives at k = 1, 2, 3.
     const SS_GAUSS_WITHIN = { 1: 0.6827, 2: 0.9545, 3: 0.9973 };
@@ -6249,8 +6267,8 @@ function main() {
 
     function renderStepSizeTab() {
         ssSegmented(document.getElementById('ss-scope'), (v) => { ssScope = v; });
-        ssSegmented(document.getElementById('ss-split'), (v) => { ssSplit = v; });
         ssSegmented(document.getElementById('ss-sigma-k'), (v) => { ssSigmaK = v === 'all' ? 'all' : Number(v); });
+        ssBindShapeControls();
         const notice = document.getElementById('ss-notice');
         const clear = () => SS_PANEL_IDS.forEach((id) => {
             const el = document.getElementById(id);
@@ -6311,6 +6329,38 @@ function main() {
         }
     }
 
+    // Shape controls of the SNR x window study: a button per Gaussian share (reported as the Lorentzian share of the
+    // FWHM), the "Compare shapes" toggle and, while comparing, the locator whose shapes are the lines. Hidden when
+    // the runs carry no window / share (older caches).
+    function ssBindShapeControls() {
+        const box = document.getElementById('ss-shape-box');
+        if (!box || box._hasListener) return;
+        box.addEventListener('click', (e) => {
+            const share = e.target.closest('button[data-share]');
+            if (share) { ssShare = Number(share.dataset.share); renderStepSizeTab(); return; }
+            if (e.target.closest('button[data-compare]')) { ssCompare = !ssCompare; renderStepSizeTab(); }
+        });
+        box.addEventListener('change', (e) => {
+            if (e.target.id === 'ss-compare-loc') { ssCompareLoc = e.target.value; renderStepSizeTab(); }
+        });
+        box._hasListener = true;
+    }
+
+    // shapes: [{ share, tip }] ascending Gaussian share; selected: the share shown; cmpLoc: the compared locator.
+    function ssRenderShapeControls(study, shapes, selected, strategies, cmpLoc) {
+        const box = document.getElementById('ss-shape-box');
+        if (!study) { box.style.display = 'none'; box.innerHTML = ''; return; }
+        box.style.display = 'inline-flex';
+        const btn = (s) => `<button type="button" role="radio" aria-checked="${s.share === selected}" data-share="${s.share}"
+            class="${s.share === selected ? 'is-active' : ''}" tabindex="${s.share === selected ? 0 : -1}"
+            title="${escapeHtml(s.tip)}">${escapeHtml(ssShapeLabel(s.share))}</button>`;
+        const options = strategies.map((s) => `<option value="${escapeHtml(s)}"${s === cmpLoc ? ' selected' : ''}>${escapeHtml(ssLabel(s))}</option>`).join('');
+        box.innerHTML = `<span class="control-label" style="font-size:0.85em; color:#334155;" title="Lorentzian share of the FWHM = fwhm_L / (fwhm_L + fwhm_G) = 1 − Gaussian share. The total FWHM is the same for every shape.">Line shape</span>
+            <div class="segmented-control" role="radiogroup" aria-label="Line shape">${shapes.map(btn).join('')}</div>
+            <button type="button" data-compare="1" aria-pressed="${ssCompare}" title="One locator, one line per shape" style="border:1px solid ${ssCompare ? '#2563eb' : '#cbd5e1'}; background:${ssCompare ? '#dbeafe' : '#fff'}; border-radius:999px; padding:2px 10px; font-size:0.85em; cursor:pointer;">Compare shapes</button>
+            ${ssCompare ? `<select id="ss-compare-loc" aria-label="Locator whose shapes are compared" style="font-size:0.85em;">${options}</select>` : ''}`;
+    }
+
     function renderStepSizeContent(rows, strategies, olderStrategies) {
         const notice = document.getElementById('ss-notice');
         const colorOf = (s) => hlStratColor(strategies, s);
@@ -6318,9 +6368,36 @@ function main() {
         ssRenderPicker(strategies, colorOf);
         const shown = strategies.filter((s) => !ssHidden.has(s));
 
-        const usable = rows.filter(ssUsable);
-        const byS = new Map(strategies.map((s) => [s, usable.filter((r) => r.strategy === s)]));
-        const failed = rows.length - usable.length;
+        const usableAll = rows.filter(ssUsable);
+        // The SNR x window study: runs that carry both a window and a Gaussian share. Without them (older caches)
+        // there is one panel and no shape controls.
+        const windows = [...new Set(usableAll.map((r) => r.grid_window_fwhm).filter((v) => v != null))].sort((a, b) => a - b);
+        const shares = [...new Set(usableAll.map(ssShareKey).filter((v) => v != null))].sort((a, b) => a - b);
+        const study = windows.length > 0 && shares.length > 0;
+        const usable = study ? usableAll.filter((r) => r.grid_window_fwhm != null && ssShareKey(r) != null) : usableAll;
+        const shareSel = shares.includes(ssShare) ? ssShare : shares[Math.floor(shares.length / 2)];
+        const cmpLoc = strategies.includes(ssCompareLoc) ? ssCompareLoc : (shown[0] || strategies[0]);
+        const shapeRow = (share) => usable.find((r) => ssShareKey(r) === share);
+        const shapeTip = (share) => {
+            const r = shapeRow(share);
+            const fwhm = r && ssTotalFwhm(r);
+            return `Gaussian share ${share}; hwhm_lorentz ${r && r.grid_hwhm != null ? (r.grid_hwhm / 1e6).toFixed(3) : '?'} MHz, `
+                + `sigma_inhom ${r && r.grid_sigma_inhom != null ? (r.grid_sigma_inhom / 1e6).toFixed(3) : '?'} MHz`
+                + (fwhm != null ? `, total FWHM ${(fwhm / 1e6).toFixed(2)} MHz` : '');
+        };
+        const windowMHz = (n) => {
+            const fwhm = ssTotalFwhm(usable.find((r) => r.grid_window_fwhm === n));
+            return fwhm == null ? null : (n * fwhm) / 1e6;
+        };
+        ssRenderShapeControls(study, shares.map((s) => ({ share: s, tip: shapeTip(s) })), shareSel, strategies, cmpLoc);
+
+        // Every usable run per locator (the charts pick a window / shape from it); the table follows the shape shown.
+        const byAll = new Map(strategies.map((s) => [s, usable.filter((r) => r.strategy === s)]));
+        const byS = study
+            ? new Map(strategies.map((s) => [s, byAll.get(s).filter((r) => ssShareKey(r) === shareSel)]))
+            : byAll;
+        const failed = rows.length - usableAll.length;
+        const noWindow = usableAll.length - usable.length;
         const noSnr = usable.filter((r) => ssSnr(r) == null).length;
         const ended = (r) => !ssCapped(r);
 
@@ -6366,6 +6443,8 @@ function main() {
 
         const parts = [`${formatCount(usable.length)} runs`];
         if (failed) parts.push(`${formatCount(failed)} failed (left out)`);
+        if (noWindow) parts.push(`${formatCount(noWindow)} without a window / line shape (left out)`);
+        if (study) parts.push(`table: ${ssShapeLabel(shareSel)}`);
         if (noSnr) parts.push(`${formatCount(noSnr)} without contrast/noise (left out of the SNR charts)`);
         if (new Set(strategies.map((s) => byS.get(s).length)).size > 1) parts.push('<b style="color:#b45309" title="The locators have different numbers of runs">run in progress</b>');
         if (olderStrategies.length) parts.push(`<span title="No longer a studied spacing: its cached results come from older code">hidden: ${olderStrategies.map(escapeHtml).join(', ')}</span>`);
@@ -6391,27 +6470,34 @@ function main() {
             tickvals: [...ticks, ...(hasInf ? [xInf] : [])],
             ticktext: [...ticks.map((v) => String(v)), ...(hasInf ? ['∞'] : [])],
         };
-        const splitValues = ssSplit === 'none'
-            ? [null]
-            : [...new Set(usable.map((r) => r[ssSplit]))].filter((v) => v != null).sort(axisValueCompare);
-        const splitLabel = (v) => (ssSplit === 'grid_sigma_inhom' ? `σ_inhom ${(v / 1e6).toFixed(1)} MHz` : `isotope ${v}`);
+        // One panel per window (the SNR x window study; one panel otherwise). The lines are the shown locators at the
+        // selected shape, or with "Compare shapes" one locator at every shape.
+        const panelValues = study ? windows : [null];
+        const shapeColors = new Map(shares.map((sh, i) => [sh, HL_COLORS[i % HL_COLORS.length]]));
+        const lineSpecs = study && ssCompare
+            ? shares.map((sh) => ({ st: cmpLoc, name: ssShapeLabel(sh), color: shapeColors.get(sh), group: `shape-${sh}`, share: sh, extra: shapeTip(sh) }))
+            : shown.map((st) => ({ st, name: ssLabel(st), color: colorOf(st), group: st, share: study ? shareSel : null, extra: study ? shapeTip(shareSel) : '' }));
 
-        // One panel per split value; each series is { key, valueOf, filter, dash, agg } and gets one line per shown
-        // locator (agg = 'median' (default) or 'mean' of valueOf over the runs at each SNR value). With several series a
-        // locator's lines share one legend entry. refLines: [{ y, label }] faint horizontal references.
+        // One panel per window; each series is { key, valueOf, filter, dash, agg } and gets one line per lineSpec
+        // (agg = 'median' (default) or 'mean' of valueOf over the runs at each SNR value). With several series a
+        // line's series share one legend entry. refLines: [{ y, label }] faint horizontal references.
         const snrPanels = (containerId, series, yaxis, refLines = []) => {
             const container = document.getElementById(containerId);
             container.innerHTML = '';
-            for (const sv of splitValues) {
+            for (const sv of panelValues) {
                 const div = document.createElement('div');
-                div.style.cssText = splitValues.length > 1 ? 'flex:1 1 30%; min-width:320px; height:300px;' : 'flex:1 1 100%; height:380px;';
+                div.style.cssText = panelValues.length > 1 ? 'flex:1 1 30%; min-width:320px; height:300px;' : 'flex:1 1 100%; height:380px;';
                 container.appendChild(div);
                 const traces = [];
+                const mhz = sv == null ? null : windowMHz(sv);
+                const windowTip = sv == null ? '' : `<br>window ${sv} × FWHM${mhz != null ? ` = ${mhz.toFixed(1)} MHz` : ''}`;
                 for (const s of series) {
-                    for (const st of shown) {
+                    for (const spec of lineSpecs) {
+                        const st = spec.st;
                         const bySnr = new Map();
-                        for (const r of byS.get(st)) {
-                            if (sv != null && r[ssSplit] !== sv) continue;
+                        for (const r of byAll.get(st)) {
+                            if (sv != null && r.grid_window_fwhm !== sv) continue;
+                            if (spec.share != null && ssShareKey(r) !== spec.share) continue;
                             if (s.filter && !s.filter(r)) continue;
                             const snr = ssSnr(r);
                             const v = s.valueOf(r);
@@ -6420,19 +6506,21 @@ function main() {
                             bySnr.get(snr).push(v);
                         }
                         const xs = [...bySnr.keys()].sort((a, b) => a - b);
-                        const name = series.length > 1 ? `${ssLabel(st)} ${s.key}` : ssLabel(st);
+                        const name = series.length > 1 ? `${spec.name} ${s.key}` : spec.name;
+                        const compareTip = study && ssCompare ? `<br>${ssLabel(st)}` : '';
+                        const shapeHover = spec.extra ? `<br>${spec.extra.replace(/; /g, '<br>')}` : '';
                         traces.push({
-                            type: 'scatter', mode: 'lines+markers', name: ssLabel(st), legendgroup: st,
-                            showlegend: sv === splitValues[0] && s === series[0],
+                            type: 'scatter', mode: 'lines+markers', name: spec.name, legendgroup: spec.group,
+                            showlegend: sv === panelValues[0] && s === series[0],
                             x: xs.map(snrX), y: xs.map((x) => (s.agg === 'mean' ? bySnr.get(x).reduce((a, b) => a + b, 0) / bySnr.get(x).length : hlMedian(bySnr.get(x)))),
-                            line: { color: colorOf(st), width: 2, dash: s.dash || 'solid' }, marker: { size: s.dash ? 4 : 6 },
+                            line: { color: spec.color, width: 2, dash: s.dash || 'solid' }, marker: { size: s.dash ? 4 : 6 },
                             customdata: xs.map((x) => bySnr.get(x).length),
-                            hovertemplate: `${name}<br>SNR %{x:.3g}<br>${s.agg === 'mean' ? 'share' : 'median'} %{y:.3g}<br>n = %{customdata}<extra></extra>`,
+                            hovertemplate: `${name}${compareTip}<br>SNR %{x:.3g}<br>${s.agg === 'mean' ? 'share' : 'median'} %{y:.3g}<br>n = %{customdata}${windowTip}${shapeHover}<extra></extra>`,
                         });
                     }
                 }
                 Plotly.react(div, traces, {
-                    title: sv == null ? undefined : { text: splitLabel(sv), font: { size: 12 } },
+                    title: sv == null ? undefined : { text: `window ${sv} × FWHM`, font: { size: 12 } },
                     margin: { l: 60, r: 10, t: sv == null ? 10 : 30, b: 50 },
                     xaxis, yaxis,
                     shapes: refLines.map((ref) => ({ type: 'line', xref: 'paper', x0: 0, x1: 1, y0: ref.y, y1: ref.y, line: { color: '#94a3b8', width: 1, dash: 'dash' } })),

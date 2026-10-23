@@ -186,14 +186,7 @@
                 <button type="button" role="radio" aria-checked="true" data-value="family" class="is-active" tabindex="0">Whole family</button>
                 <button type="button" role="radio" aria-checked="false" data-value="selection" tabindex="-1">Selection</button>
             </div>
-            <span style="display:inline-flex; align-items:center; gap:0.4em;">
-                <span class="control-label" style="font-size:0.85em; color:#334155;">Split by</span>
-                <div class="segmented-control" id="ss-split" role="radiogroup" aria-label="Split the SNR charts by">
-                    <button type="button" role="radio" aria-checked="true" data-value="none" class="is-active" tabindex="0">—</button>
-                    <button type="button" role="radio" aria-checked="false" data-value="grid_sigma_inhom" tabindex="-1">σ_inhom</button>
-                    <button type="button" role="radio" aria-checked="false" data-value="grid_hyperfine" tabindex="-1">Isotope</button>
-                </div>
-            </span>
+            <span id="ss-shape-box" style="display:none; align-items:center; gap:0.4em;"></span>
         </div>
         <div id="ss-pick" style="display:flex; flex-wrap:wrap; gap:0.4em; margin:0 0 0.6em;"></div>
         <div id="ss-notice" style="margin:0 0 0.6em;"></div>

@@ -1237,33 +1237,21 @@ class _TaskRunner:
             return None, None
         return (drive_freq_min_phys, drive_freq_max_phys) if drive_freq_max_phys > drive_freq_min_phys else (None, None)
 
-    def _measurement_budget(self) -> int:
-        """Every locator's measurement budget: the same for all of them on one signal, so costs compare.
-
-        ``NVISION_MAX_MEASUREMENTS``, except for a signal whose window is a stated number of FWHM wide
-        (``window_fwhm``, the SNR x window study): ``NVISION_MEASUREMENTS_PER_FWHM`` per FWHM of window, so a
-        5-FWHM window is not given the leash of a 20-FWHM one.
-        """
-        from nvision.sim.defaults import NVISION_MAX_MEASUREMENTS, NVISION_MEASUREMENTS_PER_FWHM
-
-        window_fwhm = getattr(self.task.generator, "window_fwhm", None)
-        if window_fwhm is None:
-            return NVISION_MAX_MEASUREMENTS
-        return max(1, round(NVISION_MEASUREMENTS_PER_FWHM * window_fwhm))
-
     def _resolve_sweep_max_steps(self, experiment: CoreExperiment) -> int:
         """Return the step budget for this experiment (also part of the combination's cache key).
 
-        * Plain sweeps (:class:`GenericSweepLocator`) and the Bayesian-SBED family: the shared measurement budget
-          (:meth:`_measurement_budget`). A sweep also takes it as its total-measurement cap.
+        * Plain sweeps (:class:`GenericSweepLocator`) and the Bayesian-SBED family: ``NVISION_MAX_MEASUREMENTS``,
+          the same for every locator, signal and window, so censored runs compare on one scale. A sweep also
+          takes it as its total-measurement cap.
         * Any other locator: ``compute_sweep_max_steps`` (coverage factor and env-var caps).
         """
+        from nvision.sim.defaults import NVISION_MAX_MEASUREMENTS
         from nvision.sim.locs.bayesian.sbed_locator import SequentialBayesianExperimentDesignLocator
 
         lo, hi = float(experiment.drive_freq_min_phys), float(experiment.drive_freq_max_phys)
         locator_class = self.task.strategy_spec.locator_class
         if issubclass(locator_class, (GenericSweepLocator, SequentialBayesianExperimentDesignLocator)):
-            return self._measurement_budget()
+            return NVISION_MAX_MEASUREMENTS
 
         from nvision.sim.locs.coarse.sweep_steps import compute_sweep_max_steps
 

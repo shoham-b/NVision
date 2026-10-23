@@ -50,9 +50,8 @@ sigma and linewidth separately, and each axis changes one thing:
 - **Isotope** is held fixed (`NVISION_SBED_STUDY_ISOTOPE`, `unresolved`): `contrast_total` is shared among the Zeeman
   groups and, for a resolved isotope, the hyperfine lines, so one dip is half of it for a merged line and roughly a
   quarter to a third for N-14 or N-15, and a changing isotope would change the effective SNR.
-- **Budget.** The measurement budget scales with the window: `NVISION_MEASUREMENTS_PER_FWHM` (125) per FWHM, so
-  625 / 1250 / 2500 measurements at 5 / 10 / 20 FWHM, still one budget per signal for every locator. A run that
-  hits it is censored at that count, so censored costs of different windows are not on one scale.
+- **Budget.** The same for every window and locator: `NVISION_MAX_MEASUREMENTS` (2500). A run that hits it is
+  censored at that count, so censored costs of different windows are on one scale.
 
 3 windows x 3 shares x 5 SNR x 6 locators = 270 tasks.
 
