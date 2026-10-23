@@ -295,64 +295,65 @@ def _fmt_window(window_fwhm: float) -> str:
     return f"fw{window_fwhm:g}"
 
 
+def _fmt_gaussian_share(share: float) -> str:
+    return f"gs{share:g}"
+
+
 def voigt_snr_window_param_grid_generators() -> list[tuple[str, object]]:
-    """Window-in-FWHM x sigma_inhom x hyperfine grid of named plain-Voigt generators (the SNR study's signals).
+    """Window-in-FWHM x Gaussian-share grid of named plain-Voigt generators (the SNR study's signals).
 
-    The grid is posed in the dimensionless numbers that decide how hard the search is, rather than in Hz:
+    One thing changes per axis:
 
-    * **Window / FWHM** (``fw<N>`` in the name): the drive-frequency window is ``N`` times the signal's total FWHM.
-      The linewidth itself is held fixed (``NVISION_SBED_FIXED_HWHM`` plus the ``sigma_inhom`` axis), so it is the
-      window that is stretched. That keeps everything with a physical scale (hyperfine offsets, the absolute
-      convergence thresholds, the candidate step) meaningful across the axis, which sweeping the width in Hz
-      against a fixed window did not. The window is ``[D, D + N * fwhm_total]``, and the Zeeman range follows it
-      (:func:`~nvision.spectra.nv_center.max_zeeman_shift_for_window`).
+    * **Window / FWHM** (``fw<N>`` in the name): the drive-frequency window is ``N`` times ONE total FWHM
+      (``NVISION_SBED_FWHM``) shared by every signal, so a window is the same absolute width whatever the line shape.
+      The window is ``[D, D + N * FWHM]``, and the Zeeman range follows it
+      (:func:`~nvision.spectra.nv_center.max_zeeman_shift_for_window`). Fixing the FWHM rather than stretching the
+      window is what keeps everything with a physical scale (hyperfine offsets, the absolute convergence thresholds,
+      the candidate step) meaningful across the axis.
+    * **Gaussian share** (``gs<g>`` in the name): the Gaussian part of that total FWHM, 0 = pure Lorentzian. The
+      Lorentzian HWHM and ``sigma_inhom`` are chosen so the total FWHM stays ``NVISION_SBED_FWHM``
+      (``fwhm = 2 * hwhm_lorentz + 2 sqrt(2 ln 2) * sigma_inhom``), so the share changes the shape, not the width.
     * **SNR** is not a generator axis: every generator carries the same ``contrast_total``
-      (``NVISION_SBED_SNR_CONTRAST``), and :func:`snr_study_noises` sets the noise to ``contrast_total / SNR``.
+      (``NVISION_SBED_SNR_CONTRAST``) and a run is named ``SNR(x)`` (:func:`snr_study_noises`).
 
-    ``sigma_inhom`` and ``hyperfine`` are the same axes as in :func:`voigt_sigma_inhom_param_grid_generators`.
+    The isotope is fixed (``NVISION_SBED_STUDY_ISOTOPE``): it rescales the depth of one dip, i.e. the SNR.
     """
-    import numpy as np
-
     from nvision.sim.defaults import (
-        NVISION_SBED_FIXED_HWHM,
-        NVISION_SBED_HYPERFINE_VALUES,
-        NVISION_SBED_SIGMA_INHOM_MAX,
-        NVISION_SBED_SIGMA_INHOM_MIN,
-        NVISION_SBED_SIGMA_INHOM_STEPS,
+        NVISION_SBED_FWHM,
+        NVISION_SBED_GAUSSIAN_SHARES,
         NVISION_SBED_SNR_CONTRAST,
+        NVISION_SBED_STUDY_ISOTOPE,
         NVISION_SBED_WINDOW_FWHM_VALUES,
     )
-    from nvision.spectra.nv_center import NV_ZERO_FIELD_SPLITTING_HZ, _voigt_reparam_scalar
-
-    sigma_inhoms = np.linspace(
-        NVISION_SBED_SIGMA_INHOM_MIN, NVISION_SBED_SIGMA_INHOM_MAX, NVISION_SBED_SIGMA_INHOM_STEPS
-    )
+    from nvision.spectra.nv_center import _SATURATION_VOIGT_SQRT2LOG2, MIN_HWHM, NV_ZERO_FIELD_SPLITTING_HZ
 
     generators: list[tuple[str, object]] = []
     for window_fwhm in NVISION_SBED_WINDOW_FWHM_VALUES:
-        for sigma_inhom in sigma_inhoms:
-            sigma_inhom = float(sigma_inhom)
-            fwhm_total, _ = _voigt_reparam_scalar(NVISION_SBED_FIXED_HWHM, sigma_inhom)
-            for hyperfine in NVISION_SBED_HYPERFINE_VALUES:
-                name = (
-                    f"NVCenter-voigt-{_fmt_window(window_fwhm)}-"
-                    f"{_fmt_sigma_inhom(sigma_inhom)}-{_fmt_hyperfine(hyperfine)}"
+        for share in NVISION_SBED_GAUSSIAN_SHARES:
+            if not 0.0 <= share < 1.0:
+                raise ValueError(f"Gaussian share must be in [0, 1), got {share}")
+            hwhm_lorentz = (1.0 - share) * NVISION_SBED_FWHM / 2.0
+            if hwhm_lorentz < MIN_HWHM:
+                raise ValueError(
+                    f"Gaussian share {share} leaves a Lorentzian HWHM of {hwhm_lorentz:g} Hz, below the belief's "
+                    f"lower bound {MIN_HWHM:g} Hz (total FWHM {NVISION_SBED_FWHM:g} Hz)."
                 )
-                generators.append(
-                    (
-                        name,
-                        NVCenterCoreGenerator(
-                            drive_freq_min_phys=NV_ZERO_FIELD_SPLITTING_HZ,
-                            drive_freq_max_phys=NV_ZERO_FIELD_SPLITTING_HZ + window_fwhm * fwhm_total,
-                            variant="voigt",
-                            hwhm=NVISION_SBED_FIXED_HWHM,
-                            contrast_total=NVISION_SBED_SNR_CONTRAST,
-                            sigma_inhom=sigma_inhom,
-                            hyperfine=hyperfine,
-                            window_fwhm=window_fwhm,
-                        ),
-                    )
+            sigma_inhom = share * NVISION_SBED_FWHM / (2.0 * _SATURATION_VOIGT_SQRT2LOG2)
+            generators.append(
+                (
+                    f"NVCenter-voigt-{_fmt_window(window_fwhm)}-{_fmt_gaussian_share(share)}",
+                    NVCenterCoreGenerator(
+                        drive_freq_min_phys=NV_ZERO_FIELD_SPLITTING_HZ,
+                        drive_freq_max_phys=NV_ZERO_FIELD_SPLITTING_HZ + window_fwhm * NVISION_SBED_FWHM,
+                        variant="voigt",
+                        hwhm=hwhm_lorentz,
+                        contrast_total=NVISION_SBED_SNR_CONTRAST,
+                        sigma_inhom=sigma_inhom,
+                        hyperfine=NVISION_SBED_STUDY_ISOTOPE,
+                        window_fwhm=window_fwhm,
+                    ),
                 )
+            )
     return generators
 
 

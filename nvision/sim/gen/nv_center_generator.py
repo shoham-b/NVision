@@ -35,6 +35,7 @@ from nvision.spectra.nv_center import (
     NVCenterVoigtSingleDipSpectrum,
     NVCenterVoigtSpectrum,
     NVCenterVoigtZeemanSpectrum,
+    _voigt_reparam_scalar,
     hyperfine_geometry,
     max_zeeman_shift_for_window,
     nv_center_lorentzian_bounds_for_domain,
@@ -102,6 +103,14 @@ class NVCenterCoreGenerator:
     # drive_freq_min/max_phys to match). Its only effect here: the Zeeman range follows the window
     # (see ``zeeman_max_phys``). None = the default window and MAX_ZEEMAN_SHIFT. Voigt variant only.
     window_fwhm: float | None = None
+
+    @property
+    def gaussian_share(self) -> float | None:
+        """Gaussian part of the total FWHM (0 = pure Lorentzian) of an SNR x window signal; else ``None``."""
+        if self.window_fwhm is None or self.hwhm is None or self.sigma_inhom is None:
+            return None
+        _, lorentz_frac = _voigt_reparam_scalar(self.hwhm, self.sigma_inhom)
+        return 1.0 - lorentz_frac
 
     @property
     def width_bounds_reference_phys(self) -> float:

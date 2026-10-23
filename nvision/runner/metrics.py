@@ -212,7 +212,15 @@ def generate_attempt_metrics(
     # per repeat). Gives summary plots numeric axes instead of opaque generator names, and
     # lets the UI build its width/contrast/sigma_inhom/... facet selectors from these
     # structured values instead of parsing them back out of the generator name string.
-    for grid_field in ("saturation", "sigma_inhom", "hwhm", "contrast_total", "hyperfine", "window_fwhm"):
+    for grid_field in (
+        "saturation",
+        "sigma_inhom",
+        "hwhm",
+        "contrast_total",
+        "hyperfine",
+        "window_fwhm",
+        "gaussian_share",
+    ):
         val = getattr(generator_obj, grid_field, None)
         metrics_serialized[f"grid_{grid_field}"] = (
             _maybe_finite(val) if val is not None and not isinstance(val, str) else val

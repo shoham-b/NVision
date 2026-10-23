@@ -122,24 +122,46 @@ def test_snr_noises_reject_non_positive_snr(monkeypatch):
         sim_presets.snr_study_noises()
 
 
-def test_snr_window_grid_window_is_a_multiple_of_the_total_fwhm():
-    """Linewidth is fixed; the window is N x the signal's total FWHM and the Zeeman range follows it."""
+def test_snr_window_grid_has_one_total_fwhm_and_varies_one_thing_per_axis():
+    """Window = N x ONE total FWHM; the Gaussian share changes the line shape at that same FWHM."""
     from nvision.spectra.nv_center import _voigt_reparam_scalar, max_zeeman_shift_for_window
 
     generators = dict(sim_presets.voigt_snr_window_param_grid_generators())
-    n_expected = (
-        len(sim_defaults.NVISION_SBED_WINDOW_FWHM_VALUES)
-        * sim_defaults.NVISION_SBED_SIGMA_INHOM_STEPS
-        * len(sim_defaults.NVISION_SBED_HYPERFINE_VALUES)
+    assert len(generators) == len(sim_defaults.NVISION_SBED_WINDOW_FWHM_VALUES) * len(
+        sim_defaults.NVISION_SBED_GAUSSIAN_SHARES
     )
-    assert len(generators) == n_expected
     for gen in generators.values():
-        assert gen.hwhm == sim_defaults.NVISION_SBED_FIXED_HWHM
         assert gen.contrast_total == sim_defaults.NVISION_SBED_SNR_CONTRAST
-        fwhm_total, _ = _voigt_reparam_scalar(gen.hwhm, gen.sigma_inhom)
+        assert gen.hyperfine == sim_defaults.NVISION_SBED_STUDY_ISOTOPE
+        fwhm_total, lorentz_frac = _voigt_reparam_scalar(gen.hwhm, gen.sigma_inhom)
+        assert fwhm_total == pytest.approx(sim_defaults.NVISION_SBED_FWHM)
+        assert gen.gaussian_share == pytest.approx(1.0 - lorentz_frac)
         window = gen.drive_freq_max_phys - gen.drive_freq_min_phys
-        assert window == pytest.approx(gen.window_fwhm * fwhm_total)
+        assert window == pytest.approx(gen.window_fwhm * sim_defaults.NVISION_SBED_FWHM)
         assert gen.zeeman_max_phys == pytest.approx(max_zeeman_shift_for_window(window))
+    # The same window is the same absolute width for every line shape, and a share is the same shape in every window.
+    windows = {}
+    for gen in generators.values():
+        windows.setdefault(gen.window_fwhm, set()).add(round(gen.drive_freq_max_phys - gen.drive_freq_min_phys))
+    assert all(len(v) == 1 for v in windows.values())
+    shares = {round(g.gaussian_share, 9) for g in generators.values()}
+    assert shares == {round(x, 9) for x in sim_defaults.NVISION_SBED_GAUSSIAN_SHARES}
+
+
+def test_snr_window_grid_rejects_a_share_that_leaves_no_lorentzian(monkeypatch):
+    monkeypatch.setattr(sim_defaults, "NVISION_SBED_GAUSSIAN_SHARES", (0.95,))
+    with pytest.raises(ValueError, match="Lorentzian HWHM"):
+        sim_presets.voigt_snr_window_param_grid_generators()
+    monkeypatch.setattr(sim_defaults, "NVISION_SBED_GAUSSIAN_SHARES", (1.0,))
+    with pytest.raises(ValueError, match="Gaussian share"):
+        sim_presets.voigt_snr_window_param_grid_generators()
+
+
+def test_gaussian_share_is_only_defined_for_the_snr_window_study():
+    from nvision.sim.gen.nv_center_generator import NVCenterCoreGenerator
+
+    assert NVCenterCoreGenerator(variant="voigt", hwhm=1e6, sigma_inhom=5e5).gaussian_share is None
+    assert next(iter(sim_presets.voigt_snr_window_param_grid_generators()))[1].gaussian_share is not None
 
 
 def test_snr_window_generator_draws_dips_inside_its_window():
@@ -191,7 +213,7 @@ def test_snr_window_belief_inherits_the_generator_window():
 
     from nvision.sim.locs.bayesian.belief_builders import nv_center_smc_belief
 
-    name = next(n for n, _ in sim_presets.voigt_snr_window_param_grid_generators() if "-fw20-" in n and "hfn14" in n)
+    name = next(n for n, _ in sim_presets.voigt_snr_window_param_grid_generators() if "-fw20-" in n)
     combo = CombinationGrid().resolve(name, sim_presets.snr_study_noises()[0][0], "Bayesian-SBED")
     signal = combo.generator.generate(random.Random(0))
     cfg = {k: v for k, v in combo.strategy["config"].items() if k not in ("builder", "max_steps")}
@@ -291,19 +313,18 @@ def test_snr_window_width_bounds_and_priors_do_not_move_with_the_window():
     """Only positions follow the window: the linewidth bounds and its prior std are identical for every N."""
     import random
 
-    by_sigma: dict[tuple[float, str], list[tuple[dict, dict]]] = {}
+    by_share: dict[float, list[tuple[dict, dict]]] = {}
     for _, gen in sim_presets.voigt_snr_window_param_grid_generators():
         signal = gen.generate(random.Random(0))
         priors = signal.bounds["_priors"]
-        key = (gen.sigma_inhom, gen.hyperfine)
-        by_sigma.setdefault(key, []).append(
+        by_share.setdefault(gen.gaussian_share, []).append(
             (
                 {n: signal.bounds[n] for n in ("hwhm_lorentz", "sigma_inhom", "contrast_total")},
                 {n: priors[n][1] for n in ("hwhm_lorentz", "sigma_inhom", "contrast_total")},
             )
         )
-    assert by_sigma
-    for runs in by_sigma.values():
+    assert by_share
+    for runs in by_share.values():
         assert len(runs) == len(sim_defaults.NVISION_SBED_WINDOW_FWHM_VALUES)
         assert all(r == runs[0] for r in runs)
 
@@ -319,11 +340,11 @@ def test_select_snr_window_narrows_a_group_by_snr_and_window():
     assert {gens[g].window_fwhm for g, _, _ in at_window} == {10.0}
     assert {n for _, n, _ in at_window} == set(group.noise_names)
 
-    at_snr = sim_run_groups.select_snr_window(combos, gens, snr=[20.0])
-    assert [sim_run_groups.snr_of_noise(n) for _, n, _ in at_snr] == pytest.approx([20.0] * len(at_snr))
+    at_snr = sim_run_groups.select_snr_window(combos, gens, snr=[10.0])
+    assert [sim_run_groups.snr_of_noise(n) for _, n, _ in at_snr] == pytest.approx([10.0] * len(at_snr))
     assert {g for g, _, _ in at_snr} == set(group.generator_names)
 
-    both = sim_run_groups.select_snr_window(combos, gens, snr=[20.0, 50.0], window_fwhm=[5.0, 20.0])
+    both = sim_run_groups.select_snr_window(combos, gens, snr=[2.0, 10.0], window_fwhm=[5.0, 20.0])
     assert len(both) == len(combos) * 2 * 2 // (
         len(group.noise_names) * len(sim_defaults.NVISION_SBED_WINDOW_FWHM_VALUES)
     )

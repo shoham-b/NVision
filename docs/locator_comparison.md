@@ -10,7 +10,7 @@ spectrum with tight nuisance priors; it still uses the prior's width, never the 
 
 | Group | Signals | Noise | Strategies |
 |---|---|---|---|
-| `voigt-grid` | Voigt window/FWHM x sigma_inhom x isotope | SNR grid | the six below |
+| `voigt-grid` | Voigt window/FWHM x Gaussian share (fixed total FWHM, isotope) | SNR grid | the six below |
 | `drive-control` | CW / pulsed drive-controlled NV | SNR grid (nominal) | `Bayesian-SBED`, `Bayesian-SBED-Drive` |
 | `all` | the two above | the two above | each scenario's own set (`nv groups count all`) |
 
@@ -20,40 +20,52 @@ and `both-sweep-only` still work as aliases of
 subset, narrow a group: `--filter-signal` (generator substring) and `--filter-strategy` (comma-separated
 regex/substring). Only the sweeps, on every scenario: `--run-group all --filter-strategy Sweep`.
 
-## The grid: SNR and window, not Hz
+## The grid: SNR, window and line shape, one thing per axis
 
-The `voigt-grid` signals and noise are posed in the two dimensionless numbers that decide how hard a search is,
-not in contrast, noise sigma and linewidth separately:
+The `voigt-grid` is posed in the dimensionless numbers that decide how hard a search is, not in contrast, noise
+sigma and linewidth separately, and each axis changes one thing:
 
 - **SNR = `contrast_total` / noise sigma.** Every signal carries the same `contrast_total`
-  (`NVISION_SBED_SNR_CONTRAST`, 0.25) and a run is named by its SNR, `SNR(20)`, for the SNR values in
-  `NVISION_SBED_SNR_VALUES`. How noise and contrast combine into the SNR does not matter to the study, so the
-  runs are not a grid of noise levels and contrasts: the name carries only the SNR, and the Gaussian sigma
-  (`contrast_total / SNR`) is derived for each signal when the run is resolved. The name therefore keeps its meaning
-  if the contrast constant is changed. Results record it as `snr` (and the contrast as `grid_contrast_total`). `contrast_total` is
-  shared among the Zeeman groups and, for a resolved isotope, the hyperfine lines, so one dip is shallower than
-  the SNR suggests: half of it for a merged line, and (measured at hwhm 1 MHz) roughly a quarter to a third for a
-  resolved N-14 or N-15 multiplet.
-- **Window / FWHM.** The linewidth is held fixed (`NVISION_SBED_FIXED_HWHM`, plus the `sigma_inhom` axis) and
-  the drive-frequency window is stretched to `N` times the signal's total FWHM
-  (`NVISION_SBED_WINDOW_FWHM_VALUES`, default 5, 10, 20; `fw<N>` in the generator name, `grid_window_fwhm`
-  in the results). Wider windows add nothing the study needs: the search is hard when the dips are a sizeable part
-  of the window, not only when the window is orders of magnitude wider than the line.
-  Stretching the window rather than the width keeps everything with a physical scale meaningful across the
-  axis: hyperfine offsets, the absolute convergence thresholds and the candidate step. The window is
-  `[D, D + N * fwhm_total]` and the Zeeman range follows it (`0.4 * window`; the default 150 MHz window has
-  60 MHz).
-- **Budget.** The measurement budget scales with the window too: `NVISION_MEASUREMENTS_PER_FWHM` (125) per FWHM,
-  so 625 / 1250 / 2500 measurements at 5 / 10 / 20 FWHM. It is still one budget per signal for every locator.
+  (`NVISION_SBED_SNR_CONTRAST`, 0.25) and a run is named by its SNR, `SNR(10)`, for the levels in
+  `NVISION_SBED_SNR_VALUES` (default 1, 2, 5, 10, 20). The runs are not a grid of noise levels and contrasts: the name
+  carries only the SNR, and the Gaussian sigma (`contrast_total / SNR`) is derived for each signal when the run is
+  resolved, so the name keeps its meaning if the contrast constant is changed. Results record it as `snr`. The levels
+  are spaced geometrically because the behaviour is: in a 12-repeat scan at a 10-FWHM window, everything converges
+  from SNR 20 up (10 vs 50 barely differs), at SNR 10 most runs still converge, at 5 a quarter to three quarters hit
+  the budget, and at 2 and below nearly every run does (the sweep fit finds no dip at SNR 1). 1 is the smallest SNR
+  worth running.
+- **Window / FWHM.** The window is `N` times ONE total FWHM shared by every signal (`NVISION_SBED_FWHM`, 2 MHz), for
+  `N` in `NVISION_SBED_WINDOW_FWHM_VALUES` (default 5, 10, 20; `fw<N>` in the generator name, `grid_window_fwhm` in
+  the results). So a window is the same absolute 10, 20 or 40 MHz whatever the line shape, and the window changes the
+  window only. Wider windows add nothing the study needs: the search is hard when the dips are a sizeable part of the
+  window, not only when it is orders of magnitude wider than the line. Everything with a physical scale (hyperfine
+  offsets, the absolute convergence thresholds, the candidate step) keeps its meaning across the axis. The window is
+  `[D, D + N * FWHM]` and the Zeeman range follows it (`0.4 * window`; the default 150 MHz window has 60 MHz).
+- **Gaussian share** (`NVISION_SBED_GAUSSIAN_SHARES`, default 0, 0.35, 0.7; `gs<g>` in the name,
+  `grid_gaussian_share`): how much of that total FWHM is inhomogeneous (Gaussian) broadening, 0 = pure Lorentzian.
+  The Lorentzian HWHM and `sigma_inhom` are set so the total FWHM stays `NVISION_SBED_FWHM`
+  (`fwhm = 2 hwhm_lorentz + 2 sqrt(2 ln 2) sigma_inhom`), so the share changes the line shape and not the width.
+  Window mostly decides the search stage and the share mostly the refine stage; the stage metrics
+  (`nv compare`, the Stages view) attribute a cost to the stage it came from.
+- **Isotope** is held fixed (`NVISION_SBED_STUDY_ISOTOPE`, `unresolved`): `contrast_total` is shared among the Zeeman
+  groups and, for a resolved isotope, the hyperfine lines, so one dip is half of it for a merged line and roughly a
+  quarter to a third for N-14 or N-15, and a changing isotope would change the effective SNR.
+- **Budget.** The measurement budget scales with the window: `NVISION_MEASUREMENTS_PER_FWHM` (125) per FWHM, so
+  625 / 1250 / 2500 measurements at 5 / 10 / 20 FWHM, still one budget per signal for every locator. A run that
+  hits it is censored at that count, so censored costs of different windows are not on one scale.
+
+3 windows x 3 shares x 5 SNR x 6 locators = 270 tasks.
 
 Only the positions follow the window (`zero_field_freq` range, `zeeman_shift` range and its prior std). The width
 bounds (`hwhm_lorentz`, `sigma_inhom`, `hyperfine_shift`) are normally sized as a fraction of the window; for these
 signals they are sized off the default window instead (`NVCenterCoreGenerator.width_bounds_reference_phys`), so
-how well the linewidth is known, and with it the prior FWHM that sizes the sweep spacing and the Smart-* search grid,
-does not change with `N`.
+how well the linewidth is known does not change with `N`. The search grids of the sweeps and Smart-* locators are
+still sized from the prior FWHM, which is much wider than the true one (a prior of about 11 MHz against 2 MHz here),
+so at 5 FWHM the coarse stage has only a handful of points.
 
-The previous width x contrast grid (`NVCenter-voigt-w<..>MHz-c<..>-si<..>MHz-hf<..>`) and the old Gauss-sigma noise
-grid (`Gauss(0.002)`, ...) remain resolvable by name, so cached results still open.
+The previous width x contrast x sigma_inhom grid (`NVCenter-voigt-w<..>MHz-c<..>-si<..>MHz-hf<..>`), the earlier
+`fw<N>-si<..>-hf<..>` signals and the old `Gauss(sigma)` noise names remain resolvable by name, so cached results
+still open.
 
 ## Selecting a point
 
@@ -71,7 +83,7 @@ when asked for with `--all`, `--filter-category/-generator/-noise`, `--width`, `
 
 ## Running the comparison
 
-`voigt-grid` has 1350 tasks (45 signals x 5 SNR levels x 6 strategies); narrow it for a first look.
+`voigt-grid` has 270 tasks (9 signals x 5 SNR levels x 6 strategies); narrow it for a first look.
 
 ```bash
 uv run nv run --run-group voigt-grid --filter-strategy "Sweep,SBED" --repeats 30 --runners 8
@@ -82,7 +94,7 @@ uv run nv serve              # View: "Step size" (sweep spacing), "Stages" (stag
 `nv compare` prints three tables (accuracy; stage boundaries and reach rates; per-stage duration and
 uncertainty ratio) for every locator on the same footing; `--filter-signal`, `--filter-noise`,
 `--by generator,noise` and `--csv` refine and export it. `nv groups count voigt-grid` shows the task count.
-A quick look: `NVISION_SBED_SNR_VALUES=20 uv run nv run --run-group voigt-grid --filter-signal "fw10-si0.60MHz-hfn14" --repeats 5`.
+A quick look: `NVISION_SBED_SNR_VALUES=5 uv run nv run --run-group voigt-grid --filter-signal "fw10-gs0.35" --repeats 5`.
 
 In the UI the plain sweeps appear as one "Sweep" entry; choosing it reveals a second dropdown for the spacing
 (k points per FWHM, 2-4).
@@ -176,7 +188,7 @@ one row per strategy (each `SimpleSweep-<k>perFWHM` spacing is its own row). The
 Manual check that UI and CLI agree on a tiny run:
 
 ```bash
-NVISION_SBED_SNR_VALUES=20 uv run nv run --run-group voigt-grid --filter-signal fw10 --repeats 3 --runners 2 --out scratch/x
-uv run nv compare --out scratch/x --filter-signal fw10 --filter-noise "SNR(20)"
-uv run nv serve --dir scratch/x   # Stages view, a fw10 generator, noise SNR(20), compare the tables
+NVISION_SBED_SNR_VALUES=5 uv run nv run --run-group voigt-grid --filter-signal fw10 --repeats 3 --runners 2 --out scratch/x
+uv run nv compare --out scratch/x --filter-signal fw10 --filter-noise "SNR(5)"
+uv run nv serve --dir scratch/x   # Stages view, a fw10 generator, noise SNR(5), compare the tables
 ```

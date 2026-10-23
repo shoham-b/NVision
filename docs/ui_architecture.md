@@ -94,7 +94,8 @@ The pickers follow the SNR x window study: the window axis (`window`, `grid_wind
 axis with a single value in the family (the study's fixed HWHM and contrast) is listed as "fixed: ..." instead of
 getting a one-button picker. A run of the SNR studies is picked by SNR alone: the noise buttons are its `SNR(x)`
 names (`SNR x`, ascending), and the study's fixed linewidth and contrast are not axes at all
-(`nvisionGeneratorAxes` drops them for a generator with a `grid_window_fwhm`). An older `Gauss(sigma)` run of a fixed
+(`nvisionGeneratorAxes` drops them for a generator with a `grid_window_fwhm`, which varies by window and
+`grid_gaussian_share` only; `sigma_inhom` just restates the share). An older `Gauss(sigma)` run of a fixed
 contrast is labelled by its SNR as well (`nvisionNoiseSnrLabel`).
 
 `app.js`'s generator/study picker (`updateScanSignalControls`) still builds its options from

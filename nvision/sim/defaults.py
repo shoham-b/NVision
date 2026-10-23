@@ -205,22 +205,30 @@ NVISION_SBED_HYPERFINE_VALUES: tuple[str, ...] = tuple(
 
 # --- SNR x window study (sim.presets.voigt_snr_window_param_grid_generators) --------------------
 #
-# The grid is posed in the two dimensionless numbers that decide how hard a search is, instead of
-# in Hz and absolute noise:
+# The grid is posed in the dimensionless numbers that decide how hard a search is, instead of in Hz and
+# absolute noise, and varies one thing per axis:
 #   * SNR = contrast_total / noise sigma. Every generator carries the same contrast_total
-#     (NVISION_SBED_SNR_CONTRAST); the noise axis sets sigma = contrast / SNR.
-#   * window = N x the signal's total FWHM. The linewidth is held fixed (NVISION_SBED_FIXED_HWHM,
-#     plus the sigma_inhom axis) and the drive-frequency window is stretched to N FWHM, so the
-#     hyperfine offsets, absolute convergence thresholds and candidate step stay physically meaningful.
-#     A window of 5-20 FWHM is what the study needs: the search is hard when the dips are a sizeable
-#     part of it, not only when the window is orders of magnitude wider than the line.
+#     (NVISION_SBED_SNR_CONTRAST); a run is named SNR(x) and its sigma is contrast / x. 1 is the smallest SNR
+#     worth running (every locator hits its budget there) and 20 is past where the locators converge, so the
+#     levels are spaced geometrically between them.
+#   * window = N x the signal's total FWHM, with ONE total FWHM for every signal (NVISION_SBED_FWHM), so the
+#     window is the same absolute 10 / 20 / 40 MHz whatever the line shape. 5-20 FWHM is what the study needs:
+#     the search is hard when the dips are a sizeable part of the window, not only when it is orders of
+#     magnitude wider than the line.
+#   * Gaussian share of that FWHM (NVISION_SBED_GAUSSIAN_SHARES): 0 = pure Lorentzian, larger = more
+#     inhomogeneous broadening, at the SAME total FWHM, so it changes the line shape and nothing else.
+#   * the isotope is held fixed (NVISION_SBED_STUDY_ISOTOPE): it rescales the per-dip depth, i.e. the SNR.
 NVISION_SBED_SNR_VALUES: tuple[float, ...] = tuple(
-    float(v) for v in os.getenv("NVISION_SBED_SNR_VALUES", "5,10,20,50,100").split(",") if v.strip()
+    float(v) for v in os.getenv("NVISION_SBED_SNR_VALUES", "1,2,5,10,20").split(",") if v.strip()
 )
 NVISION_SBED_WINDOW_FWHM_VALUES: tuple[float, ...] = tuple(
     float(v) for v in os.getenv("NVISION_SBED_WINDOW_FWHM_VALUES", "5,10,20").split(",") if v.strip()
 )
-NVISION_SBED_FIXED_HWHM: float = float(os.getenv("NVISION_SBED_FIXED_HWHM", "1e6"))
+NVISION_SBED_FWHM: float = float(os.getenv("NVISION_SBED_FWHM", "2e6"))
+NVISION_SBED_GAUSSIAN_SHARES: tuple[float, ...] = tuple(
+    float(v) for v in os.getenv("NVISION_SBED_GAUSSIAN_SHARES", "0,0.35,0.7").split(",") if v.strip()
+)
+NVISION_SBED_STUDY_ISOTOPE: str = os.getenv("NVISION_SBED_STUDY_ISOTOPE", "unresolved").strip()
 NVISION_SBED_SNR_CONTRAST: float = float(os.getenv("NVISION_SBED_SNR_CONTRAST", "0.25"))
 # The noise axes of the other studies are SNR levels against the same contrast: drive-control uses
 # NVISION_SBED_SNR_VALUES (a nominal SNR there: its contrast comes from the drive, not a fixed value).
