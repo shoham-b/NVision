@@ -18,10 +18,14 @@ if (!window.NVISION_ASSET_PREFIX) {
 // pickers), so there is exactly one implementation instead of two independent
 // name-regex parsers that had to be manually kept in sync (see git history --
 // that used to be a real drift hazard, not a hypothetical one).
-window.NVISION_GRID_AXIS_ORDER = ['drive_mode', 'width', 'contrast', 'saturation', 'sigma_inhom', 'hyperfine'];
+window.NVISION_GRID_AXIS_ORDER = ['drive_mode', 'window', 'gaussian_share', 'width', 'contrast', 'saturation', 'sigma_inhom', 'hyperfine'];
 window.NVISION_GRID_AXIS_INFO = {
     // Derived from grid_variant ("cw_drive"/"pulsed_drive"), not a recorded grid_* field.
     drive_mode: { label: 'Drive', short: 'drive', metricsKey: 'grid_drive_mode', scaleToMHz: false },
+    // Drive-frequency window as a multiple of the signal's total FWHM (the SNR x window study grid).
+    window: { label: 'Window (FWHM)', short: 'window', metricsKey: 'grid_window_fwhm', scaleToMHz: false },
+    // Gaussian part of the total FWHM at a fixed total FWHM (the SNR x window study); 0 = pure Lorentzian.
+    gaussian_share: { label: 'Gaussian share of FWHM', short: 'gauss share', metricsKey: 'grid_gaussian_share', scaleToMHz: false },
     width: { label: 'HWHM (MHz)', short: 'hwhm', metricsKey: 'grid_hwhm', scaleToMHz: true },
     contrast: { label: 'Contrast', short: 'contrast', metricsKey: 'grid_contrast_total', scaleToMHz: false },
     saturation: { label: 'Saturation', short: 'saturation', metricsKey: 'grid_saturation', scaleToMHz: false },
@@ -56,7 +60,11 @@ window.nvisionGeneratorAxes = function (rawGridInfo) {
         variant = 'drive';
     }
     const axes = [];
+    // The SNR study fixes the contrast and the total FWHM and varies the line shape by its Gaussian share; a run is
+    // picked by SNR, window and share, so the contrast, HWHM and sigma_inhom (which only restate the share) are no axes.
+    const studyFixed = gridInfo.grid_window_fwhm != null ? new Set(['width', 'contrast', 'sigma_inhom']) : new Set();
     for (const key of window.NVISION_GRID_AXIS_ORDER) {
+        if (studyFixed.has(key)) continue;
         const info = window.NVISION_GRID_AXIS_INFO[key];
         const raw = gridInfo[info.metricsKey];
         if (raw == null) continue;
@@ -69,6 +77,18 @@ window.nvisionGeneratorAxes = function (rawGridInfo) {
         familyLabel: `${NVISION_FAMILY_LABELS[variant] || variant} (${axes.map((a) => window.NVISION_GRID_AXIS_INFO[a.key].short).join(' × ')})`,
         axes,
     };
+};
+
+// "SNR 20" for an `SNR(20)` noise name (the name of a run of the SNR studies, which carries no sigma); for an older
+// `Gauss(sigma)` name only when the signal's contrast_total is given (SNR = contrast / sigma, "no noise" for sigma 0);
+// null otherwise.
+window.nvisionNoiseSnrLabel = function (noiseName, contrastTotal) {
+    const snr = /^SNR\(([0-9]*\.?[0-9]+(?:e[+-]?[0-9]+)?)\)/.exec(noiseName);
+    if (snr) return `SNR ${Number(snr[1])}`;
+    const m = /^Gauss\(([0-9]*\.?[0-9]+(?:e[+-]?[0-9]+)?)\)/.exec(noiseName);
+    if (!m || !(contrastTotal > 0)) return null;
+    const sigma = parseFloat(m[1]);
+    return sigma > 0 ? `SNR ${Number((contrastTotal / sigma).toPrecision(3))}` : 'no noise';
 };
 
 // Every generator name that belongs to the same family as `name` (including itself),

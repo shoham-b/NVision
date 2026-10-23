@@ -38,6 +38,10 @@ RENAMED_ENV_VARS: dict[str, str] = {
 # Removed variables, with what replaced them; still set, they would be silently ignored.
 REMOVED_ENV_VARS: dict[str, str] = {
     "NVISION_SBED_STEPS_FRACTION": "every locator now shares the absolute budget NVISION_MAX_MEASUREMENTS",
+    "NVISION_SBED_NOISE_MIN": "the study noise axis is SNR levels: NVISION_SBED_SNR_VALUES (sigma = contrast / SNR)",
+    "NVISION_SBED_NOISE_MAX": "the study noise axis is SNR levels: NVISION_SBED_SNR_VALUES (sigma = contrast / SNR)",
+    "NVISION_SBED_NOISE_STEPS": "the study noise axis is SNR levels: NVISION_SBED_SNR_VALUES (sigma = contrast / SNR)",
+    "NVISION_DRIFT_GAUSS_SIGMA": "the drift study noise is posed as an SNR: NVISION_DRIFT_SNR (sigma = contrast / SNR)",
 }
 
 

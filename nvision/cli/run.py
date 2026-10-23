@@ -922,12 +922,29 @@ def run(  # noqa: C901
             help="Filter by signal type/variant substring in generator name (e.g., 'voigt', 'lorentzian').",
         ),
     ] = None,
+    snr: Annotated[
+        list[float] | None,
+        typer.Option(
+            "--snr",
+            help="Only the noise levels of this SNR (contrast_total / noise sigma) in the run group. Repeat for "
+            "several, e.g. --snr 10 --snr 20.",
+        ),
+    ] = None,
+    window_fwhm: Annotated[
+        list[float] | None,
+        typer.Option(
+            "--window-fwhm",
+            help="Only the signals whose drive-frequency window is this many FWHM wide, in the run group. Repeat "
+            "for several, e.g. --window-fwhm 5 --window-fwhm 10.",
+        ),
+    ] = None,
     run_group: Annotated[
         str | None,
         typer.Option(
             "--run-group",
-            help="Run group name to use for preset combinations (overrides the other filters; --filter-signal and "
-            "--filter-strategy still narrow it).",
+            help="Run group name to use for preset combinations (overrides the other filters; --filter-signal, "
+            "--filter-strategy, --snr and --window-fwhm still narrow it). Without any selection the default "
+            "group runs.",
         ),
     ] = None,
     all_experiments: Annotated[
@@ -1043,9 +1060,9 @@ def run(  # noqa: C901
     extra_generators: dict[str, object] | None = None
 
     # Apply noise-grid CLI overrides early (before any resolution that might read them).
-    # Note: --run-group's noise axis is driven by its own NVISION_SBED_NOISE_* config
-    # (see sim.run_groups), not these generic globals — these only affect the plain
-    # (non-grouped) `nvision run` path below.
+    # Note: --run-group's noise axis is driven by its own config (NVISION_SBED_SNR_VALUES for voigt-grid,
+    # NVISION_SBED_NOISE_* for drive-control; see sim.run_groups), not these generic globals — these only
+    # affect the plain (non-grouped) `nvision run` path below.
     import nvision.sim.defaults as sim_defaults
 
     if max_noise_std is not None:
@@ -1064,6 +1081,28 @@ def run(  # noqa: C901
         combination_names = [(filter_generator, filter_noise, filter_strategy)]
         log.info("Running in single-run mode with combination: %s", combination_names)
 
+    # The plain path (random hwhm / contrast per repeat, a Gauss-sigma noise grid) only runs when asked for with
+    # its own flags; otherwise the default group's SNR x window signals run, narrowed by the --snr/--window-fwhm
+    # flags and the filters below.
+    plain_path_selected = bool(
+        all_experiments
+        or single_run
+        or combination_slugs
+        or filter_category is not None
+        or filter_generator is not None
+        or filter_noise is not None
+        or max_noise_std is not None
+        or noise_steps is not None
+        or width is not None
+        or contrast is not None
+        or sweep_param is not None
+    )
+    if (snr or window_fwhm) and plain_path_selected and run_group is None:
+        raise typer.BadParameter("--snr/--window-fwhm select points of a run group; drop the plain-path flags.")
+    if run_group is None and not plain_path_selected:
+        run_group = sim_run_groups.default_run_group().name
+        console.print(f"[dim]No selection given: running the default group {run_group!r} (see `nv groups list`).[/dim]")
+
     # Ensure the new locator is included in run_group logic
     if run_group is not None:
         sim_run_groups.clear_run_group_cache()  # defensive: pick up any env changes since last resolve
@@ -1078,8 +1117,14 @@ def run(  # noqa: C901
 
             patterns = [p.strip() for p in filter_strategy.split(",")]
             combination_names = [c for c in combination_names if any(_strategy_matches(p, c[2]) for p in patterns)]
+        if snr or window_fwhm:
+            combination_names = sim_run_groups.select_snr_window(
+                combination_names, group.extra_generators or {}, snr=snr, window_fwhm=window_fwhm
+            )
         if not combination_names:
-            raise typer.BadParameter(f"--filter-signal/--filter-strategy leave nothing to run in group {run_group!r}.")
+            raise typer.BadParameter(
+                f"--filter-signal/--filter-strategy/--snr/--window-fwhm leave nothing to run in group {run_group!r}."
+            )
         extra_generators = group.extra_generators
         log.info(
             "Running group: %s (%s combinations: %s generators, %s noises, %s strategies)",

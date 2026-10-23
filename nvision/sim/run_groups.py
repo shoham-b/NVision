@@ -11,8 +11,8 @@ To run a subset of a group's locators or signals use ``--filter-strategy`` / ``-
 ====================  ====================================  ==================  ===========================
 group                 generators                            noise               strategies
 ====================  ====================================  ==================  ===========================
-``voigt-grid``        Voigt width x contrast x sigma_inhom  SBED noise grid     locator study (below)
-``drive-control``     CW / pulsed drive-controlled NV       SBED noise grid     Bayesian-SBED, -SBED-Drive
+``voigt-grid``        Voigt window/FWHM x Gaussian share    SNR grid            locator study (below)
+``drive-control``     CW / pulsed drive-controlled NV       SNR grid (nominal)  Bayesian-SBED, -SBED-Drive
 ``all``               the two above                         the two above           each scenario's own set
 ====================  ====================================  ==================  ===========================
 
@@ -21,6 +21,7 @@ The locator study is SimpleSweep-<k>perFWHM (k = 2..4), Smart-Sweep, Bayesian-SB
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, replace
 from functools import lru_cache
 
@@ -73,20 +74,20 @@ _LOCATOR_STUDY_STRATEGIES = [
 _STUDY_LOCATORS = "all locators (sweeps, Smart-Sweep, Bayesian-SBED, Smart-SBED)"
 
 
-def _sbed_noise_names() -> list[str]:
-    """Noise grid for the SBED run-groups — its own dedicated range/step count,
-    swept the same way as width/contrast (see sim.presets.sbed_study_noises)."""
-    return [name for name, _ in sim_presets.sbed_study_noises()]
+def _voigt_snr_window_param_grid() -> dict[str, object]:
+    """Window-in-FWHM x sigma_inhom x isotope grid (plain Voigt, fixed linewidth, fixed contrast).
+
+    The noise axis (:func:`sim.presets.snr_study_noises`) supplies the SNR; the signal axes are the window
+    as a multiple of the FWHM, the inhomogeneous broadening and the isotope. sigma_inhom=0 makes
+    NVCenterVoigtModel's reparam draw lorentz_frac=1.0 -- a pure-Lorentzian-shaped pseudo-Voigt profile, so
+    the Lorentzian limit is one endpoint of the sigma_inhom axis instead of a second model class. The earlier
+    width x contrast x sigma_inhom grid is still resolvable by name (``sim.presets``)."""
+    return dict(sim_presets.voigt_snr_window_param_grid_generators())
 
 
-def _voigt_inhom_param_grid() -> dict[str, object]:
-    """Width x contrast x sigma_inhom grid (plain Voigt, inhomogeneous broadening as an
-    explicit axis).
-
-    sigma_inhom=0 makes NVCenterVoigtModel's reparam draw lorentz_frac=1.0 -- a
-    pure-Lorentzian-shaped pseudo-Voigt profile, so the Lorentzian limit is one endpoint
-    of this grid's own sigma_inhom axis instead of a second model class."""
-    return dict(sim_presets.voigt_sigma_inhom_param_grid_generators())
+def _snr_noise_names() -> list[str]:
+    """Noise grid of the SNR studies: one SNR(x) per level (see sim.presets.snr_study_noises)."""
+    return [name for name, _ in sim_presets.snr_study_noises()]
 
 
 def _group(
@@ -114,9 +115,9 @@ def _group(
 def _group_voigt_grid() -> RunGroup:
     return _group(
         "voigt-grid",
-        f"Voigt width x contrast x sigma_inhom x noise grid; {_STUDY_LOCATORS}.",
-        _voigt_inhom_param_grid(),
-        _sbed_noise_names(),
+        f"Voigt window/FWHM x Gaussian share (fixed total FWHM and isotope) x SNR grid; {_STUDY_LOCATORS}.",
+        _voigt_snr_window_param_grid(),
+        _snr_noise_names(),
         list(_LOCATOR_STUDY_STRATEGIES),
     )
 
@@ -127,7 +128,7 @@ def _group_drive_control() -> RunGroup:
         "drive-control",
         "CW/pulsed drive-controlled NV generators; Bayesian-SBED-Drive (picks the MW amplitude) vs Bayesian-SBED.",
         dict(sim_presets.drive_controlled_generators()),
-        _sbed_noise_names(),
+        _snr_noise_names(),
         ["Bayesian-SBED", "Bayesian-SBED-Drive"],
     )
 
@@ -200,6 +201,36 @@ def get_run_group(name: str) -> RunGroup:
         return _run_group_by_normalized_name()[_normalize(name)]
     except KeyError:
         raise KeyError(f"Unknown run group: {name!r}") from None
+
+
+def snr_of_noise(noise_name: str) -> float | None:
+    """The SNR of an ``SNR(x)`` noise name; ``None`` for any other name."""
+    from nvision.sim.combinations import parse_snr
+
+    return parse_snr(noise_name)
+
+
+def select_snr_window(
+    combinations: list[tuple[str, str, str]],
+    generators: dict[str, object],
+    *,
+    snr: list[float] | None = None,
+    window_fwhm: list[float] | None = None,
+) -> list[tuple[str, str, str]]:
+    """The (generator, noise, strategy) triples at the given SNR levels and/or window sizes (in FWHM).
+
+    ``generators`` maps generator names to their objects; a generator without a ``window_fwhm`` (its window is not a
+    stated number of FWHM) matches no ``window_fwhm`` selection, a noise without an SNR matches no ``snr`` selection.
+    """
+
+    def matches(value: float | None, wanted: list[float] | None) -> bool:
+        return wanted is None or (value is not None and any(math.isclose(value, w, rel_tol=1e-6) for w in wanted))
+
+    return [
+        (g, n, s)
+        for g, n, s in combinations
+        if matches(getattr(generators.get(g), "window_fwhm", None), window_fwhm) and matches(snr_of_noise(n), snr)
+    ]
 
 
 def clear_run_group_cache() -> None:

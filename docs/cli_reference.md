@@ -72,7 +72,7 @@ uv run nv groups run voigt-grid
 
 # Run a subset of a group's locators/signals (what the former *-only groups did)
 uv run nv run --run-group voigt-grid --filter-strategy "^Bayesian-SBED$"
-uv run nv run --run-group voigt-grid --filter-signal c0.25
+uv run nv run --run-group voigt-grid --filter-signal fw40
 
 # Only the sweeps, across every scenario
 uv run nv run --run-group all --filter-strategy Sweep

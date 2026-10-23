@@ -59,6 +59,8 @@ _GAUSS_RE = re.compile(r"^Gauss\(([0-9]*\.?[0-9]+(?:e[+-]?[0-9]+)?)\)(?:\+Drift\
 def parse_gauss_sigma(name: str) -> float | None:
     """Extract the numeric sigma from a ``Gauss(sigma)`` (optionally ``+Drift(label)``) noise name.
 
+    ``SNR(x)`` names have no sigma of their own: use :func:`noise_sigma_for` with the signal.
+
     Gives metrics/plots a numeric noise axis instead of the opaque preset string.
     """
     m = _GAUSS_RE.match(name)
@@ -66,9 +68,65 @@ def parse_gauss_sigma(name: str) -> float | None:
 
 
 def parse_drift_label(name: str) -> str | None:
-    """The drift scenario label from a ``Gauss(sigma)+Drift(label)`` noise name, else ``None``."""
-    m = _GAUSS_RE.match(name)
+    """The drift scenario label from a ``Gauss(sigma)+Drift(label)`` or ``SNR(x)+Drift(label)`` name, else ``None``."""
+    m = _GAUSS_RE.match(name) or _SNR_RE.match(name)
     return m.group(2) if m is not None else None
+
+
+_SNR_RE = re.compile(r"^SNR\(([0-9]*\.?[0-9]+(?:e[+-]?[0-9]+)?)\)(?:\+Drift\(([A-Za-z0-9_-]+)\))?$")
+
+
+snr_noise_name = sim_presets.snr_noise_name
+
+
+def parse_snr(name: str) -> float | None:
+    """The SNR of an ``SNR(x)`` (optionally ``+Drift(label)``) noise name; ``None`` for any other name.
+
+    A run is identified by its SNR, not by the noise sigma and contrast that make it: the sigma of an ``SNR(x)``
+    noise is derived per signal (:func:`sigma_for_snr`), so the name keeps its meaning if the contrast constant moves.
+    """
+    m = _SNR_RE.match(name)
+    return float(m.group(1)) if m is not None else None
+
+
+def reference_contrast(generator: object) -> float:
+    """The contrast an SNR is measured against: the signal's fixed ``contrast_total``.
+
+    A generator that draws its contrast per repeat (or gets it from the drive) has none; its SNR is then nominal,
+    against ``NVISION_SBED_SNR_CONTRAST``.
+    """
+    contrast = getattr(generator, "contrast_total", None)
+    return float(contrast) if contrast is not None else float(sim_defaults.NVISION_SBED_SNR_CONTRAST)
+
+
+def sigma_for_snr(generator: object, snr: float) -> float:
+    """The per-shot Gaussian sigma of an SNR on this signal: ``reference_contrast / snr``."""
+    if not snr > 0:
+        raise ValueError(f"SNR must be positive, got {snr}")
+    return reference_contrast(generator) / snr
+
+
+def noise_sigma_for(generator: object, noise_name: str) -> float | None:
+    """The numeric Gaussian sigma a noise name stands for on this signal (``None`` for names without one)."""
+    snr = parse_snr(noise_name)
+    return sigma_for_snr(generator, snr) if snr is not None else parse_gauss_sigma(noise_name)
+
+
+def _snr_noise(generator: object, name: str) -> CompositeNoise | None:
+    """The noise object of an ``SNR(x)[+Drift(label)]`` name on this signal; ``None`` if the name is not one."""
+    m = _SNR_RE.match(name)
+    if m is None:
+        return None
+    drift = None
+    if m.group(2) is not None:
+        drift = sim_presets.drift_scenario(m.group(2))
+        if drift is None:
+            return None
+    sigma = sigma_for_snr(generator, float(m.group(1)))
+    return CompositeNoise(
+        over_frequency_noise=CompositeOverFrequencyNoise([OverFrequencyGaussianNoise(sigma)]),
+        drift=drift,
+    )
 
 
 def _parse_noise(name: str) -> CompositeNoise | None:
@@ -141,6 +199,7 @@ class CombinationGrid:
         # strategies_for() has no generator object to read the real hyperfine value
         # off of for this grid and has to fall back to parsing it out of the name.
         self._resolve_generators.update(dict(sim_presets.voigt_sigma_inhom_param_grid_generators()))
+        self._resolve_generators.update(dict(sim_presets.voigt_snr_window_param_grid_generators()))
         self._resolve_generators.update(dict(sim_presets.drive_controlled_generators()))
         if extra_generators:
             self._resolve_generators.update(extra_generators)
@@ -174,6 +233,15 @@ class CombinationGrid:
             nv_smc_config["lineshape"] = drive_lineshape
         elif generator_name.startswith("NVCenter-saturation_voigt"):
             nv_smc_config["lineshape"] = "saturation_voigt"
+        elif generator_name.startswith("NVCenter-voigt-fw"):
+            # voigt_snr_window_param_grid_generators(): a fixed-isotope Voigt signal whose window is N FWHM.
+            # The belief must resolve the same isotope as the signal, so it is read off the generator object.
+            # infer_hyperfine stays False: the isotope is a grid coordinate here, not something to infer.
+            resolved = self._resolve_generators.get(generator_name)
+            if resolved is None:
+                raise ValueError(f"unknown SNR-window generator {generator_name!r}")
+            nv_smc_config["lineshape"] = "voigt"
+            nv_smc_config["hyperfine"] = resolved.hyperfine
         elif generator_name.startswith("NVCenter-voigt-w"):
             nv_smc_config["lineshape"] = "voigt"
             # param_grid_generators(variant="voigt") (names WITHOUT a "-si" suffix)
@@ -329,7 +397,12 @@ class CombinationGrid:
         if gen_obj is None:
             return None
         noise_obj: CompositeNoise | None
-        if noise_name in self._noises:
+        if parse_snr(noise_name) is not None:
+            # An SNR noise has no sigma of its own: it comes from this signal's contrast.
+            noise_obj = _snr_noise(gen_obj, noise_name)
+            if noise_obj is None:
+                return None
+        elif noise_name in self._noises:
             noise_obj = self._noises[noise_name]
         else:
             # Build the noise on the fly for any descriptor not in the current grid.

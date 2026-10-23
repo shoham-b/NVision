@@ -46,8 +46,9 @@ dip. k = 1 is therefore not studied; compare spacings by points per true FWHM.
    stays below the target τ, so the error it happens to end with mostly reflects τ. What matters is that the claimed
    σ is right: report the share of runs with |error| ≤ 1σ and ≤ 2σ against the Gaussian 68% / 95%, or |error| /
    claimed σ. Below nominal = overconfident (the belief is known to be; see the locator memory notes).
-2. **Every locator gets the same budget.** `NVISION_MAX_MEASUREMENTS` (default 2500) is the SBED family's
-   `max_steps` and caps a plain sweep's total measurements. A run that hit it is censored: the stop rule never fired
+2. **Every locator gets the same budget.** `NVISION_MAX_MEASUREMENTS` (default 2500; for a signal whose window is
+   N FWHM wide, N x `NVISION_MEASUREMENTS_PER_FWHM`) is the SBED family's `max_steps` and caps a plain sweep's
+   total measurements. A run that hit it is censored: the stop rule never fired
    (`primary_converged_step` is null; a sweep still ends as a normal locator stop). Count it at the budget, as a lower
    bound, and show the capped share.
 3. **Show the raw metrics before ranking anything.** No arbitrary reference locator (e.g. "divided by k = 3"), no

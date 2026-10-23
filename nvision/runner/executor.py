@@ -1237,12 +1237,19 @@ class _TaskRunner:
             return None, None
         return (drive_freq_min_phys, drive_freq_max_phys) if drive_freq_max_phys > drive_freq_min_phys else (None, None)
 
-    @staticmethod
-    def _measurement_budget() -> int:
-        """Every locator's measurement budget, ``NVISION_MAX_MEASUREMENTS``: the same for all, so costs compare."""
-        from nvision.sim.defaults import NVISION_MAX_MEASUREMENTS
+    def _measurement_budget(self) -> int:
+        """Every locator's measurement budget: the same for all of them on one signal, so costs compare.
 
-        return NVISION_MAX_MEASUREMENTS
+        ``NVISION_MAX_MEASUREMENTS``, except for a signal whose window is a stated number of FWHM wide
+        (``window_fwhm``, the SNR x window study): ``NVISION_MEASUREMENTS_PER_FWHM`` per FWHM of window, so a
+        5-FWHM window is not given the leash of a 20-FWHM one.
+        """
+        from nvision.sim.defaults import NVISION_MAX_MEASUREMENTS, NVISION_MEASUREMENTS_PER_FWHM
+
+        window_fwhm = getattr(self.task.generator, "window_fwhm", None)
+        if window_fwhm is None:
+            return NVISION_MAX_MEASUREMENTS
+        return max(1, round(NVISION_MEASUREMENTS_PER_FWHM * window_fwhm))
 
     def _resolve_sweep_max_steps(self, experiment: CoreExperiment) -> int:
         """Return the step budget for this experiment (also part of the combination's cache key).

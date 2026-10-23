@@ -35,7 +35,9 @@ from nvision.spectra.nv_center import (
     NVCenterVoigtSingleDipSpectrum,
     NVCenterVoigtSpectrum,
     NVCenterVoigtZeemanSpectrum,
+    _voigt_reparam_scalar,
     hyperfine_geometry,
+    max_zeeman_shift_for_window,
     nv_center_lorentzian_bounds_for_domain,
     nv_center_saturation_voigt_bounds_for_domain,
     nv_center_voigt_bounds_for_domain,
@@ -96,6 +98,39 @@ class NVCenterCoreGenerator:
     # c_max (saturated contrast scale) is not a per-generator field: it's a fixed
     # physical constant (NV_SATURATION_C_MAX in nv_center.py), not something that
     # varies between repeats or studies.
+    # Drive-frequency window as a multiple of the signal's total FWHM, recorded as a grid coordinate by
+    # the SNR x window study (sim.presets.voigt_snr_window_param_grid_generators, which also sets
+    # drive_freq_min/max_phys to match). Its only effect here: the Zeeman range follows the window
+    # (see ``zeeman_max_phys``). None = the default window and MAX_ZEEMAN_SHIFT. Voigt variant only.
+    window_fwhm: float | None = None
+
+    @property
+    def gaussian_share(self) -> float | None:
+        """Gaussian part of the total FWHM (0 = pure Lorentzian) of an SNR x window signal; else ``None``."""
+        if self.window_fwhm is None or self.hwhm is None or self.sigma_inhom is None:
+            return None
+        _, lorentz_frac = _voigt_reparam_scalar(self.hwhm, self.sigma_inhom)
+        return 1.0 - lorentz_frac
+
+    @property
+    def width_bounds_reference_phys(self) -> float:
+        """Window width (Hz) the width priors' bounds are sized off (see ``nv_center_voigt_bounds_for_domain``).
+
+        The default window when ``window_fwhm`` stretches the window: the linewidth is held fixed there, so how
+        well it is known must not change with the window. The actual window otherwise.
+        """
+        if self.window_fwhm is None:
+            return self.drive_freq_max_phys - self.drive_freq_min_phys
+        return DEFAULT_NV_DRIVE_FREQ_MAX_PHYS - DEFAULT_NV_DRIVE_FREQ_MIN_PHYS
+
+    @property
+    def zeeman_max_phys(self) -> float:
+        """Largest ``zeeman_shift`` (Hz) this generator draws and its belief bounds allow."""
+        if self.window_fwhm is None:
+            return MAX_ZEEMAN_SHIFT
+        if self.variant != "voigt":
+            raise ValueError(f"window_fwhm is only supported for variant='voigt', got {self.variant!r}.")
+        return max_zeeman_shift_for_window(self.drive_freq_max_phys - self.drive_freq_min_phys)
 
     def generate(self, rng: random.Random):
         """Generate NV center ODMR signal.
@@ -113,13 +148,14 @@ class NVCenterCoreGenerator:
         # Random hwhm (HWHM for Lorentzian), or fixed if provided
         hwhm = self.hwhm if self.hwhm is not None else rng.uniform(MIN_HWHM, MAX_HWHM)
 
+        zeeman_max = self.zeeman_max_phys
         zeeman_shift = 0.0
         # Hyperfine line offset: drawn per repeat only when it's a free parameter,
         # otherwise the isotope's own physical coupling -- exactly 0 when the
         # structure is unresolved, which collapses the multiplet to one dip.
         hyperfine_shift = hyperfine_geometry(self.hyperfine)[0]
         if self.with_zeeman_splitting:
-            zeeman_shift = rng.uniform(MIN_ZEEMAN_SHIFT, MAX_ZEEMAN_SHIFT)
+            zeeman_shift = rng.uniform(MIN_ZEEMAN_SHIFT, zeeman_max)
         if self.infer_hyperfine:
             hyperfine_shift = rng.uniform(MIN_HYPERFINE_SHIFT, MAX_HYPERFINE_SHIFT)
 
@@ -345,7 +381,7 @@ class NVCenterCoreGenerator:
             # sigma_inhom's own bound range (mirrors nv_center_voigt_bounds_for_domain's
             # sigma_inhom_hi, which doesn't depend on the hyperfine/zeeman flags) — not
             # hwhm's range, which this previously (incorrectly) copied.
-            voigt_sigma_inhom_hi = max(1.2e6, (self.drive_freq_max_phys - self.drive_freq_min_phys) * 0.02)
+            voigt_sigma_inhom_hi = max(1.2e6, self.width_bounds_reference_phys * 0.02)
             sigma_inhom_std = voigt_sigma_inhom_hi * PRIOR_STD_FRACTION
             contrast_total_std = 0.3 * PRIOR_STD_FRACTION  # contrast_total range is roughly [0.1, 0.4]
 
@@ -369,8 +405,10 @@ class NVCenterCoreGenerator:
                     hyperfine=self.hyperfine,
                     infer_hyperfine=True,
                     with_zeeman_splitting=True,
+                    max_zeeman_shift=zeeman_max,
+                    reference_width=self.width_bounds_reference_phys,
                 )
-                zeeman_std = (MAX_ZEEMAN_SHIFT - MIN_ZEEMAN_SHIFT) * PRIOR_STD_FRACTION
+                zeeman_std = (zeeman_max - MIN_ZEEMAN_SHIFT) * PRIOR_STD_FRACTION
                 hyperfine_shift_std = (MAX_HYPERFINE_SHIFT - MIN_HYPERFINE_SHIFT) * PRIOR_STD_FRACTION
                 k_np_std = (MAX_K_NP - MIN_K_NP) * PRIOR_STD_FRACTION
                 bounds["_priors"] = {
@@ -405,8 +443,10 @@ class NVCenterCoreGenerator:
                     self.drive_freq_max_phys,
                     hyperfine=self.hyperfine,
                     with_zeeman_splitting=True,
+                    max_zeeman_shift=zeeman_max,
+                    reference_width=self.width_bounds_reference_phys,
                 )
-                zeeman_std = (MAX_ZEEMAN_SHIFT - MIN_ZEEMAN_SHIFT) * PRIOR_STD_FRACTION
+                zeeman_std = (zeeman_max - MIN_ZEEMAN_SHIFT) * PRIOR_STD_FRACTION
                 bounds["_priors"] = {
                     "zeeman_shift": (_widened_prior_mean(rng, zeeman_shift, zeeman_std), zeeman_std),
                     "hwhm_lorentz": (
@@ -432,7 +472,11 @@ class NVCenterCoreGenerator:
                     contrast_total=contrast_total,
                 )
                 bounds = nv_center_voigt_bounds_for_domain(
-                    self.drive_freq_min_phys, self.drive_freq_max_phys, hyperfine=self.hyperfine, infer_hyperfine=True
+                    self.drive_freq_min_phys,
+                    self.drive_freq_max_phys,
+                    hyperfine=self.hyperfine,
+                    infer_hyperfine=True,
+                    reference_width=self.width_bounds_reference_phys,
                 )
                 hyperfine_shift_std = (MAX_HYPERFINE_SHIFT - MIN_HYPERFINE_SHIFT) * PRIOR_STD_FRACTION
                 k_np_std = (MAX_K_NP - MIN_K_NP) * PRIOR_STD_FRACTION
@@ -462,7 +506,10 @@ class NVCenterCoreGenerator:
                     contrast_total=contrast_total,
                 )
                 bounds = nv_center_voigt_bounds_for_domain(
-                    self.drive_freq_min_phys, self.drive_freq_max_phys, hyperfine=self.hyperfine
+                    self.drive_freq_min_phys,
+                    self.drive_freq_max_phys,
+                    hyperfine=self.hyperfine,
+                    reference_width=self.width_bounds_reference_phys,
                 )
                 bounds["_priors"] = {
                     "hwhm_lorentz": (

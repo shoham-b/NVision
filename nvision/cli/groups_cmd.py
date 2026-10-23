@@ -25,7 +25,7 @@ app.add_typer(groups_app, name="groups")
 @app.command("run-single")
 def run_single(
     generator: Annotated[str, typer.Argument(help="Generator name (e.g. NVCenter-lorentzian)")],
-    noise: Annotated[str, typer.Argument(help="Noise name (e.g. NoNoise, Gauss(0.01))")],
+    noise: Annotated[str, typer.Argument(help="Noise name (e.g. NoNoise, Gauss(0.01), SNR(20))")],
     strategy: Annotated[str, typer.Argument(help="Strategy name (e.g. Bayesian-SBED-NoSweep)")],
     repeats: cli_options.RepeatsOption = 1,
     loc_timeout_s: cli_options.LocTimeoutOption = cli_defaults.DEFAULT_LOC_TIMEOUT_S,
