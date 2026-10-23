@@ -1,4 +1,4 @@
-"""Grids sized from the resonance width: uniform spacing, nested refinement, prior FWHM."""
+"""Grids sized from the resonance width: uniform spacing, repeated passes, prior FWHM."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from nvision.belief.focus_window import FocusRegion
 from nvision.sim.locs.search_grid import (
     SWEEP_POINTS_PER_FWHM,
     FocusSweepGrid,
-    RefiningGrid,
+    RepeatingGrid,
     max_sweep_points,
     prior_fwhm_phys,
     uniform_grid_phys,
@@ -46,20 +46,17 @@ def test_max_sweep_points_is_the_count_for_the_narrowest_dip():
     assert n == uniform_grid_phys(0.0, 150.0, 2 * 0.2 / 3).size
 
 
-def test_refining_grid_sweeps_leftmost_first_then_refines_by_halving():
+def test_repeating_grid_sweeps_leftmost_first_then_sweeps_the_same_points_again():
     full = FocusRegion.full(0.0, 8.0)
-    grid = RefiningGrid(0.0, 8.0, 2.0)  # level 0: 0, 2, 4, 6, 8
+    grid = RepeatingGrid(0.0, 8.0, 2.0)  # 0, 2, 4, 6, 8
     visited = []
-    for _ in range(5):
+    for _ in range(12):
         x = float(grid.next_unmeasured(full)[0])
         visited.append(x)
         grid.record(x)
-    assert visited == [0.0, 2.0, 4.0, 6.0, 8.0]
-    assert grid.level == 0
-    nxt = grid.next_unmeasured(full)
-    assert grid.level == 1  # level 0 exhausted -> spacing halves
-    assert grid.spacing_phys == pytest.approx(1.0)
-    assert list(nxt) == [1.0, 3.0, 5.0, 7.0]  # only the new midpoints are uncovered
+    assert visited == [0.0, 2.0, 4.0, 6.0, 8.0] * 2 + [0.0, 2.0]  # the second pass repeats the first
+    assert grid.passes == 2
+    assert grid.spacing_phys == pytest.approx(2.0)  # never refined
 
 
 def test_focus_sweep_grid_starts_at_each_section_edge_and_ignores_unrecorded_measurements():
@@ -71,33 +68,45 @@ def test_focus_sweep_grid_starts_at_each_section_edge_and_ignores_unrecorded_mea
     assert np.all(np.diff(pts[pts < 6.0]) <= 0.5 + 1e-9)
 
 
-def test_focus_sweep_grid_sweeps_then_raises_when_the_focus_is_covered():
+def test_focus_sweep_grid_sweeps_the_focus_again_when_it_is_covered():
     region = FocusRegion(sections=((0.0, 2.0),), full_lo=0.0, full_hi=10.0)
     grid = FocusSweepGrid(1.0)  # 0, 1, 2
     visited = []
-    for _ in range(3):
+    for _ in range(7):
         x = float(grid.next_unmeasured(region)[0])
         visited.append(x)
         grid.record(x)
-    assert visited == [0.0, 1.0, 2.0]
-    with pytest.raises(ValueError, match="already covers the focus"):
-        grid.next_unmeasured(region)
+    assert visited == [0.0, 1.0, 2.0] * 2 + [0.0]  # the same grid again, from the lower edge
+    assert grid.passes == 2
+    assert grid.spacing_phys == pytest.approx(1.0)  # never refined
 
 
-def test_refining_grid_stays_inside_the_region():
-    grid = RefiningGrid(0.0, 10.0, 1.0)
+def test_repeating_a_region_keeps_the_measurements_of_the_other_sections():
+    left = FocusRegion(sections=((0.0, 2.0),), full_lo=0.0, full_hi=10.0)
+    right = FocusRegion(sections=((6.0, 8.0),), full_lo=0.0, full_hi=10.0)
+    grid = FocusSweepGrid(1.0)
+    for _ in range(3):
+        grid.record(float(grid.next_unmeasured(right)[0]))  # right section fully measured: 6, 7, 8
+    for _ in range(4):  # the left section is swept, then repeated once
+        grid.record(float(grid.next_unmeasured(left)[0]))
+    assert grid.passes == 1
+    assert list(grid.next_unmeasured(left)) == [1.0, 2.0]
+    assert grid.passes == 1  # the right section's pass was not restarted by the left one
+
+
+def test_a_region_without_grid_points_cannot_repeat():
+    grid = RepeatingGrid(0.0, 10.0, 2.0)
+    empty = FocusRegion(sections=((2.2, 3.8),), full_lo=0.0, full_hi=10.0)
+    with pytest.raises(ValueError, match="holds no grid point"):
+        grid.next_unmeasured(empty)
+
+
+def test_repeating_grid_stays_inside_the_region():
+    grid = RepeatingGrid(0.0, 10.0, 1.0)
     region = FocusRegion(sections=((3.0, 5.0),), full_lo=0.0, full_hi=10.0)
     candidates = grid.next_unmeasured(region)
     assert candidates.min() >= 3.0
     assert candidates.max() <= 5.0
-
-
-def test_refining_grid_levels_are_nested():
-    grid = RefiningGrid(0.0, 7.0, 2.0)
-    level0 = set(np.round(grid._grid, 9))
-    grid._level = 1
-    level1 = set(np.round(grid._build_grid(), 9))
-    assert level0 <= level1
 
 
 class _Belief:

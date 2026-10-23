@@ -55,6 +55,14 @@ _FIT_XTOL_MAX: float = float(os.getenv("NVISION_SWEEP_FIT_XTOL_MAX", "1e-6"))
 _FIT_ZERO_FIELD_FREQ_STARTS: int = int(os.getenv("NVISION_SWEEP_FIT_ZERO_FIELD_FREQ_STARTS", "5"))
 _FIT_ZEEMAN_STARTS: int = int(os.getenv("NVISION_SWEEP_FIT_ZEEMAN_STARTS", "4"))
 
+# Chi-square profile over ``zeeman_shift`` for a fixed ``zero_field_freq`` (see ``_zeeman_profile_starts``): the
+# number of best profile minima raced as extra starts, the widths tried as fractions of the data-driven width
+# estimate (a coarse sweep overestimates it, since its step exceeds the true linewidth), and the cap on the
+# number of ``zeeman_shift`` grid points.
+_FIT_PROFILE_STARTS: int = 3
+_FIT_PROFILE_WIDTH_FRACTIONS: tuple[float, ...] = (1.0, 0.5, 0.25)
+_FIT_PROFILE_MAX_POINTS: int = 1000
+
 # Peak-SNR (dip depth / noise_std) below which the multi-start grid is engaged.
 # Above it, the two smart starts already converge to sub-MHz accuracy, so the grid
 # (~20 extra fits) is skipped.  Set from empirical accuracy: at SNR>=6 the smart
@@ -507,6 +515,20 @@ class GenericSweepLocator(ConvergenceStopRules, SweepingLocator):
         if NVISION_SWEEP_FIT_EARLY_STOP_SIGMAS > 0 and dof > 0 and peak_snr >= _FIT_GRID_SNR:
             early_stop_redchi2 = 1.0 + NVISION_SWEEP_FIT_EARLY_STOP_SIGMAS * float(np.sqrt(2.0 / dof))
 
+        def zeeman_profile_starts() -> list[list[float]]:
+            return self._zeeman_profile_starts(
+                curve_fn,
+                xs_fit,
+                ys,
+                make_p0(fixed_center_value, None, None),
+                zs_idx,
+                width_idx,
+                lo_bounds,
+                hi_bounds,
+                domain_width,
+                max(float(self._noise_std), 1e-12),
+            )
+
         best_popt, best_pcov = self._run_curve_fit_candidates(
             curve_fn,
             xs_fit,
@@ -519,6 +541,8 @@ class GenericSweepLocator(ConvergenceStopRules, SweepingLocator):
             sigma=sigma_fit,
             early_stop_redchi2=early_stop_redchi2,
             data_noise_std=max(float(self._noise_std), 1e-12),
+            # With the centre fixed the dip pattern's position reaches the fit only through zeeman_shift.
+            late_starts=zeeman_profile_starts if center_idx is None and zs_idx is not None else None,
         )
 
         self._require_fit_beats_flat_baseline(curve_fn(xs_fit, *best_popt)[:n_pts], ys, best_popt, param_names)
@@ -1040,6 +1064,79 @@ class GenericSweepLocator(ConvergenceStopRules, SweepingLocator):
 
         return candidates
 
+    @staticmethod
+    def _zeeman_profile_starts(
+        curve_fn: Callable[..., np.ndarray],
+        xs_fit: np.ndarray,
+        ys: np.ndarray,
+        base_p0: list[float],
+        zs_idx: int,
+        width_idx: int | None,
+        lo_bounds: list[float],
+        hi_bounds: list[float],
+        domain_width: float,
+        noise_std: float,
+    ) -> list[list[float]]:
+        """Start vectors at the best minima of a chi-square profile over ``zeeman_shift`` (fixed centre).
+
+        With ``zero_field_freq`` fixed, ``zeeman_shift`` is the only parameter that moves the dips along the
+        scan axis, and chi-square is multimodal in it on a scale of one linewidth: a start more than about a
+        linewidth from the dip sees a flat residual and stalls. When the dip sits at the domain edge, the
+        smart seeds all say ``zeeman_shift = 0``, the bound, which stalls the same way.
+
+        The profile evaluates ``curve_fn`` on a ``zeeman_shift`` grid with step half the smallest width tried
+        (capped at ``_FIT_PROFILE_MAX_POINTS`` points over ``[lo, min(hi, domain_width)]``), at each width in
+        ``_FIT_PROFILE_WIDTH_FRACTIONS`` x the width in ``base_p0``, every other parameter at ``base_p0``. The
+        ``_FIT_PROFILE_STARTS`` lowest local minima of the per-``zeeman_shift`` best chi-square become starts.
+
+        shape of ``xs_fit``: ``(n_rows,)`` physical drive_freq, ``n_rows >= len(ys)`` (prior rows after the data);
+        shape of ``ys``: ``(n_pts,)`` measured signal; shape of ``base_p0``: ``(n_params,)`` physical units;
+        returns ``[start_vector (n_params,), ...]``, empty when the ``zeeman_shift`` range has no extent.
+        """
+        n_pts = len(ys)
+        if width_idx is None:
+            widths: list[float | None] = [None]
+            min_width = 0.0
+        else:
+            widths = sorted(
+                {
+                    float(np.clip(base_p0[width_idx] * f, lo_bounds[width_idx], hi_bounds[width_idx]))
+                    for f in _FIT_PROFILE_WIDTH_FRACTIONS
+                }
+            )
+            min_width = min(w for w in widths if w is not None)
+        span = min(hi_bounds[zs_idx], domain_width) - lo_bounds[zs_idx]
+        if span <= 0:
+            return []
+        step = max(0.5 * min_width, span / _FIT_PROFILE_MAX_POINTS)
+        # Half a step in from the lower bound, so no start sits exactly on it (zero gradient there).
+        zs_grid = lo_bounds[zs_idx] + step * (np.arange(int(np.ceil(span / step))) + 0.5)
+
+        chi2 = np.empty((len(widths), len(zs_grid)))  # shape: (n_widths, n_zeeman_shift)
+        for i, width in enumerate(widths):
+            for j, zs in enumerate(zs_grid):
+                p = list(base_p0)
+                p[zs_idx] = float(zs)
+                if width_idx is not None:
+                    p[width_idx] = width
+                chi2[i, j] = float(np.sum(((curve_fn(xs_fit, *p)[:n_pts] - ys) / noise_std) ** 2))
+        best_chi2 = chi2.min(axis=0)  # shape: (n_zeeman_shift,)
+        best_width = chi2.argmin(axis=0)  # shape: (n_zeeman_shift,) index into widths
+
+        is_minimum = np.ones(len(zs_grid), dtype=bool)
+        is_minimum[1:] &= best_chi2[1:] <= best_chi2[:-1]
+        is_minimum[:-1] &= best_chi2[:-1] <= best_chi2[1:]
+        minima = sorted(np.flatnonzero(is_minimum), key=lambda j: best_chi2[j])[:_FIT_PROFILE_STARTS]
+
+        starts: list[list[float]] = []
+        for j in minima:
+            p = list(base_p0)
+            p[zs_idx] = float(zs_grid[j])
+            if width_idx is not None:
+                p[width_idx] = widths[best_width[j]]
+            starts.append(p)
+        return starts
+
     def _fit_xtol(self, contrast: float, n_pts: int, domain_width: float, lw_guess: float) -> float:
         """Convergence tolerance (curve_fit xtol) derived from the expected
         zero_field_freq CRLB: refine until the zero_field_freq is pinned to
@@ -1074,8 +1171,13 @@ class GenericSweepLocator(ConvergenceStopRules, SweepingLocator):
         sigma: np.ndarray | None = None,
         early_stop_redchi2: float | None = None,
         data_noise_std: float = 1.0,
+        late_starts: Callable[[], list[list[float]]] | None = None,
     ) -> tuple[np.ndarray, np.ndarray | None]:
         """Run curve_fit from each candidate start, keep the lowest-residual result.
+
+        ``late_starts``, when given, returns extra full start vectors (``shape: (n_params,)`` each, physical
+        units) that are raced after the candidates, and only when no candidate reached the noise floor
+        (``early_stop_redchi2``), so a spectrum the smart seeds already solve never pays for them.
 
         ``early_stop_redchi2``, when set, ends the race at the first start whose reduced
         chi-square (chi-square / (n_rows - n_params), weighted by ``sigma`` or, when that is
@@ -1111,14 +1213,16 @@ class GenericSweepLocator(ConvergenceStopRules, SweepingLocator):
         best_pcov = None
         best_resid = np.inf
         seen_p0: set[tuple[float, ...]] = set()
-        for zero_field_freq_c, half_c, hf_c in candidates:
-            p0 = make_p0(zero_field_freq_c, half_c, hf_c)
-            # Candidates that resolve to the same start vector give the identical fit (curve_fit
-            # is deterministic) -- e.g. a drive-frequency grid when zero_field_freq is fixed, so make_p0
-            # ignores it. Skipping repeats cannot change the winner, only the run time.
+
+        def race_start(p0: list[float]) -> bool:
+            """Fit from ``p0``, keep it if it is the best so far; True when it reached the noise floor."""
+            nonlocal best_popt, best_pcov, best_resid
+            # Starts that are the same vector give the identical fit (curve_fit is deterministic) -- e.g. a
+            # drive-frequency grid when zero_field_freq is fixed, so make_p0 ignores it. Skipping repeats
+            # cannot change the winner, only the run time.
             p0_key = tuple(p0)
             if p0_key in seen_p0:
-                continue
+                return False
             seen_p0.add(p0_key)
             try:
                 popt, pcov = curve_fit(
@@ -1134,7 +1238,7 @@ class GenericSweepLocator(ConvergenceStopRules, SweepingLocator):
                     **diff_step_kwargs,
                 )
             except Exception:
-                continue
+                return False
             resid_vec = curve_fn(drive_freqs_phys, *popt) - ys
             if sigma is not None:
                 resid_vec = resid_vec / sigma
@@ -1143,10 +1247,21 @@ class GenericSweepLocator(ConvergenceStopRules, SweepingLocator):
                 best_resid = resid
                 best_popt = popt
                 best_pcov = pcov
-            if early_stop_redchi2 is not None:
-                weights = sigma if sigma is not None else data_noise_std
-                chi2 = float(np.sum(((curve_fn(drive_freqs_phys, *popt) - ys) / weights) ** 2))
-                if chi2 / (len(ys) - len(popt)) <= early_stop_redchi2:
+            if early_stop_redchi2 is None:
+                return False
+            weights = sigma if sigma is not None else data_noise_std
+            chi2 = float(np.sum(((curve_fn(drive_freqs_phys, *popt) - ys) / weights) ** 2))
+            return chi2 / (len(ys) - len(popt)) <= early_stop_redchi2
+
+        reached_floor = False
+        for zero_field_freq_c, half_c, hf_c in candidates:
+            if race_start(make_p0(zero_field_freq_c, half_c, hf_c)):
+                reached_floor = True
+                break
+        if not reached_floor and late_starts is not None:
+            # No smart start reached the noise floor: only now pay for the rescue starts.
+            for p0 in late_starts():
+                if race_start(p0):
                     break
 
         if best_popt is None:

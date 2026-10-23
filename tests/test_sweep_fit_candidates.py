@@ -85,3 +85,22 @@ def test_early_stop_does_not_trigger_above_floor(monkeypatch):
     # data_noise_std far below the real scatter -> reduced chi2 huge -> never at the floor
     _, n_fits = _run(cands, monkeypatch, early_stop_redchi2=1.5, data_noise_std=NOISE_STD / 100.0)
     assert n_fits == 2
+
+
+def test_late_starts_are_raced_only_when_no_start_reaches_the_floor(monkeypatch):
+    """Rescue starts cost nothing when a smart start already reached the noise floor."""
+    cands = [(1.0, None, None)]
+    asked = {"n": 0}
+
+    def late_starts() -> list[list[float]]:
+        asked["n"] += 1
+        return [[3.0]]
+
+    _, n_fits = _run(cands, monkeypatch, early_stop_redchi2=1.5, data_noise_std=NOISE_STD, late_starts=late_starts)
+    assert (n_fits, asked["n"]) == (1, 0)
+
+    # noise_std far below the real scatter -> the floor is never reached -> the rescue start is fitted too
+    _, n_fits = _run(
+        cands, monkeypatch, early_stop_redchi2=1.5, data_noise_std=NOISE_STD / 100.0, late_starts=late_starts
+    )
+    assert (n_fits, asked["n"]) == (2, 1)

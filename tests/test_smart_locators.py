@@ -112,14 +112,12 @@ def test_smart_sbed_searches_its_coarse_grid_by_information_gain_then_runs_sbed_
 
     search = [x for focus, x in trace if focus.is_full_domain()]
     assert len(search) >= 3
-    # The search grid is refined by halving once a pass finds no dip, so every point lies on some level.
-    grid = np.linspace(
-        exp.drive_freq_min_phys, exp.drive_freq_max_phys, loc._grid._base_intervals * 2**loc._grid.level + 1
-    )
+    grid = loc._grid._grid
     on_grid = np.min(np.abs(np.asarray(search)[:, None] - grid[None, :]), axis=1) < 1.0
-    assert on_grid.all(), "before the focus exists every measurement is a point of the (nested) search grid"
-    assert loc._grid.spacing_phys <= coarse_spacing / 2**loc._grid.level * (1 + 1e-9)
-    assert len(set(np.round(search, 0))) == len(search), "no grid point is measured twice"
+    assert on_grid.all(), "before the focus exists every measurement is a point of the search grid"
+    assert loc._grid.spacing_phys <= coarse_spacing * (1 + 1e-9)
+    assert loc._grid.passes == 0
+    assert len(set(np.round(search, 0))) == len(search), "no grid point is measured twice within a pass"
 
     for focus, x in trace:
         if not focus.is_full_domain():
