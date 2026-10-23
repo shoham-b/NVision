@@ -73,6 +73,15 @@ window.nvisionGeneratorAxes = function (rawGridInfo) {
     };
 };
 
+// "SNR 20" for a Gauss(sigma) noise name when the signal's contrast_total is fixed (SNR = contrast / sigma, the
+// quotient the study is posed in and the SNR charts use); "no noise" for sigma 0; null when the name is not Gauss(sigma).
+window.nvisionNoiseSnrLabel = function (noiseName, contrastTotal) {
+    const m = /^Gauss\(([0-9]*\.?[0-9]+(?:e[+-]?[0-9]+)?)\)/.exec(noiseName);
+    if (!m || !(contrastTotal > 0)) return null;
+    const sigma = parseFloat(m[1]);
+    return sigma > 0 ? `SNR ${Number((contrastTotal / sigma).toPrecision(3))}` : 'no noise';
+};
+
 // Every generator name that belongs to the same family as `name` (including itself),
 // or just `[name]` when it has no grid_info (not part of any parsed grid family).
 function _nvisionFamilyScope(name, allNames, gridInfoByName) {

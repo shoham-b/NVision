@@ -2207,7 +2207,19 @@ function main() {
         }
 
         scanGeneratorFacets.innerHTML = '';
+        // An axis with one value in the family has nothing to choose (the SNR study fixes the linewidth and the
+        // contrast): it is listed as fixed instead of offering a one-button picker. When no axis varies, all stay.
+        const valuesOf = (meta) =>
+            [...new Set(familyGroup.members.map((m) => m.axisValues.find((a) => a.key === meta.key).value))];
+        const anyVaries = axisMeta.some((meta) => valuesOf(meta).length > 1);
+        const fixedNotes = [];
         for (const meta of axisMeta) {
+            if (anyVaries && valuesOf(meta).length === 1) {
+                const [only] = valuesOf(meta);
+                store[meta.key] = new Set([axisDisplayValue(only)]);
+                fixedNotes.push(`${meta.label}${paramLetterSuffix(meta.key)} ${axisDisplayValue(only)}`);
+                continue;
+            }
             const wrapper = document.createElement('span');
             wrapper.className = 'facet-select-wrapper';
             const label = document.createElement('label');
@@ -2252,6 +2264,12 @@ function main() {
             label.appendChild(btnGroup);
             wrapper.appendChild(label);
             scanGeneratorFacets.appendChild(wrapper);
+        }
+        if (fixedNotes.length) {
+            const note = document.createElement('span');
+            note.className = 'facet-fixed-note';
+            note.textContent = `fixed: ${fixedNotes.join(' · ')}`;
+            scanGeneratorFacets.appendChild(note);
         }
 
         // Initial render: set state without dispatching 'controlchange' (mirrors
@@ -2333,14 +2351,31 @@ function main() {
         }
     }
 
+    // The shared contrast_total of the selected generators, when they all record one (the SNR study fixes it): the
+    // noise buttons then read as SNR = contrast / sigma, in ascending SNR order, the Gauss(sigma) name in the tooltip.
+    function selectedSharedContrast() {
+        const info = window.NVISION_GENERATOR_GRID_INFO || {};
+        const contrasts = getSelectedScanGenerators().map((g) => info[g] && info[g].grid_contrast_total);
+        if (!contrasts.length || contrasts.some((c) => c == null)) return null;
+        return new Set(contrasts).size === 1 ? contrasts[0] : null;
+    }
+
     function renderMultiSelectNoiseControl(control, items, previousValues) {
-        return renderMultiSelectButtonControl(control, items, previousValues, (a, b) => {
-            const ga = a.match(/Gauss\(([\d.]+)\)/);
-            const gb = b.match(/Gauss\(([\d.]+)\)/);
-            if (ga && gb) return parseFloat(ga[1]) - parseFloat(gb[1]);
-            if (ga) return -1; if (gb) return 1;
+        const sigmaOf = (name) => {
+            const m = name.match(/Gauss\(([\d.]+)\)/);
+            return m ? parseFloat(m[1]) : null;
+        };
+        const contrast = selectedSharedContrast();
+        const bySigma = (a, b) => {
+            const sa = sigmaOf(a);
+            const sb = sigmaOf(b);
+            if (sa != null && sb != null) return contrast != null ? sb - sa : sa - sb;
+            if (sa != null) return -1;
+            if (sb != null) return 1;
             return a.localeCompare(b);
-        });
+        };
+        const label = contrast != null ? (name) => window.nvisionNoiseSnrLabel(name, contrast) || name : null;
+        return renderMultiSelectButtonControl(control, items, previousValues, bySigma, label);
     }
 
     // Generic multi-select button group. Plain click (or keyboard Enter/Space)
@@ -2348,8 +2383,9 @@ function main() {
     // one button to another selects the contiguous range between them, previewed
     // live as the drag crosses buttons. `sortFn` orders the buttons left-to-right;
     // pass a numeric comparator when items are numeric strings so range-select is
-    // contiguous in value order.
-    function renderMultiSelectButtonControl(control, items, previousValues, sortFn) {
+    // contiguous in value order. `labelFn(item)` (optional) gives the button text; the item itself stays the
+    // value and the tooltip.
+    function renderMultiSelectButtonControl(control, items, previousValues, sortFn, labelFn = null) {
         const prev = Array.isArray(previousValues) ? previousValues : (previousValues ? [previousValues] : []);
         const uniqueItems = [...new Set(items.filter(Boolean).map(String))].sort(sortFn);
 
@@ -2391,7 +2427,8 @@ function main() {
             btn.setAttribute('role', 'checkbox');
             btn.setAttribute('aria-checked', 'false');
             btn.tabIndex = 0;
-            btn.textContent = item;
+            btn.textContent = labelFn ? labelFn(item) : item;
+            if (labelFn) btn.title = item;
             btn.className = 'noise-btn';
 
             btn.addEventListener('mousedown', (e) => {

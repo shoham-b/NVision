@@ -90,6 +90,11 @@ width × contrast grid generator joins the Voigt family as its σ_inhom = 0 slic
 `grid_variant`). Because of the merge, the facet selection σ_inhom = 0 + isotope `unresolved` matches both
 the `voigt-grid` generator and the `lorentzian-drift` generator, so their repeats are pooled when both exist.
 
+The pickers follow the SNR x window study: the window axis (`window`, `grid_window_fwhm`, in FWHM) sits first, an
+axis with a single value in the family (the study's fixed HWHM and contrast) is listed as "fixed: ..." instead of
+getting a one-button picker, and when every selected generator records one `contrast_total` the noise buttons read
+`SNR <contrast / sigma>` (`nvisionNoiseSnrLabel`, ascending SNR) with the `Gauss(sigma)` name as the tooltip.
+
 `app.js`'s generator/study picker (`updateScanSignalControls`) still builds its options from
 *every* generator in the cache (`window.NVISION_ALL_GENERATORS`), not just the loaded ones, so
 every generator remains selectable. Picking one outside the loaded scope calls
