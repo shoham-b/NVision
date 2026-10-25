@@ -357,6 +357,10 @@ function main() {
     }
 
     function updateGlobalLabel(idx) {
+        if (!globalTotalFrames) {
+            globalLabel.innerHTML = 'Step: --';
+            return;
+        }
         const val = (globalStepValues && globalStepValues[idx] !== undefined) ? globalStepValues[idx] : idx;
         globalLabel.innerHTML = `Step: ${val} (${idx + 1} / ${globalTotalFrames})`;
     }
@@ -499,7 +503,7 @@ function main() {
         globalStepValues = [];
         globalSlider.value = 0;
         globalSlider.max = 0;
-        updateGlobalLabel(0);
+        updateGlobalTimelineMetadata();
 
         if (!selectedPlot) {
             bayesInteractiveSection.dataset.available = 'false';
@@ -714,22 +718,28 @@ function main() {
         const bayesSectionContainer = document.getElementById('bayes-section-container');
         const noDataMsg = document.getElementById('bayes-no-data-message');
 
-        if (bayesPlots.length === 0 && bayesInteractivePlots.length === 0 &&
+        const isRange = isNoiseRangeMode() || isGeneratorRangeMode();
+        const isPlainSweep = currentPlot && currentPlot.strategy && currentPlot.strategy.startsWith('SimpleSweep');
+
+        if (!currentPlot || isRange || isPlainSweep || (
+                bayesPlots.length === 0 && bayesInteractivePlots.length === 0 &&
                 bayesPosteriorDataPlots.length === 0 && bayesParamConvDataPlots.length === 0 &&
                 bayesConvMetricsDataPlots.length === 0 && bayesFisherDataPlots.length === 0 &&
-                bayesEllipsePlots.length === 0 && bayesJitterPlots.length === 0) {
+                bayesEllipsePlots.length === 0 && bayesJitterPlots.length === 0)) {
             if (bayesSectionContainer) bayesSectionContainer.style.display = 'none';
+            if (globalControls) globalControls.style.display = 'none';
             return;
-        } else if (bayesSectionContainer) {
-            bayesSectionContainer.style.display = 'block';
         }
 
         if (available.length === 0) {
             tabBar.style.display = 'none';
+            if (globalControls) globalControls.style.display = 'none';
             if (noDataMsg) noDataMsg.style.display = 'block';
+            if (bayesSectionContainer) bayesSectionContainer.style.display = 'block';
         } else {
             tabBar.style.display = 'flex';
             if (noDataMsg) noDataMsg.style.display = 'none';
+            if (bayesSectionContainer) bayesSectionContainer.style.display = 'block';
         }
 
         const currentActive = tabBar.querySelector('.bayes-tab-button.is-active');
@@ -2000,6 +2010,89 @@ function main() {
         });
     }
 
+    // ── Collapsible UI Sections ───────────────────────────────────────────────
+    const COLLAPSE_ARROW_SVG =
+        '<svg class="section-collapse-arrow" width="10" height="10" viewBox="0 0 16 16" fill="currentColor">' +
+            '<path d="M4 6 L8 10 L12 6 Z"/>' +
+        '</svg>';
+
+    const collapsedSectionState = {};
+
+    function isSectionCollapsed(sectionId, defaultCollapsed = false) {
+        if (collapsedSectionState[sectionId] !== undefined) {
+            return collapsedSectionState[sectionId];
+        }
+        try {
+            const stored = localStorage.getItem('nvision_collapsed_' + sectionId);
+            if (stored !== null) {
+                const val = stored === 'true';
+                collapsedSectionState[sectionId] = val;
+                return val;
+            }
+        } catch (_) {}
+        return defaultCollapsed;
+    }
+
+    function setSectionCollapsed(sectionId, isCollapsed) {
+        collapsedSectionState[sectionId] = isCollapsed;
+        try {
+            localStorage.setItem('nvision_collapsed_' + sectionId, String(isCollapsed));
+        } catch (_) {}
+    }
+
+    function toggleCollapsibleSection(sectionId, headerEl, contentEl) {
+        const currentlyCollapsed = contentEl.style.display === 'none' || headerEl.classList.contains('is-collapsed');
+        const willCollapse = !currentlyCollapsed;
+        setSectionCollapsed(sectionId, willCollapse);
+        if (willCollapse) {
+            headerEl.classList.add('is-collapsed');
+            headerEl.setAttribute('aria-expanded', 'false');
+            headerEl.setAttribute('title', 'Click to expand');
+            contentEl.style.display = 'none';
+        } else {
+            headerEl.classList.remove('is-collapsed');
+            headerEl.setAttribute('aria-expanded', 'true');
+            headerEl.setAttribute('title', 'Click to collapse');
+            contentEl.style.display = '';
+        }
+    }
+
+    function renderCollapsibleSectionHtml(sectionId, title, contentHtml, extraHeaderStyle = '') {
+        const isCollapsed = isSectionCollapsed(sectionId);
+        return `<div class="section-collapsible-wrapper" data-section-id="${escapeHtml(sectionId)}">` +
+            `<div class="section-collapsible-header${isCollapsed ? ' is-collapsed' : ''}" role="button" tabindex="0" aria-expanded="${!isCollapsed}" data-section-id="${escapeHtml(sectionId)}" title="${isCollapsed ? 'Click to expand' : 'Click to collapse'}" style="margin-bottom:0.4em;font-weight:600;color:#334155;font-size:0.85em;${extraHeaderStyle}">` +
+                `<span class="section-collapse-arrow" aria-hidden="true">${COLLAPSE_ARROW_SVG}</span>` +
+                `<span>${escapeHtml(title)}</span>` +
+            `</div>` +
+            `<div class="section-collapsible-content"${isCollapsed ? ' style="display:none;"' : ''}>` +
+                contentHtml +
+            `</div>` +
+        `</div>`;
+    }
+
+    function attachCollapsibleSectionListeners(container) {
+        if (!container) return;
+        const headers = container.querySelectorAll('.section-collapsible-header');
+        headers.forEach((header) => {
+            const sectionId = header.dataset.sectionId;
+            if (!sectionId) return;
+            const wrapper = header.closest('.section-collapsible-wrapper');
+            const content = wrapper
+                ? wrapper.querySelector('.section-collapsible-content')
+                : header.nextElementSibling;
+            if (!content) return;
+
+            const toggle = () => toggleCollapsibleSection(sectionId, header, content);
+            header.addEventListener('click', toggle);
+            header.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    toggle();
+                }
+            });
+        });
+    }
+
     function renderSegmentedControl(control, items, previousValue, options = {}) {
         const disabledItems = options.disabledItems instanceof Set
             ? options.disabledItems
@@ -2252,6 +2345,16 @@ function main() {
                 // actually needs; the full facet rebuild is reserved for family
                 // switches and other paths that go through scanGenerator directly.
                 applySelection({ silent: true });
+                const nextGen = controlValue(scanGenerator);
+                if (!isGeneratorRangeMode() && nextGen && window.nvisionNeedsWiderLoad && window.nvisionNeedsWiderLoad(nextGen)) {
+                    refreshScanNoiseControlForSelectedGenerators();
+                    updateNoiseViewMode();
+                    updateScanStrategyControl();
+                    updateScanRepeatControl();
+                    syncHashFromState();
+                    window.nvisionNavigateToGenerator(nextGen);
+                    return;
+                }
                 lastComparePairIds = { a: null, b: null };
                 lastSummaryKey = null;
                 refreshScanNoiseControlForSelectedGenerators();
@@ -2753,6 +2856,12 @@ function main() {
         ).join('');
 
         return {
+            title: title,
+            formula: formula,
+            hyperfineNote: hyperfineNote,
+            voigtNote: voigtNote,
+            zeemanNote: zeemanNote,
+            paramsHtml: paramsHtml,
             html: `<div class="signal-equation-title">${escapeHtml(title)}</div>` +
                   `<div class="signal-equation-formula">${formula}</div>` +
                   hyperfineNote +
@@ -2771,8 +2880,42 @@ function main() {
             el.innerHTML = '';
             return;
         }
-        el.innerHTML = info.html;
+        const sectionId = 'signal-equation';
+        const isCollapsed = isSectionCollapsed(sectionId);
+        el.className = 'signal-equation-panel' + (isCollapsed ? ' is-collapsed' : '');
+        el.innerHTML =
+            `<div class="signal-equation-header section-collapsible-header${isCollapsed ? ' is-collapsed' : ''}" role="button" tabindex="0" aria-expanded="${!isCollapsed}" data-section-id="${sectionId}" title="${isCollapsed ? 'Click to expand' : 'Click to collapse'}">` +
+                `<span class="section-collapse-arrow" aria-hidden="true">${COLLAPSE_ARROW_SVG}</span>` +
+                `<span class="signal-equation-title">${escapeHtml(info.title)}</span>` +
+            `</div>` +
+            `<div class="signal-equation-body"${isCollapsed ? ' style="display:none;"' : ''}>` +
+                `<div class="signal-equation-formula">${info.formula}</div>` +
+                info.hyperfineNote +
+                info.voigtNote +
+                info.zeemanNote +
+                `<div class="signal-equation-params">${info.paramsHtml}</div>` +
+            `</div>`;
         el.style.display = '';
+
+        const headerEl = el.querySelector('.signal-equation-header');
+        const bodyEl = el.querySelector('.signal-equation-body');
+        if (headerEl && bodyEl) {
+            const toggle = () => {
+                toggleCollapsibleSection(sectionId, headerEl, bodyEl);
+                if (headerEl.classList.contains('is-collapsed')) {
+                    el.classList.add('is-collapsed');
+                } else {
+                    el.classList.remove('is-collapsed');
+                }
+            };
+            headerEl.addEventListener('click', toggle);
+            headerEl.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    toggle();
+                }
+            });
+        }
     }
 
     // Rebuilds the noise multi-select from whichever generators are currently
@@ -3064,17 +3207,18 @@ function main() {
                 if (plot.coarse && plot.fine) {
                     const totalMeasurements = plot.measurements || (plot.coarse.measurements + plot.fine.measurements);
                     scanMetrics.className = 'scan-metrics-wrapper';
+                    const coarseContent = '<div class="scan-metrics-panel">' + renderItemsToHtml(buildScanItems(plot.coarse, false, totalMeasurements)) + '</div>';
+                    const fineContent = '<div class="scan-metrics-panel">' + renderItemsToHtml(buildScanItems(plot.fine, true, totalMeasurements)) + '</div>';
                     let html =
-                        '<div style="margin-bottom:0.4em;font-weight:600;color:#334155;font-size:0.85em;">' + escapeHtml(plot.coarse.label) + '</div>' +
-                        '<div class="scan-metrics-panel">' + renderItemsToHtml(buildScanItems(plot.coarse, false, totalMeasurements)) + '</div>' +
-                        '<div style="margin-top:0.75em;margin-bottom:0.4em;font-weight:600;color:#334155;font-size:0.85em;">' + escapeHtml(plot.fine.label) + '</div>' +
-                        '<div class="scan-metrics-panel">' + renderItemsToHtml(buildScanItems(plot.fine, true, totalMeasurements)) + '</div>';
+                        renderCollapsibleSectionHtml('scan-stage-coarse', plot.coarse.label, coarseContent) +
+                        renderCollapsibleSectionHtml('scan-stage-fine', plot.fine.label, fineContent, 'margin-top:0.75em;');
 
                     if (plot.true_params && _hasKnownTrueParams(plot.true_params)) {
-                        html += '<div style="margin-top:0.75em;margin-bottom:0.4em;font-weight:600;color:#334155;font-size:0.85em;">' + escapeHtml(plot.true_params.label) + '</div>' +
-                            '<div class="scan-metrics-panel">' + renderItemsToHtml(buildTrueParamItems(plot.true_params, plot), true) + '</div>';
+                        const trueParamsContent = '<div class="scan-metrics-panel">' + renderItemsToHtml(buildTrueParamItems(plot.true_params, plot), true) + '</div>';
+                        html += renderCollapsibleSectionHtml('scan-true-params', plot.true_params.label, trueParamsContent, 'margin-top:0.75em;');
                     }
                     scanMetrics.innerHTML = html;
+                    attachCollapsibleSectionListeners(scanMetrics);
                     updateStoppingCriteriaVisibility(plot);
                     setupRepeatComparisonUI(plot);
                 } else {
@@ -3088,10 +3232,11 @@ function main() {
                     }
 
                     if (plot.true_params && _hasKnownTrueParams(plot.true_params)) {
-                        html += '<div style="margin-top:0.75em;margin-bottom:0.4em;font-weight:600;color:#334155;font-size:0.85em;">' + escapeHtml(plot.true_params.label) + '</div>' +
-                            '<div class="scan-metrics-panel">' + renderItemsToHtml(buildTrueParamItems(plot.true_params, plot), true) + '</div>';
+                        const trueParamsContent = '<div class="scan-metrics-panel">' + renderItemsToHtml(buildTrueParamItems(plot.true_params, plot), true) + '</div>';
+                        html += renderCollapsibleSectionHtml('scan-true-params', plot.true_params.label, trueParamsContent, 'margin-top:0.75em;');
                     }
                     scanMetrics.innerHTML = html;
+                    attachCollapsibleSectionListeners(scanMetrics);
                     updateStoppingCriteriaVisibility(plot);
                     setupRepeatComparisonUI(plot);
                 }
@@ -5676,14 +5821,40 @@ function main() {
             return;
         }
         for (const row of rows) {
+            const sectionId = 'pairwise-' + row.label.toLowerCase().replace(/[^a-z0-9]/g, '-');
+            const isCollapsed = isSectionCollapsed(sectionId);
+
             const hdr = document.createElement('div');
+            hdr.className = 'section-collapsible-header' + (isCollapsed ? ' is-collapsed' : '');
             hdr.style.cssText = 'margin-top:1em;margin-bottom:0.4em;font-weight:600;color:#334155;font-size:0.85em;';
-            hdr.textContent = row.label;
+            hdr.setAttribute('role', 'button');
+            hdr.setAttribute('tabindex', '0');
+            hdr.setAttribute('aria-expanded', String(!isCollapsed));
+            hdr.setAttribute('data-section-id', sectionId);
+            hdr.setAttribute('title', isCollapsed ? 'Click to expand' : 'Click to collapse');
+            hdr.innerHTML = `<span class="section-collapse-arrow" aria-hidden="true">${COLLAPSE_ARROW_SVG}</span><span>${escapeHtml(row.label)}</span>`;
             container.appendChild(hdr);
+
             const rowDiv = document.createElement('div');
             rowDiv.className = 'scan-metrics-panel' + (isSummary ? ' summary-grid' : '');
             rowDiv.style.marginBottom = '0.75em';
+            if (isCollapsed) {
+                rowDiv.style.display = 'none';
+            }
             container.appendChild(rowDiv);
+
+            const toggle = () => {
+                toggleCollapsibleSection(sectionId, hdr, rowDiv);
+                hdr.setAttribute('title', hdr.classList.contains('is-collapsed') ? 'Click to expand' : 'Click to collapse');
+            };
+            hdr.addEventListener('click', toggle);
+            hdr.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    toggle();
+                }
+            });
+
             for (const card of row.cards) {
                 const cardDiv = document.createElement('div');
                 cardDiv.className = 'metric-item';
@@ -7657,10 +7828,30 @@ function main() {
                 '</div>';
         }
 
+        const sectionId = 'narrowed-priors';
+        const isCollapsed = isSectionCollapsed(sectionId);
         narrowedBoundsPanel.innerHTML =
-            '<div class="param-bounds-header">Sweep-narrowed priors:</div>' +
-            '<div class="param-bounds-grid">' + cardsHtml + '</div>';
+            `<div class="param-bounds-header section-collapsible-header${isCollapsed ? ' is-collapsed' : ''}" role="button" tabindex="0" aria-expanded="${!isCollapsed}" data-section-id="${sectionId}" title="${isCollapsed ? 'Click to expand' : 'Click to collapse'}">` +
+                `<span class="section-collapse-arrow" aria-hidden="true">${COLLAPSE_ARROW_SVG}</span>` +
+                `<span>Sweep-narrowed priors:</span>` +
+            `</div>` +
+            `<div class="param-bounds-grid"${isCollapsed ? ' style="display:none;"' : ''}>` + cardsHtml + `</div>`;
         narrowedBoundsPanel.hidden = false;
+        const nbHeader = narrowedBoundsPanel.querySelector('.param-bounds-header');
+        const nbGrid = narrowedBoundsPanel.querySelector('.param-bounds-grid');
+        if (nbHeader && nbGrid) {
+            const toggle = () => {
+                toggleCollapsibleSection(sectionId, nbHeader, nbGrid);
+                nbHeader.setAttribute('title', nbHeader.classList.contains('is-collapsed') ? 'Click to expand' : 'Click to collapse');
+            };
+            nbHeader.addEventListener('click', toggle);
+            nbHeader.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    toggle();
+                }
+            });
+        }
     }
 
     function renderNarrowedBoundsFromIframe() {
