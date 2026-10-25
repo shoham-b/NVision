@@ -222,7 +222,7 @@ NVISION_SBED_WINDOW_FWHM_VALUES: tuple[float, ...] = tuple(
 )
 NVISION_SBED_FWHM: float = float(os.getenv("NVISION_SBED_FWHM", "2e6"))
 NVISION_SBED_GAUSSIAN_SHARES: tuple[float, ...] = tuple(
-    float(v) for v in os.getenv("NVISION_SBED_GAUSSIAN_SHARES", "0,0.35,0.7").split(",") if v.strip()
+    float(v) for v in os.getenv("NVISION_SBED_GAUSSIAN_SHARES", "0,0.15,0.3").split(",") if v.strip()
 )
 NVISION_SBED_STUDY_ISOTOPE: str = os.getenv("NVISION_SBED_STUDY_ISOTOPE", "unresolved").strip()
 NVISION_SBED_SNR_CONTRAST: float = float(os.getenv("NVISION_SBED_SNR_CONTRAST", "0.25"))
