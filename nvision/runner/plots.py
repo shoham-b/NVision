@@ -25,6 +25,7 @@ from nvision.runner.plots_data import (
 from nvision.sim.defaults import (
     NVISION_CONVERGENCE_THRESHOLD,
     NVISION_GRAPH_REPEATS,
+    NVISION_MAX_MEASUREMENTS,
     NVISION_PLOT_SWEEP_STRATEGIES,
     PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS,
     param_converged,
@@ -50,11 +51,9 @@ def plots_wanted(strat_name: str, attempt_idx_in_combo: int) -> bool:
 
 
 # Maximum number of snapshots fed into visualization loops.
-# Convergence-driven locators can accumulate thousands of
-# steps; iterating all of them for Fisher info, covariance ellipses, and
-# posterior animations is the dominant post-run cost.  Subsampling to this cap
-# keeps plots informative while cutting render time proportionally.
-_MAX_VIZ_SNAPSHOTS = 1000
+# Defaults to NVISION_MAX_MEASUREMENTS (currently 2500) so runs within the
+# standard measurement budget are not subsampled by default.
+_MAX_VIZ_SNAPSHOTS: int = NVISION_MAX_MEASUREMENTS
 
 # Maximum particles retained per snapshot for posterior visualization.
 # Must match write_posterior_data's n_particles default: the UI renders at most
