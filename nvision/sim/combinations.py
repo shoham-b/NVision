@@ -205,7 +205,12 @@ class CombinationGrid:
         for name, gen in snr_window_gens.items():
             if name.endswith("-hfunresolved"):
                 self._resolve_generators.setdefault(name[: -len("-hfunresolved")], gen)
-        self._resolve_generators.update(dict(sim_presets.drive_controlled_generators()))
+        drive_gens = dict(sim_presets.drive_controlled_generators())
+        self._resolve_generators.update(drive_gens)
+        # Register legacy unadorned names (without -hfunresolved) for backward compatibility
+        for name, gen in drive_gens.items():
+            if name.endswith("-hfunresolved"):
+                self._resolve_generators.setdefault(name[: -len("-hfunresolved")], gen)
         if extra_generators:
             self._resolve_generators.update(extra_generators)
         self._noises: dict[str, CompositeNoise | None] = dict(sim_presets.noises_single_each())
@@ -236,6 +241,10 @@ class CombinationGrid:
         drive_lineshape = _drive_lineshape_for(generator_name)
         if drive_lineshape is not None:
             nv_smc_config["lineshape"] = drive_lineshape
+            resolved = self._resolve_generators.get(generator_name)
+            hyperfine = getattr(resolved, "hyperfine", None)
+            if hyperfine is not None:
+                nv_smc_config["hyperfine"] = hyperfine
         elif generator_name.startswith("NVCenter-saturation_voigt"):
             nv_smc_config["lineshape"] = "saturation_voigt"
         elif generator_name.startswith("NVCenter-voigt-fw"):

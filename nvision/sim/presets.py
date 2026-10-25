@@ -355,7 +355,10 @@ def voigt_snr_window_param_grid_generators() -> list[tuple[str, object]]:
                 pad = zeeman_shift_edge_pad(fwhm_total, hyperfine_geometry(hyperfine)[0])
                 if not pad < zeeman_max:
                     continue
-                name = f"NVCenter-voigt-{_fmt_window(window_fwhm)}-{_fmt_gaussian_share(share)}-{_fmt_hyperfine(hyperfine)}"
+                name = (
+                    f"NVCenter-voigt-{_fmt_window(window_fwhm)}-{_fmt_gaussian_share(share)}-"
+                    f"{_fmt_hyperfine(hyperfine)}"
+                )
                 generators.append(
                     (
                         name,
@@ -634,25 +637,25 @@ def gauss_with_drift(sigma: float, drift: DriftSpec | None) -> CompositeNoise:
 def drive_controlled_generators() -> list[tuple[str, object]]:
     """Generators whose microwave drive is a per-measurement setting (CW and pulsed ODMR).
 
-    Both use the default Zeeman-split, unresolved-hyperfine NV spectrum; the drive physics lives in
+    Sweeps over nitrogen isotopes in ``NVISION_SBED_HYPERFINE_VALUES``; the drive physics lives in
     :mod:`nvision.spectra.nv_center_drive`. Locators that do not choose the drive measure at the
     generator's baseline drive; ``Bayesian-SBED-Drive`` chooses it per step.
     """
-    return [
-        (
-            "NVCenter-cw-drive",
-            NVCenterCoreGenerator(
-                drive_freq_min_phys=DEFAULT_NV_DRIVE_FREQ_MIN_PHYS,
-                drive_freq_max_phys=DEFAULT_NV_DRIVE_FREQ_MAX_PHYS,
-                variant="cw_drive",
-            ),
-        ),
-        (
-            "NVCenter-pulsed-drive",
-            NVCenterCoreGenerator(
-                drive_freq_min_phys=DEFAULT_NV_DRIVE_FREQ_MIN_PHYS,
-                drive_freq_max_phys=DEFAULT_NV_DRIVE_FREQ_MAX_PHYS,
-                variant="pulsed_drive",
-            ),
-        ),
-    ]
+    from nvision.sim.defaults import NVISION_SBED_HYPERFINE_VALUES
+
+    generators: list[tuple[str, object]] = []
+    for mode, variant in (("cw", "cw_drive"), ("pulsed", "pulsed_drive")):
+        for hyperfine in NVISION_SBED_HYPERFINE_VALUES:
+            name = f"NVCenter-{mode}-drive-{_fmt_hyperfine(hyperfine)}"
+            generators.append(
+                (
+                    name,
+                    NVCenterCoreGenerator(
+                        drive_freq_min_phys=DEFAULT_NV_DRIVE_FREQ_MIN_PHYS,
+                        drive_freq_max_phys=DEFAULT_NV_DRIVE_FREQ_MAX_PHYS,
+                        variant=variant,
+                        hyperfine=hyperfine,
+                    ),
+                )
+            )
+    return generators
