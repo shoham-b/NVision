@@ -123,16 +123,15 @@ def test_snr_noises_reject_non_positive_snr(monkeypatch):
 
 
 def test_snr_window_grid_has_one_total_fwhm_and_varies_one_thing_per_axis():
-    """Window = N x ONE total FWHM; the Gaussian share changes the line shape at that same FWHM."""
+    """Window = N x ONE total FWHM; Gaussian share and isotope vary at that same FWHM."""
     from nvision.spectra.nv_center import _voigt_reparam_scalar, max_zeeman_shift_for_window
 
     generators = dict(sim_presets.voigt_snr_window_param_grid_generators())
-    assert len(generators) == len(sim_defaults.NVISION_SBED_WINDOW_FWHM_VALUES) * len(
-        sim_defaults.NVISION_SBED_GAUSSIAN_SHARES
-    )
+    assert len(generators) == 24
+    assert {g.hyperfine for g in generators.values()} == set(sim_defaults.NVISION_SBED_HYPERFINE_VALUES)
     for gen in generators.values():
         assert gen.contrast_total == sim_defaults.NVISION_SBED_SNR_CONTRAST
-        assert gen.hyperfine == sim_defaults.NVISION_SBED_STUDY_ISOTOPE
+        assert gen.hyperfine in sim_defaults.NVISION_SBED_HYPERFINE_VALUES
         fwhm_total, lorentz_frac = _voigt_reparam_scalar(gen.hwhm, gen.sigma_inhom)
         assert fwhm_total == pytest.approx(sim_defaults.NVISION_SBED_FWHM)
         assert gen.gaussian_share == pytest.approx(1.0 - lorentz_frac)
@@ -313,19 +312,18 @@ def test_snr_window_width_bounds_and_priors_do_not_move_with_the_window():
     """Only positions follow the window: the linewidth bounds and its prior std are identical for every N."""
     import random
 
-    by_share: dict[float, list[tuple[dict, dict]]] = {}
+    by_share_hf: dict[tuple[float, str], list[tuple[dict, dict]]] = {}
     for _, gen in sim_presets.voigt_snr_window_param_grid_generators():
         signal = gen.generate(random.Random(0))
         priors = signal.bounds["_priors"]
-        by_share.setdefault(gen.gaussian_share, []).append(
+        by_share_hf.setdefault((gen.gaussian_share, gen.hyperfine), []).append(
             (
                 {n: signal.bounds[n] for n in ("hwhm_lorentz", "sigma_inhom", "contrast_total")},
                 {n: priors[n][1] for n in ("hwhm_lorentz", "sigma_inhom", "contrast_total")},
             )
         )
-    assert by_share
-    for runs in by_share.values():
-        assert len(runs) == len(sim_defaults.NVISION_SBED_WINDOW_FWHM_VALUES)
+    assert by_share_hf
+    for runs in by_share_hf.values():
         assert all(r == runs[0] for r in runs)
 
 
@@ -345,9 +343,9 @@ def test_select_snr_window_narrows_a_group_by_snr_and_window():
     assert {g for g, _, _ in at_snr} == set(group.generator_names)
 
     both = sim_run_groups.select_snr_window(combos, gens, snr=[2.0, 10.0], window_fwhm=[5.0, 20.0])
-    assert len(both) == len(combos) * 2 * 2 // (
-        len(group.noise_names) * len(sim_defaults.NVISION_SBED_WINDOW_FWHM_VALUES)
-    )
+    # 15 generators have window_fwhm in [5.0, 20.0] (fw5 and fw20 for unresolved/n15, fw20 for n14),
+    # across 2 SNRs and all locators
+    assert len(both) == 15 * 2 * len(group.strategy_names)
     assert sim_run_groups.select_snr_window(combos, gens, snr=[3.3]) == []
     assert sim_run_groups.select_snr_window(combos, gens) == combos
 

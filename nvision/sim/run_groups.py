@@ -8,13 +8,13 @@ A group is a *scenario* (what is simulated: generator grid x noise axis) with th
 To run a subset of a group's locators or signals use ``--filter-strategy`` / ``--filter-signal``; the former
 ``*-only`` groups are kept as aliases of exactly that.
 
-====================  ====================================  ==================  ===========================
-group                 generators                            noise               strategies
-====================  ====================================  ==================  ===========================
-``voigt-grid``        Voigt window/FWHM x Gaussian share    SNR grid            locator study (below)
-``drive-control``     CW / pulsed drive-controlled NV       SNR grid (nominal)  Bayesian-SBED, -SBED-Drive
-``all``               the two above                         the two above           each scenario's own set
-====================  ====================================  ==================  ===========================
+====================  ==========================================  ==================  ===========================
+group                 generators                                  noise               strategies
+====================  ==========================================  ==================  ===========================
+``voigt-grid``        Voigt window/FWHM x share x isotope         SNR grid            locator study (below)
+``drive-control``     CW / pulsed drive-controlled NV             SNR grid (nominal)  Bayesian-SBED, -SBED-Drive
+``all``               the two above                               the two above       each scenario's own set
+====================  ==========================================  ==================  ===========================
 
 The locator study is SimpleSweep-<k>perFWHM (k = 2..4), Smart-Sweep, Bayesian-SBED and Smart-SBED.
 """
@@ -115,7 +115,7 @@ def _group(
 def _group_voigt_grid() -> RunGroup:
     return _group(
         "voigt-grid",
-        f"Voigt window/FWHM x Gaussian share (fixed total FWHM and isotope) x SNR grid; {_STUDY_LOCATORS}.",
+        f"Voigt window/FWHM x Gaussian share x isotope (fixed total FWHM) x SNR grid; {_STUDY_LOCATORS}.",
         _voigt_snr_window_param_grid(),
         _snr_noise_names(),
         list(_LOCATOR_STUDY_STRATEGIES),

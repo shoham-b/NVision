@@ -300,7 +300,7 @@ def _fmt_gaussian_share(share: float) -> str:
 
 
 def voigt_snr_window_param_grid_generators() -> list[tuple[str, object]]:
-    """Window-in-FWHM x Gaussian-share grid of named plain-Voigt generators (the SNR study's signals).
+    """Window-in-FWHM x Gaussian-share x isotope grid of named plain-Voigt generators (the SNR study's signals).
 
     One thing changes per axis:
 
@@ -313,19 +313,28 @@ def voigt_snr_window_param_grid_generators() -> list[tuple[str, object]]:
     * **Gaussian share** (``gs<g>`` in the name): the Gaussian part of that total FWHM, 0 = pure Lorentzian. The
       Lorentzian HWHM and ``sigma_inhom`` are chosen so the total FWHM stays ``NVISION_SBED_FWHM``
       (``fwhm = 2 * hwhm_lorentz + 2 sqrt(2 ln 2) * sigma_inhom``), so the share changes the shape, not the width.
+    * **Isotope** (``hf<iso>`` in the name): which nitrogen isotope's hyperfine structure the true signal resolves
+      (``NVISION_SBED_HYPERFINE_VALUES``, default ``unresolved``/``n14``/``n15``). Windows that cannot accommodate
+      the isotope's edge padding below ``zeeman_max`` (such as a 5-FWHM window for the 14N triplet) are omitted.
     * **SNR** is not a generator axis: every generator carries the same ``contrast_total``
       (``NVISION_SBED_SNR_CONTRAST``) and a run is named ``SNR(x)`` (:func:`snr_study_noises`).
-
-    The isotope is fixed (``NVISION_SBED_STUDY_ISOTOPE``): it rescales the depth of one dip, i.e. the SNR.
     """
     from nvision.sim.defaults import (
         NVISION_SBED_FWHM,
         NVISION_SBED_GAUSSIAN_SHARES,
+        NVISION_SBED_HYPERFINE_VALUES,
         NVISION_SBED_SNR_CONTRAST,
-        NVISION_SBED_STUDY_ISOTOPE,
         NVISION_SBED_WINDOW_FWHM_VALUES,
     )
-    from nvision.spectra.nv_center import _SATURATION_VOIGT_SQRT2LOG2, MIN_HWHM, NV_ZERO_FIELD_SPLITTING_HZ
+    from nvision.spectra.nv_center import (
+        _SATURATION_VOIGT_SQRT2LOG2,
+        MIN_HWHM,
+        NV_ZERO_FIELD_SPLITTING_HZ,
+        _voigt_reparam_scalar,
+        hyperfine_geometry,
+        max_zeeman_shift_for_window,
+        zeeman_shift_edge_pad,
+    )
 
     generators: list[tuple[str, object]] = []
     for window_fwhm in NVISION_SBED_WINDOW_FWHM_VALUES:
@@ -339,21 +348,29 @@ def voigt_snr_window_param_grid_generators() -> list[tuple[str, object]]:
                     f"lower bound {MIN_HWHM:g} Hz (total FWHM {NVISION_SBED_FWHM:g} Hz)."
                 )
             sigma_inhom = share * NVISION_SBED_FWHM / (2.0 * _SATURATION_VOIGT_SQRT2LOG2)
-            generators.append(
-                (
-                    f"NVCenter-voigt-{_fmt_window(window_fwhm)}-{_fmt_gaussian_share(share)}",
-                    NVCenterCoreGenerator(
-                        drive_freq_min_phys=NV_ZERO_FIELD_SPLITTING_HZ,
-                        drive_freq_max_phys=NV_ZERO_FIELD_SPLITTING_HZ + window_fwhm * NVISION_SBED_FWHM,
-                        variant="voigt",
-                        hwhm=hwhm_lorentz,
-                        contrast_total=NVISION_SBED_SNR_CONTRAST,
-                        sigma_inhom=sigma_inhom,
-                        hyperfine=NVISION_SBED_STUDY_ISOTOPE,
-                        window_fwhm=window_fwhm,
-                    ),
+            fwhm_total, _ = _voigt_reparam_scalar(hwhm_lorentz, sigma_inhom)
+            zeeman_max = max_zeeman_shift_for_window(window_fwhm * NVISION_SBED_FWHM)
+
+            for hyperfine in NVISION_SBED_HYPERFINE_VALUES:
+                pad = zeeman_shift_edge_pad(fwhm_total, hyperfine_geometry(hyperfine)[0])
+                if not pad < zeeman_max:
+                    continue
+                name = f"NVCenter-voigt-{_fmt_window(window_fwhm)}-{_fmt_gaussian_share(share)}-{_fmt_hyperfine(hyperfine)}"
+                generators.append(
+                    (
+                        name,
+                        NVCenterCoreGenerator(
+                            drive_freq_min_phys=NV_ZERO_FIELD_SPLITTING_HZ,
+                            drive_freq_max_phys=NV_ZERO_FIELD_SPLITTING_HZ + window_fwhm * NVISION_SBED_FWHM,
+                            variant="voigt",
+                            hwhm=hwhm_lorentz,
+                            contrast_total=NVISION_SBED_SNR_CONTRAST,
+                            sigma_inhom=sigma_inhom,
+                            hyperfine=hyperfine,
+                            window_fwhm=window_fwhm,
+                        ),
+                    )
                 )
-            )
     return generators
 
 
