@@ -567,7 +567,7 @@ def _bayesian_auxiliary_entries(
 
     # Fisher information bounds vs actual uncertainty for SMC beliefs
     from nvision.belief.smc_marginal import SMCMarginalDistribution
-    from nvision.models.fisher_information import fisher_history, oracle_crlb_history
+    from nvision.models.fisher_information import fisher_history, oracle_crlb_history, typed_parameters
 
     if bayesian_snapshots and isinstance(bayesian_snapshots[0].belief, SMCMarginalDistribution):
         param_names = list(bayesian_snapshots[0].belief.model.parameter_names())
@@ -582,20 +582,28 @@ def _bayesian_auxiliary_entries(
             param_names,
             physical_bounds,
             bayesian_snapshots[0].belief.drive_freq_bounds_phys,
+            true_params=true_params,
         )
 
-        # Oracle CRLB: the hard information limit for step+1 ideal (uniformly
-        # placed) measurements at the *true* parameters -- independent of where
-        # this particular run actually measured, unlike fisher_bounds_hist above
-        # (which is data-driven and also credits nothing for the informative
-        # prior). Lets the UI show "how good could any acquisition strategy
-        # possibly do" next to "how good did this one actually do".
+        # Oracle CRLB: the hard information limit for step+1 optimal dip
+        # measurements at the *true* parameters on the belief's own parameter
+        # subspace (e.g. with fixed zero_field_freq when the belief fixes it).
         oracle_crlb_hist: list[dict[str, float]] = []
         with suppress(Exception):
+            inner_model = getattr(bayesian_snapshots[0].belief.model, "inner", bayesian_snapshots[0].belief.model)
+            if getattr(inner_model, "controls_drive", False):
+                oracle_model = inner_model.at_drive(inner_model.baseline_drive)
+            else:
+                oracle_model = inner_model
+            oracle_typed_params = (
+                typed_parameters(oracle_model, true_params)
+                if all(name in true_params for name in oracle_model.parameter_names())
+                else run_result.true_signal.typed_parameters
+            )
             oracle_crlb_hist = oracle_crlb_history(
                 n_steps=len(bayesian_snapshots),
-                model=run_result.true_signal.baseline_model,
-                true_typed_params=run_result.true_signal.typed_parameters,
+                model=oracle_model,
+                true_typed_params=oracle_typed_params,
                 x_lo=float(experiment.drive_freq_min_phys),
                 x_hi=float(experiment.drive_freq_max_phys),
                 noise_std=float(bayesian_snapshots[0].obs.noise_std),
