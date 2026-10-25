@@ -12,7 +12,7 @@ To run a subset of a group's locators or signals use ``--filter-strategy`` / ``-
 group                 generators                                  noise               strategies
 ====================  ==========================================  ==================  ===========================
 ``voigt-grid``        Voigt window/FWHM x share x isotope         SNR grid            locator study (below)
-``drive-control``     CW / pulsed drive-controlled NV             SNR grid (nominal)  Bayesian-SBED, -SBED-Drive
+``drive-control``     CW / pulsed drive-controlled NV x isotope   SNR grid (nominal)  Bayesian-SBED, -SBED-Drive
 ``all``               the two above                               the two above       each scenario's own set
 ====================  ==========================================  ==================  ===========================
 
@@ -126,7 +126,8 @@ def _group_drive_control() -> RunGroup:
     """Drive-choosing SBED vs fixed-drive SBED on the CW and pulsed drive-controlled generators."""
     return _group(
         "drive-control",
-        "CW/pulsed drive-controlled NV generators; Bayesian-SBED-Drive (picks the MW amplitude) vs Bayesian-SBED.",
+        "CW/pulsed drive-controlled NV generators across isotopes; "
+        "Bayesian-SBED-Drive (picks the MW amplitude) vs Bayesian-SBED.",
         dict(sim_presets.drive_controlled_generators()),
         _snr_noise_names(),
         ["Bayesian-SBED", "Bayesian-SBED-Drive"],

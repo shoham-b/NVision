@@ -11,7 +11,7 @@ spectrum with tight nuisance priors; it still uses the prior's width, never the 
 | Group | Signals | Noise | Strategies |
 |---|---|---|---|
 | `voigt-grid` | Voigt window/FWHM x Gaussian share x isotope (fixed total FWHM) | SNR grid | the six below |
-| `drive-control` | CW / pulsed drive-controlled NV | SNR grid (nominal) | `Bayesian-SBED`, `Bayesian-SBED-Drive` |
+| `drive-control` | CW / pulsed drive-controlled NV x isotope | SNR grid (nominal) | `Bayesian-SBED`, `Bayesian-SBED-Drive` |
 | `all` | the two above | the two above | each scenario's own set (`nv groups count all`) |
 
 `nv groups list` shows every group with its task count. The former groups `both-sbed`, `both-sbed-only`,
