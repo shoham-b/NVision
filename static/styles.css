@@ -1795,3 +1795,64 @@ body {
         }
 
 
+        /* Shared toolbar row above the Posterior Evolution mini-cards and Convergence
+           cards: holds the log-scale switch on the left and the global interactive
+           overlay legend bar on the right. */
+        .uncertainty-controls-row {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 8px;
+        }
+        .uncertainty-controls-row .ios-switch {
+            margin-bottom: 0;
+        }
+        .uncertainty-legend-bar {
+            display: inline-flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 6px;
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 6px;
+            padding: 4px 8px;
+        }
+        .uncertainty-legend-title {
+            font-size: 0.75em;
+            font-weight: 600;
+            color: #64748b;
+            margin-right: 4px;
+            user-select: none;
+        }
+        .uncertainty-legend-item {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 3px 8px;
+            border-radius: 4px;
+            border: 1px solid #e2e8f0;
+            background: #ffffff;
+            color: #334155;
+            font-size: 0.76em;
+            font-weight: 500;
+            line-height: 1.2;
+            cursor: pointer;
+            user-select: none;
+            transition: opacity 0.12s ease, border-color 0.12s ease, background-color 0.12s ease;
+        }
+        .uncertainty-legend-item:hover {
+            border-color: #94a3b8;
+            background: #f1f5f9;
+        }
+        .uncertainty-legend-item.is-hidden {
+            opacity: 0.42;
+            background: #f8fafc;
+            color: #94a3b8;
+            text-decoration: line-through;
+        }
+        .uncertainty-legend-swatch {
+            display: inline-block;
+            flex-shrink: 0;
+        }

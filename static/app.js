@@ -3739,7 +3739,22 @@ function main() {
         // Independent of the Convergence/Fisher tabs' own log-scale toggles — each
         // view remembers its own choice rather than sharing one flag.
         let logScale = false;
-        container.appendChild(_logScaleToggle(logScale, (v) => { logScale = v; updateStep(lastStepIdx); }));
+        const overlayState = {
+            uncertainty: true,
+            crlb: true,
+            oracleCrlb: true,
+            threshold: true,
+            resamples: true,
+        };
+        container.appendChild(_uncertaintyControlsRow(
+            logScale,
+            (v) => { logScale = v; updateStep(lastStepIdx); },
+            overlayState,
+            () => {
+                plotDivs.forEach((pdEntry) => { pdEntry.zoomRange = null; });
+                updateStep(lastStepIdx);
+            }
+        ));
 
         // Setup Grid Wrapper Container (max 4 columns)
         const gridWrapper = document.createElement('div');
@@ -4035,17 +4050,21 @@ function main() {
                     const displayHistory = steps.map((_, idx) =>
                         (robustHistory && robustHistory[idx] != null) ? robustHistory[idx] : uncHistory[idx]
                     );
-                    const uncTraces = [{
-                        type: 'scatter',
-                        x: steps.map((_, idx) => idx),
-                        y: displayHistory,
-                        mode: 'lines',
-                        line: { color: color, width: 1.5 },
-                        hoverinfo: 'skip',
-                        showlegend: false
-                    }];
+                    const uncTraces = [];
+                    if (overlayState.uncertainty) {
+                        uncTraces.push({
+                            type: 'scatter',
+                            x: steps.map((_, idx) => idx),
+                            y: displayHistory,
+                            mode: 'lines',
+                            line: { color: color, width: 1.5 },
+                            hoverinfo: 'skip',
+                            showlegend: false,
+                            name: 'Uncertainty (σ)',
+                        });
+                    }
 
-                    if (crlbHistory && crlbHistory.some(v => v !== null)) {
+                    if (overlayState.crlb && crlbHistory && crlbHistory.some(v => v !== null)) {
                         uncTraces.push({
                             type: 'scatter',
                             x: steps.map((_, idx) => idx),
@@ -4061,7 +4080,7 @@ function main() {
                     // Oracle CRLB: absolute best any acquisition could do with the same
                     // number of measurements (ideal placement, true parameters) -- a hard
                     // floor, plotted distinctly from the achieved (data-driven) CRLB above.
-                    if (oracleCrlbHistory && oracleCrlbHistory.some(v => v !== null)) {
+                    if (overlayState.oracleCrlb && oracleCrlbHistory && oracleCrlbHistory.some(v => v !== null)) {
                         uncTraces.push({
                             type: 'scatter',
                             x: steps.map((_, idx) => idx),
@@ -4077,7 +4096,9 @@ function main() {
                     const uncShapes = [];
                     // Resample+jitter markers, drawn first so the current-step line
                     // layers on top when they coincide.
-                    uncShapes.push(...resampleMarkerShapes());
+                    if (overlayState.resamples) {
+                        uncShapes.push(...resampleMarkerShapes());
+                    }
                     // Current step vertical indicator line
                     uncShapes.push({
                         type: 'line',
@@ -4101,13 +4122,25 @@ function main() {
                         threshVal = 0.01 * (bounds[1] - bounds[0]);
                     }
 
+                    if (uncTraces.length === 0) {
+                        uncTraces.push({
+                            type: 'scatter',
+                            x: [0, Math.max(0, nSteps - 1)],
+                            y: [threshVal || 1, threshVal || 1],
+                            mode: 'markers',
+                            marker: { opacity: 0 },
+                            hoverinfo: 'skip',
+                            showlegend: false,
+                        });
+                    }
+
                     // Text labels so a solid/dashed/dotted line doesn't have to be
                     // decoded from color alone — same convention (and same left/right
                     // anchoring, to keep the two labels apart) as the bigger Convergence
                     // tab cards below.
                     const uncAnnotations = [];
 
-                    if (threshVal !== null) {
+                    if (overlayState.threshold && threshVal !== null) {
                         uncShapes.push({
                             type: 'line',
                             x0: 0,
@@ -4124,7 +4157,7 @@ function main() {
                         });
                     }
 
-                    if (crlbHistory) {
+                    if (overlayState.crlb && crlbHistory) {
                         const firstIdx = crlbHistory.findIndex((v) => v != null);
                         if (firstIdx !== -1) {
                             uncAnnotations.push({
@@ -4136,7 +4169,7 @@ function main() {
                         }
                     }
 
-                    if (oracleCrlbHistory) {
+                    if (overlayState.oracleCrlb && oracleCrlbHistory) {
                         const firstIdx = oracleCrlbHistory.findIndex((v) => v != null);
                         if (firstIdx !== -1) {
                             uncAnnotations.push({
@@ -4173,11 +4206,11 @@ function main() {
                         if (logScale) logRange = pdEntry.zoomRange;
                         else linRange = pdEntry.zoomRange;
                     } else {
-                        const priorityVals = displayHistory.filter((v) => v != null && v >= 0);
-                        if (threshVal !== null && threshVal >= 0) priorityVals.push(threshVal);
+                        const priorityVals = overlayState.uncertainty ? displayHistory.filter((v) => v != null && v >= 0) : [];
+                        if (overlayState.threshold && threshVal !== null && threshVal >= 0) priorityVals.push(threshVal);
                         const referenceVals = [];
-                        if (crlbHistory) referenceVals.push(...crlbHistory.filter((v) => v != null && v > 0));
-                        if (oracleCrlbHistory) referenceVals.push(...oracleCrlbHistory.filter((v) => v != null && v > 0));
+                        if (overlayState.crlb && crlbHistory) referenceVals.push(...crlbHistory.filter((v) => v != null && v > 0));
+                        if (overlayState.oracleCrlb && oracleCrlbHistory) referenceVals.push(...oracleCrlbHistory.filter((v) => v != null && v > 0));
 
                         if (logScale) {
                             const positiveVals = priorityVals.filter((v) => v > 0).concat(referenceVals);
@@ -4353,6 +4386,90 @@ function main() {
         wrapper.appendChild(track);
         wrapper.appendChild(label);
         return wrapper;
+    }
+
+    function _uncertaintyControlsRow(logScale, onLogToggle, overlayState, onOverlayChange) {
+        const row = document.createElement('div');
+        row.className = 'uncertainty-controls-row';
+        row.appendChild(_logScaleToggle(logScale, onLogToggle));
+
+        const legendBar = document.createElement('div');
+        legendBar.className = 'uncertainty-legend-bar';
+        legendBar.setAttribute('role', 'group');
+        legendBar.setAttribute('aria-label', 'Chart overlay legend (click to toggle, double-click to isolate)');
+
+        const title = document.createElement('span');
+        title.className = 'uncertainty-legend-title';
+        title.textContent = 'Legend:';
+        legendBar.appendChild(title);
+
+        const items = [
+            {
+                key: 'uncertainty',
+                label: 'Uncertainty (σ)',
+                svg: '<svg class="uncertainty-legend-swatch" width="22" height="10" viewBox="0 0 22 10" aria-hidden="true"><line x1="1" y1="5" x2="21" y2="5" stroke="#00a878" stroke-width="2"/></svg>',
+            },
+            {
+                key: 'crlb',
+                label: 'CRLB (achieved)',
+                svg: '<svg class="uncertainty-legend-swatch" width="22" height="10" viewBox="0 0 22 10" aria-hidden="true"><line x1="1" y1="5" x2="21" y2="5" stroke="#9333ea" stroke-width="1.8" stroke-dasharray="2,2"/></svg>',
+            },
+            {
+                key: 'oracleCrlb',
+                label: 'CRLB (oracle)',
+                svg: '<svg class="uncertainty-legend-swatch" width="22" height="10" viewBox="0 0 22 10" aria-hidden="true"><line x1="1" y1="5" x2="21" y2="5" stroke="#059669" stroke-width="1.8" stroke-dasharray="5,2,1.5,2"/></svg>',
+            },
+            {
+                key: 'threshold',
+                label: 'Threshold',
+                svg: '<svg class="uncertainty-legend-swatch" width="22" height="10" viewBox="0 0 22 10" aria-hidden="true"><line x1="1" y1="5" x2="21" y2="5" stroke="#ef4444" stroke-width="1.8" stroke-dasharray="4,2.5"/></svg>',
+            },
+            {
+                key: 'resamples',
+                label: 'Resample markers',
+                svg: '<svg class="uncertainty-legend-swatch" width="14" height="12" viewBox="0 0 14 12" aria-hidden="true"><line x1="5" y1="1" x2="5" y2="11" stroke="rgba(249, 115, 22, 0.85)" stroke-width="1.6" stroke-dasharray="2,2"/><line x1="10" y1="1" x2="10" y2="11" stroke="rgba(249, 115, 22, 0.85)" stroke-width="1.6" stroke-dasharray="2,2"/></svg>',
+            },
+        ];
+
+        const buttons = new Map();
+        function syncButtons() {
+            items.forEach(({ key }) => {
+                const btn = buttons.get(key);
+                if (!btn) return;
+                const active = Boolean(overlayState[key]);
+                btn.classList.toggle('is-hidden', !active);
+                btn.setAttribute('aria-pressed', active ? 'true' : 'false');
+            });
+        }
+
+        items.forEach((item) => {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'uncertainty-legend-item';
+            btn.title = 'Click to toggle across all cards; double-click to isolate';
+            btn.innerHTML = `${item.svg}<span>${item.label}</span>`;
+            btn.addEventListener('click', () => {
+                overlayState[item.key] = !overlayState[item.key];
+                syncButtons();
+                onOverlayChange();
+            });
+            btn.addEventListener('dblclick', (ev) => {
+                ev.preventDefault();
+                const activeKeys = items.filter((it) => overlayState[it.key]).map((it) => it.key);
+                const onlyThisActive = activeKeys.length === 1 && activeKeys[0] === item.key;
+                items.forEach((it) => {
+                    overlayState[it.key] = onlyThisActive ? true : (it.key === item.key);
+                });
+                syncButtons();
+                onOverlayChange();
+            });
+            buttons.set(item.key, btn);
+            legendBar.appendChild(btn);
+        });
+
+        syncButtons();
+        row.appendChild(legendBar);
+        return row;
     }
 
     // Vertical markers at every SMC resample+jitter step, shared by every chart that
@@ -4634,7 +4751,22 @@ function main() {
         container.innerHTML = '';
         // Independent of the Posterior Evolution/Fisher tabs' own log-scale toggles.
         let logScale = false;
-        container.appendChild(_logScaleToggle(logScale, (v) => { logScale = v; updateStep(lastStepIdx); }));
+        const overlayState = {
+            uncertainty: true,
+            crlb: true,
+            oracleCrlb: true,
+            threshold: true,
+            resamples: true,
+        };
+        container.appendChild(_uncertaintyControlsRow(
+            logScale,
+            (v) => { logScale = v; updateStep(lastStepIdx); },
+            overlayState,
+            () => {
+                paramPlotContexts.forEach((entry) => { entry.zoomRange = null; });
+                updateStep(lastStepIdx);
+            }
+        ));
 
         // Build cards stack for parameters
         const paramPlotContexts = [];
@@ -4807,18 +4939,22 @@ function main() {
                     <span style="font-size:0.85em; color:#475569;">Streak: <strong>${streak}</strong> / ${patience} steps</span>
                 `;
 
-                const traces = [{
-                    type: 'scatter',
-                    x: xs,
-                    y: vals,
-                    mode: 'lines',
-                    line: { color: color, width: 2 },
-                    hoverinfo: 'skip',
-                    showlegend: false
-                }];
+                const traces = [];
+                if (overlayState.uncertainty) {
+                    traces.push({
+                        type: 'scatter',
+                        x: xs,
+                        y: vals,
+                        mode: 'lines',
+                        name: 'Uncertainty (σ)',
+                        line: { color: color, width: 2 },
+                        hoverinfo: 'skip',
+                        showlegend: false,
+                    });
+                }
 
                 // Cramér-Rao lower bound overlay, when Fisher data is available for this run.
-                if (crlbVals && crlbVals.some(v => v !== null)) {
+                if (overlayState.crlb && crlbVals && crlbVals.some(v => v !== null)) {
                     traces.push({
                         type: 'scatter',
                         x: xs,
@@ -4834,7 +4970,7 @@ function main() {
                 // Oracle CRLB: absolute best any acquisition could do with the same
                 // number of measurements (ideal placement, true parameters) -- a hard
                 // floor, distinct from the achieved (data-driven) CRLB above.
-                if (oracleCrlbVals && oracleCrlbVals.some(v => v !== null)) {
+                if (overlayState.oracleCrlb && oracleCrlbVals && oracleCrlbVals.some(v => v !== null)) {
                     traces.push({
                         type: 'scatter',
                         x: xs,
@@ -4850,7 +4986,7 @@ function main() {
                 // Resample+jitter markers, drawn first so the converged-range shading
                 // and current-step line layer on top when they coincide — same
                 // convention as Posterior Evolution's mini-charts.
-                const shapes = [..._resampleMarkerShapes(resampledSteps)];
+                const shapes = overlayState.resamples ? [..._resampleMarkerShapes(resampledSteps)] : [];
 
                 // Shaded green rects for converged ranges
                 convergedRanges.forEach(([start, end]) => {
@@ -4893,17 +5029,31 @@ function main() {
                     thresholdLabel = `threshold (${formatNum(threshVal)})`;
                     
                     // 100% bound line
-                    shapes.push({
-                        type: 'line',
-                        x0: xs[0],
-                        x1: xs[xs.length - 1],
-                        y0: 1.0,
-                        y1: 1.0,
-                        line: { color: 'rgba(100,100,100,0.65)', width: 1.2, dash: 'dash' }
+                    if (overlayState.threshold) {
+                        shapes.push({
+                            type: 'line',
+                            x0: xs[0],
+                            x1: xs[xs.length - 1],
+                            y0: 1.0,
+                            y1: 1.0,
+                            line: { color: 'rgba(100,100,100,0.65)', width: 1.2, dash: 'dash' }
+                        });
+                    }
+                }
+
+                if (traces.length === 0) {
+                    traces.push({
+                        type: 'scatter',
+                        x: [xs[0], xs[xs.length - 1]],
+                        y: [threshVal || 1, threshVal || 1],
+                        mode: 'markers',
+                        marker: { opacity: 0 },
+                        hoverinfo: 'skip',
+                        showlegend: false,
                     });
                 }
 
-                if (threshVal !== null) {
+                if (overlayState.threshold && threshVal !== null) {
                     shapes.push({
                         type: 'line',
                         x0: xs[0],
@@ -4915,7 +5065,7 @@ function main() {
                 }
 
                 const annotations = [];
-                if (threshVal !== null) {
+                if (overlayState.threshold && threshVal !== null) {
                     annotations.push({
                         x: xs[xs.length - 1],
                         y: threshVal,
@@ -4929,7 +5079,7 @@ function main() {
                     });
                 }
 
-                if (!isAbs) {
+                if (overlayState.threshold && !isAbs) {
                     annotations.push({
                         x: xs[xs.length - 1],
                         y: 1.0,
@@ -4943,7 +5093,7 @@ function main() {
                     });
                 }
 
-                if (crlbVals) {
+                if (overlayState.crlb && crlbVals) {
                     const firstIdx = crlbVals.findIndex((v) => v != null);
                     if (firstIdx !== -1) {
                         annotations.push({
@@ -4960,7 +5110,7 @@ function main() {
                     }
                 }
 
-                if (oracleCrlbVals) {
+                if (overlayState.oracleCrlb && oracleCrlbVals) {
                     const firstIdx = oracleCrlbVals.findIndex((v) => v != null);
                     if (firstIdx !== -1) {
                         annotations.push({
@@ -4978,14 +5128,15 @@ function main() {
                 }
 
                 // Add Plotly CONVERGED badge if converged at the active step
-                let yMax = 1.1;
-                if (isAbs) {
-                    const maxVal = Math.max(...vals.filter(v => v !== null), threshVal);
-                    yMax = maxVal * 1.05;
-                } else {
-                    const maxVal = Math.max(...vals.filter(v => v !== null), 1.0);
-                    yMax = maxVal * 1.05;
+                const activeLinearVals = [];
+                if (overlayState.uncertainty) activeLinearVals.push(...vals.filter(v => v !== null));
+                if (overlayState.threshold && threshVal !== null) activeLinearVals.push(isAbs ? threshVal : 1.0);
+                if (activeLinearVals.length === 0) {
+                    if (overlayState.crlb && crlbVals) activeLinearVals.push(...crlbVals.filter(v => v !== null));
+                    if (overlayState.oracleCrlb && oracleCrlbVals) activeLinearVals.push(...oracleCrlbVals.filter(v => v !== null));
                 }
+                const maxVal = activeLinearVals.length > 0 ? Math.max(...activeLinearVals) : 1.0;
+                const yMax = maxVal > 0 ? maxVal * 1.05 : 1.1;
 
                 if (isConvCurrent) {
                     annotations.push({
@@ -5016,10 +5167,10 @@ function main() {
                     if (ctx.zoomRange) {
                         logRange = ctx.zoomRange;
                     } else {
-                        const positiveVals = vals.filter((v) => v != null && v > 0);
-                        if (crlbVals) positiveVals.push(...crlbVals.filter((v) => v != null && v > 0));
-                        if (oracleCrlbVals) positiveVals.push(...oracleCrlbVals.filter((v) => v != null && v > 0));
-                        if (threshVal !== null && threshVal > 0) positiveVals.push(threshVal);
+                        const positiveVals = overlayState.uncertainty ? vals.filter((v) => v != null && v > 0) : [];
+                        if (overlayState.crlb && crlbVals) positiveVals.push(...crlbVals.filter((v) => v != null && v > 0));
+                        if (overlayState.oracleCrlb && oracleCrlbVals) positiveVals.push(...oracleCrlbVals.filter((v) => v != null && v > 0));
+                        if (overlayState.threshold && threshVal !== null && threshVal > 0) positiveVals.push(threshVal);
                         if (positiveVals.length > 0) {
                             const lo = Math.log10(Math.min(...positiveVals));
                             const hi = Math.log10(Math.max(...positiveVals));
