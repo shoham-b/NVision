@@ -248,15 +248,19 @@ def fisher_history(
     param_names: list[str],
     physical_bounds: dict[str, tuple[float, float]],
     drive_freq_bounds_phys: tuple[float, float],
+    *,
+    true_params: dict[str, float] | None = None,
 ) -> tuple[list[np.ndarray], list[dict[str, float]], bool]:
     """Per-step cumulative Fisher info of a run: ``(fisher_hist, fisher_bounds_hist, fim_is_degenerate)``.
 
     ``fisher_hist[i]`` is the cumulative FIM after snapshot ``i`` in physical units;
     ``fisher_bounds_hist[i]`` maps each parameter to its marginal CRLB (physical; NaN while the direction
-    has no information). Each observation is evaluated at that step's own posterior estimate
-    (``estimates_hist[i]``, physical), on the belief's *inner* physical model -- the unit-cube wrapper
-    would re-interpret the physical values as ``[0, 1]`` fractions. Each snapshot's ``obs.drive_freq_unit`` is
-    mapped to Hz over ``drive_freq_bounds_phys`` (the range it is a unit coordinate of) before evaluation.
+    has no information). When ``true_params`` is provided and covers all model parameters, each observation
+    is evaluated at the true parameter values (measuring the true Fisher information of the sampled points);
+    otherwise it falls back to that step's own posterior estimate (``estimates_hist[i]``, physical), on the
+    belief's *inner* physical model -- the unit-cube wrapper would re-interpret the physical values as
+    ``[0, 1]`` fractions. Each snapshot's ``obs.drive_freq_unit`` is mapped to Hz over
+    ``drive_freq_bounds_phys`` (the range it is a unit coordinate of) before evaluation.
     """
     inner_model = snapshots[0].belief.model
     inner_model = getattr(inner_model, "inner", inner_model)
@@ -264,12 +268,19 @@ def fisher_history(
     if list(fisher.names) != list(param_names):
         raise ValueError(f"fisher_history: model parameters {fisher.names} != requested {param_names}")
 
+    fixed_typed_params = (
+        typed_parameters(inner_model, true_params)
+        if true_params is not None and all(name in true_params for name in fisher.names)
+        else None
+    )
+
     fisher_hist: list[np.ndarray] = []
     fisher_bounds_hist: list[dict[str, float]] = []
     lo_phys, hi_phys = drive_freq_bounds_phys
     for s, est in zip(snapshots, estimates_hist, strict=True):
         drive_freq_phys = lo_phys + s.obs.drive_freq_unit * (hi_phys - lo_phys)
-        fisher.add(drive_freq_phys, typed_parameters(inner_model, est), s.obs)
+        eval_params = fixed_typed_params if fixed_typed_params is not None else typed_parameters(inner_model, est)
+        fisher.add(drive_freq_phys, eval_params, s.obs)
         fisher_hist.append(fisher.matrix_phys())
         bounds_now = fisher.marginal_crlbs(nan_below_floor=True)
         fisher_bounds_hist.append(bounds_now or {name: float("nan") for name in param_names})
@@ -284,36 +295,40 @@ def oracle_crlb_history(
     x_hi: float,
     noise_std: float,
     bounds: dict[str, tuple[float, float]],
-    n_grid: int = 64,
+    n_grid: int = 256,
 ) -> list[dict[str, float]]:
-    """Best-achievable marginal CRLB per step: ``step + 1`` uniformly placed measurements at the *true* parameters.
+    """Best-achievable marginal CRLB per step: ``step + 1`` optimal dip measurements at the *true* parameters.
 
-    The hard floor no acquisition strategy could beat with the same number of measurements. CRLB
-    scales as ``1 / sqrt(N)``, so the mean single-measurement FIM over a uniform x-grid is computed
-    once and scaled by ``step + 1``.
+    For each parameter ``j``, an oracle that knows ``true_typed_params`` places its measurements at the
+    most informative frequencies ``argmax_x I_jj(x)`` (for symmetric dip flanks, pairing the left and right
+    inflection points also cancels off-diagonal nuisance couplings). By the Schur complement inequality
+    ``[(sum_n I(x_n))^-1]_jj >= 1 / (N * max_x I_jj(x))``, this is a strict lower bound that no acquisition
+    strategy's achieved CRLB can beat. Because CRLB scales as ``1 / sqrt(N)``, the peak single-measurement
+    Fisher information is computed once over the grid and scaled by ``step + 1``.
     """
     names = list(model.parameter_names())
     ranges = ranges_from_bounds(names, bounds)
     noise_only_obs = Observation(drive_freq_unit=0.0, signal_value=0.0, noise_std=noise_std)  # only noise_std is read
-    mean_fim = np.zeros((len(names), len(names)))
-    valid = 0
+    fims: list[np.ndarray] = []
     for xi in np.linspace(x_lo, x_hi, n_grid):
         fim = unit_normalized_fim(model, true_typed_params, float(xi), noise_only_obs, bounds)
         if fim is not None:
-            mean_fim += fim
-            valid += 1
-    if valid == 0:
+            fims.append(fim)
+    if not fims:
         return [{} for _ in range(n_steps)]
-    mean_fim /= valid
+
+    fim_stack = np.asarray(fims, dtype=np.float64)  # shape: (n_valid, n_params, n_params)
+    max_diag = np.diagonal(fim_stack, axis1=1, axis2=2).max(axis=0)  # shape: (n_params,)
+    oracle_fim = np.diag(max_diag)
 
     history: list[dict[str, float]] = []
     for step in range(n_steps):
-        fim_at_step = mean_fim * (step + 1)
+        fim_at_step = oracle_fim * (step + 1)
         stds = single_shot_marginal_stds_from_fim(fim_at_step, len(names))
-        diag = np.diag(fim_at_step)
+        diag_step = np.diag(fim_at_step)
         history.append(
             {
-                name: float(stds[j] * ranges[j]) if diag[j] > DEGENERATE_FIM_DIAG_FLOOR else float("nan")
+                name: float(stds[j] * ranges[j]) if diag_step[j] > DEGENERATE_FIM_DIAG_FLOOR else float("nan")
                 for j, name in enumerate(names)
             }
         )

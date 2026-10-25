@@ -289,6 +289,64 @@ def test_oracle_crlb_history_no_gradient_returns_empty_dicts() -> None:
     assert history == [{}, {}]
 
 
+def test_oracle_crlb_is_below_uniform_achieved_crlb() -> None:
+    """Oracle CRLB (dip-focused) must be strictly below a full-range uniform sweep's achieved CRLB."""
+    from types import SimpleNamespace
+
+    from nvision.models.fisher_information import fisher_history, oracle_crlb_history, typed_parameters
+    from nvision.models.observation import Observation
+
+    model = NVCenterLorentzianModel(with_zeeman_splitting=True, with_fixed_zero_field_freq=True)
+    param_names = list(model.parameter_names())
+    true_dict = {
+        "zero_field_freq": 2.87e9,
+        "hwhm": 2e6,
+        "zeeman_shift": 4e6,
+        "contrast_total": 0.25,
+        "k_np": 1.0,
+    }
+    true_typed = typed_parameters(model, true_dict)
+    physical_bounds = {
+        "zero_field_freq": (2.87e9, 3.02e9),
+        "hwhm": (2e5, 7.5e6),
+        "zeeman_shift": (0.0, 6e7),
+        "contrast_total": (0.1, 0.4),
+    }
+    x_lo, x_hi = 2.87e9, 3.02e9
+    n_steps = 40
+    xs_unit = np.linspace(0.0, 1.0, n_steps)
+    snapshots = [
+        SimpleNamespace(
+            obs=Observation(drive_freq_unit=float(u), signal_value=0.9, noise_std=0.01),
+            belief=SimpleNamespace(model=model),
+        )
+        for u in xs_unit
+    ]
+    # Deliberately pass a far-off estimate to verify true_params overrides estimates_hist.
+    wrong_estimates = [{"hwhm": 7e6, "zeeman_shift": 55e6, "contrast_total": 0.11} for _ in xs_unit]
+
+    _, achieved_hist, fim_is_degenerate = fisher_history(
+        snapshots,
+        wrong_estimates,
+        param_names,
+        physical_bounds,
+        (x_lo, x_hi),
+        true_params=true_dict,
+    )
+    oracle_hist = oracle_crlb_history(
+        n_steps=n_steps,
+        model=model,
+        true_typed_params=true_typed,
+        x_lo=x_lo,
+        x_hi=x_hi,
+        noise_std=0.01,
+        bounds=physical_bounds,
+    )
+    assert not fim_is_degenerate
+    for name in param_names:
+        assert oracle_hist[-1][name] < achieved_hist[-1][name]
+
+
 # ---------------------------------------------------------------------------
 # Theory step budget
 # ---------------------------------------------------------------------------
