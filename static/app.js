@@ -357,6 +357,10 @@ function main() {
     }
 
     function updateGlobalLabel(idx) {
+        if (!globalTotalFrames) {
+            globalLabel.innerHTML = 'Step: --';
+            return;
+        }
         const val = (globalStepValues && globalStepValues[idx] !== undefined) ? globalStepValues[idx] : idx;
         globalLabel.innerHTML = `Step: ${val} (${idx + 1} / ${globalTotalFrames})`;
     }
@@ -499,7 +503,7 @@ function main() {
         globalStepValues = [];
         globalSlider.value = 0;
         globalSlider.max = 0;
-        updateGlobalLabel(0);
+        updateGlobalTimelineMetadata();
 
         if (!selectedPlot) {
             bayesInteractiveSection.dataset.available = 'false';
@@ -714,22 +718,28 @@ function main() {
         const bayesSectionContainer = document.getElementById('bayes-section-container');
         const noDataMsg = document.getElementById('bayes-no-data-message');
 
-        if (bayesPlots.length === 0 && bayesInteractivePlots.length === 0 &&
+        const isRange = isNoiseRangeMode() || isGeneratorRangeMode();
+        const isPlainSweep = currentPlot && currentPlot.strategy && currentPlot.strategy.startsWith('SimpleSweep');
+
+        if (!currentPlot || isRange || isPlainSweep || (
+                bayesPlots.length === 0 && bayesInteractivePlots.length === 0 &&
                 bayesPosteriorDataPlots.length === 0 && bayesParamConvDataPlots.length === 0 &&
                 bayesConvMetricsDataPlots.length === 0 && bayesFisherDataPlots.length === 0 &&
-                bayesEllipsePlots.length === 0 && bayesJitterPlots.length === 0) {
+                bayesEllipsePlots.length === 0 && bayesJitterPlots.length === 0)) {
             if (bayesSectionContainer) bayesSectionContainer.style.display = 'none';
+            if (globalControls) globalControls.style.display = 'none';
             return;
-        } else if (bayesSectionContainer) {
-            bayesSectionContainer.style.display = 'block';
         }
 
         if (available.length === 0) {
             tabBar.style.display = 'none';
+            if (globalControls) globalControls.style.display = 'none';
             if (noDataMsg) noDataMsg.style.display = 'block';
+            if (bayesSectionContainer) bayesSectionContainer.style.display = 'block';
         } else {
             tabBar.style.display = 'flex';
             if (noDataMsg) noDataMsg.style.display = 'none';
+            if (bayesSectionContainer) bayesSectionContainer.style.display = 'block';
         }
 
         const currentActive = tabBar.querySelector('.bayes-tab-button.is-active');
@@ -2335,6 +2345,16 @@ function main() {
                 // actually needs; the full facet rebuild is reserved for family
                 // switches and other paths that go through scanGenerator directly.
                 applySelection({ silent: true });
+                const nextGen = controlValue(scanGenerator);
+                if (!isGeneratorRangeMode() && nextGen && window.nvisionNeedsWiderLoad && window.nvisionNeedsWiderLoad(nextGen)) {
+                    refreshScanNoiseControlForSelectedGenerators();
+                    updateNoiseViewMode();
+                    updateScanStrategyControl();
+                    updateScanRepeatControl();
+                    syncHashFromState();
+                    window.nvisionNavigateToGenerator(nextGen);
+                    return;
+                }
                 lastComparePairIds = { a: null, b: null };
                 lastSummaryKey = null;
                 refreshScanNoiseControlForSelectedGenerators();
