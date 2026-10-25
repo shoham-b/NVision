@@ -834,6 +834,8 @@ function main() {
     const scanIframe = document.getElementById('scan-iframe');
     const scanMetrics = document.getElementById('scan-metrics');
     const scanSweepMetrics = document.getElementById('scan-sweep-metrics');
+    const scanCompareSweep = document.getElementById('scan-compare-sweep');
+    const scanCompareSweepContainer = document.getElementById('scan-compare-sweep-row') || document.getElementById('scan-compare-sweep-container');
     let currentRepeatItems = [];
     // Legend visibility the user chose on the scan plot, keyed by trace name
     // (true = shown, false = legendonly). Re-applied to every re-render (timeline
@@ -907,6 +909,261 @@ function main() {
         });
         if (shown.length) s.plotly.restyle(s.graphDiv, { visible: true }, shown);
         if (hidden.length) s.plotly.restyle(s.graphDiv, { visible: 'legendonly' }, hidden);
+        const fitVisible = !scanLegendVisibility.has('locator most likely signal') || scanLegendVisibility.get('locator most likely signal') !== false;
+        _toggleFitVsRealVisibilityOnGraph(s.graphDiv, fitVisible);
+    }
+
+
+    function _toggleFitVsRealVisibilityOnGraph(graphDiv, isVisible) {
+        if (!graphDiv || !graphDiv.layout) return;
+        let changed = false;
+        const annotations = (graphDiv.layout.annotations || []).map(a => {
+            if (a && (a._isFitVsReal || (a.meta && a.meta.isFitVsReal))) {
+                if (a.visible !== isVisible) {
+                    changed = true;
+                    return Object.assign({}, a, { visible: isVisible });
+                }
+            }
+            return a;
+        });
+        const shapes = (graphDiv.layout.shapes || []).map(s => {
+            if (s && (s._isFitVsReal || (s.meta && s.meta.isFitVsReal))) {
+                if (s.visible !== isVisible) {
+                    changed = true;
+                    return Object.assign({}, s, { visible: isVisible });
+                }
+            }
+            return s;
+        });
+        if (changed && window.Plotly) {
+            Plotly.relayout(graphDiv, { annotations, shapes });
+        }
+    }
+
+    function _syncFitVsRealVisibilityInLayout(layout, isVisible) {
+        if (!layout) return;
+        if (Array.isArray(layout.annotations)) {
+            layout.annotations.forEach(a => {
+                if (a && (a._isFitVsReal || (a.meta && a.meta.isFitVsReal))) {
+                    a.visible = isVisible;
+                }
+            });
+        }
+        if (Array.isArray(layout.shapes)) {
+            layout.shapes.forEach(s => {
+                if (s && (s._isFitVsReal || (s.meta && s.meta.isFitVsReal))) {
+                    s.visible = isVisible;
+                }
+            });
+        }
+    }
+
+    function _isSweepStrategyName(name) {
+        if (!name) return false;
+        const s = String(name).toLowerCase();
+        return s.includes('sweep');
+    }
+
+    function updateScanCompareSweepControl(plot, rawData) {
+        const scanCompareSweep = document.getElementById('scan-compare-sweep');
+        const container = document.getElementById('scan-compare-sweep-row') || document.getElementById('scan-compare-sweep-container');
+        if (!scanCompareSweep || !container) return;
+
+        // Current strategy from plot or scanStrategy dropdown
+        const currentStrategy = (plot && plot.strategy) || controlValue(scanStrategy) || '';
+        if (_isSweepStrategyName(currentStrategy)) {
+            container.style.display = 'none';
+            scanCompareSweep.innerHTML = '<option value="">None (hidden)</option>';
+            return;
+        }
+
+        container.style.display = 'flex';
+        const currentValue = scanCompareSweep.value || '';
+
+        // Known sweeping manners supported in NVision
+        const knownSweeps = [
+            'SimpleSweep-2perFWHM',
+            'SimpleSweep-3perFWHM',
+            'SimpleSweep-4perFWHM',
+            'Smart-Sweep'
+        ];
+
+        // Also discover any additional sweep strategies present in MANIFEST or scanPlots
+        const extraSweeps = (window.MANIFEST || scanPlots || [])
+            .map(p => p.strategy)
+            .filter(s => _isSweepStrategyName(s));
+
+        const stratNames = [...new Set([...knownSweeps, ...extraSweeps])].sort();
+
+        // Check if rawData has baked-in sweep measurements baseline
+        const raw = rawData || (document.getElementById('scan-plot-div') && document.getElementById('scan-plot-div')._scanRawData);
+        const hasBaseline = !!(raw && raw.sweep_measurements && raw.sweep_measurements.x && raw.sweep_measurements.x.length);
+        if (hasBaseline && !stratNames.some(s => s.toLowerCase() === 'simplesweep (baseline)')) {
+            stratNames.unshift('SimpleSweep (baseline)');
+        }
+
+        let html = '<option value="">None (hidden)</option>';
+        for (const name of stratNames) {
+            const sel = (name === currentValue) ? ' selected' : '';
+            html += `<option value="${escapeHtml(name)}"${sel}>${escapeHtml(name)}</option>`;
+        }
+        scanCompareSweep.innerHTML = html;
+        if (currentValue && stratNames.includes(currentValue)) {
+            scanCompareSweep.value = currentValue;
+        } else {
+            scanCompareSweep.value = '';
+        }
+    }
+
+    async function applySweepComparisonOverlay(selectedSweep) {
+        const scanPlotDiv = document.getElementById('scan-plot-div');
+        if (!scanPlotDiv || !window.Plotly || scanPlotDiv.style.display === 'none') return;
+
+        // Remove any previous sweep comparison traces
+        if (Array.isArray(scanPlotDiv.data)) {
+            const compIdx = scanPlotDiv.data
+                .map((t, i) => (t.meta && t.meta.isSweepComparison) ? i : -1)
+                .filter(i => i >= 0);
+            if (compIdx.length) {
+                await Plotly.deleteTraces(scanPlotDiv, compIdx).catch(() => {});
+            }
+        }
+
+        if (!selectedSweep) return;
+
+        const raw = scanPlotDiv._scanRawData;
+        const curGen = (currentPlot && currentPlot.generator) || controlValue(scanGenerator);
+        const curNoise = (currentPlot && currentPlot.noise) || getEffectiveScanNoise();
+        const curRepeatVal = controlValue(scanRepeat);
+
+        const T = (window.GRAPH_DEFS && window.GRAPH_DEFS.scan && window.GRAPH_DEFS.scan.traces) || {};
+        const baseMeas = T.sweep_meas || { type: 'scatter', mode: 'markers', marker: { size: 7, color: 'rgba(140,86,75,0.85)', line: { width: 0.6, color: '#5b3a32' } } };
+        const baseMode = T.sweep_mode || { type: 'scatter', mode: 'lines', line: { color: '#8c564b', width: 2, dash: 'dot' } };
+
+        // 1. If baseline is selected and available directly on raw
+        if (selectedSweep === 'SimpleSweep (baseline)' && raw && raw.sweep_measurements && raw.sweep_measurements.x && raw.sweep_measurements.x.length) {
+            const baseline = _scanBaseline(raw.y_dense);
+            const traces = [];
+            traces.push(Object.assign({}, baseMeas, {
+                name: 'sweep measurements (baseline)',
+                x: raw.sweep_measurements.x,
+                y: raw.sweep_measurements.y,
+                customdata: Array.from(raw.sweep_measurements.y).map(y => _depthPct(y, baseline)),
+                meta: { isSweepComparison: true },
+                visible: true,
+            }));
+            if (raw.sweep_mode_y && raw.sweep_mode_y.length) {
+                traces.push(Object.assign({}, baseMode, {
+                    name: 'sweep most likely signal (baseline)',
+                    x: raw.x_dense,
+                    y: raw.sweep_mode_y,
+                    meta: { isSweepComparison: true },
+                    visible: true,
+                }));
+            }
+            if (traces.length) await Plotly.addTraces(scanPlotDiv, traces);
+            return;
+        }
+
+        // 2. Try to find plot entry for the chosen strategy in MANIFEST or scanPlots
+        const sweepPlot = (window.MANIFEST || scanPlots || []).find(p =>
+            p.type === 'scan' &&
+            p.generator === curGen &&
+            p.noise === curNoise &&
+            p.strategy === selectedSweep &&
+            (curRepeatVal == null || String(p.repeat ?? p.attempt ?? '') === String(curRepeatVal)) &&
+            p.path
+        );
+
+        if (sweepPlot && sweepPlot.path) {
+            try {
+                const sweepData = await _fetchJson(sweepPlot.path);
+                if (sweepData) {
+                    const traces = [];
+                    const baseline = _scanBaseline(sweepData.y_dense || (raw && raw.y_dense));
+                    if (sweepData.measurements) {
+                        const m = sweepData.measurements;
+                        let mx = [], my = [];
+                        if (m.mode === 'steps' && m.x && m.y) {
+                            mx = m.x; my = m.y;
+                        } else if (m.mode === 'phases') {
+                            mx = [].concat(m.coarse_x || [], m.secondary_x || [], m.tertiary_x || [], m.fine_x || []);
+                            my = [].concat(m.coarse_y || [], m.secondary_y || [], m.tertiary_y || [], m.fine_y || []);
+                        }
+                        if (mx.length) {
+                            traces.push(Object.assign({}, baseMeas, {
+                                name: `sweep measurements (${selectedSweep})`,
+                                x: mx, y: my,
+                                customdata: Array.from(my).map(y => _depthPct(y, baseline)),
+                                meta: { isSweepComparison: true },
+                                visible: true,
+                            }));
+                        }
+                        if (sweepData.y_dense_mode && sweepData.y_dense_mode.length) {
+                            traces.push(Object.assign({}, baseMode, {
+                                name: `sweep most likely signal (${selectedSweep})`,
+                                x: sweepData.x_dense,
+                                y: sweepData.y_dense_mode,
+                                meta: { isSweepComparison: true },
+                                visible: true,
+                            }));
+                        }
+                    } else if (Array.isArray(sweepData.data)) {
+                        for (const t of sweepData.data) {
+                            const tName = t.name || '';
+                            if (tName.includes('measurements') || tName.includes('sweep measurements') || tName.includes('steps')) {
+                                traces.push(Object.assign({}, baseMeas, {
+                                    name: `sweep measurements (${selectedSweep})`,
+                                    x: t.x, y: t.y,
+                                    customdata: t.customdata,
+                                    meta: { isSweepComparison: true },
+                                    visible: true,
+                                }));
+                            } else if (tName.includes('most likely signal') || tName.includes('mode belief') || tName.includes('mode_signal')) {
+                                traces.push(Object.assign({}, baseMode, {
+                                    name: `sweep most likely signal (${selectedSweep})`,
+                                    x: t.x, y: t.y,
+                                    meta: { isSweepComparison: true },
+                                    visible: true,
+                                }));
+                            }
+                        }
+                    }
+                    if (traces.length) {
+                        await Plotly.addTraces(scanPlotDiv, traces);
+                        return;
+                    }
+                }
+            } catch (e) {
+                console.warn('applySweepComparisonOverlay failed fetching sweep plot:', e);
+            }
+        }
+
+        // 3. Fallback to baked-in baseline in raw data if available
+        if (raw && raw.sweep_measurements && raw.sweep_measurements.x && raw.sweep_measurements.x.length) {
+            const baseline = _scanBaseline(raw.y_dense);
+            const traces = [];
+            traces.push(Object.assign({}, baseMeas, {
+                name: `sweep measurements (${selectedSweep})`,
+                x: raw.sweep_measurements.x,
+                y: raw.sweep_measurements.y,
+                customdata: Array.from(raw.sweep_measurements.y).map(y => _depthPct(y, baseline)),
+                meta: { isSweepComparison: true },
+                visible: true,
+            }));
+            if (raw.sweep_mode_y && raw.sweep_mode_y.length) {
+                traces.push(Object.assign({}, baseMode, {
+                    name: `sweep most likely signal (${selectedSweep})`,
+                    x: raw.x_dense,
+                    y: raw.sweep_mode_y,
+                    meta: { isSweepComparison: true },
+                    visible: true,
+                }));
+            }
+            if (traces.length) {
+                await Plotly.addTraces(scanPlotDiv, traces);
+            }
+        }
     }
 
     function bindScanIframeLegendPreferenceSync() {
@@ -927,6 +1184,9 @@ function main() {
                 const perTrace = Array.isArray(visibleUpdate) ? visibleUpdate[i % visibleUpdate.length] : visibleUpdate;
                 const nextState = resolveTraceVisibleState(perTrace);
                 if (nextState !== null) scanLegendVisibility.set(key, nextState);
+                if (key.includes('most likely signal') || key.includes('mode belief signal')) {
+                    _toggleFitVsRealVisibilityOnGraph(graphDiv, nextState !== false);
+                }
             });
         });
     }
@@ -1500,7 +1760,11 @@ function main() {
                 }
             }
 
-            if (isScanPlot) applyScanLegendPreferenceToFigure(figData);
+            if (isScanPlot) {
+                applyScanLegendPreferenceToFigure(figData);
+                const fitVisible = !scanLegendVisibility.has('locator most likely signal') || scanLegendVisibility.get('locator most likely signal') !== false;
+                _syncFitVsRealVisibilityInLayout(figLayout, fitVisible);
+            }
 
             // Plotly.react modifies DOM synchronously; don't await so a concurrent render
             // on the same container doesn't stall this one.
@@ -1514,6 +1778,11 @@ function main() {
                 applyScanLegendPreferenceInScanIframe();
                 bindScanIframeLegendPreferenceSync();
                 renderNarrowedBoundsFromIframe();
+                updateScanCompareSweepControl(plotAtStart, plain);
+                const compareSweepEl = document.getElementById('scan-compare-sweep');
+                if (compareSweepEl && compareSweepEl.value) {
+                    applySweepComparisonOverlay(compareSweepEl.value);
+                }
             }
             if (isScanFigure) {
                 ensureScanTimelineAdapter();
@@ -1535,9 +1804,15 @@ function main() {
         if (!container || !container._scanRawData || !window.Plotly) return;
         const raw = container._scanRawData;
         const stepCandidates = _focusWindowCandidatesForStep(currentPlot && currentPlot.series, realStep);
+        const selSweep = scanCompareSweep ? scanCompareSweep.value : '';
+        const includeSweep = (selSweep === 'SimpleSweep (baseline)');
+        const fitVisible = !scanLegendVisibility.has('locator most likely signal') || scanLegendVisibility.get('locator most likely signal') !== false;
         const filtered = Object.assign({}, raw, {
             measurements: _filterScanMeasurementsByStep(raw.measurements, realStep),
             focus_window_candidates: stepCandidates,
+            include_sweep_overlay: includeSweep,
+            sweep_strategy_label: includeSweep ? 'SimpleSweep' : undefined,
+            fit_vs_real_visible: fitVisible,
         });
         try {
             const built = await buildFigureFromData(filtered);
@@ -1554,8 +1829,12 @@ function main() {
                 figLayout = folded.layout;
             }
             applyScanLegendPreferenceToFigure(figData);
+            _syncFitVsRealVisibilityInLayout(figLayout, fitVisible);
             await Plotly.react(container, figData, figLayout, { responsive: true });
             bindScanIframeLegendPreferenceSync();
+            if (scanCompareSweep && scanCompareSweep.value) {
+                await applySweepComparisonOverlay(scanCompareSweep.value);
+            }
         } catch (e) {
             console.warn('applyScanStepCap failed', e);
         }
@@ -3060,9 +3339,10 @@ function main() {
                     p.generator === scanGeneratorValue &&
                     p.noise === scanNoiseValue &&
                     p.strategy === scanStrategyValue &&
-                    p.repeat === repeatNumber
+                    (p.repeat === repeatNumber || String(p.repeat ?? p.attempt) === String(scanRepeatValue))
             );
             currentPlot = plot;
+            updateScanCompareSweepControl(plot, null);
             setPlotSrc(scanIframe, document.getElementById('scan-plot-div'), plot ? plot.path : null);
             if (plot) {
               ensureRepeatMeta(plot).then(() => {
@@ -7637,6 +7917,16 @@ function main() {
         if (stagesView) stagesView.style.display = 'none';
         if (failedRunsView) failedRunsView.style.display = 'none';
 
+        const compareSweepRow = document.getElementById('scan-compare-sweep-row') || document.getElementById('scan-compare-sweep-container');
+        if (compareSweepRow) {
+            if (mode === 'single') {
+                const currentStrat = (currentPlot && currentPlot.strategy) || controlValue(scanStrategy) || '';
+                compareSweepRow.style.display = _isSweepStrategyName(currentStrat) ? 'none' : 'flex';
+            } else {
+                compareSweepRow.style.display = 'none';
+            }
+        }
+
         if (mode === 'single') {
             if (repeatView) repeatView.style.display = 'block';
             updateStoppingCriteriaVisibility(currentPlot);
@@ -8017,6 +8307,12 @@ function main() {
         updateRepeatNavButtons();
         findAndDisplayPlot();
     });
+
+    if (scanCompareSweep) {
+        scanCompareSweep.addEventListener('change', () => {
+            applySweepComparisonOverlay(scanCompareSweep.value);
+        });
+    }
 
 
     if (scanRepeatPrev) {

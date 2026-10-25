@@ -69,17 +69,18 @@
     </div>
     <div id="scan-repeat-view">
         <div class="repeat-row">
-        <div class="control-row">
-            <span class="control-label">Repeat:</span>
-            <div aria-label="Scan repeat navigation" class="repeat-picker" role="group">
-                <button aria-label="Previous repeat" class="control-button" id="scan-repeat-prev" type="button">Previous</button>
-                <select aria-label="Scan repeat" class="control-select" id="scan-repeat"></select>
-                <button aria-label="Next repeat" class="control-button" id="scan-repeat-next" type="button">Next</button>
+            <div class="control-row">
+                <span class="control-label">Repeat:</span>
+                <div aria-label="Scan repeat navigation" class="repeat-picker" role="group">
+                    <button aria-label="Previous repeat" class="control-button" id="scan-repeat-prev" type="button">Previous</button>
+                    <select aria-label="Scan repeat" class="control-select" id="scan-repeat"></select>
+                    <button aria-label="Next repeat" class="control-button" id="scan-repeat-next" type="button">Next</button>
+                </div>
+                <label class="control-row" style="margin-left: 1.5em; display: inline-flex; align-items: center; gap: 0.4em;" title="Split into two stacked subplots, one per Zeeman group, with the lower-frequency group mirrored so both read in the same orientation -- to visually check Zeeman/hyperfine symmetry and see which measurements landed in each group. Falls back to a single center-fold when the signal has no Zeeman splitting.">
+                    <input type="checkbox" id="scan-flip-view-toggle">
+                    <span>Flip view (fold by Zeeman group)</span>
+                </label>
             </div>
-            <label class="control-row" style="margin-left: 1.5em; display: inline-flex; align-items: center; gap: 0.4em;" title="Split into two stacked subplots, one per Zeeman group, with the lower-frequency group mirrored so both read in the same orientation -- to visually check Zeeman/hyperfine symmetry and see which measurements landed in each group. Falls back to a single center-fold when the signal has no Zeeman splitting.">
-                <input type="checkbox" id="scan-flip-view-toggle">
-                <span>Flip view (fold by Zeeman group)</span>
-            </label>
         </div>
     </div>
     <div class="metrics" id="scan-metrics"></div>
@@ -87,6 +88,14 @@
     <div id="scan-comparison-cards"></div>
     <div class="sweep-metrics-panel" hidden id="scan-sweep-metrics"></div>
     <div class="narrowed-bounds-panel" hidden id="narrowed-bounds-panel"></div>
+
+    <div id="scan-compare-sweep-row" class="control-row" style="margin: 0.75em 0 0.5em 0; display: flex; align-items: center; gap: 0.6em;">
+        <span class="control-label" style="font-weight: 600; font-size: 0.9em; color: #334155;">Compare with sweep:</span>
+        <select aria-label="Compare sweep method" class="control-select" id="scan-compare-sweep" style="min-width: 220px;">
+            <option value="">None (hidden)</option>
+        </select>
+    </div>
+
     <div id="scan-plot-div" style="width:100%;min-height:500px;"></div>
     <div id="scan-view-at-caption" class="scan-view-at-caption" style="display:none;"></div>
     <iframe id="scan-iframe" title="Scan measurements plot" style="display:none;"></iframe>
