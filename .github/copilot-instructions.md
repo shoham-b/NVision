@@ -8,3 +8,8 @@ Before doing anything complex, read `AGENTS.md` in the repository root for rules
 If you change core math/logic, explicitly tell the user whether to clear cache/re-run or just `uv run nv render` (via `nvision/cli/render.py`).
 Always document expected array shapes in docstrings for multi-dimensional arrays.
 Always use Plotly for graphs, not Matplotlib.
+Coverage is opt-in: iterate with `uv run pytest tests/<file>.py` (CI passes --cov explicitly). Run only the tests for the area you touched (SBED/focus: test_sbed_*, test_focus_*, test_refocus, test_dip_detection; SMC: test_smc_*, test_unit_cube_belief; metrics: test_stage_metrics, test_grid_study_metrics, test_milestone_metrics_fit_override).
+Never open cprofile_output.txt, pytest_output.txt, notebook.pdf, uv.lock, artifacts/, logs/, htmlcov/, coverage.xml, or static/app.js. For large modules (spectra/nv_center.py, belief/smc_marginal.py, cli/run.py, runner/executor.py, generic_sweep_locator.py) grep first, then read a line range.
+See AGENTS.md section 3b for the full fast dev loop.
+
+Guardrails: stay in scope (no drive-by refactors or config/CI/dependency changes); treat artifacts/, data/, logs/ and the shared cache as read-only (no nv cache clean, no full nv run; use --dry-run); do not commit, push, reset, stash or rebase unless asked; confirm before destructive or remote-facing commands; say whether results are stale and whether the physics fingerprint needs a bump after algorithm changes; fail fast with no silent fallbacks; ask when ambiguous. See AGENTS.md section 3c.

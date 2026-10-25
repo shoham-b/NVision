@@ -142,3 +142,10 @@ check_*.py
 scratch/
 /test_*
 
+
+# Local profiling / test dumps (untracked scratch artifacts in repo root)
+/cprofile_output.txt
+/pytest_output.txt
+/notebook.pdf
+/plan.md
+/_eval_test_candidate.py
