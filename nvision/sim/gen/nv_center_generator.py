@@ -41,6 +41,7 @@ from nvision.spectra.nv_center import (
     nv_center_lorentzian_bounds_for_domain,
     nv_center_saturation_voigt_bounds_for_domain,
     nv_center_voigt_bounds_for_domain,
+    zeeman_shift_edge_pad,
 )
 
 from .peak_spec import _true_signal_from_typed
@@ -132,6 +133,28 @@ class NVCenterCoreGenerator:
             raise ValueError(f"window_fwhm is only supported for variant='voigt', got {self.variant!r}.")
         return max_zeeman_shift_for_window(self.drive_freq_max_phys - self.drive_freq_min_phys)
 
+    @property
+    def zeeman_min_phys(self) -> float:
+        """Smallest ``zeeman_shift`` (Hz) this generator draws.
+
+        ``MIN_ZEEMAN_SHIFT`` except for window-grid signals (``window_fwhm`` set): the window is ``[D, D + W]``, so
+        a dip drawn near D would have its left flank cut off. They draw no closer than
+        :func:`~nvision.spectra.nv_center.zeeman_shift_edge_pad` (the total FWHM plus the hyperfine offset), which
+        needs ``hwhm`` and ``sigma_inhom`` fixed so the width is known before the draw.
+        """
+        if self.window_fwhm is None:
+            return MIN_ZEEMAN_SHIFT
+        if self.hwhm is None or self.sigma_inhom is None:
+            raise ValueError("window_fwhm needs a fixed hwhm and sigma_inhom: the Zeeman padding is sized off them.")
+        fwhm_total, _ = _voigt_reparam_scalar(self.hwhm, self.sigma_inhom)
+        pad = zeeman_shift_edge_pad(fwhm_total, hyperfine_geometry(self.hyperfine)[0])
+        if not pad < self.zeeman_max_phys:
+            raise ValueError(
+                f"window_fwhm={self.window_fwhm:g}: padding the dip by {pad:g} Hz leaves no room below the largest "
+                f"zeeman_shift {self.zeeman_max_phys:g} Hz; widen the window."
+            )
+        return max(MIN_ZEEMAN_SHIFT, pad)
+
     def generate(self, rng: random.Random):
         """Generate NV center ODMR signal.
 
@@ -155,7 +178,7 @@ class NVCenterCoreGenerator:
         # structure is unresolved, which collapses the multiplet to one dip.
         hyperfine_shift = hyperfine_geometry(self.hyperfine)[0]
         if self.with_zeeman_splitting:
-            zeeman_shift = rng.uniform(MIN_ZEEMAN_SHIFT, zeeman_max)
+            zeeman_shift = rng.uniform(self.zeeman_min_phys, zeeman_max)
         if self.infer_hyperfine:
             hyperfine_shift = rng.uniform(MIN_HYPERFINE_SHIFT, MAX_HYPERFINE_SHIFT)
 
