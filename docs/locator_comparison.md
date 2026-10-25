@@ -41,7 +41,7 @@ sigma and linewidth separately, and each axis changes one thing:
   window, not only when it is orders of magnitude wider than the line. Everything with a physical scale (hyperfine
   offsets, the absolute convergence thresholds, the candidate step) keeps its meaning across the axis. The window is
   `[D, D + N * FWHM]` and the Zeeman range follows it (`0.4 * window`; the default 150 MHz window has 60 MHz).
-- **Gaussian share** (`NVISION_SBED_GAUSSIAN_SHARES`, default 0, 0.35, 0.7; `gs<g>` in the name,
+- **Gaussian share** (`NVISION_SBED_GAUSSIAN_SHARES`, default 0, 0.15, 0.3; `gs<g>` in the name,
   `grid_gaussian_share`): how much of that total FWHM is inhomogeneous (Gaussian) broadening, 0 = pure Lorentzian.
   The Lorentzian HWHM and `sigma_inhom` are set so the total FWHM stays `NVISION_SBED_FWHM`
   (`fwhm = 2 hwhm_lorentz + 2 sqrt(2 ln 2) sigma_inhom`), so the share changes the line shape and not the width.
@@ -93,7 +93,7 @@ uv run nv serve              # View: "Step size" (sweep spacing), "Stages" (stag
 `nv compare` prints three tables (accuracy; stage boundaries and reach rates; per-stage duration and
 uncertainty ratio) for every locator on the same footing; `--filter-signal`, `--filter-noise`,
 `--by generator,noise` and `--csv` refine and export it. `nv groups count voigt-grid` shows the task count.
-A quick look: `NVISION_SBED_SNR_VALUES=5 uv run nv run --run-group voigt-grid --filter-signal "fw10-gs0.35" --repeats 5`.
+A quick look: `NVISION_SBED_SNR_VALUES=5 uv run nv run --run-group voigt-grid --filter-signal "fw10-gs0.15" --repeats 5`.
 
 In the UI the plain sweeps appear as one "Sweep" entry; choosing it reveals a second dropdown for the spacing
 (k points per FWHM, 2-4).
