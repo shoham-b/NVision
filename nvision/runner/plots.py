@@ -1040,6 +1040,7 @@ def generate_attempt_plots(
                 "err_shift_diff": scan_entry.get("err_shift_diff"),
                 "err_primary_at_all_converged": scan_entry.get("err_primary_at_all_converged"),
                 "uncert_primary_at_all_converged": scan_entry.get("uncert_primary_at_all_converged"),
+                "stage_primary_param": scan_entry.get("stage_primary_param"),
             }
 
         # true_params is now embedded in fig.layout.meta; keep here for backward compat

@@ -2941,6 +2941,7 @@ function main() {
                         phaseMeasurements = allConvergedStep;
                     }
 
+                    const primaryParamLabel = phaseData.stage_primary_param || (plot && plot.stage_primary_param) || 'zeeman_shift';
                     const items = [
                         { label: 'Attempt', val: attemptLabel, tip: 'Which repeat attempt this scan corresponds to (current/total).' },
                     ];
@@ -2949,7 +2950,7 @@ function main() {
                             label: 'Converged',
                             tip: 'Measurements at which primary converged / all tracked parameters converged / the full run ended.',
                             table: [
-                                { label: 'hyperfine_shift', val: primaryConvResolved != null ? formatCount(primaryConvResolved) : '–' },
+                                { label: primaryParamLabel, val: primaryConvResolved != null ? formatCount(primaryConvResolved) : '–' },
                                 { label: 'all', val: allConvergedStep != null ? formatCount(allConvergedStep) : '–' },
                                 { label: 'full', val: fullMeasurements != null ? formatCount(fullMeasurements) : '–' },
                             ]
@@ -2990,7 +2991,7 @@ function main() {
                         ] };
                     };
                     if (errPrimaryAtMilestone != null || uncertPrimaryAtMilestone != null) {
-                        errRows.push(errRow('hyperfine_shift', errPrimaryAtMilestone, uncertPrimaryAtMilestone));
+                        errRows.push(errRow(primaryParamLabel, errPrimaryAtMilestone, uncertPrimaryAtMilestone));
                     }
                     if (errPrimaryAtAll != null || uncertPrimaryAtAll != null) {
                         errRows.push(errRow('all', errPrimaryAtAll, uncertPrimaryAtAll));
