@@ -514,15 +514,25 @@ function _buildScanFigure(def, data) {
     }
 
     // Sweep overlay
-    if (data.sweep_measurements && data.sweep_measurements.x && data.sweep_measurements.x.length) {
+    const includeSweep = data.include_sweep_overlay !== false;
+    if (includeSweep && data.sweep_measurements && data.sweep_measurements.x && data.sweep_measurements.x.length) {
         const sm = data.sweep_measurements;
+        const sweepName = data.sweep_strategy_label ? `sweep measurements (${data.sweep_strategy_label})` : T.sweep_meas.name;
         traces.push(Object.assign({}, T.sweep_meas, {
+            name: sweepName,
             x: sm.x, y: sm.y,
             customdata: Array.from(sm.y).map(y => _depthPct(y, baseline)),
+            meta: { isSweepComparison: true },
         }, sa));
     }
-    if (data.sweep_mode_y && data.sweep_mode_y.length) {
-        traces.push(Object.assign({}, T.sweep_mode, { x: data.x_dense, y: data.sweep_mode_y }, sa));
+    if (includeSweep && data.sweep_mode_y && data.sweep_mode_y.length) {
+        const sweepModeName = data.sweep_strategy_label ? `sweep most likely signal (${data.sweep_strategy_label})` : T.sweep_mode.name;
+        traces.push(Object.assign({}, T.sweep_mode, {
+            name: sweepModeName,
+            x: data.x_dense,
+            y: data.sweep_mode_y,
+            meta: { isSweepComparison: true },
+        }, sa));
     }
 
     // Metric traces (row 2 when has_metrics)
@@ -656,6 +666,7 @@ function _buildScanFigure(def, data) {
     // / T.mode_signal) so the two numbers read as a direct comparison rather than a second,
     // unrelated measurement.
     if (_hasFiniteValues(data.y_dense) && data.x_dense && data.x_dense.length === data.y_dense.length) {
+        const fitVsRealVisible = data.fit_vs_real_visible !== false;
         const tp = data.true_params && data.true_params.params;
         const widthLetter = _paramLetterFor(tp, ['fwhm_total', 'hwhm', 'hwhm_lorentz']);
         const contrastLetter = _paramLetterFor(tp, ['contrast_total', 'contrast']);
@@ -677,6 +688,9 @@ function _buildScanFigure(def, data) {
                     x0: fitDip.xLeft, x1: fitDip.xRight, y0: fitDip.yMin, y1: fitDip.yMin,
                     line: { width: 1.5, color: fitColor, dash: 'dash' },
                     layer: 'above',
+                    visible: fitVsRealVisible,
+                    meta: { isFitVsReal: true },
+                    _isFitVsReal: true,
                 });
                 extraAnnotations.push({
                     text: `↔ width${widthLetter} (fit) ≈ ${formatHzValue('hwhm', fitDip.fwhm)}`,
@@ -685,12 +699,18 @@ function _buildScanFigure(def, data) {
                     yanchor: 'top', xanchor: 'center', yshift: -4,
                     showarrow: false, font: { size: 11, color: fitColor },
                     bgcolor: 'rgba(255,255,255,0.75)',
+                    visible: fitVsRealVisible,
+                    meta: { isFitVsReal: true },
+                    _isFitVsReal: true,
                 });
                 shapes.push({
                     type: 'line', xref: 'x', yref: 'y',
                     x0: fitDip.xMin, x1: fitDip.xMin, y0: fitDip.yMin, y1: baseline,
                     line: { width: 1.5, color: fitColor, dash: 'dash' },
                     layer: 'above',
+                    visible: fitVsRealVisible,
+                    meta: { isFitVsReal: true },
+                    _isFitVsReal: true,
                 });
                 extraAnnotations.push({
                     text: `↕ contrast${contrastLetter} (fit) ≈ ${fitDip.depthPct.toFixed(1)}%`,
@@ -699,6 +719,9 @@ function _buildScanFigure(def, data) {
                     yanchor: 'middle', xanchor: 'left', xshift: 8,
                     showarrow: false, font: { size: 11, color: fitColor },
                     bgcolor: 'rgba(255,255,255,0.75)',
+                    visible: fitVsRealVisible,
+                    meta: { isFitVsReal: true },
+                    _isFitVsReal: true,
                 });
                 return;
             }
@@ -708,6 +731,9 @@ function _buildScanFigure(def, data) {
                 x0: dip.xLeft, x1: dip.xRight, y0: dip.yMin, y1: dip.yMin,
                 line: { width: 1.5, color: realColor, dash: 'dot' },
                 layer: 'above',
+                visible: fitVsRealVisible,
+                meta: { isFitVsReal: true },
+                _isFitVsReal: true,
             });
             const widthText = fitDip
                 ? `↔ width${widthLetter}: <span style="color:${realColor}">real ≈ ${formatHzValue('hwhm', dip.fwhm)}</span> vs ` +
@@ -720,6 +746,9 @@ function _buildScanFigure(def, data) {
                 yanchor: 'top', xanchor: 'center', yshift: -4,
                 showarrow: false, font: { size: 11, color: realColor },
                 bgcolor: 'rgba(255,255,255,0.75)',
+                visible: fitVsRealVisible,
+                meta: { isFitVsReal: true },
+                _isFitVsReal: true,
             });
 
             shapes.push({
@@ -727,6 +756,9 @@ function _buildScanFigure(def, data) {
                 x0: dip.xMin, x1: dip.xMin, y0: dip.yMin, y1: baseline,
                 line: { width: 1.5, color: realColor, dash: 'dot' },
                 layer: 'above',
+                visible: fitVsRealVisible,
+                meta: { isFitVsReal: true },
+                _isFitVsReal: true,
             });
             const contrastText = fitDip
                 ? `↕ contrast${contrastLetter}: <span style="color:${realColor}">real ≈ ${dip.depthPct.toFixed(1)}%</span> vs ` +
@@ -739,6 +771,9 @@ function _buildScanFigure(def, data) {
                 yanchor: 'middle', xanchor: 'left', xshift: 8,
                 showarrow: false, font: { size: 11, color: realColor },
                 bgcolor: 'rgba(255,255,255,0.75)',
+                visible: fitVsRealVisible,
+                meta: { isFitVsReal: true },
+                _isFitVsReal: true,
             });
 
             if (fitDip) {
@@ -751,12 +786,18 @@ function _buildScanFigure(def, data) {
                     x0: fitDip.xLeft, x1: fitDip.xRight, y0: fitDip.yMin, y1: fitDip.yMin,
                     line: { width: 1.5, color: fitColor, dash: 'dash' },
                     layer: 'above',
+                    visible: fitVsRealVisible,
+                    meta: { isFitVsReal: true },
+                    _isFitVsReal: true,
                 });
                 shapes.push({
                     type: 'line', xref: 'x', yref: 'y',
                     x0: fitDip.xMin + xOff, x1: fitDip.xMin + xOff, y0: fitDip.yMin, y1: baseline,
                     line: { width: 1.5, color: fitColor, dash: 'dash' },
                     layer: 'above',
+                    visible: fitVsRealVisible,
+                    meta: { isFitVsReal: true },
+                    _isFitVsReal: true,
                 });
             }
         });
