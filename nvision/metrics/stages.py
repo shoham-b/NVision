@@ -155,12 +155,24 @@ def _primary_sensitivity(run_result: RunResult, primary: str) -> tuple[np.ndarra
     if not best > 0.0:
         raise ValueError(f"The true signal does not depend on {primary!r} anywhere on the drive range.")
 
-    measured = np.array(
-        [
-            grad_sq(s.obs.drive, np.array([x_lo_phys + s.obs.drive_freq_unit * (x_hi_phys - x_lo_phys)]))[0]
-            for s in snapshots
-        ]
+    xs_all = np.array(
+        [x_lo_phys + s.obs.drive_freq_unit * (x_hi_phys - x_lo_phys) for s in snapshots],
+        dtype=np.float64,
     )
+    first_drive = snapshots[0].obs.drive
+    if all(s.obs.drive == first_drive for s in snapshots):
+        measured = grad_sq(first_drive, xs_all)
+    else:
+        measured = np.empty(len(snapshots), dtype=np.float64)
+        from collections import defaultdict
+
+        by_drive: dict[DriveSetting | None, list[int]] = defaultdict(list)
+        for i, s in enumerate(snapshots):
+            by_drive[s.obs.drive].append(i)
+        for d, idxs in by_drive.items():
+            idx_arr = np.array(idxs, dtype=np.intp)
+            measured[idx_arr] = grad_sq(d, xs_all[idx_arr])
+
     if measured.max() > (1.0 + _GRID_MAX_TOLERANCE) * best:
         # The grid max is second-order accurate; missing it by more than this means the grid is too coarse.
         raise ValueError(

@@ -187,3 +187,74 @@ def test_deferred_graphs_round_trip(tmp_path, monkeypatch):
         assert "bayesian_posterior_data" in after
     # Repeat 2 was never queued, so it is untouched.
     assert _saved_repeat(tmp_path / "cache", task, 2)["scan"]["plot_skipped"] is True
+
+
+def test_slow_repeat_outputs_graph_mode_reported_accurately(monkeypatch):
+    from types import SimpleNamespace
+
+    from nvision.runner import executor as exec_mod
+
+    monkeypatch.setattr(plots_module, "NVISION_GRAPH_REPEATS", 1)
+    monkeypatch.setattr(plots_module, "NVISION_PLOT_SWEEP_STRATEGIES", False)
+
+    # Mock runner with SimpleSweep: plots_wanted is False -> "graphs skipped"
+    task_sweep = SimpleNamespace(
+        strategy_name="SimpleSweep-2perFWHM",
+        repeats=2,
+        repeat_total=2,
+        defer_graphs=False,
+        dry_run=False,
+    )
+    runner_sweep = SimpleNamespace(
+        task=task_sweep,
+        strategy_name="SimpleSweep-2perFWHM",
+        repeats=2,
+        _graph_spool=None,
+    )
+    runner_sweep._defer_graphs_for = exec_mod._TaskRunner._defer_graphs_for.__get__(runner_sweep)
+
+    def determine_graph_mode(runner, rid, run_result):
+        if runner._defer_graphs_for(rid, run_result):
+            return "graphs deferred"
+        elif not plots_module.plots_wanted(runner.strategy_name, rid):
+            return "graphs skipped"
+        else:
+            return "graphs built inline"
+
+    assert determine_graph_mode(runner_sweep, 0, object()) == "graphs skipped"
+    assert determine_graph_mode(runner_sweep, 1, object()) == "graphs skipped"
+
+    # Mock runner with Bayesian strategy without deferral
+    task_bayes = SimpleNamespace(
+        strategy_name="Bayesian-SBED",
+        repeats=2,
+        repeat_total=2,
+        defer_graphs=False,
+        dry_run=False,
+    )
+    runner_bayes = SimpleNamespace(
+        task=task_bayes,
+        strategy_name="Bayesian-SBED",
+        repeats=2,
+        _graph_spool=None,
+    )
+    runner_bayes._defer_graphs_for = exec_mod._TaskRunner._defer_graphs_for.__get__(runner_bayes)
+
+    # Repeat 0: wanted and not deferred -> built inline
+    assert determine_graph_mode(runner_bayes, 0, object()) == "graphs built inline"
+    # Repeat 1: beyond NVISION_GRAPH_REPEATS=1 -> skipped (NOT built inline!)
+    assert determine_graph_mode(runner_bayes, 1, object()) == "graphs skipped"
+
+    # Mock runner with Bayesian strategy WITH deferral
+    runner_bayes_deferred = SimpleNamespace(
+        task=task_bayes,
+        strategy_name="Bayesian-SBED",
+        repeats=2,
+        _graph_spool=Path("/fake/spool"),
+    )
+    runner_bayes_deferred._defer_graphs_for = exec_mod._TaskRunner._defer_graphs_for.__get__(runner_bayes_deferred)
+
+    # Repeat 0: deferred
+    assert determine_graph_mode(runner_bayes_deferred, 0, object()) == "graphs deferred"
+    # Repeat 1: beyond NVISION_GRAPH_REPEATS=1 -> skipped
+    assert determine_graph_mode(runner_bayes_deferred, 1, object()) == "graphs skipped"

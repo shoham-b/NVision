@@ -779,6 +779,12 @@ class _TaskRunner:
                 # what took the time. Quiet otherwise (workers only log at INFO and above).
                 outputs_s = time.perf_counter() - outputs_start
                 if outputs_s >= _SLOW_OUTPUTS_S:
+                    if self._defer_graphs_for(rid, run_result):
+                        graph_mode = "graphs deferred"
+                    elif not plots_wanted(self.strategy_name, rid):
+                        graph_mode = "graphs skipped"
+                    else:
+                        graph_mode = "graphs built inline"
                     log.info(
                         "Slow repeat outputs: repeat %s/%s of %s spent %.1fs on metrics+graphs (inference %.1fs, %s)",
                         rid + 1,
@@ -786,7 +792,7 @@ class _TaskRunner:
                         self.task.slug,
                         outputs_s,
                         inference_s,
-                        "graphs deferred" if self._defer_graphs_for(rid, run_result) else "graphs built inline",
+                        graph_mode,
                     )
 
                 # FREE MEMORY: hist_df is no longer needed locally
