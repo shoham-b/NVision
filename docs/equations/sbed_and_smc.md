@@ -4,7 +4,7 @@ The SMC belief (unit-cube particles, with a free-zero_field_freq variant), the S
 
 > Scope: only the additive Gaussian measurement-noise path. The noise level is always inferred through its conjugate prior — a per-particle Inverse-Gamma state that is integrated out (§1.1a) — and that posterior is the only source of a noise σ anywhere in the stack. Poisson likelihoods and non-SBED locators are out of scope.
 >
-> Probe window: the NV spectrum is mirror-symmetric about the zero-field splitting D, so measuring both sides duplicates information. The drive-frequency window is the upper half `[D, D + Δ]` (`DEFAULT_NV_DRIVE_FREQ_MIN_PHYS/MAX`, `nv_center.py`) and generated signals are centred on D, on the window's lower edge.
+> Probe window: the NV spectrum is mirror-symmetric about the zero-field splitting D, so measuring both sides duplicates information. The drive-frequency window is the upper half `[D, D + Δ]` (`DEFAULT_NV_DRIVE_FREQ_MIN_PHYS/MAX`, `nv_center.py`) and generated signals are centred on D, on the window's lower edge. The SNR × window grid signals draw `zeeman_shift` no smaller than one total FWHM (plus the hyperfine offset; `zeeman_shift_edge_pad`, `NV_ZEEMAN_EDGE_PAD_FWHM`), so the dip's left half-maximum stays inside the window instead of being cut off at D.
 
 ---
 

@@ -215,6 +215,26 @@ def max_zeeman_shift_for_window(window_width_phys: float) -> float:
     return NV_ZEEMAN_WINDOW_FRACTION * float(window_width_phys)
 
 
+# Smallest distance, in total FWHMs, between the upper Zeeman dip and the window's lower edge D (window-grid
+# signals only). The window is [D, D + W], so a dip drawn near D (zeeman_shift ~ 0) is cut: its left flank lies
+# below D, and the mirrored lower dip at D - zeeman_shift only adds to the signal at the edge instead of
+# showing the flank. One HWHM of padding puts the dip's own FWHM inside the window but, with the mirror dip
+# overlapping, the signal at D is still ~80 % of the dip depth; one full FWHM brings it under half, so the
+# left half-maximum crossing lies inside the window. See :func:`zeeman_shift_edge_pad`.
+NV_ZEEMAN_EDGE_PAD_FWHM: float = float(os.getenv("NVISION_NV_ZEEMAN_EDGE_PAD_FWHM", "1.0"))
+if NV_ZEEMAN_EDGE_PAD_FWHM < 0.0:
+    raise ValueError(f"NVISION_NV_ZEEMAN_EDGE_PAD_FWHM must be >= 0, got {NV_ZEEMAN_EDGE_PAD_FWHM!r}.")
+
+
+def zeeman_shift_edge_pad(fwhm_total_phys: float, hyperfine_offset_phys: float = 0.0) -> float:
+    """Smallest ``zeeman_shift`` (Hz) a window-grid signal draws, so its full FWHM is visible above D.
+
+    ``NV_ZEEMAN_EDGE_PAD_FWHM`` total FWHMs (``fwhm_total_phys``, Hz) plus the outermost hyperfine line offset
+    (``hyperfine_offset_phys``, Hz), whose lower line sits that far below the dip centre.
+    """
+    return NV_ZEEMAN_EDGE_PAD_FWHM * float(fwhm_total_phys) + float(hyperfine_offset_phys)
+
+
 def physics_config_fingerprint() -> str:
     """Short hash of every physical bound/constant that affects what
     :class:`~nvision.sim.gen.nv_center_generator.NVCenterCoreGenerator` draws.
@@ -272,6 +292,10 @@ def physics_config_fingerprint() -> str:
         # of significant windows) instead of n-sigma thresholding + binomial clustering: dips, focus
         # sections and dip candidates differ.
         "dip-boxcar-scan-v1",
+        # Bumped when window-grid signals stopped drawing a zeeman_shift below ``zeeman_shift_edge_pad``
+        # (their dip no longer sits cut off on the window's lower edge D); the draws differ per signal.
+        "zeeman-edge-pad-v1",
+        NV_ZEEMAN_EDGE_PAD_FWHM,
         MIN_HWHM,
         MAX_HWHM,
         MIN_HYPERFINE_SHIFT,
