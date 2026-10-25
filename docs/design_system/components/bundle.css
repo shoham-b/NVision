@@ -1192,6 +1192,75 @@ a:focus-visible {
     font-size: 0.8em;
 }
 
+
+.signal-equation-header {
+    display: flex;
+    align-items: center;
+    cursor: pointer;
+    user-select: none;
+    margin-bottom: 0.35em;
+    width: 100%;
+}
+
+.signal-equation-header .signal-equation-title {
+    margin-bottom: 0;
+}
+
+.signal-equation-panel.is-collapsed {
+    padding: 0.45em 0.75em;
+}
+
+.signal-equation-panel.is-collapsed .signal-equation-header {
+    margin-bottom: 0;
+}
+
+.signal-equation-panel.is-collapsed .signal-equation-body {
+    display: none;
+}
+
+/* ---- Collapsible Section Headers & Arrows ---- */
+.section-collapsible-header {
+    display: inline-flex;
+    align-items: center;
+    cursor: pointer;
+    user-select: none;
+    transition: color 0.15s ease;
+}
+
+.section-collapsible-header:hover {
+    color: var(--slate-900, #0f172a) !important;
+}
+
+.section-collapsible-header:focus-visible {
+    outline: 2px solid var(--primary, #0056b3);
+    outline-offset: 2px;
+    border-radius: var(--radius-sm, 4px);
+}
+
+.section-collapse-arrow {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 14px;
+    height: 14px;
+    margin-right: 5px;
+    vertical-align: middle;
+    transition: transform 0.15s ease, color 0.15s ease;
+    flex-shrink: 0;
+    color: var(--slate-500, #64748b);
+}
+
+.section-collapsible-header:hover .section-collapse-arrow {
+    color: var(--slate-800, #1e293b);
+}
+
+.section-collapsible-header.is-collapsed .section-collapse-arrow {
+    transform: rotate(-90deg);
+}
+
+.section-collapsible-wrapper {
+    margin-bottom: 0.5em;
+}
 .signal-equation-title {
     font-weight: 600;
     color: var(--slate-700);
