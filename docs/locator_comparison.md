@@ -10,7 +10,7 @@ spectrum with tight nuisance priors; it still uses the prior's width, never the 
 
 | Group | Signals | Noise | Strategies |
 |---|---|---|---|
-| `voigt-grid` | Voigt window/FWHM x Gaussian share (fixed total FWHM, isotope) | SNR grid | the six below |
+| `voigt-grid` | Voigt window/FWHM x Gaussian share x isotope (fixed total FWHM) | SNR grid | the six below |
 | `drive-control` | CW / pulsed drive-controlled NV | SNR grid (nominal) | `Bayesian-SBED`, `Bayesian-SBED-Drive` |
 | `all` | the two above | the two above | each scenario's own set (`nv groups count all`) |
 
@@ -47,9 +47,9 @@ sigma and linewidth separately, and each axis changes one thing:
   (`fwhm = 2 hwhm_lorentz + 2 sqrt(2 ln 2) sigma_inhom`), so the share changes the line shape and not the width.
   Window mostly decides the search stage and the share mostly the refine stage; the stage metrics
   (`nv compare`, the Stages view) attribute a cost to the stage it came from.
-- **Isotope** is held fixed (`NVISION_SBED_STUDY_ISOTOPE`, `unresolved`): `contrast_total` is shared among the Zeeman
+- **Isotope** (`NVISION_SBED_HYPERFINE_VALUES`, default `unresolved`, `n14`, `n15`): `contrast_total` is shared among the Zeeman
   groups and, for a resolved isotope, the hyperfine lines, so one dip is half of it for a merged line and roughly a
-  quarter to a third for N-14 or N-15, and a changing isotope would change the effective SNR.
+  quarter to a third for N-14 or N-15. Windows that cannot fit the isotope's Zeeman padding (e.g. 5 FWHM for 14N) are omitted.
 - **Budget.** The same for every window and locator: `NVISION_MAX_MEASUREMENTS` (2500). A run that hits it is
   censored at that count, so censored costs of different windows are on one scale.
 

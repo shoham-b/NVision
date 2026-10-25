@@ -199,7 +199,12 @@ class CombinationGrid:
         # strategies_for() has no generator object to read the real hyperfine value
         # off of for this grid and has to fall back to parsing it out of the name.
         self._resolve_generators.update(dict(sim_presets.voigt_sigma_inhom_param_grid_generators()))
-        self._resolve_generators.update(dict(sim_presets.voigt_snr_window_param_grid_generators()))
+        snr_window_gens = dict(sim_presets.voigt_snr_window_param_grid_generators())
+        self._resolve_generators.update(snr_window_gens)
+        # Register legacy unadorned names (without -hfunresolved) for backward compatibility
+        for name, gen in snr_window_gens.items():
+            if name.endswith("-hfunresolved"):
+                self._resolve_generators.setdefault(name[: -len("-hfunresolved")], gen)
         self._resolve_generators.update(dict(sim_presets.drive_controlled_generators()))
         if extra_generators:
             self._resolve_generators.update(extra_generators)
