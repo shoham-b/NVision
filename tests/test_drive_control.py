@@ -149,7 +149,7 @@ def test_drive_setting_validates_range():
 
 
 def _experiment(gen_name: str, seed: int = 0) -> CoreExperiment:
-    gen = dict(presets.drive_controlled_generators())[gen_name]
+    gen = CombinationGrid()._resolve_generators.get(gen_name) or dict(presets.drive_controlled_generators())[gen_name]
     ts = gen.generate(random.Random(seed))
     noise = _parse_noise("Gauss(0.01)")
     nm = noise.to_noise_signal_model()
@@ -302,7 +302,12 @@ def test_registration_and_run_group():
     assert "Bayesian-SBED-Drive" not in dict(grid.strategies_for("NVCenter-lorentzian"))
     assert grid.resolve("NVCenter-pulsed-drive", "Gauss(0.01)", "Bayesian-SBED-Drive") is not None
     group = get_run_group("drive-control")
-    assert set(group.generator_names) == {"NVCenter-cw-drive", "NVCenter-pulsed-drive"}
+    assert set(group.generator_names) == {n for n, _ in presets.drive_controlled_generators()}
+    for gen_name in group.generator_names:
+        resolved_gen = grid._resolve_generators[gen_name]
+        strat = dict(grid.strategies_for(gen_name))
+        assert strat["Bayesian-SBED-Drive"]["config"]["hyperfine"] == resolved_gen.hyperfine
+        assert strat["Bayesian-SBED"]["config"]["hyperfine"] == resolved_gen.hyperfine
 
 
 def test_noise_recompute_after_resample_uses_each_observations_drive():
