@@ -266,6 +266,9 @@ NVISION_WIDTH_CONVERGENCE_THRESHOLD: float = float(os.getenv("NVISION_WIDTH_CONV
 NVISION_CONTRAST_TOTAL_CONVERGENCE_THRESHOLD: float = float(
     os.getenv("NVISION_CONTRAST_TOTAL_CONVERGENCE_THRESHOLD", "0.01")
 )
+NVISION_NOISE_SIGMA_CONVERGENCE_THRESHOLD: float = float(
+    os.getenv("NVISION_NOISE_SIGMA_CONVERGENCE_THRESHOLD", "0.001")
+)
 
 
 def _param_absolute_convergence_thresholds() -> dict[str, float]:
@@ -275,6 +278,7 @@ def _param_absolute_convergence_thresholds() -> dict[str, float]:
         "hwhm_lorentz": NVISION_WIDTH_CONVERGENCE_THRESHOLD,
         "sigma_inhom": NVISION_WIDTH_CONVERGENCE_THRESHOLD,
         "contrast_total": NVISION_CONTRAST_TOTAL_CONVERGENCE_THRESHOLD,
+        "noise_sigma": NVISION_NOISE_SIGMA_CONVERGENCE_THRESHOLD,
     }
     for param_name, env_name in (
         ("k_np", "NVISION_K_NP_CONVERGENCE_THRESHOLD"),
