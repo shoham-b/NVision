@@ -124,7 +124,25 @@ def _primary_sensitivity(run_result: RunResult, primary: str) -> tuple[np.ndarra
     ``g = d signal / d primary`` on the true signal, in signal / Hz; ``g_t^2`` has shape (n_steps,), taken at the
     step's physical drive frequency (Hz) and drive. The max is over a dense grid of the full drive-frequency
     range (and, for drive-controlled models, of drive amplitudes).
+
+    Memoized on the run (per ``primary`` and step count): one repeat's metrics and series ask for it several
+    times (efficiency trace, Fisher trace, refine series) and the answer depends only on the run's true signal
+    and measurements. The returned array is shared, so callers must not modify it in place.
     """
+    memo: dict[tuple[str, int], tuple[np.ndarray, float]] | None = getattr(
+        run_result, "_primary_sensitivity_memo", None
+    )
+    if memo is None:
+        memo = {}
+        run_result._primary_sensitivity_memo = memo  # type: ignore[attr-defined]
+    key = (primary, len(run_result.snapshots))
+    if key not in memo:
+        memo[key] = _compute_primary_sensitivity(run_result, primary)
+    return memo[key]
+
+
+def _compute_primary_sensitivity(run_result: RunResult, primary: str) -> tuple[np.ndarray, float]:
+    """Uncached :func:`_primary_sensitivity`."""
     true_signal = run_result.true_signal
     names = list(true_signal.parameter_names)
     if primary not in names:

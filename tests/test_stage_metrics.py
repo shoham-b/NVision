@@ -275,3 +275,21 @@ def test_refine_series_is_aligned_to_refine_start_with_fisher_reference(monkeypa
     assert out["f"] == pytest.approx(expected, rel=1e-3)
     with pytest.raises(ValueError, match="outside the run"):
         extract_refine_series(run, "zeeman_shift", refine_step=99)
+
+
+def test_primary_sensitivity_is_computed_once_per_run(monkeypatch):
+    calls: list[str] = []
+
+    def fake(run_result, primary):
+        calls.append(primary)
+        return np.array([1.0, 2.0]), 4.0
+
+    monkeypatch.setattr(stages, "_compute_primary_sensitivity", fake)
+    run = SimpleNamespace(snapshots=[object(), object()])
+
+    first = stages._primary_sensitivity(run, "zeeman_shift")
+    second = stages._primary_sensitivity(run, "zeeman_shift")
+    stages._primary_sensitivity(run, "other")  # a different parameter is a different answer
+
+    assert first is second
+    assert calls == ["zeeman_shift", "other"]

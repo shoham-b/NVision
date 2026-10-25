@@ -1417,6 +1417,15 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         dist._obs_drives = list(self._obs_drives)
         dist._noise_alpha = self._noise_alpha
         dist._noise_betas = self._noise_betas.copy()
+        # The copy holds identical particles/weights/noise state, so the version-keyed memos stay valid
+        # for it. The version must be copied with them (a fresh copy starts at 0, which would never
+        # match the source's cache version). ``_estimates_unit`` hands out ``dict(cache)`` and
+        # ``ParameterValues`` is frozen, so sharing the cached objects by reference is safe.
+        dist._belief_version = self._belief_version
+        dist._estimates_cache = self._estimates_cache
+        dist._estimates_cache_version = self._estimates_cache_version
+        dist._uncertainty_cache = self._uncertainty_cache
+        dist._uncertainty_cache_version = self._uncertainty_cache_version
         dist._dip_candidates = list(self._dip_candidates)
         return dist
 
