@@ -83,7 +83,9 @@ line-ending = "lf"
 
 [tool.pytest.ini_options]
 minversion = "8.0"
-addopts = "-ra -q --cov=nvision --cov-report=xml --cov-report=term-missing --cov-report=html --timeout=60"
+# Coverage is opt-in (slow, ~20 KB of output); CI passes the --cov flags explicitly.
+# Local coverage: uv run pytest --cov=nvision --cov-report=term-missing
+addopts = "-ra -q --timeout=60"
 markers = [
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     "benchmark: marks tests that use pytest-benchmark",

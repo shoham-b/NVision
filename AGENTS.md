@@ -68,6 +68,32 @@ To understand the core design of the inference engine, you **MUST** read the doc
 
 ---
 
+### 3b. Fast, Low-Token Dev Loop (SBED / SMC / Metrics)
+Mirrored in `.agent/rules/fast-dev-loop.md` (Antigravity) and `.github/copilot-instructions.md`; keep the three in sync.
+- **Run tests without coverage.** Coverage is opt-in (it made a 3 s test take ~30 s and printed ~20 KB). Plain `pytest` is fast; CI passes `--cov=nvision --cov-report=...` explicitly. For iteration use: `uv run pytest tests/<file>.py` (add `--cov=nvision --cov-report=term-missing` only when you need coverage).
+- **Pick tests by area, do not run the suite.**
+  - SBED / focus: `test_sbed_acquire.py`, `test_sbed_thinning.py`, `test_focus_*.py`, `test_refocus.py`, `test_dip_detection.py`
+  - SMC / belief: `test_smc_*.py`, `test_unit_cube_belief.py`
+  - Metrics: `test_stage_metrics.py`, `test_grid_study_metrics.py`, `test_milestone_metrics_fit_override.py`
+- **Never open these** (huge, generated, or irrelevant): `cprofile_output.txt` (~1 MB), `pytest_output.txt`, `notebook.pdf`, `uv.lock`, `artifacts/`, `logs/`, `htmlcov/`, `coverage.xml`, `static/app.js` (~8k lines).
+- **Large modules: grep, then read a line range.** Do not read whole files: `spectra/nv_center.py` (2.4k lines), `belief/smc_marginal.py` (1.7k), `cli/run.py` (1.7k), `runner/executor.py` (1.6k), `sim/locs/coarse/generic_sweep_locator.py` (1.4k).
+- **Where things live:** SBED `sim/locs/bayesian/sbed_locator.py`; SMC `belief/smc_marginal.py`; focus `belief/focus_window.py`; dips `belief/dip_detection.py`; metrics `metrics/` and `runner/metrics.py`.
+
+---
+
+### 3c. Guardrails (no unintended actions)
+Mirrored in `.agent/rules/guardrails.md` (Antigravity) and `.github/copilot-instructions.md`.
+- **Stay in scope.** Change only what the task asks for. No drive-by refactors, renames, reformatting of untouched files, or dependency/`pyproject.toml`/CI changes unless requested. If you spot something else worth fixing, say so instead of doing it.
+- **Never touch the shared cache or results.** `artifacts/` (incl. `artifacts/cache/`, tens of GB and shared across worktrees), `data/`, `logs/` are read-only for you. No `nv cache clean`, no deleting or overwriting cache/DB files, no full `nv run` / `nv groups run`. Use `--dry-run` or `run-single --repeats 1 --dry-run`.
+- **No git side effects unasked.** Do not commit, push, force-push, reset --hard, checkout over changes, stash, or rebase unless the user asks. Never use `--no-verify`.
+- **No destructive or outward-facing commands** (rm -r, drop/truncate, kill, deploys, GCP/docker pushes, anything under `.github/workflows` or `scripts/` that talks to a remote) without explicit confirmation in chat.
+- **Physics/algorithm changes need a heads-up.** If you change SMC, SBED, likelihood, focus, or a physics constant, state whether old results are stale (re-run vs `nv render`) and whether the physics fingerprint must be bumped. Do not bump it silently.
+- **Fail fast, no silent fallbacks.** Raise on shape/coordinate mismatches; do not add try/except, clipping, or defaults that hide a bug. Keep `_unit` / `_phys` suffixes strict.
+- **Scratch only in `scratch/` and `debug/`.** Never in the repo root.
+- **Uncertain or ambiguous? Ask first**, with a recommendation, rather than choosing a risky interpretation.
+
+---
+
 ### 4. Integration & Extension
 - To add a new locator or generator, follow the structure and registration patterns in `sim/locs/` and `sim/gen/generators/`.
 - For new CLI commands, extend `cli/main.py` and register with Typer.
