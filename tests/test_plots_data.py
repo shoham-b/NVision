@@ -714,3 +714,24 @@ class TestNoNumpyLeaks:
                         check_finite(v)
 
             check_finite(raw)
+
+
+def test_subsample_snapshots_default_limit():
+    from nvision.runner.plots import _MAX_VIZ_SNAPSHOTS, _subsample_snapshots
+    from nvision.sim.defaults import NVISION_MAX_MEASUREMENTS
+
+    assert _MAX_VIZ_SNAPSHOTS == NVISION_MAX_MEASUREMENTS
+    assert _MAX_VIZ_SNAPSHOTS == 2500
+
+    # 2500 snapshots should not be subsampled
+    snaps_2500 = list(range(2500))
+    res = _subsample_snapshots(snaps_2500)
+    assert len(res) == 2500
+    assert res is snaps_2500
+
+    # > 2500 snapshots should be subsampled to 2500
+    snaps_3000 = list(range(3000))
+    res_sub = _subsample_snapshots(snaps_3000)
+    assert len(res_sub) == 2500
+    assert res_sub[0] == 0
+    assert res_sub[-1] == 2999
