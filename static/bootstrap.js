@@ -45,7 +45,7 @@ window.NVISION_GRID_AXIS_INFO = {
 //  - CW and pulsed drive generators are one "drive" family with a CW/pulsed axis; drive
 //    only changes the physics for locators that also choose the MW amplitude.
 const NVISION_DRIVE_MODES = { cw_drive: 'cw', pulsed_drive: 'pulsed' };
-const NVISION_FAMILY_LABELS = { voigt: 'Lorentzian / Voigt', drive: 'CW / pulsed drive' };
+const NVISION_FAMILY_LABELS = { voigt: 'Lorentzian / Voigt', drive: 'Drive amplitude control (CW / pulsed)' };
 
 window.nvisionGeneratorAxes = function (rawGridInfo) {
     if (!rawGridInfo) return null;
