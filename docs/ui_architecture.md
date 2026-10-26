@@ -161,7 +161,7 @@ Key sections inside `main()` (in order of appearance):
      dip-found share), *2. Focus* (measurements, sensitivity), *3. Refine* (measurements, Fisher efficiency η, claimed
      σ / true error vs the Fisher reference). Each stage has `hl-stage-compare-<n>` (`renderHlStageCompare(..., n)`),
      `hl-stages-steps-<n>` and the claimed-uncertainty / true-error curves over that stage only (`hl-stage-unc-<n>`,
-     `hl-stage-err-<n>`; `renderHlStageCurve(..., stage)` shifts each run so the stage starts at measurement 1). The
+     `hl-stage-err-<n>`; `renderHlStageCurve(..., stage)` draws each run at its own measurement numbers, only between the start and end of the stage). The
      single-repeat panels (`#scan-run-content`) are shown only in the Run view, collapsed the same way elsewhere.
    * **Accuracy** (`renderAccuracyTab`) — whether the stop is reliable: true error at the stop in units of τ,
      claimed σ against the true error over measurements, and claimed σ against the true error.

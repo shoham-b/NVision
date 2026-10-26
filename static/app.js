@@ -7532,19 +7532,19 @@ function main() {
     // locator. Diamonds / stars sit on each locator's curve at its median focus-found / max-information step.
     function renderHlStageCurve(div, byStrategy, strategies, key, yTitle, stage = 0) {
         const items = [];
-        let maxRel = 1;
+        let maxEnd = 1;
         for (const strat of strategies) {
             const runs = [];
             for (const p of byStrategy.get(strat)) {
                 if (!p.series || !p.series[key]) continue;
                 const win = hlStageWindow(p, stage);
                 if (win == null) continue;
-                runs.push({ p, c: `${p.generator}\u0000${p.noise}`, start: win.start, len: win.end - win.start + 1 });
-                if (win.end - win.start + 1 > maxRel) maxRel = win.end - win.start + 1;
+                runs.push({ p, c: `${p.generator}\u0000${p.noise}`, start: win.start, end: win.end });
+                if (win.end > maxEnd) maxEnd = win.end;
             }
             if (runs.length) items.push({ strat, runs });
         }
-        const grid = hlStepGrid(maxRel);
+        const grid = hlStepGrid(maxEnd);
         const traces = [];
         const markers = [];
         for (const { strat, runs } of items) {
@@ -7556,23 +7556,24 @@ function main() {
             // use case: over its repeats.
             const nCases = new Set(runs.map(r => r.c)).size;
             const minUnits = Math.max(Math.min(3, nCases), Math.ceil(nCases / 2));
-            for (const rel of grid) {
-                const at = runs.filter(r => rel <= r.len)
-                    .map(({ p, c, start }) => ({ c, v: hlSeriesValueAt(p.series, key, start - 1 + rel) }))
+            // x is the run's own measurement number; a run contributes only inside its stage (start..end).
+            for (const x of grid) {
+                const at = runs.filter(r => r.start <= x && x <= r.end)
+                    .map(({ p, c }) => ({ c, v: hlSeriesValueAt(p.series, key, x) }))
                     .filter(x => x.v != null && x.v > 0);
                 let vals;
                 if (nCases <= 1) {
-                    vals = hlSorted(at.map(x => x.v));
+                    vals = hlSorted(at.map(a => a.v));
                 } else {
                     const byCase = new Map();
-                    for (const x of at) {
-                        if (!byCase.has(x.c)) byCase.set(x.c, []);
-                        byCase.get(x.c).push(x.v);
+                    for (const a of at) {
+                        if (!byCase.has(a.c)) byCase.set(a.c, []);
+                        byCase.get(a.c).push(a.v);
                     }
                     vals = hlSorted([...byCase.values()].map(hlMedian));
                 }
                 if (vals.length < minUnits || !vals.length) continue;
-                xs.push(rel);
+                xs.push(x);
                 med.push(hlQuantileSorted(vals, 0.5));
                 qLo.push(hlQuantileSorted(vals, 0.25));
                 qHi.push(hlQuantileSorted(vals, 0.75));
@@ -7588,18 +7589,17 @@ function main() {
             const stageMarkers = [['focus_found_step', 'diamond', 'focus found'], ['max_info_step', 'star', 'max information']]
                 .filter((m, i) => stage === 0 || stage === i + 1);
             for (const [field, symbol, what] of stageMarkers) {
-                const startOf = new Map(runs.map(r => [r.p, r.start]));
-                const rel = hlMedian(hlUnits(runs.map(r => r.p), p => { const v = _mv(p, field); return v == null ? null : v - startOf.get(p) + 1; }));
+                const rel = hlMedian(hlUnits(runs.map(r => r.p), p => _mv(p, field)));
                 if (rel == null || rel < 1) continue;
                 const at = xs.findIndex(x => x >= rel);
                 if (at < 0) continue;
                 markers.push({ x: [rel], y: [med[at]], mode: 'markers', legendgroup: strat, showlegend: false,
                     marker: { color, size: 11, symbol, line: { color: '#fff', width: 1 } },
-                    hovertemplate: `${what}: ${Math.round(rel)} measurements in<extra>${label}</extra>` });
+                    hovertemplate: `${what}: measurement ${Math.round(rel)}<extra>${label}</extra>` });
             }
         }
         const layout = hlBaseLayout();
-        const xTitle = stage === 0 ? 'Measurements' : `Measurements into the ${HL_CURVE_STAGE_NAMES[stage]} stage`;
+        const xTitle = stage === 0 ? 'Measurements' : `Measurement number (${HL_CURVE_STAGE_NAMES[stage]} stage, from its start to its end)`;
         layout.xaxis = { ...layout.xaxis, title: { text: xTitle, font: { size: 11 } }, type: 'log' };
         layout.yaxis = { ...layout.yaxis, title: { text: yTitle, font: { size: 11 } }, type: 'log' };
         Plotly.react(div, [...traces, ...markers], layout, { displayModeBar: false, responsive: true });
