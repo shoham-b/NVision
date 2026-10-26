@@ -60,9 +60,12 @@ dip. k = 1 is therefore not studied; compare spacings by points per true FWHM.
    claimed σ are equally honest (rule 1); otherwise one could look faster by stopping riskier.
 7. **Metrics are per use case.** A use case is one signal at one noise level: window, line shape and SNR (generator ×
    noise for other studies). Compute every headline number (median and p75 cost, capped share, σ coverage, stage
-   durations) within one use case; never pool across windows, shapes or SNRs, since the cost spans orders of
-   magnitude between them. Trends across use cases are shown as curves, one point per use case, never as a single
-   pooled number.
+   durations) within one use case first; never read it off runs pooled across windows, shapes or SNRs, since the cost
+   spans orders of magnitude between them. A selection of several use cases is summarised as the **median over the
+   use cases of each use case's own number** (every use case counts once, whatever its number of repeats) and is
+   labelled with what it covers ("Median over 45 use cases · window 5, 10, 20 × FWHM · … · SNR 1…20"); the per-use-case
+   numbers stay one click away. Such a median mixes easy and hard use cases, so it is a summary of the selection, not a
+   property of any one signal. Trends across use cases are still shown as curves, one point per use case.
 8. **Medians hide the tail.** Show p75 and the capped share next to the median cost; the spacings differ more in the
    tail than at the median.
 
@@ -70,8 +73,10 @@ dip. k = 1 is therefore not studied; compare spacings by points per true FWHM.
 
 * Per-run metrics: `nvision/metrics/stages.py` (stage boundaries, η), `nvision/metrics/milestones.py` (stop step),
   `nvision/metrics/series.py` (per-step series), `nvision/metrics/compare.py` (`nv compare` tables).
-* Results UI views: **Locators** (every locator side by side, chips to show/hide; a table per selected use case, and
-  cost, search, σ coverage vs SNR across use cases; `/api/run-rows`), **Stages**, **Accuracy** (stop-quality panels), **Failed Runs**, and **Run** for one repeat.
+* Results UI views: **Cost & search** (every locator side by side, chips to show/hide; a median-over-selection block and
+  a block per use case, and cost and search vs SNR across use cases; `/api/run-rows`), **Stages** (one section per stage, each headed by its driving axis and metric; search / focus /
+  refine), **Accuracy** (σ coverage vs SNR "Is the claimed σ right?", then the stop-quality panels), **Failed Runs**, and
+  **Run** for one repeat. Stages and Accuracy default to the median over the selected use cases.
   See [ui_architecture.md](ui_architecture.md).
 
 ## Not done yet
@@ -80,7 +85,7 @@ dip. k = 1 is therefore not studied; compare spacings by points per true FWHM.
   function) and the prior FWHM / grid step (`prior_fwhm_phys`). Compute them on the server from the cached repeat
   for existing runs, and record them as per-run metrics for new ones; then plot search cost in passes against points
   per true FWHM.
-* Focus and refine axes (FWHM_true / SNR, Fisher-limited cost) in the Locators view.
+* Focus and refine axes (FWHM_true / SNR, Fisher-limited cost) in the Cost & search / Stages views.
 * The signed z = (estimate − truth) / claimed σ is not stored (only |error|), so σ honesty is checked against a
   half-normal, not N(0, 1).
 * SBED-Drive against every fixed drive amplitude, including the best one in hindsight.
