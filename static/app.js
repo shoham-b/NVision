@@ -7435,7 +7435,7 @@ function main() {
             traces.push({ x: xs, y: qHi, mode: 'lines', line: { width: 0 }, hoverinfo: 'skip', showlegend: false, legendgroup: strat });
             traces.push({ x: xs, y: qLo, mode: 'lines', line: { width: 0 }, fill: 'tonexty', fillcolor: hlHexToRgba(color, 0.13),
                 hoverinfo: 'skip', showlegend: false, legendgroup: strat });
-            traces.push({ x: xs, y: med, mode: 'lines', legendgroup: strat, name: `${label} (n=${runs.length})`,
+            traces.push({ x: xs, y: med, mode: 'lines', legendgroup: strat, name: `${label} (repeats=${runs.length})`,
                 line: { color, width: 2 }, hovertemplate: `step %{x}<br>median %{y:.4g} Hz<extra>${label}</extra>` });
             for (const [field, symbol, what] of [['focus_found_step', 'diamond', 'focus found'], ['max_info_step', 'star', 'max information']]) {
                 const rel = hlMedian(runs.map(({ p, start }) => { const v = _mv(p, field); return v == null ? null : v - start + 1; }));
@@ -7572,9 +7572,9 @@ function main() {
                     hovertemplate: `${label} ${name}<br>%{x} refine steps<br>%{y:.3g} × start σ (%{customdata} runs)<extra></extra>`,
                 });
             };
-            add(uncTraces, 'u', `claimed σ (n=${runs.length})`, undefined, true);
+            add(uncTraces, 'u', `claimed σ (repeats=${runs.length})`, undefined, true);
             add(uncTraces, 'f', 'Fisher reference', 'dash', false);
-            add(errTraces, 'e', `true error (n=${runs.length})`, undefined, true);
+            add(errTraces, 'e', `true error (repeats=${runs.length})`, undefined, true);
             add(errTraces, 'f', 'Fisher reference', 'dash', false);
         }
         for (const [div, traces, title] of [
