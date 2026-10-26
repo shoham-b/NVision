@@ -130,35 +130,50 @@ Key sections inside `main()` (in order of appearance):
 7. **Bayesian rendering** — posterior heatmap, convergence, metrics, Fisher, covariance ellipses, jitter
 8. **Aggregate views** — the `#scan-view-mode` control's modes besides *Run*, each reading per-repeat fields
    for many repeats at once:
-   * **Locators** (`renderStepSizeTab`, `ss*` helpers) — every locator's measured metrics side by side, each
+   * **Cost & search** (the `locators` mode; `renderStepSizeTab`, `ss*` helpers) — every locator's cost and search metrics side by side, each
      plain-sweep spacing k its own locator, with toggle chips to show or hide each one; nothing is ranked. Reads
      `/api/run-rows` (per-repeat scalars: measurements, final error and claimed σ, focus-found step, contrast,
      noise σ, grid axes) over the loaded family; `/api/sweep-spacings` lists the sweep
      spacings the current code studies, so older spacings left in the cache are hidden. A **use case** is one signal
      at one noise level (window x line shape x SNR in the SNR x window study; generator x noise elsewhere). The
      **table** is per use case: one block per use case of the current Signal / Noise selection (the pickers above
-     the view), never pooled, because a cost, capped share or σ coverage over mixed windows and SNRs means nothing.
+     the view). With several use cases selected the first block is the **median over the use cases** of each use
+     case's own number (never read off pooled runs; "runs" is then the per-use-case count), followed by one block per
+     use case.
      Per locator it shows the median and p75 cost, the capped share, how often a dip was found, the search cost, and
      whether the claimed σ is right (share of runs with |error| ≤ 1σ / 2σ / 3σ, nominal 68% / 95% / 99.7%). Selecting
      several noise levels or windows gives several blocks. The **charts** ("Across use cases") span the whole family:
-     cost, search cost and the 1σ share against SNR = contrast / noise σ, each point one use case, with a dotted
+     cost and search cost (and, in the **Accuracy** view, the 1σ/2σ/3σ share: "Is the claimed σ right?") against SNR = contrast / noise σ, each point one use case, with a dotted
      vertical line at the SNR of the selected use case in the panel of its window. They follow the SNR x window study:
      x = SNR (log), one panel per window (`grid_window_fwhm`, absolute MHz in the tooltip), lines = locators at ONE
      line shape chosen by a button group (default the selected use case's shape; the shape is named by its Lorentzian
      share of the FWHM, `1 - grid_gaussian_share`, with `hwhm_lorentz` / `sigma_inhom` in the tooltip). "Compare
      shapes" turns the lines into the shapes of one chosen locator. Runs without `grid_window_fwhm` /
      `grid_gaussian_share` (older caches) get one panel and no shape controls. Runs stop once σ is below the target,
-     so the error at the end is not shown: only whether σ is honest.
+     so the error at the end is not shown: only whether σ is honest. The locator chips, the line-shape buttons and the
+     run counts live in `#ss-controls`, shown above both the Cost & search and the Accuracy view (the σ chart is
+     rendered by `renderStepSizeContent`, which `showScanViewPanels` also calls for Accuracy; a chart whose view is
+     hidden is skipped).
    * **Stages** (`renderStagesTab`, `renderHlStages`) — the search / focus / refine comparison
-     (`docs/locator_comparison.md`).
+     (`docs/locator_comparison.md`), one section per stage, each headed by what drives it and its metric (as in
+     `docs/evaluation_metrics.md`): *Whole run* (over-time curves, measurements per stage), *1. Search* (measurements,
+     dip-found share), *2. Focus* (measurements, sensitivity), *3. Refine* (measurements, Fisher efficiency η, claimed
+     σ / true error vs the Fisher reference). Each stage has `hl-stage-compare-<n>` (`renderHlStageCompare(..., n)`) and
+     `hl-stages-steps-<n>`.
    * **Accuracy** (`renderAccuracyTab`) — whether the stop is reliable: true error at the stop in units of τ,
      claimed σ against the true error over measurements, and claimed σ against the true error.
 
-   Stages and Accuracy, like the Locators table, are **one block per selected use case** (generator x noise): the
-   markup inside `#stages-body` / `#accuracy-body` is a template that `ucRenderBlocks` clones once per use case of
-   the Signal / Noise selection (`ucList`), titled with the use case and with every element id suffixed
-   `--uc<i>`; the render functions take that suffix (`renderHlStages(gen, noises, sfx)`, `renderHlStopQuality(...,
-   sfx)`). Nothing is pooled across use cases. The controls that are one setting for the view (Stages "Show:", the
+   Stages and Accuracy have a **scope** control (`#uc-scope-stages` / `#uc-scope-accuracy`, one setting, `ucScope`):
+   *Median over selection* (default) or *Each use case*. The markup inside `#stages-body` / `#accuracy-body` is a
+   template that `ucRenderBlocks` clones once per block, titled and with every element id suffixed `--uc<i>`; the
+   render functions take that suffix (`renderHlStages(gen, noises, sfx)`, `renderHlStopQuality(..., sfx)`). In the
+   median scope the selection is ONE block whose generator / noise arguments are arrays. Its numbers are medians over
+   the use cases of each use case's own value (`hlUnits`, `hlCaseShares`): table cells, stage bars and the stage
+   comparison, and the over-time curves (median of per-use-case medians at each step, shown while at least half the
+   use cases are still running; the Cost & search median covers only the use cases every shown locator has runs on).
+   The Accuracy stop table and σ-vs-error chart and the Stages refine curves pool the runs of the selection instead
+   (they are in units of τ / σ or relative to the refine start); the Accuracy pace chart (absolute Hz against
+   measurements) is shown only per use case. The controls that are one setting for the view (Stages "Show:", the
    Accuracy deviation-band toggle) redraw every block. New elements inside either body must therefore be looked up
    by `id + sfx`.
    * **Failed Runs** (`renderFailedRunsTab`).

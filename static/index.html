@@ -61,7 +61,7 @@
         <span class="control-label" style="margin-right: 0.5em;" id="scan-view-label">View:</span>
         <div class="segmented-control" id="scan-view-mode" role="radiogroup" aria-labelledby="scan-view-label">
             <button type="button" role="radio" aria-checked="true" data-value="single" class="is-active" tabindex="0" id="scan-view-single-btn">Run</button>
-            <button type="button" role="radio" aria-checked="false" data-value="locators" tabindex="-1">Locators</button>
+            <button type="button" role="radio" aria-checked="false" data-value="locators" tabindex="-1">Cost &amp; search</button>
             <button type="button" role="radio" aria-checked="false" data-value="accuracy" tabindex="-1">Accuracy</button>
             <button type="button" role="radio" aria-checked="false" data-value="stages" tabindex="-1">Stages</button>
             <button type="button" role="radio" aria-checked="false" data-value="failed-runs" tabindex="-1" id="scan-view-failed-runs-btn" style="display:none;">Failed Runs</button>
@@ -187,14 +187,18 @@
     </div>
     
     
-    <!-- ── Locators tab: every locator's measured metrics, side by side ───── -->
-    <div id="stepsize-view" style="display:none; margin-top:1em; padding-top:1em; border-top:1px solid #eee;">
-        <h2 style="margin:0 0 0.4em;">Locators <span tabindex="0" class="help-icon-visible" title="Every locator on the same signals and stop target. The table is one block per use case (one signal at one noise level: window, line shape and SNR) chosen with the Signal and Noise pickers above, never pooled across use cases; the charts below span the whole family against SNR and mark the selected use case. Sweep k = SimpleSweep-kperFWHM: a uniform grid with k points per prior FWHM, repeating and averaging whole passes until the claimed σ stays below the stop target (or its measurement budget runs out). Click a locator below to show or hide it. SNR = dip contrast / noise σ.">?</span></h2>
+    <!-- Shared by the Cost & search and Accuracy views: locator chips, line-shape picker, run counts. -->
+    <div id="ss-controls" style="display:none; margin-top:1em; padding-top:1em; border-top:1px solid #eee;">
         <div style="display:flex; flex-wrap:wrap; align-items:center; gap:0.5em 1.5em; margin:0 0 0.6em;">
             <span id="ss-shape-box" style="display:none; align-items:center; gap:0.4em;"></span>
         </div>
         <div id="ss-pick" style="display:flex; flex-wrap:wrap; gap:0.4em; margin:0 0 0.6em;"></div>
         <div id="ss-notice" style="margin:0 0 0.6em;"></div>
+    </div>
+
+    <!-- ── Locators tab: every locator's measured metrics, side by side ───── -->
+    <div id="stepsize-view" style="display:none; margin-top:1em; padding-top:1em; border-top:1px solid #eee;">
+        <h2 style="margin:0 0 0.4em;">Cost &amp; search <span tabindex="0" class="help-icon-visible" title="Every locator on the same signals and stop target. The table is one block per use case (one signal at one noise level: window, line shape and SNR) chosen with the Signal and Noise pickers above; with several selected, a first block gives the median over the use cases of each one's own numbers (never read off pooled runs); the charts below span the whole family against SNR and mark the selected use case. Sweep k = SimpleSweep-kperFWHM: a uniform grid with k points per prior FWHM, repeating and averaging whole passes until the claimed σ stays below the stop target (or its measurement budget runs out). Click a locator below to show or hide it. SNR = dip contrast / noise σ.">?</span></h2>
         <div id="ss-table" style="margin:0.5em 0 1em; overflow-x:auto;"></div>
         <h3 style="margin:1em 0 0.2em;">Across use cases <span tabindex="0" class="help-icon-visible" title="Each point is one use case (a window, a line shape and an SNR) and covers only that use case's runs. The dotted vertical line marks the SNR of the use case selected above, in the panel of its window. The line shape is chosen here for the charts; the table follows the Signal picker.">?</span></h3>
         <div style="background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px; margin-bottom:1em;">
@@ -205,6 +209,94 @@
             <h3 style="margin-left:10px;">Search cost vs SNR <span tabindex="0" class="help-icon-visible" title="Median measurements until the data first show a dip, against SNR.">?</span></h3>
             <div id="ss-search-snr" style="display:flex; flex-wrap:wrap; gap:0.5em;"></div>
         </div>
+    </div>
+
+    <!-- ── Stages tab: locators compared stage by stage ───────────────────── -->
+    <div id="stages-view" style="display:none; margin-top:1em; padding-top:1em; border-top:1px solid #eee;">
+        <h2 style="margin:0 0 0.4em;">Stages — search, focus, refine <span tabindex="0" class="help-icon-visible" title="Every run is cut into three stages by the same detector. 1. Search: until the measurements first show a dip. 2. Focus: until the measurements are near the steepest point of the dip (maximum information per measurement). 3. Refine: the rest. A stage a run never reached is left out of that stage's median; Reached says how many did (a plain sweep never refines).">?</span></h2>
+        <div style="display:flex; align-items:center; gap:0.5em; margin:0 0 0.6em;">
+            <div class="segmented-control" id="uc-scope-stages" role="radiogroup" aria-label="Selection scope">
+                <button type="button" role="radio" aria-checked="true" data-value="median" class="is-active" tabindex="0">Median over selection</button>
+                <button type="button" role="radio" aria-checked="false" data-value="each" tabindex="-1">Each use case</button>
+            </div>
+            <span class="control-label" style="font-size:0.85em; font-weight:600; color:#334155; margin-left:1em;">Show:</span>
+            <div class="segmented-control" id="hl-stages-from" role="radiogroup">
+                <button type="button" role="radio" aria-checked="true" data-value="0" class="is-active" tabindex="0">Whole run</button>
+                <button type="button" role="radio" aria-checked="false" data-value="1" tabindex="-1">1. Search</button>
+                <button type="button" role="radio" aria-checked="false" data-value="2" tabindex="-1">2. Focus</button>
+                <button type="button" role="radio" aria-checked="false" data-value="3" tabindex="-1">3. Refine</button>
+            </div>
+        </div>
+        <!-- Repeated once per selected use case (ids get a per-use-case suffix); app.js ucRenderBlocks. -->
+        <div id="stages-body">
+        <section>
+            <h3 style="margin:0 0 0.2em; font-size:1.1em; color:#0f172a;">Whole run</h3>
+            <p style="margin:0 0 0.6em; font-size:0.85em; color:#475569;">Every locator over the run, with the markers where the focus was found (diamond) and where measuring reached the steepest point (star). The stages below break the cost down.</p>
+            <div style="display:flex; flex-wrap:wrap; gap:1.5em;">
+                <div style="flex:1 1 46%; min-width:420px; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px;">
+                    <h3 style="margin-left:10px;">Claimed uncertainty vs measurements <span tabindex="0" class="help-icon-visible" title="Median claimed uncertainty of the primary parameter after each measurement, with the interquartile band over repeats. Diamonds mark the median step where the focus was found, stars where measuring reached the steepest point (start of refine). Lower and further left = converges faster.">?</span></h3>
+                    <div id="hl-stages-unc" style="height:420px; width:100%;"></div>
+                </div>
+                <div style="flex:1 1 46%; min-width:420px; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px;">
+                    <h3 style="margin-left:10px;">True error vs measurements <span tabindex="0" class="help-icon-visible" title="Median true |estimate - truth| of the primary parameter after each measurement, with the interquartile band over repeats. Same markers as the uncertainty chart.">?</span></h3>
+                    <div id="hl-stages-errcurve" style="height:420px; width:100%;"></div>
+                </div>
+            </div>
+            <div style="display:flex; flex-wrap:wrap; gap:1.5em; margin-top:1em;">
+                <div style="flex:1 1 46%; min-width:420px; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px;">
+                    <h3 style="margin-left:10px;">Measurements spent in each stage <span tabindex="0" class="help-icon-visible" title="Median measurements per stage over the repeats that reached it; whiskers are the interquartile range.">?</span></h3>
+                    <div id="hl-stages-steps" style="height:320px; width:100%;"></div>
+                </div>
+            </div>
+        </section>
+        <section style="margin:1.8em 0 0; padding-top:0.8em; border-top:2px solid #e2e8f0;">
+            <h3 style="margin:0 0 0.2em; font-size:1.1em; color:#0f172a;">1. Search</h3>
+            <p style="margin:0 0 0.6em; font-size:0.85em; color:#475569;"><b>Driven by:</b> whether the grid puts enough points inside the true dip (grid points per true FWHM) and how deep each point sees it (SNR = contrast / noise σ). <b>Metric:</b> measurements until a dip is seen, and the share of runs that ever saw one. A blind stage: expect a tie.</p>
+            <div id="hl-stage-compare-1" style="margin:0.5em 0 1em; overflow-x:auto;"></div>
+            <div style="display:flex; flex-wrap:wrap; gap:1.5em;">
+                <div style="flex:1 1 46%; min-width:420px; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px;">
+                    <h3 style="margin-left:10px;">Measurements in the search stage <span tabindex="0" class="help-icon-visible" title="Median measurements this stage took, over the repeats that reached it; whiskers are the interquartile range (over use cases when several are selected).">?</span></h3>
+                    <div id="hl-stages-steps-1" style="height:320px; width:100%;"></div>
+                </div>
+            </div>
+        </section>
+        <section style="margin:1.8em 0 0; padding-top:0.8em; border-top:2px solid #e2e8f0;">
+            <h3 style="margin:0 0 0.2em; font-size:1.1em; color:#0f172a;">2. Focus</h3>
+            <p style="margin:0 0 0.6em; font-size:0.85em; color:#475569;"><b>Driven by:</b> precision relative to the line, FWHM_true / SNR: going from “dip seen” (uncertainty ≈ FWHM) to “located near the steepest slope”. <b>Metric:</b> measurements in the focus stage; sensitivity = how close the stage measured to the steepest point.</p>
+            <div id="hl-stage-compare-2" style="margin:0.5em 0 1em; overflow-x:auto;"></div>
+            <div style="display:flex; flex-wrap:wrap; gap:1.5em;">
+                <div style="flex:1 1 46%; min-width:420px; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px;">
+                    <h3 style="margin-left:10px;">Measurements in the focus stage <span tabindex="0" class="help-icon-visible" title="Median measurements this stage took, over the repeats that reached it; whiskers are the interquartile range (over use cases when several are selected).">?</span></h3>
+                    <div id="hl-stages-steps-2" style="height:320px; width:100%;"></div>
+                </div>
+            </div>
+        </section>
+        <section style="margin:1.8em 0 0; padding-top:0.8em; border-top:2px solid #e2e8f0;">
+            <h3 style="margin:0 0 0.2em; font-size:1.1em; color:#0f172a;">3. Refine</h3>
+            <p style="margin:0 0 0.6em; font-size:0.85em; color:#475569;"><b>Driven by:</b> Fisher-limited precision: an oracle needs about (FWHM_true / (SNR · τ))² measurements to reach σ = τ. <b>Metric:</b> Fisher efficiency η (1 = measuring at the Fisher-optimal points), and cost relative to the Fisher-limited cost. A plain sweep never refines.</p>
+            <div id="hl-stage-compare-3" style="margin:0.5em 0 1em; overflow-x:auto;"></div>
+            <div style="display:flex; flex-wrap:wrap; gap:1.5em;">
+                <div style="flex:1 1 46%; min-width:420px; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px;">
+                    <h3 style="margin-left:10px;">Measurements in the refine stage <span tabindex="0" class="help-icon-visible" title="Median measurements this stage took, over the repeats that reached it; whiskers are the interquartile range (over use cases when several are selected).">?</span></h3>
+                    <div id="hl-stages-steps-3" style="height:320px; width:100%;"></div>
+                </div>
+                <div style="flex:1 1 46%; min-width:420px; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px;">
+                    <h3 style="margin-left:10px;">Claimed uncertainty vs Fisher <span tabindex="0" class="help-icon-visible" title="Stage 3 aligned to its start. Solid: the locator's claimed primary-parameter uncertainty (median, IQR over runs still going), relative to its value when refine began. Dashed: the Fisher reference, the start uncertainty improved only by the true Fisher information of the measurements since (sensitivity of the true signal, shots and noise). Solid below dashed = the belief claims more precision than the data carry. Applies to every locator that reaches the stage.">?</span></h3>
+                    <div id="hl-refine-unc" style="height:320px; width:100%;"></div>
+                </div>
+                <div style="flex:1 1 46%; min-width:420px; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px;">
+                    <h3 style="margin-left:10px;">True error vs Fisher <span tabindex="0" class="help-icon-visible" title="Same alignment as the left plot, but the solid line is the actual |estimate - truth| relative to the claimed uncertainty at refine start. The dashed Fisher reference is the same one, so true error above it means the locator is not improving as fast as Fisher information allows.">?</span></h3>
+                    <div id="hl-refine-err" style="height:320px; width:100%;"></div>
+                </div>
+            </div>
+        </section>
+        <p style="margin:1em 0 0; font-size:0.8em; color:#94a3b8;">The physical axes named above (points per true FWHM, FWHM_true / SNR) are not plotted yet; see “Not done yet” in docs/evaluation_metrics.md. Whether the claimed σ is right is in the Accuracy view.</p>
+        </div>
+    </div>
+
+    <!-- ── Accuracy tab: uncertainty quality ──────────────────────────────── -->
+    <div id="accuracy-view" style="display:none; margin-top:1em; padding-top:1em; border-top:1px solid #eee;">
+        <h2 style="margin:0 0 0.4em;">Accuracy — is the claimed σ right, is the stop reliable?</h2>
         <div style="background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px; margin-bottom:1em;">
             <div style="display:flex; flex-wrap:wrap; align-items:center; gap:0.5em 1em;">
                 <h3 style="margin-left:10px;">Is the claimed σ right? <span tabindex="0" class="help-icon-visible" title="Share of runs (ended by the stop rule) whose real error is within 1, 2 or 3 claimed σ, against SNR. Runs stop once σ is below the target, so the error itself says little; what matters is that σ is honest: a correct σ gives 68% / 95% / 99.7% (dashed). Below = overconfident. Sweep runs from before the sweep-fit fix report a wrong estimate.">?</span></h3>
@@ -217,56 +309,13 @@
             </div>
             <div id="ss-sigma-snr" style="display:flex; flex-wrap:wrap; gap:0.5em;"></div>
         </div>
-    </div>
-
-    <!-- ── Stages tab: locators compared stage by stage ───────────────────── -->
-    <div id="stages-view" style="display:none; margin-top:1em; padding-top:1em; border-top:1px solid #eee;">
-        <h2 style="margin:0 0 0.4em;">Stages — search, focus, refine <span tabindex="0" class="help-icon-visible" title="Every run is cut into three stages by the same detector. 1. Search: until the measurements first show a dip. 2. Focus: until the measurements are near the steepest point of the dip (maximum information per measurement). 3. Refine: the rest. A stage a run never reached is left out of that stage's median; Reached says how many did (a plain sweep never refines).">?</span></h2>
-        <div style="display:flex; align-items:center; gap:0.5em; margin:0 0 0.6em;">
-            <span class="control-label" style="font-size:0.85em; font-weight:600; color:#334155;">Show:</span>
-            <div class="segmented-control" id="hl-stages-from" role="radiogroup">
-                <button type="button" role="radio" aria-checked="true" data-value="0" class="is-active" tabindex="0">Whole run</button>
-                <button type="button" role="radio" aria-checked="false" data-value="1" tabindex="-1">1. Search</button>
-                <button type="button" role="radio" aria-checked="false" data-value="2" tabindex="-1">2. Focus</button>
-                <button type="button" role="radio" aria-checked="false" data-value="3" tabindex="-1">3. Refine</button>
+        <div style="display:flex; align-items:center; gap:0.5em; margin:1em 0 0.6em;">
+            <h3 style="margin:0;">Stop quality</h3>
+            <div class="segmented-control" id="uc-scope-accuracy" role="radiogroup" aria-label="Selection scope">
+                <button type="button" role="radio" aria-checked="true" data-value="median" class="is-active" tabindex="0">Median over selection</button>
+                <button type="button" role="radio" aria-checked="false" data-value="each" tabindex="-1">Each use case</button>
             </div>
         </div>
-        <!-- Repeated once per selected use case (ids get a per-use-case suffix); app.js ucRenderBlocks. -->
-        <div id="stages-body">
-        <div style="display:flex; flex-wrap:wrap; gap:1.5em;">
-            <div style="flex:1 1 46%; min-width:420px; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px;">
-                <h3 style="margin-left:10px;">Claimed uncertainty vs measurements <span tabindex="0" class="help-icon-visible" title="Median claimed uncertainty of the primary parameter after each measurement, with the interquartile band over repeats. Diamonds mark the median step where the focus was found, stars where measuring reached the steepest point (start of refine). Lower and further left = converges faster.">?</span></h3>
-                <div id="hl-stages-unc" style="height:420px; width:100%;"></div>
-            </div>
-            <div style="flex:1 1 46%; min-width:420px; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px;">
-                <h3 style="margin-left:10px;">True error vs measurements <span tabindex="0" class="help-icon-visible" title="Median true |estimate - truth| of the primary parameter after each measurement, with the interquartile band over repeats. Same markers as the uncertainty chart.">?</span></h3>
-                <div id="hl-stages-errcurve" style="height:420px; width:100%;"></div>
-            </div>
-        </div>
-        <div id="hl-stage-compare" style="margin:0.5em 0 1em; overflow-x:auto;"></div>
-        <div id="hl-stages-table" style="margin:0.5em 0 1em; overflow-x:auto;"></div>
-        <div style="display:flex; flex-wrap:wrap; gap:1.5em;">
-            <div style="flex:1 1 46%; min-width:420px; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px;">
-                <h3 style="margin-left:10px;">Measurements spent in each stage <span tabindex="0" class="help-icon-visible" title="Median measurements per stage over the repeats that reached it; whiskers are the interquartile range.">?</span></h3>
-                <div id="hl-stages-steps" style="height:360px; width:100%;"></div>
-            </div>
-        </div>
-        <div style="display:flex; flex-wrap:wrap; gap:1.5em; margin-top:1em;">
-            <div style="flex:1 1 46%; min-width:420px; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px;">
-                <h3 style="margin-left:10px;">Refine: claimed uncertainty vs Fisher <span tabindex="0" class="help-icon-visible" title="Stage 3 aligned to its start. Solid: the locator's claimed primary-parameter uncertainty (median, IQR over runs still going), relative to its value when refine began. Dashed: the Fisher reference, the start uncertainty improved only by the true Fisher information of the measurements since (sensitivity of the true signal, shots and noise). Solid below dashed = the belief claims more precision than the data carry. Applies to every locator that reaches the stage.">?</span></h3>
-                <div id="hl-refine-unc" style="height:360px; width:100%;"></div>
-            </div>
-            <div style="flex:1 1 46%; min-width:420px; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px;">
-                <h3 style="margin-left:10px;">Refine: true error vs Fisher <span tabindex="0" class="help-icon-visible" title="Same alignment as the left plot, but the solid line is the actual |estimate - truth| relative to the claimed uncertainty at refine start. The dashed Fisher reference is the same one, so true error above it means the locator is not improving as fast as Fisher information allows.">?</span></h3>
-                <div id="hl-refine-err" style="height:360px; width:100%;"></div>
-            </div>
-        </div>
-        </div>
-    </div>
-
-    <!-- ── Accuracy tab: uncertainty quality ──────────────────────────────── -->
-    <div id="accuracy-view" style="display:none; margin-top:1em; padding-top:1em; border-top:1px solid #eee;">
-        <h2 style="margin:0 0 0.4em;">Accuracy — is the stop reliable?</h2>
         <!-- Repeated once per selected use case (ids get a per-use-case suffix); app.js ucRenderBlocks. -->
         <div id="accuracy-body">
         <div style="background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px; margin-bottom:1em;">
