@@ -7581,11 +7581,7 @@ function main() {
             traces.push({ x: xs, y: qHi, mode: 'lines', line: { width: 0 }, hoverinfo: 'skip', showlegend: false, legendgroup: strat });
             traces.push({ x: xs, y: qLo, mode: 'lines', line: { width: 0 }, fill: 'tonexty', fillcolor: hlHexToRgba(color, 0.13),
                 hoverinfo: 'skip', showlegend: false, legendgroup: strat });
-<<<<<<< HEAD
-            traces.push({ x: xs, y: med, mode: 'lines', legendgroup: strat, name: nCases > 1 ? `${label} (${nCases} use cases)` : `${label} (n=${runs.length})`,
-=======
-            traces.push({ x: xs, y: med, mode: 'lines', legendgroup: strat, name: `${label} (repeats=${runs.length})`,
->>>>>>> origin/master
+            traces.push({ x: xs, y: med, mode: 'lines', legendgroup: strat, name: nCases > 1 ? `${label} (${nCases} use cases)` : `${label} (repeats=${runs.length})`,
                 line: { color, width: 2 }, hovertemplate: `step %{x}<br>median %{y:.4g} Hz<extra>${label}</extra>` });
             // A stage view marks only where its own stage ends: search at the focus-found step, focus at the max-information
             // step, refine nothing; the whole run marks both.
