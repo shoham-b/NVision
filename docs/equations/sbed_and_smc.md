@@ -290,7 +290,7 @@ Deterministic, shape-agnostic dip finding from the measured scan alone — a gen
 3. **Boxcar scan.** Every contiguous window from one distinct measured x to another (all repeats included) whose span lies in that range gets
    $$S = \frac{\sum_{i \in W} z_i}{\sqrt{n_W}},$$
    in O(1) per window from the prefix sums P_k = Σ_{i<k} z_i. On a uniform sweep this is the prefix-sum scan over index widths L; the span-in-Hz form also handles SBED's irregular, repeated positions. All points in a window share one σ, so under "no dip" S is exactly Student-t with ν degrees of freedom.
-4. **Family-wise test.** With N windows tested, a window is significant when S > t_ν⁻¹(1 − p_fa/N) (Bonferroni over all windows, not just the N sweep points), p_fa = `NVISION_DIP_P_FA` = 0.01. A poorly known σ (small ν) raises the threshold smoothly; as ν grows it approaches the known-σ normal quantile Φ⁻¹(1 − p_fa/N). There is no separate noise-uncertainty cut-off.
+4. **Family-wise test.** With N windows tested, a window is significant when S > t_ν⁻¹(1 − p_fa/N) (Bonferroni over all windows, not just the N sweep points), p_fa = `NVISION_DIP_P_FA` = 0.1. A poorly known σ (small ν) raises the threshold smoothly; as ν grows it approaches the known-σ normal quantile Φ⁻¹(1 − p_fa/N). There is no separate noise-uncertainty cut-off.
 5. **Grouping.** Of the significant windows, only those whose edges fit the dip are kept: the best-scoring end for their start and the best-scoring start for their end (padding a window with baseline lowers S, so a strong narrow dip does not drag in every wider window that contains it). Kept windows that overlap or sit at neighbouring measured positions form one connected run, and each run is one dip: a hyperfine group's lines and a deep dip's wings (also significantly below the baseline) stay one dip, while dips separated by baseline stay apart. Each dip gives the run's extent [f_min, f_max] (measured positions), centroid (f_min + f_max)/2, significance = the run's best S, confidence 1 − min(1, N·P(t_ν > S)) and width f_max − f_min.
 
 The belief runs the detector at each resample once ≥5 observations exist; the result is `belief.dip_candidates`. It supplies the dip kernels of §1.8 and the focus windows the UI animates (`bayesian_focus_window`, `per_dip_windows`, `focus_window_candidates` are the significant-window runs [f_min, f_max] of the detected dips).
@@ -445,7 +445,7 @@ every locator (`nvision/metrics/milestones.py`, `nvision/metrics/stages.py`).
 | K_safety | `NVISION_ZERO_FIELD_FREQ_CRLB_SAFETY_FACTOR` | 4.0 | — |
 | patience | `NVISION_CONVERGENCE_PATIENCE` | 8 | steps |
 | threshold | `NVISION_CONVERGENCE_THRESHOLD` | 0.01 | relative |
-| p_fa | `NVISION_DIP_P_FA` | 0.01 | — (family-wise) |
+| p_fa | `NVISION_DIP_P_FA` | 0.1 | — (family-wise) |
 | f_expl | `NVISION_SMC_MIN_EXPLORATION_FRAC` | 0.01 | — |
 
 ---

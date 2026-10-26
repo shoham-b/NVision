@@ -41,8 +41,9 @@ def test_find_dips_no_window_fits_the_scan():
 
 @pytest.mark.parametrize("clustered", [False, True])
 def test_find_dips_pure_noise_has_no_false_alarms(clustered):
-    # Many independent pure-noise scans: at p_fa = 0.01 the family-wise false-alarm rate is <= 1%, also
-    # when 70% of the measurements pile up in one place as SBED's do (the baseline must stay unbiased).
+    # Many independent pure-noise scans: at the default p_fa = 0.1 the family-wise false-alarm rate is <= 10%
+    # (Bonferroni is conservative, ~0-1% observed), also when 70% of the measurements pile up in one place as
+    # SBED's do (the baseline must stay unbiased).
     rng = np.random.default_rng(0)
     false_alarms = 0
     for _ in range(200):
@@ -50,7 +51,7 @@ def test_find_dips_pure_noise_has_no_false_alarms(clustered):
         if clustered:
             xs[:210] = 2.85e9 + rng.uniform(-5e6, 5e6, 210)
         false_alarms += bool(find_dips(xs, 1.0 + 0.05 * rng.standard_normal(xs.size), 0.05, _KNOWN_SIGMA, *_G))
-    assert false_alarms <= 6
+    assert false_alarms <= 20
 
 
 def test_find_dips_locates_a_clean_dip():
