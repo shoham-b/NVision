@@ -57,6 +57,41 @@ def test_bayesian_sbed_nv_updates_with_normalized_probe_and_physical_signal():
     assert abs(zeeman_est - zeeman_true) < 24e6
 
 
+def test_smc_copy_keeps_version_keyed_memos_valid():
+    """A copy carries the source's estimate/uncertainty memos, valid under its own ``_belief_version``."""
+    rng = random.Random(11)
+    gen = NVCenterCoreGenerator(drive_freq_min_phys=2.6e9, drive_freq_max_phys=3.1e9, variant="lorentzian")
+    true_signal = gen.generate(rng)
+    exp = CoreExperiment(
+        true_signal=true_signal,
+        noise=None,
+        drive_freq_min_phys=2.6e9,
+        drive_freq_max_phys=3.1e9,
+    )
+    cfg = {
+        "builder": nv_center_smc_belief,
+        "noise_model": gaussian_noise(),
+        "max_steps": 6,
+        "convergence_threshold": 0.15,
+        "parameter_bounds": {name: true_signal.get_param_bounds(name) for name in true_signal.parameter_names},
+    }
+    final = Observer(true_signal, exp.drive_freq_min_phys, exp.drive_freq_max_phys).watch(
+        run_loop(SequentialBayesianExperimentDesignLocator, exp, rng, **cfg)
+    )
+    source = final.snapshots[-1].belief
+    estimates, uncertainty = source.estimates(), source.uncertainty()  # populate the memos
+
+    clone = source.copy()
+
+    assert clone._belief_version == source._belief_version
+    assert clone._estimates_cache_version == clone._belief_version
+    assert clone._uncertainty_cache_version == clone._belief_version
+    assert clone.estimates() == estimates
+    assert clone.uncertainty() == uncertainty
+    clone.estimates()["zeeman_shift"] = -1.0  # callers get their own dict: the shared memo is not corrupted
+    assert source.estimates() == estimates
+
+
 # ---------------------------------------------------------------------------
 # compute_vectorized_many_fast dispatch
 # ---------------------------------------------------------------------------
