@@ -749,27 +749,18 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
     def sorted_observation_arrays(self) -> tuple[np.ndarray, np.ndarray]:
         """Return ``(x, signal_value)`` of all observations sorted ascending by x.
 
-        Maintains ``_obs_sort_order`` lazily: indices in
-        ``[_obs_sort_valid_count, _obs_count)`` haven't been incorporated into
-        the sorted permutation yet, so each is inserted in turn via a single
-        ``searchsorted`` (O(log n)) plus an in-place slice shift (O(n),
-        memmove-safe under overlapping numpy basic-index assignment). A call
-        with no new observations since the last one is O(1). This avoids
-        paying O(n log n) to re-sort the full history from scratch on every
-        call (e.g. once per SMC resample epoch, for dip detection).
+        Maintains ``_obs_sort_order`` lazily: recomputed via a stable argsort
+        whenever new observations have arrived since the last sort. A call with
+        no new observations since the last one is O(1).
 
         Returns freshly-gathered arrays (not views), safe for callers to hold
         onto even as more observations are appended.
         """
         n = self._obs_count
-        order = self._obs_sort_order
-        for i in range(self._obs_sort_valid_count, n):
-            sorted_xs_so_far = self._obs_drive_freqs_unit[order[:i]]
-            pos = int(np.searchsorted(sorted_xs_so_far, self._obs_drive_freqs_unit[i], side="right"))
-            order[pos + 1 : i + 1] = order[pos:i]
-            order[pos] = i
-        self._obs_sort_valid_count = n
-        order = order[:n]
+        if self._obs_sort_valid_count != n:
+            self._obs_sort_order[:n] = np.argsort(self._obs_drive_freqs_unit[:n], kind="stable")
+            self._obs_sort_valid_count = n
+        order = self._obs_sort_order[:n]
         return self._obs_drive_freqs_unit[order], self._obs_y_arr[order]
 
     @property
