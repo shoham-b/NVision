@@ -7581,7 +7581,11 @@ function main() {
             traces.push({ x: xs, y: qHi, mode: 'lines', line: { width: 0 }, hoverinfo: 'skip', showlegend: false, legendgroup: strat });
             traces.push({ x: xs, y: qLo, mode: 'lines', line: { width: 0 }, fill: 'tonexty', fillcolor: hlHexToRgba(color, 0.13),
                 hoverinfo: 'skip', showlegend: false, legendgroup: strat });
+<<<<<<< HEAD
             traces.push({ x: xs, y: med, mode: 'lines', legendgroup: strat, name: nCases > 1 ? `${label} (${nCases} use cases)` : `${label} (n=${runs.length})`,
+=======
+            traces.push({ x: xs, y: med, mode: 'lines', legendgroup: strat, name: `${label} (repeats=${runs.length})`,
+>>>>>>> origin/master
                 line: { color, width: 2 }, hovertemplate: `step %{x}<br>median %{y:.4g} Hz<extra>${label}</extra>` });
             // A stage view marks only where its own stage ends: search at the focus-found step, focus at the max-information
             // step, refine nothing; the whole run marks both.
@@ -7696,9 +7700,9 @@ function main() {
                     hovertemplate: `${label} ${name}<br>%{x} refine steps<br>%{y:.3g} × start σ (%{customdata} runs)<extra></extra>`,
                 });
             };
-            add(uncTraces, 'u', `claimed σ (n=${runs.length})`, undefined, true);
+            add(uncTraces, 'u', `claimed σ (repeats=${runs.length})`, undefined, true);
             add(uncTraces, 'f', 'Fisher reference', 'dash', false);
-            add(errTraces, 'e', `true error (n=${runs.length})`, undefined, true);
+            add(errTraces, 'e', `true error (repeats=${runs.length})`, undefined, true);
             add(errTraces, 'f', 'Fisher reference', 'dash', false);
         }
         for (const [div, traces, title] of [

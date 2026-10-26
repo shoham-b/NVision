@@ -295,6 +295,9 @@ def physics_config_fingerprint() -> str:
         # Bumped when window-grid signals stopped drawing a zeeman_shift below ``zeeman_shift_edge_pad``
         # (their dip no longer sits cut off on the window's lower edge D); the draws differ per signal.
         "zeeman-edge-pad-v1",
+        # Bumped when the dip scan's default family-wise false-alarm level NVISION_DIP_P_FA went 0.01 -> 0.1:
+        # the dip is declared (focus stage starts) earlier, so focus sections and SBED trajectories differ.
+        "dip-p-fa-0.1-v1",
         NV_ZEEMAN_EDGE_PAD_FWHM,
         MIN_HWHM,
         MAX_HWHM,
