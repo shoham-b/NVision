@@ -51,8 +51,10 @@ NVISION_SWEEP_FIT_EARLY_STOP_SIGMAS: float = float(os.getenv("NVISION_SWEEP_FIT_
 # --- Robust Dip Detection Defaults -----------------------------------------
 
 # Family-wise false-alarm probability of the boxcar dip scan (Bonferroni over every window
-# tested), see nvision.belief.dip_detection.find_dips.
-NVISION_DIP_P_FA: float = float(os.getenv("NVISION_DIP_P_FA", "0.01"))
+# tested), see nvision.belief.dip_detection.find_dips. 0.1 declares the dip (the focus stage start) a few to ~10
+# measurements earlier than 0.01 with no off-dip detections on the single-dip SNR(10) probe; 0.2 and above start
+# producing them.
+NVISION_DIP_P_FA: float = float(os.getenv("NVISION_DIP_P_FA", "0.1"))
 
 # The stopping rules re-run the dip scan at most once per this many measurements (the scan grows with the number
 # of measurements, and a dip already seen does not vanish between two consecutive measurements).
