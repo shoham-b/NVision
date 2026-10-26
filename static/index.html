@@ -83,6 +83,8 @@
             </div>
         </div>
     </div>
+    <!-- Everything about ONE repeat: shown only in the Run view (showScanViewPanels). -->
+    <div id="scan-run-content">
     <div class="metrics" id="scan-metrics"></div>
     <div id="scan-comparison-selector"></div>
     <div id="scan-comparison-cards"></div>
@@ -185,6 +187,7 @@
         </div>
         </div>
     </div>
+    </div>
     
     
     <!-- Shared by the Cost & search and Accuracy views: locator chips, line-shape picker, run counts. -->
@@ -229,7 +232,7 @@
         </div>
         <!-- Repeated once per selected use case (ids get a per-use-case suffix); app.js ucRenderBlocks. -->
         <div id="stages-body">
-        <section>
+        <section data-stage="0">
             <h3 style="margin:0 0 0.2em; font-size:1.1em; color:#0f172a;">Whole run</h3>
             <p style="margin:0 0 0.6em; font-size:0.85em; color:#475569;">Every locator over the run, with the markers where the focus was found (diamond) and where measuring reached the steepest point (star). The stages below break the cost down.</p>
             <div style="display:flex; flex-wrap:wrap; gap:1.5em;">
@@ -249,7 +252,7 @@
                 </div>
             </div>
         </section>
-        <section style="margin:1.8em 0 0; padding-top:0.8em; border-top:2px solid #e2e8f0;">
+        <section data-stage="1" style="margin:1em 0 0;">
             <h3 style="margin:0 0 0.2em; font-size:1.1em; color:#0f172a;">1. Search</h3>
             <p style="margin:0 0 0.6em; font-size:0.85em; color:#475569;"><b>Driven by:</b> whether the grid puts enough points inside the true dip (grid points per true FWHM) and how deep each point sees it (SNR = contrast / noise σ). <b>Metric:</b> measurements until a dip is seen, and the share of runs that ever saw one. A blind stage: expect a tie.</p>
             <div id="hl-stage-compare-1" style="margin:0.5em 0 1em; overflow-x:auto;"></div>
@@ -258,9 +261,17 @@
                     <h3 style="margin-left:10px;">Measurements in the search stage <span tabindex="0" class="help-icon-visible" title="Median measurements this stage took, over the repeats that reached it; whiskers are the interquartile range (over use cases when several are selected).">?</span></h3>
                     <div id="hl-stages-steps-1" style="height:320px; width:100%;"></div>
                 </div>
+                <div style="flex:1 1 46%; min-width:420px; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px;">
+                    <h3 style="margin-left:10px;">Claimed uncertainty in the search stage <span tabindex="0" class="help-icon-visible" title="Median claimed uncertainty of the primary parameter, only over the search stage: each run is shifted so its stage begins at measurement 1 and stops at the run's own end of the stage; runs that never reached it are left out. Band = interquartile range.">?</span></h3>
+                    <div id="hl-stage-unc-1" style="height:320px; width:100%;"></div>
+                </div>
+                <div style="flex:1 1 46%; min-width:420px; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px;">
+                    <h3 style="margin-left:10px;">True error in the search stage <span tabindex="0" class="help-icon-visible" title="Median true |estimate - truth| of the primary parameter, over the search stage only (same alignment as the uncertainty chart).">?</span></h3>
+                    <div id="hl-stage-err-1" style="height:320px; width:100%;"></div>
+                </div>
             </div>
         </section>
-        <section style="margin:1.8em 0 0; padding-top:0.8em; border-top:2px solid #e2e8f0;">
+        <section data-stage="2" style="margin:1em 0 0;">
             <h3 style="margin:0 0 0.2em; font-size:1.1em; color:#0f172a;">2. Focus</h3>
             <p style="margin:0 0 0.6em; font-size:0.85em; color:#475569;"><b>Driven by:</b> precision relative to the line, FWHM_true / SNR: going from “dip seen” (uncertainty ≈ FWHM) to “located near the steepest slope”. <b>Metric:</b> measurements in the focus stage; sensitivity = how close the stage measured to the steepest point.</p>
             <div id="hl-stage-compare-2" style="margin:0.5em 0 1em; overflow-x:auto;"></div>
@@ -269,9 +280,17 @@
                     <h3 style="margin-left:10px;">Measurements in the focus stage <span tabindex="0" class="help-icon-visible" title="Median measurements this stage took, over the repeats that reached it; whiskers are the interquartile range (over use cases when several are selected).">?</span></h3>
                     <div id="hl-stages-steps-2" style="height:320px; width:100%;"></div>
                 </div>
+                <div style="flex:1 1 46%; min-width:420px; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px;">
+                    <h3 style="margin-left:10px;">Claimed uncertainty in the focus stage <span tabindex="0" class="help-icon-visible" title="Median claimed uncertainty of the primary parameter, only over the focus stage: each run is shifted so its stage begins at measurement 1 and stops at the run's own end of the stage; runs that never reached it are left out. Band = interquartile range.">?</span></h3>
+                    <div id="hl-stage-unc-2" style="height:320px; width:100%;"></div>
+                </div>
+                <div style="flex:1 1 46%; min-width:420px; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px;">
+                    <h3 style="margin-left:10px;">True error in the focus stage <span tabindex="0" class="help-icon-visible" title="Median true |estimate - truth| of the primary parameter, over the focus stage only (same alignment as the uncertainty chart).">?</span></h3>
+                    <div id="hl-stage-err-2" style="height:320px; width:100%;"></div>
+                </div>
             </div>
         </section>
-        <section style="margin:1.8em 0 0; padding-top:0.8em; border-top:2px solid #e2e8f0;">
+        <section data-stage="3" style="margin:1em 0 0;">
             <h3 style="margin:0 0 0.2em; font-size:1.1em; color:#0f172a;">3. Refine</h3>
             <p style="margin:0 0 0.6em; font-size:0.85em; color:#475569;"><b>Driven by:</b> Fisher-limited precision: an oracle needs about (FWHM_true / (SNR · τ))² measurements to reach σ = τ. <b>Metric:</b> Fisher efficiency η (1 = measuring at the Fisher-optimal points), and cost relative to the Fisher-limited cost. A plain sweep never refines.</p>
             <div id="hl-stage-compare-3" style="margin:0.5em 0 1em; overflow-x:auto;"></div>
@@ -279,6 +298,14 @@
                 <div style="flex:1 1 46%; min-width:420px; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px;">
                     <h3 style="margin-left:10px;">Measurements in the refine stage <span tabindex="0" class="help-icon-visible" title="Median measurements this stage took, over the repeats that reached it; whiskers are the interquartile range (over use cases when several are selected).">?</span></h3>
                     <div id="hl-stages-steps-3" style="height:320px; width:100%;"></div>
+                </div>
+                <div style="flex:1 1 46%; min-width:420px; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px;">
+                    <h3 style="margin-left:10px;">Claimed uncertainty in the refine stage <span tabindex="0" class="help-icon-visible" title="Median claimed uncertainty of the primary parameter, only over the refine stage: each run is shifted so its stage begins at measurement 1 and stops at the run's own end of the stage; runs that never reached it are left out. Band = interquartile range.">?</span></h3>
+                    <div id="hl-stage-unc-3" style="height:320px; width:100%;"></div>
+                </div>
+                <div style="flex:1 1 46%; min-width:420px; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px;">
+                    <h3 style="margin-left:10px;">True error in the refine stage <span tabindex="0" class="help-icon-visible" title="Median true |estimate - truth| of the primary parameter, over the refine stage only (same alignment as the uncertainty chart).">?</span></h3>
+                    <div id="hl-stage-err-3" style="height:320px; width:100%;"></div>
                 </div>
                 <div style="flex:1 1 46%; min-width:420px; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px;">
                     <h3 style="margin-left:10px;">Claimed uncertainty vs Fisher <span tabindex="0" class="help-icon-visible" title="Stage 3 aligned to its start. Solid: the locator's claimed primary-parameter uncertainty (median, IQR over runs still going), relative to its value when refine began. Dashed: the Fisher reference, the start uncertainty improved only by the true Fisher information of the measurements since (sensitivity of the true signal, shots and noise). Solid below dashed = the belief claims more precision than the data carry. Applies to every locator that reaches the stage.">?</span></h3>

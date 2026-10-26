@@ -6758,6 +6758,7 @@ function main() {
     // The chips choose which locators are shown; nothing is ranked.
     let ssRowsCache = null;   // { key, promise } of the last /api/run-rows request
     const ssHidden = new Set();   // locators the user switched off (new locators are shown by default)
+    const ssOpenCases = new Set();   // use-case blocks of the table the user expanded (they start collapsed)
     // SNR x window study (rows carrying grid_window_fwhm and grid_gaussian_share): one panel per window, ONE line
     // shape (Gaussian share) shown at a time, or with ssCompare one locator's lines for every shape.
     let ssShare = null;       // Gaussian share (rounded, see ssShareKey) the charts show; null = the middle share
@@ -7084,9 +7085,25 @@ function main() {
                 ${th('|error| ≤ 1σ', 'Share of runs the stop rule ended whose real error is within the claimed σ; a correct σ gives 68%')}
                 ${th('|error| ≤ 2σ', 'Same within 2σ; a correct σ gives 95%')}
                 ${th('|error| ≤ 3σ', 'Same within 3σ; a correct σ gives 99.7%')}
-            </tr></thead>${blocks.length > 1 ? `<tbody>${medianRow}${medianBodyOf()}</tbody>` : ''}${blocks.map((b) => `<tbody>${useCaseRow(b)}${bodyOf(b)}</tbody>`).join('')}</table>`
+            </tr></thead>${blocks.length > 1 ? `<tbody>${medianRow}${medianBodyOf()}</tbody>` : ''}${blocks.map((b) => {
+                // Several use cases: each block starts collapsed to its header (the median block above is the summary).
+                const key = `${b.sample.generator}\u0000${b.sample.noise}`;
+                const collapsed = blocks.length > 1 && !ssOpenCases.has(key);
+                return `<tbody class="ss-case${collapsed ? ' collapsed' : ''}" data-case="${escapeHtml(key)}">${useCaseRow(b)}${bodyOf(b)}</tbody>`;
+            }).join('')}</table>`
             : '<div style="padding:1em;color:#64748b;background:#f8fafc;border:1px dashed #cbd5e1;border-radius:8px;">No runs for the selected signal and noise.</div>';
         tableDiv.querySelectorAll('td, th').forEach((c) => { c.style.padding = '4px 12px'; });
+        if (!tableDiv._hasListener) {
+            // The header row of a use-case block expands / collapses it.
+            tableDiv.addEventListener('click', (e) => {
+                const header = e.target.closest('tbody.ss-case > tr:first-child');
+                if (!header) return;
+                const body = header.parentElement;
+                const collapsed = body.classList.toggle('collapsed');
+                if (collapsed) ssOpenCases.delete(body.dataset.case); else ssOpenCases.add(body.dataset.case);
+            });
+            tableDiv._hasListener = true;
+        }
 
         const parts = [`${formatCount(usable.length)} runs in the family`];
         if (document.getElementById('stepsize-view').style.display !== 'none') parts.push(`table: ${blocks.length === 1 ? ssUseCaseLabel(blocks[0].sample) : `median over ${formatCount(blocks.length)} selected use cases, then each on its own`}`);
@@ -7306,13 +7323,43 @@ function main() {
     }
 
     // ── Stages tab ───────────────────────────────────────────────────────────
+    // Which stage section the Stages view shows: 0 = whole run, 1 / 2 / 3 = search / focus / refine. The others are
+    // collapsed rather than display:none: Plotly cannot size a plot in a hidden panel, and keeping their width means
+    // switching back needs no redraw.
+    let hlStageShown = 0;
+
+    function hlApplyStageSelector() {
+        document.querySelectorAll('#stages-body section[data-stage]').forEach((sec) => {
+            sec.style.cssText = Number(sec.dataset.stage) === hlStageShown ? '' : 'height:0; overflow:hidden; visibility:hidden; margin:0;';
+        });
+        document.querySelectorAll('#hl-stages-from button').forEach((b) => {
+            const active = Number(b.dataset.value) === hlStageShown;
+            b.classList.toggle('is-active', active);
+            b.setAttribute('aria-checked', active ? 'true' : 'false');
+            b.tabIndex = active ? 0 : -1;
+        });
+    }
+
+    function hlBindStageSelector() {
+        const group = document.getElementById('hl-stages-from');
+        if (!group || group._hasListener) return;
+        group.addEventListener('click', (e) => {
+            const btn = e.target.closest('button[data-value]');
+            if (!btn) return;
+            hlStageShown = Number(btn.dataset.value);
+            hlApplyStageSelector();
+        });
+        group._hasListener = true;
+    }
+
     function renderStagesTab(gen, noises) {
         if (toGenSet(gen).size === 0) return;
         ensureScanFieldsFor(gen, noises)
             .then(() => ensurePlotly())
             .then(() => {
-                hlStagesLast.clear();
                 ucRenderBlocks('stages-body', gen, noises, (uc, sfx) => renderHlStages(uc.generator, [].concat(uc.noise), sfx));
+                hlBindStageSelector();
+                hlApplyStageSelector();
             })
             .catch(err => {
                 const view = document.getElementById('stages-view');
@@ -7463,8 +7510,6 @@ function main() {
     // Which part of the run the over-time curves show: 0 = the whole run, 1 / 2 / 3 = just the search / focus / refine
     // stage. A stage view shifts each run so its stage begins at x = 1 (lining the locators up there) and stops at the
     // run's own end of that stage; runs that never reached the stage are left out.
-    let hlCurveStage = 0;
-    const hlStagesLast = new Map();   // use-case suffix -> { uncDiv, errCurveDiv, byStrategy, strategies }
     const HL_CURVE_STAGE_NAMES = { 1: 'search', 2: 'focus', 3: 'refine' };
 
     // First and last measurement (1-indexed) of the run in the chosen view, or null when the stage was not reached.
@@ -7482,8 +7527,7 @@ function main() {
     // Median (and interquartile band) over repeats of a per-step series value -- 'u' claimed uncertainty or
     // 'e' true error of the primary parameter -- against the measurements since the chosen start, one line per
     // locator. Diamonds / stars sit on each locator's curve at its median focus-found / max-information step.
-    function renderHlStageCurve(div, byStrategy, strategies, key, yTitle) {
-        const stage = hlCurveStage;
+    function renderHlStageCurve(div, byStrategy, strategies, key, yTitle, stage = 0) {
         const items = [];
         let maxRel = 1;
         for (const strat of strategies) {
@@ -7554,31 +7598,6 @@ function main() {
         Plotly.react(div, [...traces, ...markers], layout, { displayModeBar: false, responsive: true });
     }
 
-    function renderHlStageCurves() {
-        for (const { uncDiv, errCurveDiv, byStrategy, strategies } of hlStagesLast.values()) {
-            renderHlStageCurve(uncDiv, byStrategy, strategies, 'u', 'Median claimed uncertainty (Hz)');
-            renderHlStageCurve(errCurveDiv, byStrategy, strategies, 'e', 'Median true |error| (Hz)');
-        }
-    }
-
-    function setupStagesFromControl() {
-        const group = document.getElementById('hl-stages-from');
-        if (!group || group._hasListener) return;
-        group.addEventListener('click', (e) => {
-            const btn = e.target.closest('button[data-value]');
-            if (!btn) return;
-            hlCurveStage = Number(btn.dataset.value);
-            group.querySelectorAll('button').forEach(b => {
-                const active = b === btn;
-                b.classList.toggle('is-active', active);
-                b.setAttribute('aria-checked', active ? 'true' : 'false');
-                b.tabIndex = active ? 0 : -1;
-            });
-            renderHlStageCurves();
-        });
-        group._hasListener = true;
-    }
-
     // One Stages block (a use case, or the median over the selection); `sfx` is the id suffix of its copy of the
     // markup (see ucRenderBlocks).
     function renderHlStages(generator, noises, sfx) {
@@ -7594,8 +7613,10 @@ function main() {
             for (const st of HL_STAGES) {
                 const cmpBox = document.getElementById(`hl-stage-compare-${st.n}${sfx}`);
                 if (cmpBox) cmpBox.innerHTML = '<p style="color:#94a3b8;padding:1em;font-size:0.9em;">No stage metrics for this use case — these runs predate the stage export. Re-run to include them.</p>';
-                const bars = document.getElementById(`hl-stages-steps-${st.n}${sfx}`);
-                if (bars) Plotly.purge(bars);
+                for (const id of [`hl-stages-steps-${st.n}`, `hl-stage-unc-${st.n}`, `hl-stage-err-${st.n}`]) {
+                    const el = document.getElementById(`${id}${sfx}`);
+                    if (el) Plotly.purge(el);
+                }
             }
             Plotly.purge(stepsDiv);
             Plotly.purge(uncDiv);
@@ -7620,10 +7641,14 @@ function main() {
         Plotly.react(stepsDiv, hlStageBarTraces(byStrategy, strategies, 'steps', 'measurements'), barLayout(),
             { displayModeBar: false, responsive: true });
 
-        hlStagesLast.set(sfx, { uncDiv, errCurveDiv, byStrategy, strategies });
-        setupStagesFromControl();
         renderHlStageCurve(uncDiv, byStrategy, strategies, 'u', 'Median claimed uncertainty (Hz)');
         renderHlStageCurve(errCurveDiv, byStrategy, strategies, 'e', 'Median true |error| (Hz)');
+        for (const st of HL_STAGES) {
+            const unc = document.getElementById(`hl-stage-unc-${st.n}${sfx}`);
+            const err = document.getElementById(`hl-stage-err-${st.n}${sfx}`);
+            if (unc) renderHlStageCurve(unc, byStrategy, strategies, 'u', 'Median claimed uncertainty (Hz)', st.n);
+            if (err) renderHlStageCurve(err, byStrategy, strategies, 'e', 'Median true |error| (Hz)', st.n);
+        }
 
         renderHlRefineCurves(byStrategy, strategies, sfx);
     }
@@ -8167,6 +8192,9 @@ function main() {
         const noises = compareNoisesArg();
 
         if (repeatView) repeatView.style.display = 'none';
+        const runContent = document.getElementById('scan-run-content');
+        // Collapsed, not display:none: the Run plots still render into it and Plotly cannot size a hidden panel.
+        if (runContent) runContent.style.cssText = mode === 'single' ? '' : 'height:0; overflow:hidden; visibility:hidden;';
         if (stepSizeView) stepSizeView.style.display = 'none';
         if (ssControls) ssControls.style.display = mode === 'locators' || mode === 'accuracy' ? 'block' : 'none';
         if (accuracyView) accuracyView.style.display = 'none';

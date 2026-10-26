@@ -156,10 +156,13 @@ Key sections inside `main()` (in order of appearance):
      hidden is skipped).
    * **Stages** (`renderStagesTab`, `renderHlStages`) — the search / focus / refine comparison
      (`docs/locator_comparison.md`), one section per stage, each headed by what drives it and its metric (as in
-     `docs/evaluation_metrics.md`): *Whole run* (over-time curves, measurements per stage), *1. Search* (measurements,
+     `docs/evaluation_metrics.md`), shown one at a time with the **Show:** selector (`hlStageShown`; the other sections are
+     collapsed, not `display:none`, so Plotly keeps their width): *Whole run* (over-time curves, measurements per stage), *1. Search* (measurements,
      dip-found share), *2. Focus* (measurements, sensitivity), *3. Refine* (measurements, Fisher efficiency η, claimed
-     σ / true error vs the Fisher reference). Each stage has `hl-stage-compare-<n>` (`renderHlStageCompare(..., n)`) and
-     `hl-stages-steps-<n>`.
+     σ / true error vs the Fisher reference). Each stage has `hl-stage-compare-<n>` (`renderHlStageCompare(..., n)`),
+     `hl-stages-steps-<n>` and the claimed-uncertainty / true-error curves over that stage only (`hl-stage-unc-<n>`,
+     `hl-stage-err-<n>`; `renderHlStageCurve(..., stage)` shifts each run so the stage starts at measurement 1). The
+     single-repeat panels (`#scan-run-content`) are shown only in the Run view, collapsed the same way elsewhere.
    * **Accuracy** (`renderAccuracyTab`) — whether the stop is reliable: true error at the stop in units of τ,
      claimed σ against the true error over measurements, and claimed σ against the true error.
 
