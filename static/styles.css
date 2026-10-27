@@ -1893,7 +1893,7 @@ body {
             flex-shrink: 0;
         }
 
-/* Cost & search table: a use-case block shows only its header row while collapsed (click the header to toggle). */
+/* Cost & search table (Stages, Whole run): a use-case block shows only its header row while collapsed (click the header to toggle). */
 tbody.ss-case > tr:first-child { cursor: pointer; }
 tbody.ss-case > tr:first-child td::before { content: '▾ '; }
 tbody.ss-case.collapsed > tr:first-child td::before { content: '▸ '; }

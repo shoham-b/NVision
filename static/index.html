@@ -61,7 +61,6 @@
         <span class="control-label" style="margin-right: 0.5em;" id="scan-view-label">View:</span>
         <div class="segmented-control" id="scan-view-mode" role="radiogroup" aria-labelledby="scan-view-label">
             <button type="button" role="radio" aria-checked="true" data-value="single" class="is-active" tabindex="0" id="scan-view-single-btn">Run</button>
-            <button type="button" role="radio" aria-checked="false" data-value="locators" tabindex="-1">Cost &amp; search</button>
             <button type="button" role="radio" aria-checked="false" data-value="accuracy" tabindex="-1">Accuracy</button>
             <button type="button" role="radio" aria-checked="false" data-value="stages" tabindex="-1">Stages</button>
             <button type="button" role="radio" aria-checked="false" data-value="scaling" tabindex="-1">Scaling</button>
@@ -191,28 +190,13 @@
     </div>
     
     
-    <!-- Shared by the Cost & search and Accuracy views: locator chips, line-shape picker, run counts. -->
+    <!-- Shared by the Stages "Whole run" (Cost & search) and Accuracy views: locator chips, line-shape picker, run counts. -->
     <div id="ss-controls" style="display:none; margin-top:1em; padding-top:1em; border-top:1px solid #eee;">
         <div style="display:flex; flex-wrap:wrap; align-items:center; gap:0.5em 1.5em; margin:0 0 0.6em;">
             <span id="ss-shape-box" style="display:none; align-items:center; gap:0.4em;"></span>
         </div>
         <div id="ss-pick" style="display:flex; flex-wrap:wrap; gap:0.4em; margin:0 0 0.6em;"></div>
         <div id="ss-notice" style="margin:0 0 0.6em;"></div>
-    </div>
-
-    <!-- ── Locators tab: every locator's measured metrics, side by side ───── -->
-    <div id="stepsize-view" style="display:none; margin-top:1em; padding-top:1em; border-top:1px solid #eee;">
-        <h2 style="margin:0 0 0.4em;">Cost &amp; search <span tabindex="0" class="help-icon-visible" title="Every locator on the same signals and stop target. The table is one block per use case (one signal at one noise level: window, line shape and SNR) chosen with the Signal and Noise pickers above; with several selected, a first block gives the median over the use cases of each one's own numbers (never read off pooled runs); the charts below span the whole family against SNR and mark the selected use case. Sweep k = SimpleSweep-kperFWHM: a uniform grid with k points per prior FWHM, repeating and averaging whole passes until the claimed σ stays below the stop target (or its measurement budget runs out). Click a locator below to show or hide it. SNR = dip contrast / noise σ.">?</span></h2>
-        <div id="ss-table" style="margin:0.5em 0 1em; overflow-x:auto;"></div>
-        <h3 style="margin:1em 0 0.2em;">Across use cases <span tabindex="0" class="help-icon-visible" title="Each point is one use case (a window, a line shape and an SNR) and covers only that use case's runs. The dotted vertical line marks the SNR of the use case selected above, in the panel of its window. The line shape is chosen here for the charts; the table follows the Signal picker.">?</span></h3>
-        <div style="background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px; margin-bottom:1em;">
-            <h3 style="margin-left:10px;">Cost vs SNR <span tabindex="0" class="help-icon-visible" title="Median measurements per run against SNR = contrast / noise σ, one line per locator (log axes). ∞ = no noise. Runs that hit the budget count at the budget, a lower bound.">?</span></h3>
-            <div id="ss-cost-snr" style="display:flex; flex-wrap:wrap; gap:0.5em;"></div>
-        </div>
-        <div style="background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px; margin-bottom:1em;">
-            <h3 style="margin-left:10px;">Search cost vs SNR <span tabindex="0" class="help-icon-visible" title="Median measurements until the data first show a dip, against SNR.">?</span></h3>
-            <div id="ss-search-snr" style="display:flex; flex-wrap:wrap; gap:0.5em;"></div>
-        </div>
     </div>
 
     <!-- ── Stages tab: locators compared stage by stage ───────────────────── -->
@@ -229,6 +213,21 @@
                 <button type="button" role="radio" aria-checked="false" data-value="1" tabindex="-1">1. Search</button>
                 <button type="button" role="radio" aria-checked="false" data-value="2" tabindex="-1">2. Focus</button>
                 <button type="button" role="radio" aria-checked="false" data-value="3" tabindex="-1">3. Refine</button>
+            </div>
+        </div>
+        <!-- ── Cost & search: every locator's total cost and search metrics, side by side. Shown only under "Whole run"
+             (hlApplyStageSelector); the locator chips and run counts above are #ss-controls. ───── -->
+        <div id="stepsize-view" style="display:none; margin:0 0 1em;">
+            <h3 style="margin:0 0 0.2em; font-size:1.1em; color:#0f172a;">Cost &amp; search <span tabindex="0" class="help-icon-visible" title="Every locator on the same signals and stop target. The table is one block per use case (one signal at one noise level: window, line shape and SNR) chosen with the Signal and Noise pickers above; with several selected, a first block gives the median over the use cases of each one's own numbers (never read off pooled runs); the charts below span the whole family against SNR and mark the selected use case. Sweep k = SimpleSweep-kperFWHM: a uniform grid with k points per prior FWHM, repeating and averaging whole passes until the claimed σ stays below the stop target (or its measurement budget runs out). Click a locator above to show or hide it. SNR = dip contrast / noise σ.">?</span></h3>
+            <div id="ss-table" style="margin:0.5em 0 1em; overflow-x:auto;"></div>
+            <h4 style="margin:1em 0 0.2em;">Across use cases <span tabindex="0" class="help-icon-visible" title="Each point is one use case (a window, a line shape and an SNR) and covers only that use case's runs. The dotted vertical line marks the SNR of the use case selected above, in the panel of its window. The line shape is chosen above for the charts; the table follows the Signal picker.">?</span></h4>
+            <div style="background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px; margin-bottom:1em;">
+                <h3 style="margin-left:10px;">Cost vs SNR <span tabindex="0" class="help-icon-visible" title="Median measurements per run against SNR = contrast / noise σ, one line per locator (log axes). ∞ = no noise. Runs that hit the budget count at the budget, a lower bound.">?</span></h3>
+                <div id="ss-cost-snr" style="display:flex; flex-wrap:wrap; gap:0.5em;"></div>
+            </div>
+            <div style="background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px; margin-bottom:1em;">
+                <h3 style="margin-left:10px;">Search cost vs SNR <span tabindex="0" class="help-icon-visible" title="Median measurements until the data first show a dip, against SNR.">?</span></h3>
+                <div id="ss-search-snr" style="display:flex; flex-wrap:wrap; gap:0.5em;"></div>
             </div>
         </div>
         <!-- Repeated once per selected use case (ids get a per-use-case suffix); app.js ucRenderBlocks. -->

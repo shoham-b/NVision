@@ -7381,6 +7381,14 @@ function main() {
             b.setAttribute('aria-checked', active ? 'true' : 'false');
             b.tabIndex = active ? 0 : -1;
         });
+        // Cost & search (every locator's total cost and search metrics) is the Whole run scope: its locator chips
+        // and table live outside the per-stage sections, so show them only there. Plotly cannot size a plot inside
+        // a display:none panel, so renderStepSizeTab is called only once the block is visible.
+        const whole = hlStageShown === 0;
+        const costView = document.getElementById('stepsize-view');
+        const costControls = document.getElementById('ss-controls');
+        if (costView) costView.style.display = whole ? 'block' : 'none';
+        if (costControls) costControls.style.display = whole ? 'block' : 'none';
     }
 
     function hlBindStageSelector() {
@@ -7391,6 +7399,7 @@ function main() {
             if (!btn) return;
             hlStageShown = Number(btn.dataset.value);
             hlApplyStageSelector();
+            if (hlStageShown === 0) renderStepSizeTab();
         });
         group._hasListener = true;
     }
@@ -7403,6 +7412,7 @@ function main() {
                 ucRenderBlocks('stages-body', gen, noises, (uc, sfx) => renderHlStages(uc.generator, [].concat(uc.noise), sfx));
                 hlBindStageSelector();
                 hlApplyStageSelector();
+                if (hlStageShown === 0) renderStepSizeTab();   // Cost & search under Whole run
             })
             .catch(err => {
                 const view = document.getElementById('stages-view');
@@ -8579,7 +8589,8 @@ function main() {
         // Collapsed, not display:none: the Run plots still render into it and Plotly cannot size a hidden panel.
         if (runContent) runContent.style.cssText = mode === 'single' ? '' : 'height:0; overflow:hidden; visibility:hidden;';
         if (stepSizeView) stepSizeView.style.display = 'none';
-        if (ssControls) ssControls.style.display = mode === 'locators' || mode === 'accuracy' ? 'block' : 'none';
+        // Stages shows them itself under "Whole run" (hlApplyStageSelector).
+        if (ssControls) ssControls.style.display = mode === 'accuracy' ? 'block' : 'none';
         if (accuracyView) accuracyView.style.display = 'none';
         if (stagesView) stagesView.style.display = 'none';
         if (scalingView) scalingView.style.display = 'none';
@@ -8598,12 +8609,6 @@ function main() {
         if (mode === 'single') {
             if (repeatView) repeatView.style.display = 'block';
             updateStoppingCriteriaVisibility(currentPlot);
-        } else if (mode === 'locators') {
-            if (stoppingRow) stoppingRow.style.display = 'none';
-            if (stepSizeView) {
-                stepSizeView.style.display = 'block';
-                renderStepSizeTab();
-            }
         } else if (mode === 'accuracy') {
             if (stoppingRow) stoppingRow.style.display = 'none';
             if (accuracyView) {
@@ -9038,7 +9043,8 @@ function main() {
         const hNoise = params.get('noise');
         const hStrategy = params.get('strategy');
         const hRepeat = params.get('repeat');
-        const hView = params.get('view');
+        // The Cost & search view (view=locators) is now the Whole run scope of Stages; keep old links working.
+        const hView = params.get('view') === 'locators' ? 'stages' : params.get('view');
         const hBayesTab = params.get('bayesTab');
 
         if (hGenerator) scanGenerator.dataset.value = hGenerator;

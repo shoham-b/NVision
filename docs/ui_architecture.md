@@ -130,7 +130,9 @@ Key sections inside `main()` (in order of appearance):
 7. **Bayesian rendering** — posterior heatmap, convergence, metrics, Fisher, covariance ellipses, jitter
 8. **Aggregate views** — the `#scan-view-mode` control's modes besides *Run*, each reading per-repeat fields
    for many repeats at once:
-   * **Cost & search** (the `locators` mode; `renderStepSizeTab`, `ss*` helpers) — every locator's cost and search metrics side by side, each
+   * **Cost & search** (the *Whole run* scope of the Stages view, `#stepsize-view` inside `#stages-view`; shown only while
+     the Stages "Show:" selector is on *Whole run*, by `hlApplyStageSelector`, which also calls `renderStepSizeTab`; the old
+     `view=locators` URL hash is mapped to Stages; `renderStepSizeTab`, `ss*` helpers) — every locator's cost and search metrics side by side, each
      plain-sweep spacing k its own locator, with toggle chips to show or hide each one; nothing is ranked. Reads
      `/api/run-rows` (per-repeat scalars: measurements, final error and claimed σ, focus-found step, contrast,
      noise σ, grid axes) over the loaded family; `/api/sweep-spacings` lists the sweep
@@ -151,7 +153,7 @@ Key sections inside `main()` (in order of appearance):
      shapes" turns the lines into the shapes of one chosen locator. Runs without `grid_window_fwhm` /
      `grid_gaussian_share` (older caches) get one panel and no shape controls. Runs stop once σ is below the target,
      so the error at the end is not shown: only whether σ is honest. The locator chips, the line-shape buttons and the
-     run counts live in `#ss-controls`, shown above both the Cost & search and the Accuracy view (the σ chart is
+     run counts live in `#ss-controls`, shown above both the Stages view under *Whole run* (Cost & search) and the Accuracy view (the σ chart is
      rendered by `renderStepSizeContent`, which `showScanViewPanels` also calls for Accuracy; a chart whose view is
      hidden is skipped).
    * **Stages** (`renderStagesTab`, `renderHlStages`) — the search / focus / refine comparison
@@ -182,7 +184,9 @@ Key sections inside `main()` (in order of appearance):
    median scope the selection is ONE block whose generator / noise arguments are arrays. Its numbers are medians over
    the use cases of each use case's own value (`hlUnits`, `hlCaseShares`): table cells, stage bars and the stage
    comparison, and the over-time curves (median of per-use-case medians at each step, shown while at least half the
-   use cases are still running; the Cost & search median covers only the use cases every shown locator has runs on).
+   use cases are still running). The Cost & search block under *Whole run* is not part of the scope control: it follows the
+   Signal / Noise pickers (its own median block, then one block per use case), and its median covers only the use cases
+   every shown locator has runs on.
    The Accuracy stop table and σ-vs-error chart and the Stages refine curves pool the runs of the selection instead
    (they are in units of τ / σ or relative to the refine start); the Accuracy pace chart (absolute Hz against
    measurements) is shown only per use case. The controls that are one setting for the view (Stages "Show:", the

@@ -111,9 +111,10 @@ With the focus stage's mean η only 0.3-0.5, the stage length looks set by explo
 
 * Per-run metrics: `nvision/metrics/stages.py` (stage boundaries, η), `nvision/metrics/milestones.py` (stop step),
   `nvision/metrics/series.py` (per-step series), `nvision/metrics/compare.py` (`nv compare` tables).
-* Results UI views: **Cost & search** (every locator side by side, chips to show/hide; a median-over-selection block and
-  a block per use case, and cost and search vs SNR across use cases; `/api/run-rows`), **Stages** (scope selector Whole run /
-  Search / Focus / Refine; per stage the claimed-σ and true-error curves with the Fisher bound (dashed) and a -1/2 slope
+* Results UI views: **Stages** (scope selector Whole run /
+  Search / Focus / Refine; **Whole run** also carries **Cost & search**: every locator side by side, chips to show/hide, a
+  median-over-selection block and a block per use case, and cost and search vs SNR across use cases, `/api/run-rows`;
+  per stage the claimed-σ and true-error curves with the Fisher bound (dashed) and a -1/2 slope
   reference, the median with an interquartile band, a "runs left" strip (curves stop where fewer than half the repeats remain
   in the stage), a table with the stage's Fisher bound, efficiency and off-optimum share, and for a single use case the
   paired per-repeat difference against SBED; Whole run shows the stacked stage bar and the total / capped table),
