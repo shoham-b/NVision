@@ -7549,7 +7549,12 @@ function main() {
                 strat, n: runs.length, med: hlQuantileSorted(totals, 0.5),
                 html: totals.length
                     ? `${fmt.num(hlQuantileSorted(totals, 0.5))} <span style="color:#94a3b8">(p25 ${fmt.num(hlQuantileSorted(totals, 0.25))} · p75 ${fmt.num(hlQuantileSorted(totals, 0.75))})</span>` : '–',
-                capped: fmt.pct(hlMedian(hlCaseShares(runs, p => p.failure_reason === 'max_steps'))),
+                capped: (() => {
+                    // A median over use cases hides the hard ones (rule 8): give the worst use case beside it.
+                    const shares = hlCaseShares(runs, p => p.failure_reason === 'max_steps');
+                    const med = fmt.pct(hlMedian(shares));
+                    return shares.length > 1 ? `${med} <span style="color:#94a3b8">(worst ${fmt.pct(Math.max(...shares))})</span>` : med;
+                })(),
                 focus: fmt.pct(hlMedian(hlCaseShares(runs, p => _mv(p, 'focus_found_step') != null))),
                 refine: fmt.pct(hlMedian(hlCaseShares(runs, p => _mv(p, 'max_info_step') != null))),
             };
@@ -7561,7 +7566,7 @@ function main() {
             '<th style="text-align:left;padding:2px 12px 2px 0">Locator</th>' +
             th('Runs', 'Repeats of the use case (use cases when several are selected: medians over use cases)') +
             th('Total measurements', 'Median measurements of the whole run, with the 25th and 75th percentile. Runs that hit the shared budget count at the budget, a lower bound.') +
-            th('Capped', 'Share of runs that used the whole shared measurement budget without the stop rule firing.') +
+            th('Capped', 'Share of runs that used the whole shared measurement budget without the stop rule firing (median over use cases, with the worst use case in brackets when several are selected).') +
             th('Found a dip', 'Share of runs that left the search stage.') +
             th('Reached refine', 'Share of runs that reached the refine stage (a plain sweep never does).') +
             `</tr></thead><tbody>${rows.map(r => `<tr><td style="padding:2px 12px 2px 0">${_shortStratLabel(r.strat)}</td>` +

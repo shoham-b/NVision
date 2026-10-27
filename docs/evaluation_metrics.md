@@ -30,8 +30,8 @@ Choose the axis from the stage's physics, not from whatever grid columns the res
 | Stage | What drives it | Axis | Metric |
 |---|---|---|---|
 | **Search** | whether the grid puts enough points inside the true dip, and how deep each point sees it | **grid points per true FWHM** = k × FWHM_true / FWHM_prior, with SNR = contrast / noise σ | measurements until a dip is seen (better: in grid **passes**), dip-found rate |
-| **Focus** | going from "dip seen" (uncertainty ≈ FWHM) to "located near the steepest slope" | precision relative to the line: FWHM_true / SNR | measurements in the focus stage |
-| **Refine** | Fisher-limited precision | measurements an oracle needs for σ = τ, which scale like (FWHM_true / (SNR · τ))² | Fisher efficiency η (`stage3_sens_eff`), cost / Fisher-limited cost |
+| **Focus** | going from "dip seen" to "located near the steepest slope" (within ε, where the sensitivity is still ≥ 90% of its best) | information per measurement ∝ SNR², so cost ∝ 1/SNR²; expected independent of the window (a hypothesis, checked in the Scaling view) | measurements in the focus stage, efficiency = Fisher bound / steps |
+| **Refine** | Fisher-limited precision | measurements an oracle needs for σ = τ, which scale like (FWHM_true / (SNR · τ))² | Fisher efficiency η (`stage3_sens_eff`), efficiency = Fisher bound / steps (`stage3_efficiency`) |
 
 `sigma_inhom` and the hyperfine isotope matter only through the dip's effective width: plot against the effective
 FWHM, not against those columns.
@@ -39,6 +39,44 @@ FWHM, not against those columns.
 **k is relative to the prior FWHM, not the true one.** The sweep spacing is FWHM_prior / k. When the prior is wide
 (e.g. prior HWHM ≈ 2.5 MHz against a true 0.5 MHz) a "k = 1" grid puts ~0.2 points per true FWHM and can step over the
 dip. k = 1 is therefore not studied; compare spacings by points per true FWHM.
+
+## The Fisher oracle behind the stage metrics
+
+A stage is judged against the fewest measurements any locator could need, computed from the *true* signal
+(`nvision/metrics/stages.py`, simulation only). One measurement of the primary parameter θ (the dip position, e.g.
+`zeeman_shift`) at drive frequency x, with Gaussian noise σ per shot, carries Fisher information
+
+$$I(x) = \frac{g(x)^2}{\sigma^2}, \qquad g = \frac{\partial\,\mathrm{signal}}{\partial\theta}.$$
+
+Independent measurements add their information, so the Cramér-Rao bound after N of them is
+σ_θ = 1/√(N I). The best point is the steepest slope of the dip: for a Lorentzian of HWHM γ and depth C,
+|g\*| ≈ 0.65 C/γ, so I\* = max g² / σ² ≈ 0.42 SNR²/γ² (SNR = C/σ). Hence the steps needed for a precision ε are
+N ≈ 1/(ε² I\*): **they fall as 1/SNR²**. `stage_fisher_star` stores I\* (Hz⁻² per step; shots enter as a factor).
+
+* **Focus ends at ε**, the half-width of the region around the best point where g² ≥ 0.9 max g² (η ≥ 1 − δ with
+  δ = 0.1). For a Lorentzian η ≈ 1 − 4.5 (ε/γ)², so ε = √(0.1/4.5) γ ≈ 0.15 γ; the code finds it numerically from the
+  true curve (`stage_eps_target_phys`), so it holds for any line shape. Oracle: `stage2_oracle_steps` = 1/(ε² I\*), about
+  100/SNR² for a Lorentzian (the constant depends on the SNR and width definitions; the exponent is the point).
+  Not defined for drive-controlled models (the best point is a drive setting; pulse fringes can be narrower than the grid).
+* **Refine ends at the stop target τ** (`stage_tau_phys`). Oracle: `stage3_oracle_steps` = (τ⁻² − σ₀⁻²)/I\* with σ₀
+  the claimed σ at refine start. It scales like (FWHM_true / (SNR τ))²: the Scaling view's refine panel axis.
+* **Search** has no Fisher bound (nothing is known about where the dip is); its scale is the number of dip-widths to cover,
+  window / FWHM_true (`stage_window_fwhm`), times the passes needed to see the dip at the given SNR.
+* **Efficiency** = oracle steps / steps spent (`stage2_efficiency`, `stage3_efficiency`): 1 = Fisher-limited. The oracle is a
+  lower bound that assumes every measurement is at the best point and the other parameters are known, so it is not a target.
+  `stage{2,3}_wasted_share` is the share of the stage's measurements with η < 1 − δ.
+* The Fisher curve in the Stages view's claimed-uncertainty plots, (σ₀⁻² + j I\*)^(-1/2) after j in-stage measurements,
+  starts from the stage's own claimed σ and is the same bound; below it the belief claims more precision than the data carry.
+
+Per-run axes stored with them: `stage_fwhm_true_phys` (2 × `effective_hwhm` of the true signal; none for drive-controlled
+models), `stage_prior_fwhm_phys` (mean prior FWHM), `stage_window_phys`, `stage_window_fwhm`.
+
+**What the first check showed** (2026-10-27, read-only, on the stored pure-Lorentzian SNR × window rows, written before
+`NVISION_DIP_P_FA` went to 0.1 and before measurements are confined to the focus window; re-check on fresh runs):
+SBED's focus stage took 25-150× the bound and flattened at roughly 20-40 steps at high SNR instead of following 1/SNR²;
+the claimed σ at focus start was already 0.1-0.5 γ (not ≈ the FWHM) while the true error was 2-4× larger (overconfidence);
+focus steps grew about 2× from window 5 to 10 × FWHM; SBED search steps were far flatter in the window than proportional.
+With the focus stage's mean η only 0.3-0.5, the stage length looks set by exploration the tail rule counts, not by information.
 
 ## Rules
 
@@ -74,18 +112,26 @@ dip. k = 1 is therefore not studied; compare spacings by points per true FWHM.
 * Per-run metrics: `nvision/metrics/stages.py` (stage boundaries, η), `nvision/metrics/milestones.py` (stop step),
   `nvision/metrics/series.py` (per-step series), `nvision/metrics/compare.py` (`nv compare` tables).
 * Results UI views: **Cost & search** (every locator side by side, chips to show/hide; a median-over-selection block and
-  a block per use case, and cost and search vs SNR across use cases; `/api/run-rows`), **Stages** (one section per stage, each headed by its driving axis and metric; search / focus /
-  refine), **Accuracy** (σ coverage vs SNR "Is the claimed σ right?", then the stop-quality panels), **Failed Runs**, and
-  **Run** for one repeat. Stages and Accuracy default to the median over the selected use cases.
+  a block per use case, and cost and search vs SNR across use cases; `/api/run-rows`), **Stages** (scope selector Whole run /
+  Search / Focus / Refine; per stage the claimed-σ and true-error curves with the Fisher bound (dashed) and a -1/2 slope
+  reference, the median with an interquartile band, a "runs left" strip (curves stop where fewer than half the repeats remain
+  in the stage), a table with the stage's Fisher bound, efficiency and off-optimum share, and for a single use case the
+  paired per-repeat difference against SBED; Whole run shows the stacked stage bar and the total / capped table),
+  **Scaling** (fixed locator, many use cases: search and focus steps vs window, focus steps vs SNR, refine steps vs
+  (FWHM/(SNR τ))², each with its predicted scaling dotted and the Fisher bound dashed, a panel only when the selection spans
+  at least two values of its axis), **Accuracy** (σ coverage vs SNR "Is the claimed σ right?", then the stop-quality panels),
+  **Failed Runs**, and **Run** for one repeat. Stages and Accuracy default to the median over the selected use cases.
   See [ui_architecture.md](ui_architecture.md).
 
 ## Not done yet
 
-* The search axis needs per-run widths the rows don't carry: the true effective FWHM (from the model's own width
-  function) and the prior FWHM / grid step (`prior_fwhm_phys`). Compute them on the server from the cached repeat
-  for existing runs, and record them as per-run metrics for new ones; then plot search cost in passes against points
-  per true FWHM.
-* Focus and refine axes (FWHM_true / SNR, Fisher-limited cost) in the Cost & search / Stages views.
+* The oracle columns exist only for runs recorded after they were added; older runs show a dash (the stage metrics are
+  computed from the belief snapshots at run time and the cache keeps no snapshots, so there is nothing to backfill from).
+  Re-run to get them.
+* Search is judged by its steps against window / FWHM_true in the Scaling view; there is no analytic "passes" model for it
+  yet, and the prior FWHM / grid step enters only through `stage_prior_fwhm_phys`.
+* Stage boundaries depend on the dip detector (`NVISION_DIP_P_FA`) and δ = 0.1; a one-off sensitivity check (δ = 0.05 / 0.1 /
+  0.2) that the locator ranking survives is still to do.
 * The signed z = (estimate − truth) / claimed σ is not stored (only |error|), so σ honesty is checked against a
   half-normal, not N(0, 1).
 * SBED-Drive against every fixed drive amplitude, including the best one in hindsight.
