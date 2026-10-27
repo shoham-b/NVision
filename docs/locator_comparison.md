@@ -42,7 +42,9 @@ sigma and linewidth separately, and each axis changes one thing:
   offsets, the absolute convergence thresholds, the candidate step) keeps its meaning across the axis. The window is
   `[D, D + N * FWHM]` and the Zeeman range follows it (`0.4 * window`; the default 150 MHz window has 60 MHz).
   **Signal occupancy** (`grid_signal_occupancy`) is the metric to compare signals on, not `N`: the share of the window
-  one dip group spans, `(total FWHM + hyperfine span) / window`. `N` counts the bare FWHM, so an N-14 triplet at the same
+  one dip group covers: the union of its hyperfine lines' FWHM intervals over the window. Two lines (N-15) cover
+  `2 FWHM - overlap`, three (N-14) `3 FWHM - 2 overlaps`, where a pair of lines closer than one FWHM overlaps by
+  `FWHM - spacing` (none at the default 2 MHz FWHM). `N` counts the bare FWHM, so an N-14 triplet at the same
   `N` fills more of the window than an unresolved line; occupancy puts isotopes and line shapes on one axis. The 2-FWHM
   window exists for the unresolved isotope only (the edge pad `NVISION_NV_ZEEMAN_EDGE_PAD_FWHM` is 0.5; the hyperfine
   offsets of N-14/N-15 need a wider window).

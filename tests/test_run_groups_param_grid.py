@@ -397,19 +397,45 @@ def test_drift_study_noise_is_posed_as_an_snr(monkeypatch):
     assert names[1:] == [f"SNR(50)+Drift({spec.label})" for spec in sim_presets.drift_scenarios()]
 
 
-def test_signal_occupancy_counts_the_hyperfine_span_not_just_one_fwhm():
-    """Occupancy = (total FWHM + hyperfine span) / window: comparable across isotopes at the same window."""
+def test_signal_occupancy_is_the_union_of_the_hyperfine_lines_fwhm_intervals():
+    """Occupancy = covered frequency / window: n lines of one FWHM each, minus where neighbouring lines overlap."""
     from nvision.spectra.nv_center import hyperfine_geometry
 
     fwhm = sim_defaults.NVISION_SBED_FWHM
     by_name = dict(sim_presets.voigt_snr_window_param_grid_generators())
     for gen in by_name.values():
         window = gen.drive_freq_max_phys - gen.drive_freq_min_phys
-        span = 2.0 * hyperfine_geometry(gen.hyperfine)[0]
-        assert gen.signal_occupancy == pytest.approx((fwhm + span) / window)
+        offset, _, n_lines = hyperfine_geometry(gen.hyperfine)
+        # adjacent lines are `spacing` apart: N-14 offset, N-15 twice its (half-coupling) offset
+        spacing = {1: fwhm, 2: 2.0 * offset, 3: offset}[n_lines]
+        covered = fwhm + (n_lines - 1) * min(fwhm, spacing)
+        assert gen.signal_occupancy == pytest.approx(covered / window)
         assert 0.0 < gen.signal_occupancy <= 1.0
-    unresolved = by_name["NVCenter-voigt-fw10-gs0-hfunresolved"]
-    assert unresolved.signal_occupancy == pytest.approx(1.0 / 10.0)
-    n14 = next(g for n, g in by_name.items() if "-fw10-" in n and g.hyperfine == "n14")
-    assert n14.signal_occupancy > unresolved.signal_occupancy
+    fw10 = {g.hyperfine: g.signal_occupancy for n, g in by_name.items() if "-fw10-gs0-" in n}
+    assert fw10["unresolved"] == pytest.approx(1 * fwhm / (10 * fwhm))
+    assert fw10["n15"] == pytest.approx(2 * fwhm / (10 * fwhm))  # lines 3.03 MHz apart > FWHM: no overlap
+    assert fw10["n14"] == pytest.approx(3 * fwhm / (10 * fwhm))  # lines 2.16 MHz apart > FWHM: no overlap
     assert NVCenterCoreGenerator(variant="voigt").signal_occupancy is None
+
+
+def test_signal_occupancy_counts_overlapping_lines_once():
+    """Lines closer than a FWHM share their overlap: three lines A apart cover 3 FWHM - 2 (FWHM - A)."""
+    fwhm = sim_defaults.NVISION_SBED_FWHM
+    gen = NVCenterCoreGenerator(
+        variant="voigt",
+        hwhm=fwhm / 2.0,
+        sigma_inhom=0.0,
+        hyperfine="n14",
+        window_fwhm=10.0,
+        drive_freq_max_phys=10.0 * fwhm + 2.87e9,
+        drive_freq_min_phys=2.87e9,
+    )
+    a = 0.75 * fwhm
+    import nvision.sim.gen.nv_center_generator as ncg
+
+    orig = ncg.hyperfine_geometry
+    ncg.hyperfine_geometry = lambda hf: (a, 1.0, 3)
+    try:
+        assert gen.effective_fwhm_phys == pytest.approx(3 * fwhm - 2 * (fwhm - a))
+    finally:
+        ncg.hyperfine_geometry = orig
