@@ -120,8 +120,8 @@ With the focus stage's mean η only 0.3-0.5, the stage length looks set by explo
   paired per-repeat difference against SBED; Whole run shows the stacked stage bar and the total / capped table),
   **Scaling** (fixed locator, many use cases: search and focus steps vs window, focus steps vs SNR, refine steps vs
   (FWHM/(SNR τ))², each with its predicted scaling dotted and the Fisher bound dashed, a panel only when the selection spans
-  at least two values of its axis), **Accuracy** (σ coverage vs SNR "Is the claimed σ right?", then the stop-quality panels),
-  **Failed Runs**, and **Run** for one repeat. Stages and Accuracy default to the median over the selected use cases.
+  at least two values of its axis), **Sanity** (σ coverage vs SNR "Is the claimed σ right?", then the stop-quality panels, then the failed runs; the failed-run
+  count is in the tab label), and **Run** for one repeat. Stages and Sanity default to the median over the selected use cases.
   See [ui_architecture.md](ui_architecture.md).
 
 ## Not done yet

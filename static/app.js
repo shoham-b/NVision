@@ -2927,7 +2927,7 @@ function main() {
         return getSelectedScanGenerators().length > 1;
     }
 
-    // Generator argument the aggregate renderers (Stages/Accuracy/Failed Runs)
+    // Generator argument the aggregate renderers (Stages/Sanity)
     // expect: an array in generator-range mode, otherwise the single value.
     function compareGeneratorsArg() {
         const gens = getSelectedScanGenerators();
@@ -8152,12 +8152,12 @@ function main() {
         );
     }
 
+    // The Sanity tab carries the failed-run count in its label.
     function updateFailedRunsButton(generator, noises) {
-        const btn = document.getElementById('scan-view-failed-runs-btn');
+        const btn = document.getElementById('scan-view-sanity-btn');
         if (!btn) return;
         const failed = collectFailedRuns(generator, noises);
-        btn.style.display = failed.length > 0 ? '' : 'none';
-        btn.textContent = failed.length > 0 ? `Failed Runs (${failed.length})` : 'Failed Runs';
+        btn.textContent = failed.length > 0 ? `Sanity (${failed.length} failed)` : 'Sanity';
     }
 
     // Shared table builder for the by-noise and by-span breakdown matrices.
@@ -8579,7 +8579,6 @@ function main() {
         const accuracyView = document.getElementById('accuracy-view');
         const stagesView = document.getElementById('stages-view');
         const scalingView = document.getElementById('scaling-view');
-        const failedRunsView = document.getElementById('failed-runs-view');
         const stoppingRow = document.getElementById('stopping-criteria-row');
         const gen = compareGeneratorsArg();
         const noises = compareNoisesArg();
@@ -8590,11 +8589,10 @@ function main() {
         if (runContent) runContent.style.cssText = mode === 'single' ? '' : 'height:0; overflow:hidden; visibility:hidden;';
         if (stepSizeView) stepSizeView.style.display = 'none';
         // Stages shows them itself under "Whole run" (hlApplyStageSelector).
-        if (ssControls) ssControls.style.display = mode === 'accuracy' ? 'block' : 'none';
+        if (ssControls) ssControls.style.display = mode === 'sanity' ? 'block' : 'none';
         if (accuracyView) accuracyView.style.display = 'none';
         if (stagesView) stagesView.style.display = 'none';
         if (scalingView) scalingView.style.display = 'none';
-        if (failedRunsView) failedRunsView.style.display = 'none';
 
         const compareSweepRow = document.getElementById('scan-compare-sweep-row') || document.getElementById('scan-compare-sweep-container');
         if (compareSweepRow) {
@@ -8609,12 +8607,13 @@ function main() {
         if (mode === 'single') {
             if (repeatView) repeatView.style.display = 'block';
             updateStoppingCriteriaVisibility(currentPlot);
-        } else if (mode === 'accuracy') {
+        } else if (mode === 'sanity') {
             if (stoppingRow) stoppingRow.style.display = 'none';
             if (accuracyView) {
                 accuracyView.style.display = 'block';
                 renderAccuracyTab(gen, noises);
                 renderStepSizeTab();   // the "Is the claimed σ right?" chart across the family
+                renderFailedRunsTab(gen, noises);
             }
         } else if (mode === 'stages') {
             if (stoppingRow) stoppingRow.style.display = 'none';
@@ -8627,12 +8626,6 @@ function main() {
             if (scalingView) {
                 scalingView.style.display = 'block';
                 renderScalingTab(gen, noises);
-            }
-        } else if (mode === 'failed-runs') {
-            if (stoppingRow) stoppingRow.style.display = 'none';
-            if (failedRunsView) {
-                failedRunsView.style.display = 'block';
-                renderFailedRunsTab(gen, noises);
             }
         }
         syncHashFromState();
@@ -9043,8 +9036,10 @@ function main() {
         const hNoise = params.get('noise');
         const hStrategy = params.get('strategy');
         const hRepeat = params.get('repeat');
-        // The Cost & search view (view=locators) is now the Whole run scope of Stages; keep old links working.
-        const hView = params.get('view') === 'locators' ? 'stages' : params.get('view');
+        // Views that were folded into others: Cost & search (view=locators) is the Whole run scope of Stages;
+        // Accuracy and Failed Runs are the Sanity view. Keep old links working.
+        const hViewRaw = params.get('view');
+        const hView = hViewRaw === 'locators' ? 'stages' : (hViewRaw === 'accuracy' || hViewRaw === 'failed-runs') ? 'sanity' : hViewRaw;
         const hBayesTab = params.get('bayesTab');
 
         if (hGenerator) scanGenerator.dataset.value = hGenerator;
