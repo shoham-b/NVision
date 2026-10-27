@@ -9,6 +9,7 @@ import nvision.sim.defaults as sim_defaults
 from nvision.sim import presets as sim_presets
 from nvision.sim import run_groups as sim_run_groups
 from nvision.sim.combinations import CombinationGrid
+from nvision.sim.gen.nv_center_generator import NVCenterCoreGenerator
 from nvision.spectra.nv_center import NV_SATURATION_C_MAX, _saturation_voigt_reparam_scalar
 
 
@@ -394,3 +395,21 @@ def test_drift_study_noise_is_posed_as_an_snr(monkeypatch):
     assert names[0] == "SNR(50)"
     assert all(n.startswith("SNR(50)") for n in names)
     assert names[1:] == [f"SNR(50)+Drift({spec.label})" for spec in sim_presets.drift_scenarios()]
+
+
+def test_signal_occupancy_counts_the_hyperfine_span_not_just_one_fwhm():
+    """Occupancy = (total FWHM + hyperfine span) / window: comparable across isotopes at the same window."""
+    from nvision.spectra.nv_center import hyperfine_geometry
+
+    fwhm = sim_defaults.NVISION_SBED_FWHM
+    by_name = dict(sim_presets.voigt_snr_window_param_grid_generators())
+    for gen in by_name.values():
+        window = gen.drive_freq_max_phys - gen.drive_freq_min_phys
+        span = 2.0 * hyperfine_geometry(gen.hyperfine)[0]
+        assert gen.signal_occupancy == pytest.approx((fwhm + span) / window)
+        assert 0.0 < gen.signal_occupancy <= 1.0
+    unresolved = by_name["NVCenter-voigt-fw10-gs0-hfunresolved"]
+    assert unresolved.signal_occupancy == pytest.approx(1.0 / 10.0)
+    n14 = next(g for n, g in by_name.items() if "-fw10-" in n and g.hyperfine == "n14")
+    assert n14.signal_occupancy > unresolved.signal_occupancy
+    assert NVCenterCoreGenerator(variant="voigt").signal_occupancy is None

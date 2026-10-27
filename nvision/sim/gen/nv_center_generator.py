@@ -114,6 +114,31 @@ class NVCenterCoreGenerator:
         return 1.0 - lorentz_frac
 
     @property
+    def effective_fwhm_phys(self) -> float | None:
+        """Frequency extent (Hz) of one dip group of an SNR x window signal; else ``None``.
+
+        The total FWHM plus the hyperfine span (the outermost lines sit ``line_offset`` either side of the dip
+        centre), so a resolved multiplet counts for all the window it covers, not just one linewidth.
+        """
+        if self.window_fwhm is None or self.hwhm is None or self.sigma_inhom is None:
+            return None
+        fwhm_total, _ = _voigt_reparam_scalar(self.hwhm, self.sigma_inhom)
+        return fwhm_total + 2.0 * hyperfine_geometry(self.hyperfine)[0]
+
+    @property
+    def signal_occupancy(self) -> float | None:
+        """Share of the drive-frequency window one dip group spans (``effective_fwhm_phys / window``), in (0, 1].
+
+        Comparable across isotopes and line shapes, which ``window_fwhm`` (window in units of the bare total FWHM)
+        is not: an N-14 triplet fills more of the same window than an unresolved line. ``None`` outside the
+        SNR x window study.
+        """
+        extent = self.effective_fwhm_phys
+        if extent is None:
+            return None
+        return extent / (self.drive_freq_max_phys - self.drive_freq_min_phys)
+
+    @property
     def width_bounds_reference_phys(self) -> float:
         """Window width (Hz) the width priors' bounds are sized off (see ``nv_center_voigt_bounds_for_domain``).
 

@@ -35,12 +35,17 @@ sigma and linewidth separately, and each axis changes one thing:
   the budget, and at 2 and below nearly every run does (the sweep fit finds no dip at SNR 1). 1 is the smallest SNR
   worth running.
 - **Window / FWHM.** The window is `N` times ONE total FWHM shared by every signal (`NVISION_SBED_FWHM`, 2 MHz), for
-  `N` in `NVISION_SBED_WINDOW_FWHM_VALUES` (default 5, 10, 20; `fw<N>` in the generator name, `grid_window_fwhm` in
-  the results). So a window is the same absolute 10, 20 or 40 MHz whatever the line shape, and the window changes the
+  `N` in `NVISION_SBED_WINDOW_FWHM_VALUES` (default 2, 5, 10, 20; `fw<N>` in the generator name, `grid_window_fwhm` in
+  the results). So a window is the same absolute 4, 10, 20 or 40 MHz whatever the line shape, and the window changes the
   window only. Wider windows add nothing the study needs: the search is hard when the dips are a sizeable part of the
   window, not only when it is orders of magnitude wider than the line. Everything with a physical scale (hyperfine
   offsets, the absolute convergence thresholds, the candidate step) keeps its meaning across the axis. The window is
   `[D, D + N * FWHM]` and the Zeeman range follows it (`0.4 * window`; the default 150 MHz window has 60 MHz).
+  **Signal occupancy** (`grid_signal_occupancy`) is the metric to compare signals on, not `N`: the share of the window
+  one dip group spans, `(total FWHM + hyperfine span) / window`. `N` counts the bare FWHM, so an N-14 triplet at the same
+  `N` fills more of the window than an unresolved line; occupancy puts isotopes and line shapes on one axis. The 2-FWHM
+  window exists for the unresolved isotope only (the edge pad `NVISION_NV_ZEEMAN_EDGE_PAD_FWHM` is 0.5; the hyperfine
+  offsets of N-14/N-15 need a wider window).
 - **Gaussian share** (`NVISION_SBED_GAUSSIAN_SHARES`, default 0, 0.15, 0.3; `gs<g>` in the name,
   `grid_gaussian_share`): how much of that total FWHM is inhomogeneous (Gaussian) broadening, 0 = pure Lorentzian.
   The Lorentzian HWHM and `sigma_inhom` are set so the total FWHM stays `NVISION_SBED_FWHM`
