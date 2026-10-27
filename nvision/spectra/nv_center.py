@@ -9,6 +9,7 @@ import math
 import os
 from collections.abc import Sequence
 from dataclasses import dataclass
+from itertools import pairwise
 
 import numpy as np
 from dotenv import load_dotenv
@@ -208,6 +209,19 @@ DEFAULT_NV_DRIVE_FREQ_MAX_PHYS = NV_ZERO_FIELD_SPLITTING_HZ + NV_DRIVE_FREQ_DELT
 # narrow window still holds its dips and a wide one is not mostly empty. Not part of
 # :func:`physics_config_fingerprint`: at the default window it reproduces MAX_ZEEMAN_SHIFT exactly.
 NV_ZEEMAN_WINDOW_FRACTION: float = 0.4
+
+
+def hyperfine_covered_width(fwhm_total_phys: float, hyperfine: str) -> float:
+    """Frequency (Hz) one dip group covers: the union of its hyperfine lines' FWHM intervals.
+
+    Each line contributes one total FWHM and lines closer than a FWHM overlap, so the overlap counts once (two lines
+    ``A`` apart cover ``2 FWHM - max(0, FWHM - A)``). Gaps between lines that do not overlap are not covered.
+    """
+    offset, _, n_lines = hyperfine_geometry(hyperfine)
+    # Line centres about the dip centre: 1 line -> 0; N-15 -> +-offset; N-14 -> -offset, 0, +offset.
+    centres = {1: [0.0], 2: [-offset, offset], 3: [-offset, 0.0, offset]}[n_lines]
+    gaps = [b - a for a, b in pairwise(centres)]
+    return float(fwhm_total_phys) + sum(min(float(fwhm_total_phys), gap) for gap in gaps)
 
 
 def max_zeeman_shift_for_window(window_width_phys: float) -> float:

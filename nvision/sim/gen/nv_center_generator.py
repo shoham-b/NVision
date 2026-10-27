@@ -5,7 +5,6 @@ from __future__ import annotations
 import math
 import random
 from dataclasses import dataclass
-from itertools import pairwise
 
 import numpy as np
 
@@ -37,6 +36,7 @@ from nvision.spectra.nv_center import (
     NVCenterVoigtSpectrum,
     NVCenterVoigtZeemanSpectrum,
     _voigt_reparam_scalar,
+    hyperfine_covered_width,
     hyperfine_geometry,
     max_zeeman_shift_for_window,
     nv_center_lorentzian_bounds_for_domain,
@@ -116,28 +116,19 @@ class NVCenterCoreGenerator:
 
     @property
     def effective_fwhm_phys(self) -> float | None:
-        """Frequency (Hz) one dip group of an SNR x window signal covers; else ``None``.
-
-        The union of the hyperfine lines' FWHM intervals: each line contributes one total FWHM, and lines closer
-        than a FWHM overlap, so the overlap is counted once (two lines ``A`` apart cover ``2 FWHM - max(0, FWHM - A)``).
-        Gaps between lines that do not overlap are not covered and do not count.
-        """
+        """Frequency (Hz) one dip group of an SNR x window signal covers (see ``hyperfine_covered_width``)."""
         if self.window_fwhm is None or self.hwhm is None or self.sigma_inhom is None:
             return None
         fwhm_total, _ = _voigt_reparam_scalar(self.hwhm, self.sigma_inhom)
-        offset, _, n_lines = hyperfine_geometry(self.hyperfine)
-        # Line centres about the dip centre: 1 line -> 0; N-15 -> +-offset; N-14 -> -offset, 0, +offset.
-        centres = {1: [0.0], 2: [-offset, offset], 3: [-offset, 0.0, offset]}[n_lines]
-        gaps = [b - a for a, b in pairwise(centres)]
-        return fwhm_total + sum(min(fwhm_total, gap) for gap in gaps)
+        return hyperfine_covered_width(fwhm_total, self.hyperfine)
 
     @property
     def signal_occupancy(self) -> float | None:
         """Share of the drive-frequency window one dip group covers (``effective_fwhm_phys / window``), in (0, 1].
 
-        Comparable across isotopes and line shapes, which ``window_fwhm`` (window in units of the bare total FWHM)
-        is not: an N-14 triplet fills more of the same window than an unresolved line. ``None`` outside the
-        SNR x window study.
+        The axis of the SNR x window grid: comparable across isotopes and line shapes, which the bare-FWHM ratio
+        ``window_fwhm`` is not (an N-14 triplet fills more of the same window than an unresolved line). ``None``
+        outside the SNR x window study.
         """
         extent = self.effective_fwhm_phys
         if extent is None:

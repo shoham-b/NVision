@@ -219,8 +219,10 @@ NVISION_SBED_HYPERFINE_VALUES: tuple[str, ...] = tuple(
 NVISION_SBED_SNR_VALUES: tuple[float, ...] = tuple(
     float(v) for v in os.getenv("NVISION_SBED_SNR_VALUES", "1,2,5,10,20").split(",") if v.strip()
 )
-NVISION_SBED_WINDOW_FWHM_VALUES: tuple[float, ...] = tuple(
-    float(v) for v in os.getenv("NVISION_SBED_WINDOW_FWHM_VALUES", "2,5,10,20").split(",") if v.strip()
+# Share of the window one dip group covers (its hyperfine lines' FWHM intervals, overlap counted once). The window
+# of a signal is that covered width / occupancy, so the same occupancy is a different absolute window per isotope.
+NVISION_SBED_SIGNAL_OCCUPANCY_VALUES: tuple[float, ...] = tuple(
+    float(v) for v in os.getenv("NVISION_SBED_SIGNAL_OCCUPANCY_VALUES", "0.5,0.2,0.1,0.05").split(",") if v.strip()
 )
 NVISION_SBED_FWHM: float = float(os.getenv("NVISION_SBED_FWHM", "2e6"))
 NVISION_SBED_GAUSSIAN_SHARES: tuple[float, ...] = tuple(

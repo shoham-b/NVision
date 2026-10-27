@@ -247,8 +247,8 @@ class CombinationGrid:
                 nv_smc_config["hyperfine"] = hyperfine
         elif generator_name.startswith("NVCenter-saturation_voigt"):
             nv_smc_config["lineshape"] = "saturation_voigt"
-        elif generator_name.startswith("NVCenter-voigt-fw"):
-            # voigt_snr_window_param_grid_generators(): a fixed-isotope Voigt signal whose window is N FWHM.
+        elif generator_name.startswith("NVCenter-voigt-occ"):
+            # voigt_snr_window_param_grid_generators(): a fixed-isotope Voigt signal whose window follows its occupancy.
             # The belief must resolve the same isotope as the signal, so it is read off the generator object.
             # infer_hyperfine stays False: the isotope is a grid coordinate here, not something to infer.
             resolved = self._resolve_generators.get(generator_name)
