@@ -2927,7 +2927,7 @@ function main() {
         return getSelectedScanGenerators().length > 1;
     }
 
-    // Generator argument the aggregate renderers (Stages/Accuracy/Failed Runs)
+    // Generator argument the aggregate renderers (Stages/Sanity)
     // expect: an array in generator-range mode, otherwise the single value.
     function compareGeneratorsArg() {
         const gens = getSelectedScanGenerators();
@@ -7381,6 +7381,14 @@ function main() {
             b.setAttribute('aria-checked', active ? 'true' : 'false');
             b.tabIndex = active ? 0 : -1;
         });
+        // Cost & search (every locator's total cost and search metrics) is the Whole run scope: its locator chips
+        // and table live outside the per-stage sections, so show them only there. Plotly cannot size a plot inside
+        // a display:none panel, so renderStepSizeTab is called only once the block is visible.
+        const whole = hlStageShown === 0;
+        const costView = document.getElementById('stepsize-view');
+        const costControls = document.getElementById('ss-controls');
+        if (costView) costView.style.display = whole ? 'block' : 'none';
+        if (costControls) costControls.style.display = whole ? 'block' : 'none';
     }
 
     function hlBindStageSelector() {
@@ -7391,6 +7399,7 @@ function main() {
             if (!btn) return;
             hlStageShown = Number(btn.dataset.value);
             hlApplyStageSelector();
+            if (hlStageShown === 0) renderStepSizeTab();
         });
         group._hasListener = true;
     }
@@ -7403,6 +7412,7 @@ function main() {
                 ucRenderBlocks('stages-body', gen, noises, (uc, sfx) => renderHlStages(uc.generator, [].concat(uc.noise), sfx));
                 hlBindStageSelector();
                 hlApplyStageSelector();
+                if (hlStageShown === 0) renderStepSizeTab();   // Cost & search under Whole run
             })
             .catch(err => {
                 const view = document.getElementById('stages-view');
@@ -8142,12 +8152,12 @@ function main() {
         );
     }
 
+    // The Sanity tab carries the failed-run count in its label.
     function updateFailedRunsButton(generator, noises) {
-        const btn = document.getElementById('scan-view-failed-runs-btn');
+        const btn = document.getElementById('scan-view-sanity-btn');
         if (!btn) return;
         const failed = collectFailedRuns(generator, noises);
-        btn.style.display = failed.length > 0 ? '' : 'none';
-        btn.textContent = failed.length > 0 ? `Failed Runs (${failed.length})` : 'Failed Runs';
+        btn.textContent = failed.length > 0 ? `Sanity (${failed.length} failed)` : 'Sanity';
     }
 
     // Shared table builder for the by-noise and by-span breakdown matrices.
@@ -8569,7 +8579,6 @@ function main() {
         const accuracyView = document.getElementById('accuracy-view');
         const stagesView = document.getElementById('stages-view');
         const scalingView = document.getElementById('scaling-view');
-        const failedRunsView = document.getElementById('failed-runs-view');
         const stoppingRow = document.getElementById('stopping-criteria-row');
         const gen = compareGeneratorsArg();
         const noises = compareNoisesArg();
@@ -8579,11 +8588,11 @@ function main() {
         // Collapsed, not display:none: the Run plots still render into it and Plotly cannot size a hidden panel.
         if (runContent) runContent.style.cssText = mode === 'single' ? '' : 'height:0; overflow:hidden; visibility:hidden;';
         if (stepSizeView) stepSizeView.style.display = 'none';
-        if (ssControls) ssControls.style.display = mode === 'locators' || mode === 'accuracy' ? 'block' : 'none';
+        // Stages shows them itself under "Whole run" (hlApplyStageSelector).
+        if (ssControls) ssControls.style.display = mode === 'sanity' ? 'block' : 'none';
         if (accuracyView) accuracyView.style.display = 'none';
         if (stagesView) stagesView.style.display = 'none';
         if (scalingView) scalingView.style.display = 'none';
-        if (failedRunsView) failedRunsView.style.display = 'none';
 
         const compareSweepRow = document.getElementById('scan-compare-sweep-row') || document.getElementById('scan-compare-sweep-container');
         if (compareSweepRow) {
@@ -8598,18 +8607,13 @@ function main() {
         if (mode === 'single') {
             if (repeatView) repeatView.style.display = 'block';
             updateStoppingCriteriaVisibility(currentPlot);
-        } else if (mode === 'locators') {
-            if (stoppingRow) stoppingRow.style.display = 'none';
-            if (stepSizeView) {
-                stepSizeView.style.display = 'block';
-                renderStepSizeTab();
-            }
-        } else if (mode === 'accuracy') {
+        } else if (mode === 'sanity') {
             if (stoppingRow) stoppingRow.style.display = 'none';
             if (accuracyView) {
                 accuracyView.style.display = 'block';
                 renderAccuracyTab(gen, noises);
                 renderStepSizeTab();   // the "Is the claimed σ right?" chart across the family
+                renderFailedRunsTab(gen, noises);
             }
         } else if (mode === 'stages') {
             if (stoppingRow) stoppingRow.style.display = 'none';
@@ -8622,12 +8626,6 @@ function main() {
             if (scalingView) {
                 scalingView.style.display = 'block';
                 renderScalingTab(gen, noises);
-            }
-        } else if (mode === 'failed-runs') {
-            if (stoppingRow) stoppingRow.style.display = 'none';
-            if (failedRunsView) {
-                failedRunsView.style.display = 'block';
-                renderFailedRunsTab(gen, noises);
             }
         }
         syncHashFromState();
@@ -9038,7 +9036,10 @@ function main() {
         const hNoise = params.get('noise');
         const hStrategy = params.get('strategy');
         const hRepeat = params.get('repeat');
-        const hView = params.get('view');
+        // Views that were folded into others: Cost & search (view=locators) is the Whole run scope of Stages;
+        // Accuracy and Failed Runs are the Sanity view. Keep old links working.
+        const hViewRaw = params.get('view');
+        const hView = hViewRaw === 'locators' ? 'stages' : (hViewRaw === 'accuracy' || hViewRaw === 'failed-runs') ? 'sanity' : hViewRaw;
         const hBayesTab = params.get('bayesTab');
 
         if (hGenerator) scanGenerator.dataset.value = hGenerator;

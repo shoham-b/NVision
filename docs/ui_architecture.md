@@ -130,7 +130,9 @@ Key sections inside `main()` (in order of appearance):
 7. **Bayesian rendering** — posterior heatmap, convergence, metrics, Fisher, covariance ellipses, jitter
 8. **Aggregate views** — the `#scan-view-mode` control's modes besides *Run*, each reading per-repeat fields
    for many repeats at once:
-   * **Cost & search** (the `locators` mode; `renderStepSizeTab`, `ss*` helpers) — every locator's cost and search metrics side by side, each
+   * **Cost & search** (the *Whole run* scope of the Stages view, `#stepsize-view` inside `#stages-view`; shown only while
+     the Stages "Show:" selector is on *Whole run*, by `hlApplyStageSelector`, which also calls `renderStepSizeTab`; the old
+     `view=locators` URL hash is mapped to Stages; `renderStepSizeTab`, `ss*` helpers) — every locator's cost and search metrics side by side, each
      plain-sweep spacing k its own locator, with toggle chips to show or hide each one; nothing is ranked. Reads
      `/api/run-rows` (per-repeat scalars: measurements, final error and claimed σ, focus-found step, contrast,
      noise σ, grid axes) over the loaded family; `/api/sweep-spacings` lists the sweep
@@ -143,7 +145,7 @@ Key sections inside `main()` (in order of appearance):
      Per locator it shows the median and p75 cost, the capped share, how often a dip was found, the search cost, and
      whether the claimed σ is right (share of runs with |error| ≤ 1σ / 2σ / 3σ, nominal 68% / 95% / 99.7%). Selecting
      several noise levels or windows gives several blocks. The **charts** ("Across use cases") span the whole family:
-     cost and search cost (and, in the **Accuracy** view, the 1σ/2σ/3σ share: "Is the claimed σ right?") against SNR = contrast / noise σ, each point one use case, with a dotted
+     cost and search cost (and, in the **Sanity** view, the 1σ/2σ/3σ share: "Is the claimed σ right?") against SNR = contrast / noise σ, each point one use case, with a dotted
      vertical line at the SNR of the selected use case in the panel of its window. They follow the SNR x window study:
      x = SNR (log), one panel per window (`grid_window_fwhm`, absolute MHz in the tooltip), lines = locators at ONE
      line shape chosen by a button group (default the selected use case's shape; the shape is named by its Lorentzian
@@ -151,8 +153,8 @@ Key sections inside `main()` (in order of appearance):
      shapes" turns the lines into the shapes of one chosen locator. Runs without `grid_window_fwhm` /
      `grid_gaussian_share` (older caches) get one panel and no shape controls. Runs stop once σ is below the target,
      so the error at the end is not shown: only whether σ is honest. The locator chips, the line-shape buttons and the
-     run counts live in `#ss-controls`, shown above both the Cost & search and the Accuracy view (the σ chart is
-     rendered by `renderStepSizeContent`, which `showScanViewPanels` also calls for Accuracy; a chart whose view is
+     run counts live in `#ss-controls`, shown above both the Stages view under *Whole run* (Cost & search) and the Sanity view (the σ chart is
+     rendered by `renderStepSizeContent`, which `showScanViewPanels` also calls for Sanity; a chart whose view is
      hidden is skipped).
    * **Stages** (`renderStagesTab`, `renderHlStages`) — the search / focus / refine comparison
      (`docs/locator_comparison.md`), one section per stage, each headed by what drives it and its metric (as in
@@ -172,25 +174,30 @@ Key sections inside `main()` (in order of appearance):
      repeats) of the stage steps against window, SNR and (FWHM/(SNR τ))², for the locators picked in `#scaling-pick`
      (default SBED). A panel is drawn only when the selection spans at least two values of its x-axis (a window or SNR
      range is chosen by dragging across the chips). Predicted scaling dotted, Fisher bound dashed.
-   * **Accuracy** (`renderAccuracyTab`) — whether the stop is reliable: true error at the stop in units of τ,
-     claimed σ against the true error over measurements, and claimed σ against the true error.
+   * **Sanity** (the `sanity` mode, `#accuracy-view`; the tab label carries the failed-run count, "Sanity (3 failed)",
+     set by `updateFailedRunsButton`; the old `view=accuracy` and `view=failed-runs` URL hashes are mapped to it) — checks
+     that the other views can be trusted. First **Accuracy** (`renderAccuracyTab`): whether the stop is reliable, true error
+     at the stop in units of τ, claimed σ against the true error over measurements, and claimed σ against the true error;
+     then **Failed runs** (`renderFailedRunsTab`, `#failed-runs-section`): the count and breakdown of runs that did not
+     reach the stop target.
 
-   Stages and Accuracy have a **scope** control (`#uc-scope-stages` / `#uc-scope-accuracy`, one setting, `ucScope`):
+   Stages and Sanity (its Accuracy part) have a **scope** control (`#uc-scope-stages` / `#uc-scope-accuracy`, one setting, `ucScope`):
    *Median over selection* (default) or *Each use case*. The markup inside `#stages-body` / `#accuracy-body` is a
    template that `ucRenderBlocks` clones once per block, titled and with every element id suffixed `--uc<i>`; the
    render functions take that suffix (`renderHlStages(gen, noises, sfx)`, `renderHlStopQuality(..., sfx)`). In the
    median scope the selection is ONE block whose generator / noise arguments are arrays. Its numbers are medians over
    the use cases of each use case's own value (`hlUnits`, `hlCaseShares`): table cells, stage bars and the stage
    comparison, and the over-time curves (median of per-use-case medians at each step, shown while at least half the
-   use cases are still running; the Cost & search median covers only the use cases every shown locator has runs on).
+   use cases are still running). The Cost & search block under *Whole run* is not part of the scope control: it follows the
+   Signal / Noise pickers (its own median block, then one block per use case), and its median covers only the use cases
+   every shown locator has runs on.
    The Accuracy stop table and σ-vs-error chart and the Stages refine curves pool the runs of the selection instead
    (they are in units of τ / σ or relative to the refine start); the Accuracy pace chart (absolute Hz against
    measurements) is shown only per use case. The controls that are one setting for the view (Stages "Show:", the
    Accuracy deviation-band toggle) redraw every block. New elements inside either body must therefore be looked up
    by `id + sfx`.
-   * **Failed Runs** (`renderFailedRunsTab`).
 
-   Stages and Accuracy read `series`/`true_params`/stage fields from `/api/scan-fields` (`ensureScanFieldsFor`),
+   Stages and Sanity read `series`/`true_params`/stage fields from `/api/scan-fields` (`ensureScanFieldsFor`),
    scoped to the current generator/noise selection.
 9. **Narrowed bounds panel** — reads `layout.meta.narrowed_param_bounds` from the scan figure
 10. **Tabs setup** — top-level tab bar (just "Scan measurements")
