@@ -23,10 +23,11 @@ window.NVISION_GRID_AXIS_INFO = {
     // Derived from grid_variant ("cw_drive"/"pulsed_drive"), not a recorded grid_* field.
     drive_mode: { label: 'Drive', short: 'drive', metricsKey: 'grid_drive_mode', scaleToMHz: false },
     // Signal occupancy (the SNR x window study grid): share of the drive-frequency window one dip group covers, shown
-    // in percent. Runs recorded before the occupancy grid carry only grid_window_fwhm (window / bare FWHM); the axis
-    // falls back to that (legacyMetricsKey) so they still get a picker.
+    // as its inverse, the window in units of the signal span (occupancy 10 % = window 10 x signal span). Runs recorded
+    // before the occupancy grid carry only grid_window_fwhm (window / bare FWHM); the axis falls back to that
+    // (legacyMetricsKey) so they still get a picker.
     window: {
-        label: 'Signal occupancy (%)', short: 'occupancy', metricsKey: 'grid_signal_occupancy', scaleToPercent: true, scaleToMHz: false,
+        label: 'Window (× signal span)', short: 'window', metricsKey: 'grid_signal_occupancy', scaleToSpan: true, scaleToMHz: false,
         legacyMetricsKey: 'grid_window_fwhm', legacyLabel: 'Window (FWHM)',
     },
     // Gaussian part of the total FWHM at a fixed total FWHM (the SNR x window study); 0 = pure Lorentzian.
@@ -81,7 +82,7 @@ window.nvisionGeneratorAxes = function (rawGridInfo) {
         if (raw == null) continue;
         let value = raw;
         if (info.scaleToMHz && typeof raw === 'number') value = raw / 1e6;
-        else if (info.scaleToPercent && label === info.label && typeof raw === 'number') value = Math.round(raw * 1e6) / 1e4;
+        else if (info.scaleToSpan && label === info.label && typeof raw === 'number') value = Math.round(1e4 / raw) / 1e4;
         axes.push({ key, label, value });
     }
     if (!axes.length) return null;

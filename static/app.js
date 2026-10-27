@@ -6838,7 +6838,7 @@ function main() {
 
     function ssWinLabel(key) {
         const v = ssWinVal(key);
-        return key[0] === 'o' ? `occupancy ${Number((100 * v).toPrecision(3))} %` : `window ${v} × FWHM`;
+        return key[0] === 'o' ? `window ${Number((1 / v).toPrecision(3))} × signal span` : `window ${v} × FWHM`;
     }
 
     // A shape is named by its Lorentzian share of the FWHM (= 1 - Gaussian share).
@@ -7239,7 +7239,8 @@ function main() {
                 container.appendChild(div);
                 const traces = [];
                 const mhzText = sv == null ? '' : windowMHzText(sv);
-                const windowTip = sv == null ? '' : `<br>${ssWinLabel(sv)}${mhzText ? `<br>window ${mhzText}` : ''}`;
+                const occTip = sv != null && sv[0] === 'o' ? ` (signal occupancy ${Number((100 * ssWinVal(sv)).toPrecision(3))} %)` : '';
+                const windowTip = sv == null ? '' : `<br>${ssWinLabel(sv)}${occTip}${mhzText ? `<br>window ${mhzText}` : ''}`;
                 for (const s of series) {
                     for (const spec of lineSpecs) {
                         const st = spec.st;
@@ -7340,9 +7341,9 @@ function main() {
         const windows = [...new Set(cases.map((c) => ssWinKey(c.row)).filter((v) => v != null))].sort(ssWinCompare);
         const shares = uniq(ssShareKey);
         const snrs = uniq(ssSnr);
-        const occs = windows.filter((k) => k[0] === 'o').map((k) => Number((100 * ssWinVal(k)).toPrecision(3)));
+        const spans = windows.filter((k) => k[0] === 'o').map((k) => Number((1 / ssWinVal(k)).toPrecision(3)));
         const fwhms = windows.filter((k) => k[0] === 'w').map(ssWinVal);
-        if (occs.length) parts.push(`occupancy ${occs.join(', ')} %`);
+        if (spans.length) parts.push(`window ${spans.join(', ')} × signal span`);
         if (fwhms.length) parts.push(`window ${fwhms.join(', ')} × FWHM`);
         if (shares.length) parts.push(shares.map(ssShapeLabel).join(', '));
         if (snrs.length) parts.push(`SNR ${snrs.map((v) => (v === Infinity ? '∞' : Number(v.toPrecision(3)))).join(', ')}`);
