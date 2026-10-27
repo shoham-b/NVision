@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import math
 import random
-from itertools import pairwise
 from dataclasses import dataclass
+from itertools import pairwise
 
 import numpy as np
 
