@@ -22,8 +22,14 @@ window.NVISION_GRID_AXIS_ORDER = ['drive_mode', 'window', 'gaussian_share', 'wid
 window.NVISION_GRID_AXIS_INFO = {
     // Derived from grid_variant ("cw_drive"/"pulsed_drive"), not a recorded grid_* field.
     drive_mode: { label: 'Drive', short: 'drive', metricsKey: 'grid_drive_mode', scaleToMHz: false },
-    // Drive-frequency window as a multiple of the signal's total FWHM (the SNR x window study grid).
-    window: { label: 'Window (FWHM)', short: 'window', metricsKey: 'grid_window_fwhm', scaleToMHz: false },
+    // Signal occupancy (the SNR x window study grid): share of the drive-frequency window one dip group covers, shown
+    // as its inverse, the window in units of the signal span (occupancy 10 % = window 10 x signal span). Runs recorded
+    // before the occupancy grid carry only grid_window_fwhm (window / bare FWHM); the axis falls back to that
+    // (legacyMetricsKey) so they still get a picker.
+    window: {
+        label: 'Window (× signal span)', short: 'window', metricsKey: 'grid_signal_occupancy', scaleToSpan: true, scaleToMHz: false,
+        legacyMetricsKey: 'grid_window_fwhm', legacyLabel: 'Window (FWHM)',
+    },
     // Gaussian part of the total FWHM at a fixed total FWHM (the SNR x window study); 0 = pure Lorentzian.
     gaussian_share: { label: 'Gaussian share of FWHM', short: 'gauss share', metricsKey: 'grid_gaussian_share', scaleToMHz: false },
     width: { label: 'HWHM (MHz)', short: 'hwhm', metricsKey: 'grid_hwhm', scaleToMHz: true },
@@ -62,14 +68,22 @@ window.nvisionGeneratorAxes = function (rawGridInfo) {
     const axes = [];
     // The SNR study fixes the contrast and the total FWHM and varies the line shape by its Gaussian share; a run is
     // picked by SNR, window and share, so the contrast, HWHM and sigma_inhom (which only restate the share) are no axes.
-    const studyFixed = gridInfo.grid_window_fwhm != null ? new Set(['width', 'contrast', 'sigma_inhom']) : new Set();
+    const isStudy = gridInfo.grid_signal_occupancy != null || gridInfo.grid_window_fwhm != null;
+    const studyFixed = isStudy ? new Set(['width', 'contrast', 'sigma_inhom']) : new Set();
     for (const key of window.NVISION_GRID_AXIS_ORDER) {
         if (studyFixed.has(key)) continue;
         const info = window.NVISION_GRID_AXIS_INFO[key];
-        const raw = gridInfo[info.metricsKey];
+        let raw = gridInfo[info.metricsKey];
+        let label = info.label;
+        if (raw == null && info.legacyMetricsKey && gridInfo[info.legacyMetricsKey] != null) {
+            raw = gridInfo[info.legacyMetricsKey];
+            label = info.legacyLabel;
+        }
         if (raw == null) continue;
-        const value = info.scaleToMHz && typeof raw === 'number' ? raw / 1e6 : raw;
-        axes.push({ key, label: info.label, value });
+        let value = raw;
+        if (info.scaleToMHz && typeof raw === 'number') value = raw / 1e6;
+        else if (info.scaleToSpan && label === info.label && typeof raw === 'number') value = Math.round(1e4 / raw) / 1e4;
+        axes.push({ key, label, value });
     }
     if (!axes.length) return null;
     return {
