@@ -1671,6 +1671,42 @@ body {
         .timeline-milestone.milestone-all { background-color: #22c55e; }
         .timeline-milestone.milestone-full { background-color: #64748b; }
 
+        /* Stage-start ticks (Focus / Refine) hang below the track. */
+        .slider-wrapper-relative { margin-bottom: 16px; }
+        .timeline-stage-tick {
+            position: absolute;
+            top: 50%;
+            margin-top: 8px;
+            transform: translateX(-50%);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 1px;
+            padding: 0;
+            border: 0;
+            background: none;
+            cursor: pointer;
+            pointer-events: auto;
+            z-index: 3;
+        }
+        .timeline-stage-tick-mark {
+            width: 2px;
+            height: 7px;
+            border-radius: 1px;
+            background-color: currentColor;
+        }
+        .timeline-stage-tick-label {
+            font-size: 0.68em;
+            font-weight: 600;
+            line-height: 1;
+            color: currentColor;
+        }
+        .timeline-stage-tick.stage-focus { color: #b45309; }
+        .timeline-stage-tick.stage-refine { color: #7c3aed; }
+        .timeline-stage-tick:hover .timeline-stage-tick-label,
+        .timeline-stage-tick:focus-visible .timeline-stage-tick-label { text-decoration: underline; }
+        .timeline-stage-tick:focus-visible { outline: none; }
+
         /* Error warning cards */
         .scan-metrics-panel .metric-item.err-medium-card {
             background-color: #fff8f8 !important; /* very pale red/rose */
