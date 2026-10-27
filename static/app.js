@@ -7559,7 +7559,6 @@ function main() {
                 refine: fmt.pct(hlMedian(hlCaseShares(runs, p => _mv(p, 'max_info_step') != null))),
             };
         }).sort((a, b) => (a.med ?? Infinity) - (b.med ?? Infinity));
-        const best = rows.length ? rows[0].med : null;
         const th = (t, tip) => `<th style="padding:2px 8px;text-align:right" title="${escapeHtml(tip)}">${t}</th>`;
         const td = (v, bold) => `<td style="padding:2px 8px;text-align:right;${bold ? 'font-weight:700;color:#047857' : ''}">${v}</td>`;
         box.innerHTML = '<table class="metric-table" style="border-collapse:collapse;font-size:0.85em;"><thead><tr>' +
@@ -7570,7 +7569,7 @@ function main() {
             th('Found a dip', 'Share of runs that left the search stage.') +
             th('Reached refine', 'Share of runs that reached the refine stage (a plain sweep never does).') +
             `</tr></thead><tbody>${rows.map(r => `<tr><td style="padding:2px 12px 2px 0">${_shortStratLabel(r.strat)}</td>` +
-                td(r.n) + td(r.html, r.med != null && r.med === best) + td(r.capped) + td(r.focus) + td(r.refine) + '</tr>').join('')}</tbody></table>`;
+                td(r.n) + td(r.html) + td(r.capped) + td(r.focus) + td(r.refine) + '</tr>').join('')}</tbody></table>`;
     }
 
     // Stacked bars of the median measurements in each stage, one bar per locator. The stage medians are over the runs
@@ -7587,7 +7586,7 @@ function main() {
                 y.push(vals.length ? hlQuantileSorted(vals, 0.5) : 0);
                 text.push(`${vals.length}/${hlCaseGroups(runs).length > 1 ? hlCaseGroups(runs).length + ' use cases' : runs.length + ' repeats'} reached this stage`);
             }
-            return { x, y, text, type: 'bar', name: st.label, marker: { color: HL_STAGE_COLORS[st.n] },
+            return { x, y, text, textposition: 'none', type: 'bar', name: st.label, marker: { color: HL_STAGE_COLORS[st.n] },
                 hovertemplate: `${st.label}: %{y:.3g} measurements (median)<br>%{text}<extra>%{x}</extra>` };
         });
     }

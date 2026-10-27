@@ -48,6 +48,15 @@ measurement's information about ``theta`` alone is the diagonal term, an upper b
 (Schur-complement) information. For a drive-controlled model the oracle also picks the drive amplitude
 (and, when pulsed, the pulse duration, from 0.1x to 10x the true pi-pulse).
 
+Oracle per stage
+----------------
+Each stage is also compared with the fewest measurements any locator could need, from the same truth-side Fisher
+information: ``I* = max g^2 / sigma^2`` per step. Focus ends at the precision ``eps`` where eta stays >= ``1 - delta``
+(half-width of that region around the best point), so its bound is ``1 / (eps^2 I*)``; refine ends at the stop target
+``tau``, so its bound is ``(tau^-2 - u3^-2) / I*``. Both fall as 1 / SNR^2. The efficiency (bound / steps spent) and the
+axes (true / prior FWHM, window) are stored with the stage metrics; see :func:`compute_stage_metrics` and
+``docs/evaluation_metrics.md``.
+
 Steps are 1-indexed measurement counts. A stage that was never reached has ``None`` metrics -- for
 a plain sweep, which does not stop when it has converged, a short or absent *refine* stage is a real
 result, not missing data.
