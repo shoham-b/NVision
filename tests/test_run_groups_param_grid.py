@@ -127,7 +127,7 @@ def test_snr_window_grid_has_one_total_fwhm_and_varies_one_thing_per_axis():
     from nvision.spectra.nv_center import _voigt_reparam_scalar, max_zeeman_shift_for_window
 
     generators = dict(sim_presets.voigt_snr_window_param_grid_generators())
-    assert len(generators) == 24
+    assert len(generators) == 30  # 4 windows (2, 5, 10, 20); fw2 holds only the unresolved isotope
     assert {g.hyperfine for g in generators.values()} == set(sim_defaults.NVISION_SBED_HYPERFINE_VALUES)
     for gen in generators.values():
         assert gen.contrast_total == sim_defaults.NVISION_SBED_SNR_CONTRAST
@@ -343,9 +343,9 @@ def test_select_snr_window_narrows_a_group_by_snr_and_window():
     assert {g for g, _, _ in at_snr} == set(group.generator_names)
 
     both = sim_run_groups.select_snr_window(combos, gens, snr=[2.0, 10.0], window_fwhm=[5.0, 20.0])
-    # 15 generators have window_fwhm in [5.0, 20.0] (fw5 and fw20 for unresolved/n15, fw20 for n14),
+    # 18 generators have window_fwhm in [5.0, 20.0] (9 at fw5 and 9 at fw20),
     # across 2 SNRs and all locators
-    assert len(both) == 15 * 2 * len(group.strategy_names)
+    assert len(both) == 18 * 2 * len(group.strategy_names)
     assert sim_run_groups.select_snr_window(combos, gens, snr=[3.3]) == []
     assert sim_run_groups.select_snr_window(combos, gens) == combos
 

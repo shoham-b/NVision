@@ -220,8 +220,9 @@ def max_zeeman_shift_for_window(window_width_phys: float) -> float:
 # below D, and the mirrored lower dip at D - zeeman_shift only adds to the signal at the edge instead of
 # showing the flank. One HWHM of padding puts the dip's own FWHM inside the window but, with the mirror dip
 # overlapping, the signal at D is still ~80 % of the dip depth; one full FWHM brings it under half, so the
-# left half-maximum crossing lies inside the window. See :func:`zeeman_shift_edge_pad`.
-NV_ZEEMAN_EDGE_PAD_FWHM: float = float(os.getenv("NVISION_NV_ZEEMAN_EDGE_PAD_FWHM", "1.0"))
+# left half-maximum crossing lies inside the window. The default is half a FWHM (one HWHM) so a 2-FWHM window can
+# hold a dip (unresolved isotope only; the hyperfine offsets need more room). See :func:`zeeman_shift_edge_pad`.
+NV_ZEEMAN_EDGE_PAD_FWHM: float = float(os.getenv("NVISION_NV_ZEEMAN_EDGE_PAD_FWHM", "0.5"))
 if NV_ZEEMAN_EDGE_PAD_FWHM < 0.0:
     raise ValueError(f"NVISION_NV_ZEEMAN_EDGE_PAD_FWHM must be >= 0, got {NV_ZEEMAN_EDGE_PAD_FWHM!r}.")
 

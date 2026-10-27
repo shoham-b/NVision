@@ -220,7 +220,7 @@ NVISION_SBED_SNR_VALUES: tuple[float, ...] = tuple(
     float(v) for v in os.getenv("NVISION_SBED_SNR_VALUES", "1,2,5,10,20").split(",") if v.strip()
 )
 NVISION_SBED_WINDOW_FWHM_VALUES: tuple[float, ...] = tuple(
-    float(v) for v in os.getenv("NVISION_SBED_WINDOW_FWHM_VALUES", "5,10,20").split(",") if v.strip()
+    float(v) for v in os.getenv("NVISION_SBED_WINDOW_FWHM_VALUES", "2,5,10,20").split(",") if v.strip()
 )
 NVISION_SBED_FWHM: float = float(os.getenv("NVISION_SBED_FWHM", "2e6"))
 NVISION_SBED_GAUSSIAN_SHARES: tuple[float, ...] = tuple(
