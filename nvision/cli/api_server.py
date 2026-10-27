@@ -199,7 +199,22 @@ _COMPARE_FIELDS = (
     "uncert",
     "focus_found_step",
     "max_info_step",
-    *(f"stage{k}_{m}" for k in (1, 2, 3) for m in ("steps", "unc_ratio", "err_end", "sens_eff")),
+    *(f"stage{k}_{m}" for k in (1, 2, 3) for m in ("steps", "unc_start", "unc_ratio", "err_end", "sens_eff")),
+    # The oracle and the axes behind the Stages / Scaling views (nvision/metrics/stages.py).
+    "snr",
+    "stage_fisher_star",
+    "stage_eps_target_phys",
+    "stage_tau_phys",
+    "stage_fwhm_true_phys",
+    "stage_prior_fwhm_phys",
+    "stage_window_phys",
+    "stage_window_fwhm",
+    "stage2_oracle_steps",
+    "stage2_efficiency",
+    "stage2_wasted_share",
+    "stage3_oracle_steps",
+    "stage3_efficiency",
+    "stage3_wasted_share",
 )
 
 
