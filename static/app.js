@@ -34,7 +34,7 @@ function main() {
     // Splitting (zeeman_shift) convergence is the primary milestone; 'full'/'all_converged'
     // are verification only. Default to primary_converged (falls back to 'full' when a
     // loaded run has no primary milestone — see updateStoppingCriteriaVisibility).
-    let currentStoppingCriteria = 'primary_converged'; // 'full' | 'primary_converged' | 'all_converged'
+    let currentStoppingCriteria = 'full'; // 'full' | 'primary_converged' | 'all_converged'
     try {
         plots = window.MANIFEST;
         if (!Array.isArray(plots)) {
@@ -295,7 +295,7 @@ function main() {
     function renderTimelineMilestoneMarkers() {
         const container = document.getElementById('timeline-ticks-container');
         if (!container) return;
-        container.querySelectorAll('.timeline-milestone').forEach((el) => el.remove());
+        container.querySelectorAll('.timeline-milestone, .timeline-stage-tick').forEach((el) => el.remove());
         if (globalTotalFrames <= 1 || !currentPlot) return;
 
         const d = _phaseData(currentPlot);
@@ -353,6 +353,34 @@ function main() {
                 jumpTimelineToStep(m.step);
             });
             container.appendChild(marker);
+        });
+
+        // Stage boundaries sit BELOW the track so they read apart from the convergence
+        // milestones above it. Stage 2 (focus) starts the measurement after the step a
+        // dip was found; stage 3 (refine) starts at max_info_step (see metrics/stages.py).
+        const focusFound = _mv(d, 'focus_found_step');
+        const refineStart = _mv(d, 'max_info_step');
+        const stageTicks = [
+            { label: 'Focus', title: 'Start of stage 2: focus', step: focusFound != null ? focusFound + 1 : null, cls: 'stage-focus' },
+            { label: 'Refine', title: 'Start of stage 3: refine', step: refineStart, cls: 'stage-refine' },
+        ];
+        stageTicks.forEach((t) => {
+            if (t.step == null) return;
+            const idx = _closestFrameIndexForStep(t.step);
+            if (idx < 0 || globalTotalFrames <= 1) return;
+            const pct = (idx / (globalTotalFrames - 1)) * 100;
+            const tick = document.createElement('button');
+            tick.type = 'button';
+            tick.className = `timeline-stage-tick ${t.cls}`;
+            tick.style.left = `${pct}%`;
+            tick.title = `Jump to: ${t.title} (step ${formatCount(t.step)})`;
+            tick.setAttribute('aria-label', `Jump to ${t.title}`);
+            tick.innerHTML = `<span class="timeline-stage-tick-mark"></span><span class="timeline-stage-tick-label">${t.label}</span>`;
+            tick.addEventListener('click', (e) => {
+                e.preventDefault();
+                jumpTimelineToStep(t.step);
+            });
+            container.appendChild(tick);
         });
     }
 
@@ -1803,7 +1831,9 @@ function main() {
         const container = document.getElementById('scan-plot-div');
         if (!container || !container._scanRawData || !window.Plotly) return;
         const raw = container._scanRawData;
-        const stepCandidates = _focusWindowCandidatesForStep(currentPlot && currentPlot.series, realStep);
+        const stepCandidates = _focusWindowCandidatesForStep(
+            currentPlot && currentPlot.series, realStep,
+            currentPlot && currentPlot.metrics && currentPlot.metrics.focus_found_step);
         const selSweep = scanCompareSweep ? scanCompareSweep.value : '';
         const includeSweep = (selSweep === 'SimpleSweep (baseline)');
         const fitVisible = !scanLegendVisibility.has('locator most likely signal') || scanLegendVisibility.get('locator most likely signal') !== false;
@@ -4019,13 +4049,7 @@ function main() {
         // Independent of the Convergence/Fisher tabs' own log-scale toggles — each
         // view remembers its own choice rather than sharing one flag.
         let logScale = false;
-        const overlayState = {
-            uncertainty: true,
-            crlb: true,
-            oracleCrlb: true,
-            threshold: true,
-            resamples: true,
-        };
+        const overlayState = uncertaintyOverlayState;
         container.appendChild(_uncertaintyControlsRow(
             logScale,
             (v) => { logScale = v; updateStep(lastStepIdx); },
@@ -4668,6 +4692,18 @@ function main() {
         return wrapper;
     }
 
+    // Legend selection (which overlays are shown) is shared by Posterior Evolution and
+    // Convergence: one state object, and every live legend bar registers here so a
+    // toggle in one tab restyles the other's buttons and redraws its charts too.
+    const uncertaintyOverlayState = {
+        uncertainty: true,
+        crlb: true,
+        oracleCrlb: true,
+        threshold: true,
+        resamples: true,
+    };
+    const uncertaintyLegendRows = new Set();
+
     function _uncertaintyControlsRow(logScale, onLogToggle, overlayState, onOverlayChange) {
         const row = document.createElement('div');
         row.className = 'uncertainty-controls-row';
@@ -4722,16 +4758,27 @@ function main() {
             });
         }
 
+        // Propagate a toggle to every legend bar (Posterior Evolution + Convergence).
+        // Rows whose container was re-rendered away are dropped.
+        const self = { row, syncButtons, onOverlayChange };
+        uncertaintyLegendRows.add(self);
+        function notifyAll() {
+            uncertaintyLegendRows.forEach((r) => {
+                if (r !== self && !r.row.isConnected) { uncertaintyLegendRows.delete(r); return; }
+                r.syncButtons();
+                r.onOverlayChange();
+            });
+        }
+
         items.forEach((item) => {
             const btn = document.createElement('button');
             btn.type = 'button';
             btn.className = 'uncertainty-legend-item';
-            btn.title = 'Click to toggle across all cards; double-click to isolate';
+            btn.title = 'Click to toggle (shared by Posterior Evolution and Convergence); double-click to isolate';
             btn.innerHTML = `${item.svg}<span>${item.label}</span>`;
             btn.addEventListener('click', () => {
                 overlayState[item.key] = !overlayState[item.key];
-                syncButtons();
-                onOverlayChange();
+                notifyAll();
             });
             btn.addEventListener('dblclick', (ev) => {
                 ev.preventDefault();
@@ -4740,8 +4787,7 @@ function main() {
                 items.forEach((it) => {
                     overlayState[it.key] = onlyThisActive ? true : (it.key === item.key);
                 });
-                syncButtons();
-                onOverlayChange();
+                notifyAll();
             });
             buttons.set(item.key, btn);
             legendBar.appendChild(btn);
@@ -5031,13 +5077,7 @@ function main() {
         container.innerHTML = '';
         // Independent of the Posterior Evolution/Fisher tabs' own log-scale toggles.
         let logScale = false;
-        const overlayState = {
-            uncertainty: true,
-            crlb: true,
-            oracleCrlb: true,
-            threshold: true,
-            resamples: true,
-        };
+        const overlayState = uncertaintyOverlayState;
         container.appendChild(_uncertaintyControlsRow(
             logScale,
             (v) => { logScale = v; updateStep(lastStepIdx); },

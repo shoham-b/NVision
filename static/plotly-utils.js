@@ -384,14 +384,30 @@ function _filterScanMeasurementsByStep(measurements, stepCap) {
 // there's no candidate-window data at all, or when stepCap is null/undefined (the
 // "show everything" / static-final-state case, which keeps using the run's
 // end-of-run focus_window/per_dip_windows instead). `series.s` is ascending.
-function _focusWindowCandidatesForStep(series, stepCap) {
-    if (!series || !series.w || !series.s || !series.w.length || stepCap == null) return null;
+// `focusFoundStep` (metrics.focus_found_step) covers runs with no per-step window data:
+// there the static end-of-run window is only shown from the step it was found.
+function _focusWindowCandidatesForStep(series, stepCap, focusFoundStep) {
+    if (stepCap == null) return null;
+    if (!series || !series.w || !series.s || !series.w.length) {
+        return focusFoundStep != null && stepCap < focusFoundStep ? [] : null;
+    }
+    // Hold the last window that was actually found: a step that reports none (null/empty)
+    // after one was found must not make the window vanish for the rest of playback.
     let chosen = null;
     for (let i = 0; i < series.s.length; i++) {
         if (series.s[i] > stepCap) break;
-        chosen = series.w[i];
+        if (series.w[i] && series.w[i].length) chosen = series.w[i];
     }
-    return chosen || null;
+    // series is subsampled, so its first window lands some steps after the dip was found:
+    // from the found step on, back-fill with that first sampled window so the window
+    // appears exactly at the "Focus" tick.
+    if (!chosen && focusFoundStep != null && stepCap > focusFoundStep) {
+        const first = series.w.find((x) => x && x.length);
+        if (first) chosen = first;
+    }
+    // Empty list (not null) = "playback is on and no window has been found yet at
+    // this step": the caller must draw nothing rather than the end-of-run window.
+    return chosen || [];
 }
 
 function _buildScanFigure(def, data) {
@@ -566,11 +582,13 @@ function _buildScanFigure(def, data) {
     // annotation); once only one candidate remains it renders with the same solid fill
     // as the settled focus_window below, so "converging to one" reads visually as landing
     // on the final look.
-    const stepCandidates = data.focus_window_candidates && data.focus_window_candidates.length
+    const stepCandidates = Array.isArray(data.focus_window_candidates)
         ? data.focus_window_candidates.filter(([lo, hi]) => Number.isFinite(lo) && Number.isFinite(hi) && hi > lo)
         : null;
 
-    if (stepCandidates && stepCandidates.length) {
+    if (stepCandidates && !stepCandidates.length) {
+        // Playback step with no window found yet: show no window at all.
+    } else if (stepCandidates) {
         if (stepCandidates.length === 1) {
             const [lo, hi] = stepCandidates[0];
             const fws = def.focus_window_style;
