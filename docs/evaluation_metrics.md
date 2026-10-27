@@ -63,7 +63,7 @@ dip. k = 1 is therefore not studied; compare spacings by points per true FWHM.
    durations) within one use case first; never read it off runs pooled across windows, shapes or SNRs, since the cost
    spans orders of magnitude between them. A selection of several use cases is summarised as the **median over the
    use cases of each use case's own number** (every use case counts once, whatever its number of repeats) and is
-   labelled with what it covers ("Median over 45 use cases · window 5, 10, 20 × FWHM · … · SNR 1…20"); the per-use-case
+   labelled with what it covers ("Median over 45 use cases · occupancy 50, 20, 10 % · … · SNR 1…20"); the per-use-case
    numbers stay one click away. Such a median mixes easy and hard use cases, so it is a summary of the selection, not a
    property of any one signal. Trends across use cases are still shown as curves, one point per use case.
 8. **Medians hide the tail.** Show p75 and the capped share next to the median cost; the spacings differ more in the

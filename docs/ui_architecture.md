@@ -90,11 +90,11 @@ width × contrast grid generator joins the Voigt family as its σ_inhom = 0 slic
 `grid_variant`). Because of the merge, the facet selection σ_inhom = 0 + isotope `unresolved` matches both
 the `voigt-grid` generator and the `lorentzian-drift` generator, so their repeats are pooled when both exist.
 
-The pickers follow the SNR x window study: the window axis (`window`, `grid_window_fwhm`, in FWHM) sits first, an
+The pickers follow the SNR x window study: the window axis (`window`, labelled "Signal occupancy (%)", from `grid_signal_occupancy`, the share of the window one dip group covers; older rows without it fall back to `grid_window_fwhm`, "Window (FWHM)") sits first, an
 axis with a single value in the family (the study's fixed HWHM and contrast) is listed as "fixed: ..." instead of
 getting a one-button picker. A run of the SNR studies is picked by SNR alone: the noise buttons are its `SNR(x)`
 names (`SNR x`, ascending), and the study's fixed linewidth and contrast are not axes at all
-(`nvisionGeneratorAxes` drops them for a generator with a `grid_window_fwhm`, which varies by window and
+(`nvisionGeneratorAxes` drops them for a generator with a `grid_signal_occupancy` (or legacy `grid_window_fwhm`), which varies by occupancy and
 `grid_gaussian_share` only; `sigma_inhom` just restates the share). An older `Gauss(sigma)` run of a fixed
 contrast is labelled by its SNR as well (`nvisionNoiseSnrLabel`).
 
@@ -145,10 +145,11 @@ Key sections inside `main()` (in order of appearance):
      several noise levels or windows gives several blocks. The **charts** ("Across use cases") span the whole family:
      cost and search cost (and, in the **Accuracy** view, the 1σ/2σ/3σ share: "Is the claimed σ right?") against SNR = contrast / noise σ, each point one use case, with a dotted
      vertical line at the SNR of the selected use case in the panel of its window. They follow the SNR x window study:
-     x = SNR (log), one panel per window (`grid_window_fwhm`, absolute MHz in the tooltip), lines = locators at ONE
+     x = SNR (log), one panel per signal occupancy (`grid_signal_occupancy`, titled "occupancy 10 %"; the absolute window in MHz differs per isotope at one occupancy, so the tooltip lists it per isotope instead of keying the panel on it), lines = locators at ONE
      line shape chosen by a button group (default the selected use case's shape; the shape is named by its Lorentzian
      share of the FWHM, `1 - grid_gaussian_share`, with `hwhm_lorentz` / `sigma_inhom` in the tooltip). "Compare
-     shapes" turns the lines into the shapes of one chosen locator. Runs without `grid_window_fwhm` /
+     shapes" turns the lines into the shapes of one chosen locator. Runs recorded before the occupancy grid
+     (only `grid_window_fwhm`) keep one panel per window in FWHM. Runs without either window field /
      `grid_gaussian_share` (older caches) get one panel and no shape controls. Runs stop once σ is below the target,
      so the error at the end is not shown: only whether σ is honest. The locator chips, the line-shape buttons and the
      run counts live in `#ss-controls`, shown above both the Cost & search and the Accuracy view (the σ chart is

@@ -6816,6 +6816,31 @@ function main() {
         return 2 * row.grid_hwhm + SS_FWHM_PER_SIGMA * row.grid_sigma_inhom;
     }
 
+    // The window a study row was run at, as a panel key: its signal occupancy (share of the drive-frequency window one
+    // dip group covers; 'o<fraction>') or, for rows recorded before the occupancy grid, window / FWHM ('w<n>').
+    // null for a row with neither (not a study row).
+    function ssWinKey(row) {
+        if (row.grid_signal_occupancy != null) return `o${Math.round(row.grid_signal_occupancy * 1e6) / 1e6}`;
+        if (row.grid_window_fwhm != null) return `w${row.grid_window_fwhm}`;
+        return null;
+    }
+
+    const ssWinVal = (key) => (key == null ? null : Number(key.slice(1)));
+
+    // Occupancy panels first, widest signal share (narrowest window) first; legacy FWHM panels by ascending window.
+    function ssWinCompare(a, b) {
+        if (a === b) return 0;
+        if (a == null) return 1;
+        if (b == null) return -1;
+        if (a[0] !== b[0]) return a[0] === 'o' ? -1 : 1;
+        return a[0] === 'o' ? ssWinVal(b) - ssWinVal(a) : ssWinVal(a) - ssWinVal(b);
+    }
+
+    function ssWinLabel(key) {
+        const v = ssWinVal(key);
+        return key[0] === 'o' ? `occupancy ${Number((100 * v).toPrecision(3))} %` : `window ${v} × FWHM`;
+    }
+
     // A shape is named by its Lorentzian share of the FWHM (= 1 - Gaussian share).
     const ssShapeLabel = (share) => `${Math.round(100 * (1 - share))}% Lorentzian`;
     let ssSigmaK = 'all';     // the σ chart counts runs with |error| <= k × claimed σ: 1, 2, 3 or 'all' together
@@ -7008,18 +7033,27 @@ function main() {
     function ssUseCaseLabel(row) {
         const snr = ssSnr(row);
         const snrText = snr == null ? row.noise : `SNR ${snr === Infinity ? '∞' : Number(snr.toPrecision(3))}`;
-        if (row.grid_window_fwhm == null || ssShareKey(row) == null) {
+        const winKey = ssWinKey(row);
+        if (winKey == null || ssShareKey(row) == null) {
             return snr == null ? `${row.generator} · ${row.noise}` : `${row.generator} · ${snrText}`;
         }
+        // The absolute window differs per isotope at one occupancy, so it is named next to the isotope.
+        const mhz = ssWindowMHz(row);
+        const iso = row.grid_hyperfine ? `${row.grid_hyperfine}, ` : '';
+        const mhzText = mhz == null ? '' : ` (${iso}${mhz.toFixed(0)} MHz)`;
+        return `${ssWinLabel(winKey)}${mhzText} · ${ssShapeLabel(ssShareKey(row))} · ${snrText}`;
+    }
+
+    // Absolute drive-frequency window (MHz) of a study row: window / bare FWHM x the bare FWHM; null when unrecorded.
+    function ssWindowMHz(row) {
         const fwhm = ssTotalFwhm(row);
-        const mhz = fwhm == null ? '' : ` (${((row.grid_window_fwhm * fwhm) / 1e6).toFixed(0)} MHz)`;
-        return `window ${row.grid_window_fwhm} × FWHM${mhz} · ${ssShapeLabel(ssShareKey(row))} · ${snrText}`;
+        return fwhm == null || row.grid_window_fwhm == null ? null : (row.grid_window_fwhm * fwhm) / 1e6;
     }
 
     // Use cases in reading order: window, line shape, then SNR ascending (older caches: by name).
     function ssUseCaseCompare(a, b) {
         const num = (x, y) => (x === y ? 0 : x == null ? 1 : y == null ? -1 : x - y);
-        return num(a.grid_window_fwhm, b.grid_window_fwhm) || num(ssShareKey(a), ssShareKey(b))
+        return ssWinCompare(ssWinKey(a), ssWinKey(b)) || num(ssShareKey(a), ssShareKey(b))
             || num(ssSnr(a), ssSnr(b)) || a.generator.localeCompare(b.generator) || a.noise.localeCompare(b.noise);
     }
 
@@ -7033,10 +7067,10 @@ function main() {
         const usableAll = rows.filter(ssUsable);
         // The SNR x window study: runs that carry both a window and a Gaussian share. Without them (older caches)
         // there is one panel and no shape controls.
-        const windows = [...new Set(usableAll.map((r) => r.grid_window_fwhm).filter((v) => v != null))].sort((a, b) => a - b);
+        const windows = [...new Set(usableAll.map(ssWinKey).filter((v) => v != null))].sort(ssWinCompare);
         const shares = [...new Set(usableAll.map(ssShareKey).filter((v) => v != null))].sort((a, b) => a - b);
         const study = windows.length > 0 && shares.length > 0;
-        const usable = study ? usableAll.filter((r) => r.grid_window_fwhm != null && ssShareKey(r) != null) : usableAll;
+        const usable = study ? usableAll.filter((r) => ssWinKey(r) != null && ssShareKey(r) != null) : usableAll;
         // The charts show one line shape: the one picked here, else the selected use case's, else the middle one.
         const selected = usable.filter(isSelected);
         const selShares = [...new Set(selected.map(ssShareKey).filter((v) => v != null))];
@@ -7052,9 +7086,16 @@ function main() {
                 + `sigma_inhom ${r && r.grid_sigma_inhom != null ? (r.grid_sigma_inhom / 1e6).toFixed(3) : '?'} MHz`
                 + (fwhm != null ? `, total FWHM ${(fwhm / 1e6).toFixed(2)} MHz` : '');
         };
-        const windowMHz = (n) => {
-            const fwhm = ssTotalFwhm(usable.find((r) => r.grid_window_fwhm === n));
-            return fwhm == null ? null : (n * fwhm) / 1e6;
+        // Absolute window of one panel as text: it differs per isotope at one occupancy, so one entry per isotope.
+        const windowMHzText = (key) => {
+            const byIso = new Map();
+            for (const r of usable) {
+                if (ssWinKey(r) !== key) continue;
+                const mhz = ssWindowMHz(r);
+                if (mhz != null) byIso.set(r.grid_hyperfine || 'all', mhz);
+            }
+            return [...byIso].sort((a, b) => a[0].localeCompare(b[0]))
+                .map(([iso, mhz]) => (byIso.size > 1 ? `${iso} ${mhz.toFixed(1)} MHz` : `${mhz.toFixed(1)} MHz`)).join(', ');
         };
         ssRenderShapeControls(study && offered.length > 1, offered.map((s) => ({ share: s, tip: shapeTip(s) })), shareSel, strategies, cmpLoc);
 
@@ -7197,14 +7238,14 @@ function main() {
                 div.style.cssText = panelValues.length > 1 ? 'flex:1 1 30%; min-width:320px; height:300px;' : 'flex:1 1 100%; height:380px;';
                 container.appendChild(div);
                 const traces = [];
-                const mhz = sv == null ? null : windowMHz(sv);
-                const windowTip = sv == null ? '' : `<br>window ${sv} × FWHM${mhz != null ? ` = ${mhz.toFixed(1)} MHz` : ''}`;
+                const mhzText = sv == null ? '' : windowMHzText(sv);
+                const windowTip = sv == null ? '' : `<br>${ssWinLabel(sv)}${mhzText ? `<br>window ${mhzText}` : ''}`;
                 for (const s of series) {
                     for (const spec of lineSpecs) {
                         const st = spec.st;
                         const bySnr = new Map();
                         for (const r of byAll.get(st)) {
-                            if (sv != null && r.grid_window_fwhm !== sv) continue;
+                            if (sv != null && ssWinKey(r) !== sv) continue;
                             if (spec.share != null && ssShareKey(r) !== spec.share) continue;
                             if (s.filter && !s.filter(r)) continue;
                             const snr = ssSnr(r);
@@ -7229,11 +7270,11 @@ function main() {
                 }
                 // The selected use case: a dotted vertical line at its SNR (in the shape shown, unless comparing shapes).
                 const markSnrs = new Set(selected
-                    .filter((r) => (sv == null || r.grid_window_fwhm === sv) && (!study || ssCompare || ssShareKey(r) === shareSel))
+                    .filter((r) => (sv == null || ssWinKey(r) === sv) && (!study || ssCompare || ssShareKey(r) === shareSel))
                     .map(ssSnr).filter((v) => v != null));
                 const selectedMarks = [...markSnrs].map((v) => ({ type: 'line', xref: 'x', yref: 'paper', x0: snrX(v), x1: snrX(v), y0: 0, y1: 1, line: { color: '#2563eb', width: 1, dash: 'dot' } }));
                 Plotly.react(div, traces, {
-                    title: sv == null ? undefined : { text: `window ${sv} × FWHM`, font: { size: 12 } },
+                    title: sv == null ? undefined : { text: ssWinLabel(sv), font: { size: 12 } },
                     margin: { l: 60, r: 10, t: sv == null ? 10 : 30, b: 50 },
                     xaxis, yaxis,
                     shapes: selectedMarks.concat(refLines.map((ref) => ({ type: 'line', xref: 'paper', x0: 0, x1: 1, y0: ref.y, y1: ref.y, line: { color: '#94a3b8', width: 1, dash: 'dash' } }))),
@@ -7266,7 +7307,8 @@ function main() {
         const named = /^SNR\(([^)]+)\)$/.exec(p.noise || '');
         return {
             generator: p.generator, noise: p.noise,
-            grid_window_fwhm: get('grid_window_fwhm'), grid_gaussian_share: get('grid_gaussian_share'),
+            grid_window_fwhm: get('grid_window_fwhm'), grid_signal_occupancy: get('grid_signal_occupancy'),
+            grid_hyperfine: get('grid_hyperfine'), grid_gaussian_share: get('grid_gaussian_share'),
             grid_hwhm: get('grid_hwhm'), grid_sigma_inhom: get('grid_sigma_inhom'),
             grid_contrast_total: get('grid_contrast_total'), noise_sigma: get('noise_sigma'),
             snr: get('snr') != null ? get('snr') : (named && isFinite(Number(named[1])) ? Number(named[1]) : null),
@@ -7291,14 +7333,17 @@ function main() {
     // hlUnits); 'each': one block per use case.
     let ucScope = 'median';
 
-    // "Median over 45 use cases · window 5, 10, 20 × FWHM · 0%, 35%, 70% Lorentzian · SNR 1, 2, 5, 10, 20".
+    // "Median over 45 use cases · occupancy 50, 20, 10 % · 0%, 35%, 70% Lorentzian · SNR 1, 2, 5, 10, 20".
     function ucScopeLabel(cases) {
         const uniq = (f) => [...new Set(cases.map((c) => f(c.row)).filter((v) => v != null))].sort((a, b) => a - b);
         const parts = [`Median over ${cases.length} use cases`];
-        const windows = uniq((r) => r.grid_window_fwhm);
+        const windows = [...new Set(cases.map((c) => ssWinKey(c.row)).filter((v) => v != null))].sort(ssWinCompare);
         const shares = uniq(ssShareKey);
         const snrs = uniq(ssSnr);
-        if (windows.length) parts.push(`window ${windows.join(', ')} × FWHM`);
+        const occs = windows.filter((k) => k[0] === 'o').map((k) => Number((100 * ssWinVal(k)).toPrecision(3)));
+        const fwhms = windows.filter((k) => k[0] === 'w').map(ssWinVal);
+        if (occs.length) parts.push(`occupancy ${occs.join(', ')} %`);
+        if (fwhms.length) parts.push(`window ${fwhms.join(', ')} × FWHM`);
         if (shares.length) parts.push(shares.map(ssShapeLabel).join(', '));
         if (snrs.length) parts.push(`SNR ${snrs.map((v) => (v === Infinity ? '∞' : Number(v.toPrecision(3)))).join(', ')}`);
         return parts.join(' · ');
