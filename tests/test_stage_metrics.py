@@ -18,7 +18,8 @@ class _Belief:
         self._unc = primary_unc
         self._has_dip = has_dip
         self._estimate = estimate
-        self.physical_param_bounds = {"zeeman_shift": (0.0, 60e6)}
+        self.physical_param_bounds = {"zeeman_shift": (0.0, 60e6), "hwhm": (0.1e6, 1e6)}
+        self.drive_freq_bounds_phys = (0.0, 100e6)
 
     def uncertainty(self):
         return {"zeeman_shift": self._unc}
@@ -34,17 +35,22 @@ def _run(uncs: list[float], dip_from: int | None, shots: list[int] | None = None
     """A run whose step i has uncertainty uncs[i] and shows a dip from step index ``dip_from`` on."""
     shots = shots or [1] * len(uncs)
     snaps = [
-        SimpleNamespace(belief=_Belief(u, dip_from is not None and i >= dip_from), obs=SimpleNamespace(n_shots=k))
+        SimpleNamespace(
+            belief=_Belief(u, dip_from is not None and i >= dip_from), obs=SimpleNamespace(n_shots=k, noise_std=1.0)
+        )
         for i, (u, k) in enumerate(zip(uncs, shots, strict=True))
     ]
     true_signal = SimpleNamespace(
-        parameter_values=lambda: {"zeeman_shift": 1.0, "hwhm": 1.0}, get_param_value=lambda name: 1.0
+        parameter_values=lambda: {"zeeman_shift": 1.0, "hwhm": 1.0},
+        get_param_value=lambda name: 1.0,
+        model=SimpleNamespace(controls_drive=False),
     )
     return SimpleNamespace(snapshots=snaps, true_signal=true_signal)
 
 
 def _with_eta(monkeypatch, eta: list[float]) -> None:
-    monkeypatch.setattr(stages, "sensitivity_efficiency_trace", lambda run, primary: np.array(eta))
+    sens = stages._Sensitivity(np.array(eta), 1.0, 0.1)
+    monkeypatch.setattr(stages, "_primary_sensitivity", lambda run, primary: sens)
 
 
 def test_all_three_stages_reached(monkeypatch):
@@ -275,3 +281,45 @@ def test_refine_series_is_aligned_to_refine_start_with_fisher_reference(monkeypa
     assert out["f"] == pytest.approx(expected, rel=1e-3)
     with pytest.raises(ValueError, match="outside the run"):
         extract_refine_series(run, "zeeman_shift", refine_step=99)
+
+
+def test_optimum_tolerance_of_a_lorentzian_is_015_hwhm():
+    # eta >= 0.9 holds within sqrt(0.1 / 4.5) = 0.149 HWHM of the steepest-slope point.
+    model = _LorentzDipModel()
+    true_signal = SimpleNamespace(
+        parameter_names=("c",),
+        get_param_bounds=lambda name: (-5.0, 5.0),
+        model=model,
+        typed_parameters=0.0,
+        model_at=lambda drive: model,
+    )
+    belief = SimpleNamespace(drive_freq_bounds_phys=(-10.0, 10.0))
+    snap = SimpleNamespace(belief=belief, obs=SimpleNamespace(drive=None, drive_freq_unit=0.5))
+    sens = stages._primary_sensitivity(SimpleNamespace(true_signal=true_signal, snapshots=[snap]), "c")
+    assert sens.eps_phys == pytest.approx(np.sqrt(0.1 / 4.5), rel=0.05)
+
+
+def test_oracle_steps_and_efficiency(monkeypatch):
+    # With best g^2 = 1, sigma = 1 and one shot per step, I* = 1 per step; eps = 0.1 Hz -> 1 / (eps^2 I*) = 100 steps.
+    _with_eta(monkeypatch, [0.0] * 5 + [1.0] * 5)
+    uncs = [1e6] * 10
+    m = compute_stage_metrics(_run(uncs, dip_from=1))
+    assert m["stage_fisher_star"] == pytest.approx(1.0)
+    assert m["stage_eps_target_phys"] == pytest.approx(0.1)
+    assert m["stage2_oracle_steps"] == pytest.approx(100.0)
+    assert m["stage2_steps"] == 3
+    assert m["stage2_efficiency"] == pytest.approx(100.0 / 3)
+    assert m["stage2_wasted_share"] == pytest.approx(1.0)  # every focus measurement had eta 0
+    assert m["stage3_wasted_share"] == pytest.approx(0.0)
+    assert m["stage_fwhm_true_phys"] == pytest.approx(2.0)  # 2 * hwhm of the fake truth
+    assert m["stage_window_phys"] == pytest.approx(100e6)
+    assert m["stage_window_fwhm"] == pytest.approx(50e6)
+
+
+def test_refine_oracle_is_the_fisher_steps_from_refine_start_to_tau(monkeypatch):
+    _with_eta(monkeypatch, [0.0, 0.0, 1.0, 1.0, 1.0, 1.0])
+    monkeypatch.setattr("nvision.metrics.series.effective_convergence_threshold", lambda run, param: 0.5)
+    m = compute_stage_metrics(_run([10.0] * 6, dip_from=1))
+    # u3 = 10, tau = 0.5, I* = 1: (0.5^-2 - 10^-2) / 1 = 3.99 steps against 4 spent -> efficiency ~1.
+    assert m["stage3_oracle_steps"] == pytest.approx(3.99)
+    assert m["stage3_efficiency"] == pytest.approx(3.99 / m["stage3_steps"])

@@ -48,6 +48,15 @@ measurement's information about ``theta`` alone is the diagonal term, an upper b
 (Schur-complement) information. For a drive-controlled model the oracle also picks the drive amplitude
 (and, when pulsed, the pulse duration, from 0.1x to 10x the true pi-pulse).
 
+Oracle per stage
+----------------
+Each stage is also compared with the fewest measurements any locator could need, from the same truth-side Fisher
+information: ``I* = max g^2 / sigma^2`` per step. Focus ends at the precision ``eps`` where eta stays >= ``1 - delta``
+(half-width of that region around the best point), so its bound is ``1 / (eps^2 I*)``; refine ends at the stop target
+``tau``, so its bound is ``(tau^-2 - u3^-2) / I*``. Both fall as 1 / SNR^2. The efficiency (bound / steps spent) and the
+axes (true / prior FWHM, window) are stored with the stage metrics; see :func:`compute_stage_metrics` and
+``docs/evaluation_metrics.md``.
+
 Steps are 1-indexed measurement counts. A stage that was never reached has ``None`` metrics -- for
 a plain sweep, which does not stop when it has converged, a short or absent *refine* stage is a real
 result, not missing data.
@@ -56,7 +65,7 @@ result, not missing data.
 from __future__ import annotations
 
 import math
-from typing import Any
+from typing import Any, NamedTuple
 
 import numpy as np
 
@@ -93,6 +102,20 @@ STAGE_METRIC_KEYS: tuple[str, ...] = (
         for k in (1, 2, 3)
         for field in ("steps", "unc_start", "unc_end", "unc_ratio", "err_end", "sens_eff")
     ),
+    # The oracle the stages are judged against and the axes that drive them (see compute_stage_metrics).
+    "stage_fisher_star",
+    "stage_eps_target_phys",
+    "stage_tau_phys",
+    "stage_fwhm_true_phys",
+    "stage_prior_fwhm_phys",
+    "stage_window_phys",
+    "stage_window_fwhm",
+    "stage2_oracle_steps",
+    "stage2_efficiency",
+    "stage2_wasted_share",
+    "stage3_oracle_steps",
+    "stage3_efficiency",
+    "stage3_wasted_share",
 )
 
 
@@ -122,8 +145,39 @@ def _oracle_drives(true_signal: Any) -> list[DriveSetting | None]:
     ]
 
 
-def _primary_sensitivity(run_result: RunResult, primary: str) -> tuple[np.ndarray, float]:
-    """``(g_t^2, max g^2)``: squared sensitivity of each step's measurement and of the best possible one.
+class _Sensitivity(NamedTuple):
+    """Squared sensitivity of each measurement, of the best possible one, and how far from it eta stays >= 1 - delta."""
+
+    measured: np.ndarray  # shape: (n_steps,), (signal / Hz)^2 at each step's drive frequency and drive
+    best: float  # max over the drive-frequency range (and drive settings) of g^2, (signal / Hz)^2
+    # Half-width (Hz) of the drive-frequency region around the best point where g^2 >= (1 - delta) best; None for a
+    # drive-controlled model, whose best point is a drive setting (pulse fringes can be narrower than the grid).
+    eps_phys: float | None
+
+
+def _optimum_tolerance_phys(grid_phys: np.ndarray, g2: np.ndarray, best: float) -> float:
+    """Half-width (Hz) of the contiguous region around ``argmax g2`` where ``g2 >= (1 - delta) best``.
+
+    ``grid_phys``, ``g2``: shape (n_grid,), drive frequency (Hz) and squared sensitivity on it. This is how far the
+    locator may aim from the optimum and still measure at eta >= 1 - delta (0.15 gamma for a Lorentzian HWHM gamma).
+    A locator error eps in the primary parameter moves the aim point by eps (the dip shifts one to one), so it is
+    also the primary-parameter precision at which focus ends.
+    """
+    floor = (1.0 - REFINE_INFO_LOSS) * best
+    i = int(np.argmax(g2))
+    lo = hi = i
+    while lo > 0 and g2[lo - 1] >= floor:
+        lo -= 1
+    while hi < len(g2) - 1 and g2[hi + 1] >= floor:
+        hi += 1
+    eps = 0.5 * float(grid_phys[hi] - grid_phys[lo])
+    if not eps > 0.0:
+        raise ValueError("The efficiency grid is too coarse to resolve the region of near-optimal sensitivity.")
+    return eps
+
+
+def _primary_sensitivity(run_result: RunResult, primary: str) -> _Sensitivity:
+    """:class:`_Sensitivity`: squared sensitivity of each step's measurement and of the best possible one.
 
     ``g = d signal / d primary`` on the true signal, in signal / Hz; ``g_t^2`` has shape (n_steps,), taken at the
     step's physical drive frequency (Hz) and drive. The max is over a dense grid of the full drive-frequency
@@ -155,8 +209,12 @@ def _primary_sensitivity(run_result: RunResult, primary: str) -> tuple[np.ndarra
         y_dn = model.compute_many_float64(xs_phys, params_dn)
         return ((y_up - y_dn) / (up[idx] - dn[idx])) ** 2
 
-    best = max(float(np.max(grad_sq(d, grid_phys))) for d in _oracle_drives(true_signal))
-    if not best > 0.0:
+    best, best_g2 = 0.0, None
+    for d in _oracle_drives(true_signal):
+        g2 = grad_sq(d, grid_phys)
+        if float(np.max(g2)) > best:
+            best, best_g2 = float(np.max(g2)), g2
+    if best_g2 is None or not best > 0.0:
         raise ValueError(f"The true signal does not depend on {primary!r} anywhere on the drive range.")
 
     xs_all = np.array(
@@ -182,7 +240,8 @@ def _primary_sensitivity(run_result: RunResult, primary: str) -> tuple[np.ndarra
         raise ValueError(
             f"A measurement beat the grid optimum by {measured.max() / best - 1:.2%}; increase _EFFICIENCY_GRID_POINTS."
         )
-    return measured, best
+    eps = None if true_signal.model.controls_drive else _optimum_tolerance_phys(grid_phys, best_g2, best)
+    return _Sensitivity(measured, best, eps)
 
 
 def sensitivity_efficiency_trace(run_result: RunResult, primary: str) -> np.ndarray:
@@ -191,8 +250,12 @@ def sensitivity_efficiency_trace(run_result: RunResult, primary: str) -> np.ndar
     ``eta_t = g(x_t, d_t)^2 / max_{x, d} g(x, d)^2`` (see :func:`_primary_sensitivity`). See the module
     docstring for why this is the information relative to the CRLB-optimal measurement.
     """
-    measured, best = _primary_sensitivity(run_result, primary)
-    return measured / max(best, float(measured.max()))
+    return _efficiency(_primary_sensitivity(run_result, primary))
+
+
+def _efficiency(sens: _Sensitivity) -> np.ndarray:
+    """``eta_t = g_t^2 / max g^2``, shape: (n_steps,), in ``[0, 1]`` (the grid max is second-order accurate)."""
+    return sens.measured / max(sens.best, float(sens.measured.max()))
 
 
 def fisher_information_trace(run_result: RunResult, primary: str) -> np.ndarray:
@@ -202,7 +265,7 @@ def fisher_information_trace(run_result: RunResult, primary: str) -> np.ndarray:
     noise standard deviation of its observation. Informations add over independent measurements, so
     ``(sum_t I_t)^(-1/2)`` is the Cramer-Rao bound (nuisance parameters known) on ``primary``.
     """
-    measured, _ = _primary_sensitivity(run_result, primary)
+    measured = _primary_sensitivity(run_result, primary).measured
     shots = np.array([float(s.obs.n_shots) for s in run_result.snapshots])
     noise_std = np.array([float(s.obs.noise_std) for s in run_result.snapshots])
     return shots * measured / noise_std**2
@@ -235,6 +298,24 @@ def compute_stage_metrics(run_result: RunResult) -> dict[str, Any]:
     * ``stage{1,2,3}_err_end``: true error |estimate - truth| (Hz) of the primary parameter after the stage's last
       measurement (the accuracy reached by the end of the stage).
     * ``stage{1,2,3}_sens_eff``: mean sensitivity efficiency of the stage's measurements (module docstring).
+
+    The oracle and the axes each stage is judged on (see ``docs/evaluation_metrics.md``). With ``I*`` the Fisher
+    information about the primary parameter one measurement carries when taken at the best point (shots times
+    ``max g^2 / sigma^2``, Hz^-2 per step), a lower bound on the measurements a stage needs is
+    ``(precision to reach)^-2 / I*``; the efficiency is that bound over the steps actually spent:
+
+    * ``stage_fisher_star``: ``I*`` (Hz^-2 per step), the mean over steps.
+    * ``stage_eps_target_phys``: ``eps`` (Hz), how far from the best point a measurement may sit and still have
+      eta >= 1 - delta; the precision at which focus ends (``None`` for drive-controlled models).
+    * ``stage_tau_phys``: the stop target tau (Hz), the claimed-sigma threshold the run stops on.
+    * ``stage_fwhm_true_phys`` (``None`` for drive-controlled models, whose width depends on the drive),
+      ``stage_prior_fwhm_phys`` (the prior's mean FWHM), ``stage_window_phys`` (the drive-frequency range) and
+      ``stage_window_fwhm`` = window over true FWHM: the axes the stages scale with.
+    * ``stage2_oracle_steps`` = ``1 / (eps^2 I*)``: measurements to reach ``eps`` from scratch at the best point.
+      ``stage2_efficiency`` = that over ``stage2_steps``.
+    * ``stage3_oracle_steps`` = ``max(0, tau^-2 - u3^-2) / I*`` with ``u3`` the claimed sigma at refine start.
+      ``stage3_efficiency`` = that over ``stage3_steps``.
+    * ``stage{2,3}_wasted_share``: share of the stage's measurements with eta < 1 - delta.
     """
     snapshots = run_result.snapshots
     n_steps = len(snapshots)
@@ -246,6 +327,7 @@ def compute_stage_metrics(run_result: RunResult) -> dict[str, Any]:
         out[f"stage{k}_unc_ratio"] = None
         out[f"stage{k}_err_end"] = None
         out[f"stage{k}_sens_eff"] = None
+    out.update({key: None for key in STAGE_METRIC_KEYS if key not in out})
     if n_steps == 0:
         return out
 
@@ -256,7 +338,8 @@ def compute_stage_metrics(run_result: RunResult) -> dict[str, Any]:
         # same convention as the primary milestone (see resolve_primary_param).
         return out
     out["stage_primary_param"] = primary
-    eta = sensitivity_efficiency_trace(run_result, primary)
+    sens = _primary_sensitivity(run_result, primary)
+    eta = _efficiency(sens)
     shots = np.array([float(s.obs.n_shots) for s in snapshots])
 
     unc_trace = [float(s.belief.uncertainty().get(primary, math.nan)) for s in snapshots]
@@ -297,4 +380,55 @@ def compute_stage_metrics(run_result: RunResult) -> dict[str, Any]:
         if n_in_stage > 0:
             w = shots[first : final + 1]
             out[f"stage{k}_sens_eff"] = float(np.sum(w * eta[first : final + 1]) / np.sum(w))
+            if k > 1:
+                out[f"stage{k}_wasted_share"] = float(np.mean(eta[first : final + 1] < 1.0 - REFINE_INFO_LOSS))
+    _add_oracle_metrics(run_result, primary, sens, shots, out)
     return out
+
+
+def _true_fwhm_phys(true_signal: Any) -> float | None:
+    """Effective FWHM (Hz) of the true dip, ``2 * effective_hwhm``; ``None`` when the width depends on the drive."""
+    from nvision.spectra.nv_center import effective_hwhm
+
+    if true_signal.model.controls_drive:
+        return None
+    return 2.0 * float(effective_hwhm(true_signal.parameter_values()))
+
+
+def _add_oracle_metrics(
+    run_result: RunResult, primary: str, sens: _Sensitivity, shots: np.ndarray, out: dict[str, Any]
+) -> None:
+    """Fill the oracle / axis fields of :func:`compute_stage_metrics` (``out`` already holds the stage metrics).
+
+    ``shots``: shape (n_steps,), averaged shots per step.
+    """
+    from nvision.belief.dip_detection import hwhm_fwhm_prior_hz
+    from nvision.metrics.series import effective_convergence_threshold
+
+    snapshots = run_result.snapshots
+    noise_std = np.array([float(s.obs.noise_std) for s in snapshots])
+    fisher_star = float(np.mean(shots * sens.best / noise_std**2))  # Hz^-2 per step
+    belief = snapshots[0].belief
+    x_lo_phys, x_hi_phys = belief.drive_freq_bounds_phys
+    fwhm_true = _true_fwhm_phys(run_result.true_signal)
+    tau = effective_convergence_threshold(run_result, primary)
+    out["stage_fisher_star"] = _finite_or_none(fisher_star)
+    out["stage_eps_target_phys"] = None if sens.eps_phys is None else _finite_or_none(sens.eps_phys)
+    out["stage_tau_phys"] = None if tau is None else _finite_or_none(float(tau))
+    out["stage_fwhm_true_phys"] = None if fwhm_true is None else _finite_or_none(fwhm_true)
+    out["stage_prior_fwhm_phys"] = _finite_or_none(float(hwhm_fwhm_prior_hz(belief.physical_param_bounds)[0]))
+    out["stage_window_phys"] = _finite_or_none(float(x_hi_phys - x_lo_phys))
+    out["stage_window_fwhm"] = None if not fwhm_true else _finite_or_none(float(x_hi_phys - x_lo_phys) / fwhm_true)
+
+    # Lower bounds: measurements at the best point, nuisance parameters known (module docstring).
+    if sens.eps_phys is not None:
+        oracle2 = 1.0 / (sens.eps_phys**2 * fisher_star)
+        out["stage2_oracle_steps"] = _finite_or_none(oracle2)
+        if out["stage2_steps"]:
+            out["stage2_efficiency"] = _finite_or_none(oracle2 / out["stage2_steps"])
+    u3 = out["stage3_unc_start"]
+    if tau is not None and u3 is not None:
+        oracle3 = max(0.0, float(tau) ** -2 - u3**-2) / fisher_star
+        out["stage3_oracle_steps"] = _finite_or_none(oracle3)
+        if out["stage3_steps"]:
+            out["stage3_efficiency"] = _finite_or_none(oracle3 / out["stage3_steps"])

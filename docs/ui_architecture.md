@@ -163,6 +163,15 @@ Key sections inside `main()` (in order of appearance):
      `hl-stages-steps-<n>` and the claimed-uncertainty / true-error curves over that stage only (`hl-stage-unc-<n>`,
      `hl-stage-err-<n>`; `renderHlStageCurve(..., stage)` draws each run at its own measurement numbers, only between the start and end of the stage). The
      single-repeat panels (`#scan-run-content`) are shown only in the Run view, collapsed the same way elsewhere.
+     The curves also draw the Fisher bound (dashed, claimed σ of stages 2 and 3, `hlFisherAt`: from `stage_fisher_star`
+     and the stage's claimed σ at its start), a −½ slope reference, and a "runs left" strip on a second y-axis; they stop
+     where fewer than half the repeats remain in the stage. `hl-whole-table` (`renderHlWholeTable`) and the stacked
+     `hl-stages-steps` bar (`hlStageStackTraces`) belong to *Whole run*; `hl-paired-<n>` (`renderHlPaired`) is the paired
+     per-repeat difference against Bayesian-SBED, drawn only for a single use case.
+   * **Scaling** (`renderScalingTab`, `renderScaling`, view `#scaling-view`) — one point per use case (median over its
+     repeats) of the stage steps against window, SNR and (FWHM/(SNR τ))², for the locators picked in `#scaling-pick`
+     (default SBED). A panel is drawn only when the selection spans at least two values of its x-axis (a window or SNR
+     range is chosen by dragging across the chips). Predicted scaling dotted, Fisher bound dashed.
    * **Accuracy** (`renderAccuracyTab`) — whether the stop is reliable: true error at the stop in units of τ,
      claimed σ against the true error over measurements, and claimed σ against the true error.
 
