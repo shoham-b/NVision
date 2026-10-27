@@ -26,7 +26,7 @@ class _Belief:
     def estimates(self):
         return {"zeeman_shift": self._estimate}
 
-    def current_dips(self):
+    def current_dips(self, p_fa=None):
         return [object()] if self._has_dip else []
 
 

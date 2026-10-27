@@ -67,6 +67,10 @@ from nvision.spectra.nv_center_drive import RABI_PER_AMP_BOUNDS
 
 # delta: the refine stage may lose at most this fraction of the oracle's Fisher information (CRLB within 1/(1-delta)).
 REFINE_INFO_LOSS = 0.1
+# Family-wise false-alarm level of the dip scan that marks the start of the focus stage. Looser than the
+# locator's NVISION_DIP_P_FA: the uncertainty already drops like a focus stage before a dip passes the
+# locator's test, so the metric declares the focus stage earlier than the locator acts on it.
+FOCUS_FOUND_P_FA = 0.5
 _EFFICIENCY_GRID_POINTS = 4001
 _GRID_MAX_TOLERANCE = 0.01
 _ORACLE_DRIVE_AMPS = 48
@@ -261,7 +265,9 @@ def compute_stage_metrics(run_result: RunResult) -> dict[str, Any]:
 
     # Measurement indices (0-based). The measurement that reveals the dip ends the search; refine is the
     # efficient tail, which starts after that measurement.
-    focus_idx: int | None = next((i for i, s in enumerate(snapshots) if s.belief.current_dips()), None)
+    focus_idx: int | None = next(
+        (i for i, s in enumerate(snapshots) if s.belief.current_dips(p_fa=FOCUS_FOUND_P_FA)), None
+    )
     refine_idx: int | None = None
     if focus_idx is not None:
         refine_idx = _refine_start(eta, shots, focus_idx + 1)
