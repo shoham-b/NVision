@@ -64,6 +64,7 @@
             <button type="button" role="radio" aria-checked="false" data-value="locators" tabindex="-1">Cost &amp; search</button>
             <button type="button" role="radio" aria-checked="false" data-value="accuracy" tabindex="-1">Accuracy</button>
             <button type="button" role="radio" aria-checked="false" data-value="stages" tabindex="-1">Stages</button>
+            <button type="button" role="radio" aria-checked="false" data-value="scaling" tabindex="-1">Scaling</button>
             <button type="button" role="radio" aria-checked="false" data-value="failed-runs" tabindex="-1" id="scan-view-failed-runs-btn" style="display:none;">Failed Runs</button>
         </div>
     </div>
@@ -245,11 +246,16 @@
                     <div id="hl-stages-errcurve" style="height:420px; width:100%;"></div>
                 </div>
             </div>
+            <div id="hl-whole-table" style="margin:1em 0; overflow-x:auto;"></div>
             <div style="display:flex; flex-wrap:wrap; gap:1.5em; margin-top:1em;">
                 <div style="flex:1 1 46%; min-width:420px; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px;">
-                    <h3 style="margin-left:10px;">Measurements spent in each stage <span tabindex="0" class="help-icon-visible" title="Median measurements per stage over the repeats that reached it; whiskers are the interquartile range.">?</span></h3>
+                    <h3 style="margin-left:10px;">Where the measurements go <span tabindex="0" class="help-icon-visible" title="Median measurements in each stage, stacked, one bar per locator (over the runs that reached the stage). The stack decomposes a typical run; the median total is in the table above.">?</span></h3>
                     <div id="hl-stages-steps" style="height:320px; width:100%;"></div>
                 </div>
+            </div>
+            <div style="margin-top:1em; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px;">
+                <h3 style="margin-left:10px;">Paired difference per repeat <span tabindex="0" class="help-icon-visible" title="Repeat i has the same true signal for every locator, so the total measurements of a locator minus Bayesian-SBED's on the same repeat cancels the signal-to-signal spread. Right of zero = SBED needed fewer. Shown for a single use case (Each use case).">?</span></h3>
+                <div id="hl-paired-0" style="height:320px; width:100%;"></div>
             </div>
         </section>
         <section data-stage="1" style="margin:1em 0 0;">
@@ -258,12 +264,12 @@
             <div id="hl-stage-compare-1" style="margin:0.5em 0 1em; overflow-x:auto;"></div>
             <div style="display:flex; flex-wrap:wrap; gap:1.5em;">
                 <div style="flex:1 1 46%; min-width:420px; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px;">
-                    <h3 style="margin-left:10px;">Claimed uncertainty in the search stage <span tabindex="0" class="help-icon-visible" title="Median claimed uncertainty of the primary parameter, only over the search stage: each run is drawn at its own measurement numbers, from the start of the stage to its end; runs that never reached it are left out. Band = interquartile range.">?</span></h3>
-                    <div id="hl-stage-unc-1" style="height:320px; width:100%;"></div>
+                    <h3 style="margin-left:10px;">Claimed uncertainty in the search stage <span tabindex="0" class="help-icon-visible" title="Median claimed uncertainty of the primary parameter, only over the search stage: each run is drawn at its own measurement numbers, from the start of the stage to its end; runs that never reached it are left out (legend: reached / all runs). Band = interquartile range. Dashed = Fisher bound, dotted = slope −½.">?</span></h3>
+                    <div id="hl-stage-unc-1" style="height:420px; width:100%;"></div>
                 </div>
                 <div style="flex:1 1 46%; min-width:420px; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px;">
                     <h3 style="margin-left:10px;">True error in the search stage <span tabindex="0" class="help-icon-visible" title="Median true |estimate - truth| of the primary parameter, over the search stage only (same alignment as the uncertainty chart).">?</span></h3>
-                    <div id="hl-stage-err-1" style="height:320px; width:100%;"></div>
+                    <div id="hl-stage-err-1" style="height:420px; width:100%;"></div>
                 </div>
             </div>
             <div style="display:flex; flex-wrap:wrap; gap:1.5em; margin-top:1em;">
@@ -272,19 +278,23 @@
                     <div id="hl-stages-steps-1" style="height:320px; width:100%;"></div>
                 </div>
             </div>
+            <div style="margin-top:1em; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px;">
+                <h3 style="margin-left:10px;">Paired difference per repeat <span tabindex="0" class="help-icon-visible" title="Repeat i has the same true signal for every locator, so the search steps of a locator minus Bayesian-SBED's on the same repeat cancels the signal-to-signal spread. Right of zero = SBED needed fewer. Shown for a single use case (Each use case).">?</span></h3>
+                <div id="hl-paired-1" style="height:320px; width:100%;"></div>
+            </div>
         </section>
         <section data-stage="2" style="margin:1em 0 0;">
             <h3 style="margin:0 0 0.2em; font-size:1.1em; color:#0f172a;">2. Focus</h3>
-            <p style="margin:0 0 0.6em; font-size:0.85em; color:#475569;"><b>Driven by:</b> precision relative to the line, FWHM_true / SNR: going from “dip seen” (uncertainty ≈ FWHM) to “located near the steepest slope”. <b>Metric:</b> measurements in the focus stage; sensitivity = how close the stage measured to the steepest point.</p>
+            <p style="margin:0 0 0.6em; font-size:0.85em; color:#475569;"><b>Driven by:</b> the information per measurement, which grows as SNR² (so the cost of a given precision falls as 1/SNR²). Going from “dip seen” to “located near the steepest slope”, i.e. to a precision eps where the sensitivity is still ≥ 90% of its best. <b>Metric:</b> measurements in the focus stage against the Fisher bound (efficiency = bound ÷ steps); the dashed line in the claimed-uncertainty chart is the best any measurements could do from the same start. Whether focus depends on the window or the locator is in the Scaling view.</p>
             <div id="hl-stage-compare-2" style="margin:0.5em 0 1em; overflow-x:auto;"></div>
             <div style="display:flex; flex-wrap:wrap; gap:1.5em;">
                 <div style="flex:1 1 46%; min-width:420px; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px;">
-                    <h3 style="margin-left:10px;">Claimed uncertainty in the focus stage <span tabindex="0" class="help-icon-visible" title="Median claimed uncertainty of the primary parameter, only over the focus stage: each run is drawn at its own measurement numbers, from the start of the stage to its end; runs that never reached it are left out. Band = interquartile range.">?</span></h3>
-                    <div id="hl-stage-unc-2" style="height:320px; width:100%;"></div>
+                    <h3 style="margin-left:10px;">Claimed uncertainty in the focus stage <span tabindex="0" class="help-icon-visible" title="Median claimed uncertainty of the primary parameter, only over the focus stage: each run is drawn at its own measurement numbers, from the start of the stage to its end; runs that never reached it are left out (legend: reached / all runs). Band = interquartile range. Dashed = Fisher bound, dotted = slope −½.">?</span></h3>
+                    <div id="hl-stage-unc-2" style="height:420px; width:100%;"></div>
                 </div>
                 <div style="flex:1 1 46%; min-width:420px; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px;">
                     <h3 style="margin-left:10px;">True error in the focus stage <span tabindex="0" class="help-icon-visible" title="Median true |estimate - truth| of the primary parameter, over the focus stage only (same alignment as the uncertainty chart).">?</span></h3>
-                    <div id="hl-stage-err-2" style="height:320px; width:100%;"></div>
+                    <div id="hl-stage-err-2" style="height:420px; width:100%;"></div>
                 </div>
             </div>
             <div style="display:flex; flex-wrap:wrap; gap:1.5em; margin-top:1em;">
@@ -293,6 +303,10 @@
                     <div id="hl-stages-steps-2" style="height:320px; width:100%;"></div>
                 </div>
             </div>
+            <div style="margin-top:1em; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px;">
+                <h3 style="margin-left:10px;">Paired difference per repeat <span tabindex="0" class="help-icon-visible" title="Repeat i has the same true signal for every locator, so the focus steps of a locator minus Bayesian-SBED's on the same repeat cancels the signal-to-signal spread. Right of zero = SBED needed fewer. Shown for a single use case (Each use case).">?</span></h3>
+                <div id="hl-paired-2" style="height:320px; width:100%;"></div>
+            </div>
         </section>
         <section data-stage="3" style="margin:1em 0 0;">
             <h3 style="margin:0 0 0.2em; font-size:1.1em; color:#0f172a;">3. Refine</h3>
@@ -300,12 +314,12 @@
             <div id="hl-stage-compare-3" style="margin:0.5em 0 1em; overflow-x:auto;"></div>
             <div style="display:flex; flex-wrap:wrap; gap:1.5em;">
                 <div style="flex:1 1 46%; min-width:420px; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px;">
-                    <h3 style="margin-left:10px;">Claimed uncertainty in the refine stage <span tabindex="0" class="help-icon-visible" title="Median claimed uncertainty of the primary parameter, only over the refine stage: each run is drawn at its own measurement numbers, from the start of the stage to its end; runs that never reached it are left out. Band = interquartile range.">?</span></h3>
-                    <div id="hl-stage-unc-3" style="height:320px; width:100%;"></div>
+                    <h3 style="margin-left:10px;">Claimed uncertainty in the refine stage <span tabindex="0" class="help-icon-visible" title="Median claimed uncertainty of the primary parameter, only over the refine stage: each run is drawn at its own measurement numbers, from the start of the stage to its end; runs that never reached it are left out (legend: reached / all runs). Band = interquartile range. Dashed = Fisher bound, dotted = slope −½.">?</span></h3>
+                    <div id="hl-stage-unc-3" style="height:420px; width:100%;"></div>
                 </div>
                 <div style="flex:1 1 46%; min-width:420px; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px;">
                     <h3 style="margin-left:10px;">True error in the refine stage <span tabindex="0" class="help-icon-visible" title="Median true |estimate - truth| of the primary parameter, over the refine stage only (same alignment as the uncertainty chart).">?</span></h3>
-                    <div id="hl-stage-err-3" style="height:320px; width:100%;"></div>
+                    <div id="hl-stage-err-3" style="height:420px; width:100%;"></div>
                 </div>
             </div>
             <div style="display:flex; flex-wrap:wrap; gap:1.5em; margin-top:1em;">
@@ -322,9 +336,23 @@
                     <div id="hl-refine-err" style="height:320px; width:100%;"></div>
                 </div>
             </div>
+            <div style="margin-top:1em; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px;">
+                <h3 style="margin-left:10px;">Paired difference per repeat <span tabindex="0" class="help-icon-visible" title="Repeat i has the same true signal for every locator, so the refine steps of a locator minus Bayesian-SBED's on the same repeat cancels the signal-to-signal spread. Right of zero = SBED needed fewer. Shown for a single use case (Each use case).">?</span></h3>
+                <div id="hl-paired-3" style="height:320px; width:100%;"></div>
+            </div>
         </section>
-        <p style="margin:1em 0 0; font-size:0.8em; color:#94a3b8;">The physical axes named above (points per true FWHM, FWHM_true / SNR) are not plotted yet; see “Not done yet” in docs/evaluation_metrics.md. Whether the claimed σ is right is in the Accuracy view.</p>
+        <p style="margin:1em 0 0; font-size:0.8em; color:#94a3b8;">How each stage scales with the window, SNR and line width is in the Scaling view. Whether the claimed σ is right is in the Accuracy view. Fisher bounds and efficiencies need runs recorded after the oracle columns were added; older runs show a dash.</p>
         </div>
+    </div>
+
+    <!-- ── Scaling tab: does each stage's cost follow its driver? ─────────── -->
+    <div id="scaling-view" style="display:none; margin-top:1em; padding-top:1em; border-top:1px solid #eee;">
+        <h2 style="margin:0 0 0.4em;">Scaling — does each stage follow its driver? <span tabindex="0" class="help-icon-visible" title="One locator at a time (add more with the chips), many use cases: how the cost of the search, focus and refine stages changes with the window, the SNR and the line width. Each panel needs at least two values of its x-axis in the selection. Dotted = what the stage's driver predicts, dashed = Fisher bound. These are hypotheses: where the data disagree, the data win.">?</span></h2>
+        <div style="display:flex; flex-wrap:wrap; align-items:center; gap:0.5em; margin:0 0 0.6em;">
+            <span class="control-label" style="font-size:0.85em; font-weight:600; color:#334155;">Locators:</span>
+            <div id="scaling-pick" style="display:flex; flex-wrap:wrap; gap:0.4em;"></div>
+        </div>
+        <div id="scaling-body"></div>
     </div>
 
     <!-- ── Accuracy tab: uncertainty quality ──────────────────────────────── -->
