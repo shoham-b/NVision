@@ -291,8 +291,8 @@ def voigt_sigma_inhom_param_grid_generators() -> list[tuple[str, object]]:
     return generators
 
 
-def _fmt_window(window_fwhm: float) -> str:
-    return f"fw{window_fwhm:g}"
+def _fmt_occupancy(occupancy: float) -> str:
+    return f"occ{occupancy:g}"
 
 
 def _fmt_gaussian_share(share: float) -> str:
@@ -304,9 +304,11 @@ def voigt_snr_window_param_grid_generators() -> list[tuple[str, object]]:
 
     One thing changes per axis:
 
-    * **Window / FWHM** (``fw<N>`` in the name): the drive-frequency window is ``N`` times ONE total FWHM
-      (``NVISION_SBED_FWHM``) shared by every signal, so a window is the same absolute width whatever the line shape.
-      The window is ``[D, D + N * FWHM]``, and the Zeeman range follows it
+    * **Signal occupancy** (``occ<x>`` in the name): the share of the drive-frequency window one dip group covers
+      (its hyperfine lines' FWHM intervals, overlap counted once). ONE total FWHM (``NVISION_SBED_FWHM``) is shared by
+      every signal, so the covered width is that FWHM times the lines it spans and the window is that width / ``x``:
+      the same occupancy is a different absolute window per isotope, and the same share of signal in view.
+      The window is ``[D, D + covered / x]``, and the Zeeman range follows it
       (:func:`~nvision.spectra.nv_center.max_zeeman_shift_for_window`). Fixing the FWHM rather than stretching the
       window is what keeps everything with a physical scale (hyperfine offsets, the absolute convergence thresholds,
       the candidate step) meaningful across the axis.
@@ -323,21 +325,24 @@ def voigt_snr_window_param_grid_generators() -> list[tuple[str, object]]:
         NVISION_SBED_FWHM,
         NVISION_SBED_GAUSSIAN_SHARES,
         NVISION_SBED_HYPERFINE_VALUES,
+        NVISION_SBED_SIGNAL_OCCUPANCY_VALUES,
         NVISION_SBED_SNR_CONTRAST,
-        NVISION_SBED_WINDOW_FWHM_VALUES,
     )
     from nvision.spectra.nv_center import (
         _SATURATION_VOIGT_SQRT2LOG2,
         MIN_HWHM,
         NV_ZERO_FIELD_SPLITTING_HZ,
         _voigt_reparam_scalar,
+        hyperfine_covered_width,
         hyperfine_geometry,
         max_zeeman_shift_for_window,
         zeeman_shift_edge_pad,
     )
 
     generators: list[tuple[str, object]] = []
-    for window_fwhm in NVISION_SBED_WINDOW_FWHM_VALUES:
+    for occupancy in NVISION_SBED_SIGNAL_OCCUPANCY_VALUES:
+        if not 0.0 < occupancy <= 1.0:
+            raise ValueError(f"Signal occupancy must be in (0, 1], got {occupancy}")
         for share in NVISION_SBED_GAUSSIAN_SHARES:
             if not 0.0 <= share < 1.0:
                 raise ValueError(f"Gaussian share must be in [0, 1), got {share}")
@@ -349,14 +354,15 @@ def voigt_snr_window_param_grid_generators() -> list[tuple[str, object]]:
                 )
             sigma_inhom = share * NVISION_SBED_FWHM / (2.0 * _SATURATION_VOIGT_SQRT2LOG2)
             fwhm_total, _ = _voigt_reparam_scalar(hwhm_lorentz, sigma_inhom)
-            zeeman_max = max_zeeman_shift_for_window(window_fwhm * NVISION_SBED_FWHM)
 
             for hyperfine in NVISION_SBED_HYPERFINE_VALUES:
+                window = hyperfine_covered_width(fwhm_total, hyperfine) / occupancy
+                zeeman_max = max_zeeman_shift_for_window(window)
                 pad = zeeman_shift_edge_pad(fwhm_total, hyperfine_geometry(hyperfine)[0])
                 if not pad < zeeman_max:
                     continue
                 name = (
-                    f"NVCenter-voigt-{_fmt_window(window_fwhm)}-{_fmt_gaussian_share(share)}-"
+                    f"NVCenter-voigt-{_fmt_occupancy(occupancy)}-{_fmt_gaussian_share(share)}-"
                     f"{_fmt_hyperfine(hyperfine)}"
                 )
                 generators.append(
@@ -364,13 +370,13 @@ def voigt_snr_window_param_grid_generators() -> list[tuple[str, object]]:
                         name,
                         NVCenterCoreGenerator(
                             drive_freq_min_phys=NV_ZERO_FIELD_SPLITTING_HZ,
-                            drive_freq_max_phys=NV_ZERO_FIELD_SPLITTING_HZ + window_fwhm * NVISION_SBED_FWHM,
+                            drive_freq_max_phys=NV_ZERO_FIELD_SPLITTING_HZ + window,
                             variant="voigt",
                             hwhm=hwhm_lorentz,
                             contrast_total=NVISION_SBED_SNR_CONTRAST,
                             sigma_inhom=sigma_inhom,
                             hyperfine=hyperfine,
-                            window_fwhm=window_fwhm,
+                            window_fwhm=window / NVISION_SBED_FWHM,
                         ),
                     )
                 )

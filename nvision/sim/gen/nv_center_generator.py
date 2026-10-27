@@ -36,6 +36,7 @@ from nvision.spectra.nv_center import (
     NVCenterVoigtSpectrum,
     NVCenterVoigtZeemanSpectrum,
     _voigt_reparam_scalar,
+    hyperfine_covered_width,
     hyperfine_geometry,
     max_zeeman_shift_for_window,
     nv_center_lorentzian_bounds_for_domain,
@@ -112,6 +113,27 @@ class NVCenterCoreGenerator:
             return None
         _, lorentz_frac = _voigt_reparam_scalar(self.hwhm, self.sigma_inhom)
         return 1.0 - lorentz_frac
+
+    @property
+    def effective_fwhm_phys(self) -> float | None:
+        """Frequency (Hz) one dip group of an SNR x window signal covers (see ``hyperfine_covered_width``)."""
+        if self.window_fwhm is None or self.hwhm is None or self.sigma_inhom is None:
+            return None
+        fwhm_total, _ = _voigt_reparam_scalar(self.hwhm, self.sigma_inhom)
+        return hyperfine_covered_width(fwhm_total, self.hyperfine)
+
+    @property
+    def signal_occupancy(self) -> float | None:
+        """Share of the drive-frequency window one dip group covers (``effective_fwhm_phys / window``), in (0, 1].
+
+        The axis of the SNR x window grid: comparable across isotopes and line shapes, which the bare-FWHM ratio
+        ``window_fwhm`` is not (an N-14 triplet fills more of the same window than an unresolved line). ``None``
+        outside the SNR x window study.
+        """
+        extent = self.effective_fwhm_phys
+        if extent is None:
+            return None
+        return extent / (self.drive_freq_max_phys - self.drive_freq_min_phys)
 
     @property
     def width_bounds_reference_phys(self) -> float:

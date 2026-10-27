@@ -9,6 +9,7 @@ import nvision.sim.defaults as sim_defaults
 from nvision.sim import presets as sim_presets
 from nvision.sim import run_groups as sim_run_groups
 from nvision.sim.combinations import CombinationGrid
+from nvision.sim.gen.nv_center_generator import NVCenterCoreGenerator
 from nvision.spectra.nv_center import NV_SATURATION_C_MAX, _saturation_voigt_reparam_scalar
 
 
@@ -100,20 +101,20 @@ def test_snr_noise_resolves_to_the_sigma_of_each_signal(monkeypatch):
 
     grid = CombinationGrid(
         extra_generators={
-            "NVCenter-voigt-fw10-test-c0.2": NVCenterCoreGenerator(variant="voigt", contrast_total=0.2),
-            "NVCenter-voigt-fw10-test-free": NVCenterCoreGenerator(variant="voigt"),
+            "NVCenter-voigt-occ0.1-test-c0.2": NVCenterCoreGenerator(variant="voigt", contrast_total=0.2),
+            "NVCenter-voigt-occ0.1-test-free": NVCenterCoreGenerator(variant="voigt"),
         }
     )
 
     def sigma(gen: str) -> float:
         return grid.resolve(gen, "SNR(20)", "Bayesian-SBED").noise.over_frequency_noise._parts[0].std
 
-    assert sigma("NVCenter-voigt-fw10-test-c0.2") == pytest.approx(0.2 / 20)
+    assert sigma("NVCenter-voigt-occ0.1-test-c0.2") == pytest.approx(0.2 / 20)
     # A signal with no fixed contrast: the SNR is nominal, against the study contrast.
-    assert sigma("NVCenter-voigt-fw10-test-free") == pytest.approx(sim_defaults.NVISION_SBED_SNR_CONTRAST / 20)
+    assert sigma("NVCenter-voigt-occ0.1-test-free") == pytest.approx(sim_defaults.NVISION_SBED_SNR_CONTRAST / 20)
     monkeypatch.setattr(sim_defaults, "NVISION_SBED_SNR_CONTRAST", 0.5)
-    assert sigma("NVCenter-voigt-fw10-test-free") == pytest.approx(0.5 / 20)
-    assert grid.resolve("NVCenter-voigt-fw10-test-c0.2", "SNR(20)+Drift(no-such)", "Bayesian-SBED") is None
+    assert sigma("NVCenter-voigt-occ0.1-test-free") == pytest.approx(0.5 / 20)
+    assert grid.resolve("NVCenter-voigt-occ0.1-test-c0.2", "SNR(20)+Drift(no-such)", "Bayesian-SBED") is None
 
 
 def test_snr_noises_reject_non_positive_snr(monkeypatch):
@@ -127,7 +128,7 @@ def test_snr_window_grid_has_one_total_fwhm_and_varies_one_thing_per_axis():
     from nvision.spectra.nv_center import _voigt_reparam_scalar, max_zeeman_shift_for_window
 
     generators = dict(sim_presets.voigt_snr_window_param_grid_generators())
-    assert len(generators) == 24
+    assert len(generators) == 36  # 4 occupancies x 3 Gaussian shares x 3 isotopes
     assert {g.hyperfine for g in generators.values()} == set(sim_defaults.NVISION_SBED_HYPERFINE_VALUES)
     for gen in generators.values():
         assert gen.contrast_total == sim_defaults.NVISION_SBED_SNR_CONTRAST
@@ -166,7 +167,7 @@ def test_gaussian_share_is_only_defined_for_the_snr_window_study():
 def test_snr_window_generator_draws_dips_inside_its_window():
     import random
 
-    gen = next(g for n, g in sim_presets.voigt_snr_window_param_grid_generators() if "-fw20-" in n)
+    gen = next(g for n, g in sim_presets.voigt_snr_window_param_grid_generators() if "-occ0.05-" in n)
     for seed in range(20):
         signal = gen.generate(random.Random(seed))
         values = signal.parameter_values()
@@ -212,7 +213,7 @@ def test_snr_window_belief_inherits_the_generator_window():
 
     from nvision.sim.locs.bayesian.belief_builders import nv_center_smc_belief
 
-    name = next(n for n, _ in sim_presets.voigt_snr_window_param_grid_generators() if "-fw20-" in n)
+    name = next(n for n, _ in sim_presets.voigt_snr_window_param_grid_generators() if "-occ0.05-" in n)
     combo = CombinationGrid().resolve(name, sim_presets.snr_study_noises()[0][0], "Bayesian-SBED")
     signal = combo.generator.generate(random.Random(0))
     cfg = {k: v for k, v in combo.strategy["config"].items() if k not in ("builder", "max_steps")}
@@ -333,19 +334,19 @@ def test_select_snr_window_narrows_a_group_by_snr_and_window():
     combos = group.combinations()
     gens = group.extra_generators
 
-    at_window = sim_run_groups.select_snr_window(combos, gens, window_fwhm=[10.0])
+    at_window = sim_run_groups.select_snr_window(combos, gens, signal_occupancy=[0.1])
     assert at_window
-    assert {gens[g].window_fwhm for g, _, _ in at_window} == {10.0}
+    assert {round(gens[g].signal_occupancy, 9) for g, _, _ in at_window} == {0.1}
     assert {n for _, n, _ in at_window} == set(group.noise_names)
 
     at_snr = sim_run_groups.select_snr_window(combos, gens, snr=[10.0])
     assert [sim_run_groups.snr_of_noise(n) for _, n, _ in at_snr] == pytest.approx([10.0] * len(at_snr))
     assert {g for g, _, _ in at_snr} == set(group.generator_names)
 
-    both = sim_run_groups.select_snr_window(combos, gens, snr=[2.0, 10.0], window_fwhm=[5.0, 20.0])
-    # 15 generators have window_fwhm in [5.0, 20.0] (fw5 and fw20 for unresolved/n15, fw20 for n14),
+    both = sim_run_groups.select_snr_window(combos, gens, snr=[2.0, 10.0], signal_occupancy=[0.2, 0.05])
+    # 18 generators have signal_occupancy in [0.2, 0.05] (3 shares x 3 isotopes at each),
     # across 2 SNRs and all locators
-    assert len(both) == 15 * 2 * len(group.strategy_names)
+    assert len(both) == 18 * 2 * len(group.strategy_names)
     assert sim_run_groups.select_snr_window(combos, gens, snr=[3.3]) == []
     assert sim_run_groups.select_snr_window(combos, gens) == combos
 
@@ -354,7 +355,7 @@ def test_select_snr_window_matches_nothing_for_signals_without_a_stated_window()
     sim_run_groups.clear_run_group_cache()
     group = sim_run_groups.get_run_group("drive-control")
     combos = group.combinations()
-    assert sim_run_groups.select_snr_window(combos, group.extra_generators, window_fwhm=[10.0]) == []
+    assert sim_run_groups.select_snr_window(combos, group.extra_generators, signal_occupancy=[0.1]) == []
     assert sim_run_groups.select_snr_window(combos, group.extra_generators, snr=[20.0])
 
 
@@ -394,3 +395,41 @@ def test_drift_study_noise_is_posed_as_an_snr(monkeypatch):
     assert names[0] == "SNR(50)"
     assert all(n.startswith("SNR(50)") for n in names)
     assert names[1:] == [f"SNR(50)+Drift({spec.label})" for spec in sim_presets.drift_scenarios()]
+
+
+def test_signal_occupancy_is_the_union_of_the_hyperfine_lines_fwhm_intervals():
+    """Occupancy = covered frequency / window: n lines of one FWHM each, minus where neighbouring lines overlap."""
+    from nvision.spectra.nv_center import hyperfine_geometry
+
+    fwhm = sim_defaults.NVISION_SBED_FWHM
+    by_name = dict(sim_presets.voigt_snr_window_param_grid_generators())
+    for gen in by_name.values():
+        window = gen.drive_freq_max_phys - gen.drive_freq_min_phys
+        offset, _, n_lines = hyperfine_geometry(gen.hyperfine)
+        # adjacent lines are `spacing` apart: N-14 offset, N-15 twice its (half-coupling) offset
+        spacing = {1: fwhm, 2: 2.0 * offset, 3: offset}[n_lines]
+        covered = fwhm + (n_lines - 1) * min(fwhm, spacing)
+        assert gen.signal_occupancy == pytest.approx(covered / window)
+        assert 0.0 < gen.signal_occupancy <= 1.0
+    # The grid is posed in occupancy, so every isotope hits the grid value exactly; the window is what differs.
+    grid_values = {round(g.signal_occupancy, 9) for g in by_name.values()}
+    assert grid_values == {round(v, 9) for v in sim_defaults.NVISION_SBED_SIGNAL_OCCUPANCY_VALUES}
+    at_occ = {
+        g.hyperfine: g.drive_freq_max_phys - g.drive_freq_min_phys for n, g in by_name.items() if "-occ0.1-gs0-" in n
+    }
+    assert at_occ["unresolved"] == pytest.approx(10 * fwhm)
+    assert at_occ["n15"] == pytest.approx(20 * fwhm)  # lines 3.03 MHz apart > FWHM: no overlap, 2 FWHM covered
+    assert at_occ["n14"] == pytest.approx(30 * fwhm)  # lines 2.16 MHz apart > FWHM: no overlap, 3 FWHM covered
+    assert NVCenterCoreGenerator(variant="voigt").signal_occupancy is None
+
+
+def test_signal_occupancy_counts_overlapping_lines_once(monkeypatch):
+    """Lines closer than a FWHM share their overlap: three lines A apart cover 3 FWHM - 2 (FWHM - A)."""
+    import nvision.spectra.nv_center as nv
+
+    fwhm = sim_defaults.NVISION_SBED_FWHM
+    a = 0.75 * fwhm
+    monkeypatch.setattr(nv, "hyperfine_geometry", lambda hyperfine: (a, 1.0, 3))
+    assert nv.hyperfine_covered_width(fwhm, "n14") == pytest.approx(3 * fwhm - 2 * (fwhm - a))
+    monkeypatch.setattr(nv, "hyperfine_geometry", lambda hyperfine: (a / 2.0, 0.0, 2))
+    assert nv.hyperfine_covered_width(fwhm, "n15") == pytest.approx(2 * fwhm - (fwhm - a))

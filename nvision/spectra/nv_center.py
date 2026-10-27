@@ -9,6 +9,7 @@ import math
 import os
 from collections.abc import Sequence
 from dataclasses import dataclass
+from itertools import pairwise
 
 import numpy as np
 from dotenv import load_dotenv
@@ -210,6 +211,19 @@ DEFAULT_NV_DRIVE_FREQ_MAX_PHYS = NV_ZERO_FIELD_SPLITTING_HZ + NV_DRIVE_FREQ_DELT
 NV_ZEEMAN_WINDOW_FRACTION: float = 0.4
 
 
+def hyperfine_covered_width(fwhm_total_phys: float, hyperfine: str) -> float:
+    """Frequency (Hz) one dip group covers: the union of its hyperfine lines' FWHM intervals.
+
+    Each line contributes one total FWHM and lines closer than a FWHM overlap, so the overlap counts once (two lines
+    ``A`` apart cover ``2 FWHM - max(0, FWHM - A)``). Gaps between lines that do not overlap are not covered.
+    """
+    offset, _, n_lines = hyperfine_geometry(hyperfine)
+    # Line centres about the dip centre: 1 line -> 0; N-15 -> +-offset; N-14 -> -offset, 0, +offset.
+    centres = {1: [0.0], 2: [-offset, offset], 3: [-offset, 0.0, offset]}[n_lines]
+    gaps = [b - a for a, b in pairwise(centres)]
+    return float(fwhm_total_phys) + sum(min(float(fwhm_total_phys), gap) for gap in gaps)
+
+
 def max_zeeman_shift_for_window(window_width_phys: float) -> float:
     """Largest ``zeeman_shift`` (Hz) a window of width ``window_width_phys`` (Hz) is sized for."""
     return NV_ZEEMAN_WINDOW_FRACTION * float(window_width_phys)
@@ -220,8 +234,9 @@ def max_zeeman_shift_for_window(window_width_phys: float) -> float:
 # below D, and the mirrored lower dip at D - zeeman_shift only adds to the signal at the edge instead of
 # showing the flank. One HWHM of padding puts the dip's own FWHM inside the window but, with the mirror dip
 # overlapping, the signal at D is still ~80 % of the dip depth; one full FWHM brings it under half, so the
-# left half-maximum crossing lies inside the window. See :func:`zeeman_shift_edge_pad`.
-NV_ZEEMAN_EDGE_PAD_FWHM: float = float(os.getenv("NVISION_NV_ZEEMAN_EDGE_PAD_FWHM", "1.0"))
+# left half-maximum crossing lies inside the window. The default is half a FWHM (one HWHM) so a 2-FWHM window can
+# hold a dip (unresolved isotope only; the hyperfine offsets need more room). See :func:`zeeman_shift_edge_pad`.
+NV_ZEEMAN_EDGE_PAD_FWHM: float = float(os.getenv("NVISION_NV_ZEEMAN_EDGE_PAD_FWHM", "0.5"))
 if NV_ZEEMAN_EDGE_PAD_FWHM < 0.0:
     raise ValueError(f"NVISION_NV_ZEEMAN_EDGE_PAD_FWHM must be >= 0, got {NV_ZEEMAN_EDGE_PAD_FWHM!r}.")
 

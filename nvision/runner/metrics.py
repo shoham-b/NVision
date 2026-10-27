@@ -220,6 +220,7 @@ def generate_attempt_metrics(
         "hyperfine",
         "window_fwhm",
         "gaussian_share",
+        "signal_occupancy",
     ):
         val = getattr(generator_obj, grid_field, None)
         metrics_serialized[f"grid_{grid_field}"] = (

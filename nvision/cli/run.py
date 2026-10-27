@@ -930,12 +930,12 @@ def run(  # noqa: C901
             "several, e.g. --snr 10 --snr 20.",
         ),
     ] = None,
-    window_fwhm: Annotated[
+    signal_occupancy: Annotated[
         list[float] | None,
         typer.Option(
-            "--window-fwhm",
-            help="Only the signals whose drive-frequency window is this many FWHM wide, in the run group. Repeat "
-            "for several, e.g. --window-fwhm 5 --window-fwhm 10.",
+            "--signal-occupancy",
+            help="Only the signals whose dip group covers this share of the drive-frequency window, in the run "
+            "group. Repeat for several, e.g. --signal-occupancy 0.2 --signal-occupancy 0.1.",
         ),
     ] = None,
     run_group: Annotated[
@@ -943,7 +943,7 @@ def run(  # noqa: C901
         typer.Option(
             "--run-group",
             help="Run group name to use for preset combinations (overrides the other filters; --filter-signal, "
-            "--filter-strategy, --snr and --window-fwhm still narrow it). Without any selection the default "
+            "--filter-strategy, --snr and --signal-occupancy still narrow it). Without any selection the default "
             "group runs.",
         ),
     ] = None,
@@ -1082,7 +1082,7 @@ def run(  # noqa: C901
         log.info("Running in single-run mode with combination: %s", combination_names)
 
     # The plain path (random hwhm / contrast per repeat, a Gauss-sigma noise grid) only runs when asked for with
-    # its own flags; otherwise the default group's SNR x window signals run, narrowed by the --snr/--window-fwhm
+    # its own flags; otherwise the default group's SNR x window signals run, narrowed by the --snr/--signal-occupancy
     # flags and the filters below.
     plain_path_selected = bool(
         all_experiments
@@ -1097,8 +1097,8 @@ def run(  # noqa: C901
         or contrast is not None
         or sweep_param is not None
     )
-    if (snr or window_fwhm) and plain_path_selected and run_group is None:
-        raise typer.BadParameter("--snr/--window-fwhm select points of a run group; drop the plain-path flags.")
+    if (snr or signal_occupancy) and plain_path_selected and run_group is None:
+        raise typer.BadParameter("--snr/--signal-occupancy select points of a run group; drop the plain-path flags.")
     if run_group is None and not plain_path_selected:
         run_group = sim_run_groups.default_run_group().name
         console.print(f"[dim]No selection given: running the default group {run_group!r} (see `nv groups list`).[/dim]")
@@ -1117,13 +1117,13 @@ def run(  # noqa: C901
 
             patterns = [p.strip() for p in filter_strategy.split(",")]
             combination_names = [c for c in combination_names if any(_strategy_matches(p, c[2]) for p in patterns)]
-        if snr or window_fwhm:
+        if snr or signal_occupancy:
             combination_names = sim_run_groups.select_snr_window(
-                combination_names, group.extra_generators or {}, snr=snr, window_fwhm=window_fwhm
+                combination_names, group.extra_generators or {}, snr=snr, signal_occupancy=signal_occupancy
             )
         if not combination_names:
             raise typer.BadParameter(
-                f"--filter-signal/--filter-strategy/--snr/--window-fwhm leave nothing to run in group {run_group!r}."
+                f"--filter-signal/--filter-strategy/--snr/--signal-occupancy leave nothing in group {run_group!r}."
             )
         extra_generators = group.extra_generators
         log.info(

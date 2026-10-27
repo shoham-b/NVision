@@ -216,12 +216,14 @@ def select_snr_window(
     generators: dict[str, object],
     *,
     snr: list[float] | None = None,
-    window_fwhm: list[float] | None = None,
+    signal_occupancy: list[float] | None = None,
 ) -> list[tuple[str, str, str]]:
-    """The (generator, noise, strategy) triples at the given SNR levels and/or window sizes (in FWHM).
+    """The (generator, noise, strategy) triples at the given SNR levels and/or signal occupancies.
 
-    ``generators`` maps generator names to their objects; a generator without a ``window_fwhm`` (its window is not a
-    stated number of FWHM) matches no ``window_fwhm`` selection, a noise without an SNR matches no ``snr`` selection.
+    The signal occupancy is the share of the drive-frequency window one dip group covers.
+
+    ``generators`` maps generator names to their objects; a generator without a ``signal_occupancy`` (not a window-grid
+    signal) matches no ``signal_occupancy`` selection, a noise without an SNR matches no ``snr`` selection.
     """
 
     def matches(value: float | None, wanted: list[float] | None) -> bool:
@@ -230,7 +232,8 @@ def select_snr_window(
     return [
         (g, n, s)
         for g, n, s in combinations
-        if matches(getattr(generators.get(g), "window_fwhm", None), window_fwhm) and matches(snr_of_noise(n), snr)
+        if matches(getattr(generators.get(g), "signal_occupancy", None), signal_occupancy)
+        and matches(snr_of_noise(n), snr)
     ]
 
 
