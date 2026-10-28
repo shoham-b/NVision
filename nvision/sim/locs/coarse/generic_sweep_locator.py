@@ -78,6 +78,12 @@ _FIT_GRID_SNR: float = float(os.getenv("NVISION_SWEEP_FIT_GRID_SNR", "6.0"))
 _FIT_MIN_CHI2_GAIN: float = float(os.getenv("NVISION_SWEEP_FIT_MIN_CHI2_GAIN", "9.0"))
 
 
+# Observations the sweep's belief absorbs per batched update (1 = the old one-by-one update). The sweep grid is
+# fixed, so batching only saves per-call overhead; too large a chunk lets the weights degenerate before the
+# single resample check at the end of the chunk, and coarsens how often the belief (and its snapshots) refresh.
+_BELIEF_CHUNK: int = max(1, int(os.getenv("NVISION_SWEEP_BELIEF_CHUNK", "8")))
+
+
 class SweepFitNoDipError(RuntimeError):
     """The sweep's best fit explains the data no better than a flat line: the sweep holds no detectable dip.
 
@@ -288,6 +294,7 @@ class GenericSweepLocator(ConvergenceStopRules, SweepingLocator):
         self.max_steps = n_points
         self.max_passes = max(1, max_measurements // n_points)
         self._init_stop_rules(NVISION_CONVERGENCE_THRESHOLD, NVISION_CONVERGENCE_PATIENCE)
+        self._pending_obs: list[Observation] = []
         self.history = ObservationHistory(n_points * self.max_passes)
         self._sweep_points = self._generate_sweep_points(n_points)
 
@@ -304,11 +311,26 @@ class GenericSweepLocator(ConvergenceStopRules, SweepingLocator):
         return float(self._sweep_points[(self.step_count - 1) % self.max_steps])
 
     def observe(self, obs: Observation) -> None:
-        """Record the observation, update the belief and run the same stopping rules as Bayesian-SBED."""
+        """Record the observation; absorb it into the belief in chunks and run Bayesian-SBED's stopping rules.
+
+        The grid is fixed in advance, so the belief absorbs ``_BELIEF_CHUNK`` observations at once (one batched
+        model evaluation, one resample check) instead of one by one. A chunk is also flushed at the end of every
+        pass, so the belief is complete whenever :meth:`done` can stop the sweep. The stop rules run once per
+        absorbed observation after the flush, so patience and the dip-scan cadence stay in measurement units
+        (the belief is unchanged within a chunk, so the repeated checks agree).
+        """
         if self.step_count <= self.max_steps * self.max_passes:
             self.history.append(obs)
             self.belief.last_obs = obs
-            self.belief.update(obs)
+            self._pending_obs.append(obs)
+            if len(self._pending_obs) >= _BELIEF_CHUNK or self.step_count % self.max_steps == 0:
+                self._flush_pending_obs()
+
+    def _flush_pending_obs(self) -> None:
+        """Absorb the buffered observations into the belief, then run the stop rules once per observation."""
+        pending, self._pending_obs = self._pending_obs, []
+        self.belief.batch_update(pending)
+        for _ in pending:
             self._update_stop_rules()
 
     def done(self) -> bool:

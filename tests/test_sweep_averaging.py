@@ -19,7 +19,7 @@ class _FakeBelief:
         self.model = SimpleNamespace(parameter_names=lambda: ["zeeman_shift"])
         self.last_obs = None
 
-    def update(self, obs) -> None:
+    def batch_update(self, observations) -> None:
         pass
 
 
