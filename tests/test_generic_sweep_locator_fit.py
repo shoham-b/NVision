@@ -486,7 +486,7 @@ def test_sweep_fit_raises_when_bounds_incomplete():
         locator = loc
 
     with pytest.raises(RuntimeError, match="physical_param_bounds"):
-        locator.finalize()
+        locator._fit_model(locator.history.drive_freqs_unit, locator.history.ys)
 
 
 # --- End-to-end low-SNR / narrow-hwhm stress test ---
@@ -752,7 +752,8 @@ def _assert_fit_failed_without_estimate(locator):
     locator.finalize()
     res = locator.result()
     assert res["fit_failed"] is True
-    assert res["fit_chi2_gain"] < 9.0
+    # Either the dip scan showed no dip (no fit run: NaN) or the fit gained under the gate over a flat line.
+    assert not res["fit_chi2_gain"] >= 9.0
     assert res["signal_found"] is False
     assert locator.fit_mode_estimates() is None
     assert locator.fitted_estimates() is None

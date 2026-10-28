@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from nvision.sim.grid_enums import is_plain_sweep
 from nvision.spectra.nv_center import PHYSICS_CONFIG_FINGERPRINT
 
 # Bump when repeat / cache payload semantics change.
@@ -54,6 +55,17 @@ MIN_VIEWABLE_CACHE_SCHEMA_VERSION = 14
 # editing this file's CACHE_SCHEMA_VERSION does -- but without a human needing to remember to.
 
 
+def _physics_fingerprint_for(strategy: str) -> str:
+    """The physics fingerprint folded into ``strategy``'s cache keys.
+
+    The plain sweeps infer with a least-squares fit, not an SMC belief; results cached from the SMC sweep are not
+    comparable, so they are keyed apart (and the SBED family's keys are untouched).
+    """
+    if is_plain_sweep(strategy):
+        return f"{PHYSICS_CONFIG_FINGERPRINT}+sweep-fit-v1"
+    return PHYSICS_CONFIG_FINGERPRINT
+
+
 def combination_base_cache_config(
     *,
     generator: str,
@@ -73,7 +85,7 @@ def combination_base_cache_config(
     d: dict[str, Any] = {
         "kind": "locator_combination_pointer",
         "schema_version": CACHE_SCHEMA_VERSION,
-        "physics_fingerprint": PHYSICS_CONFIG_FINGERPRINT,
+        "physics_fingerprint": _physics_fingerprint_for(strategy),
         "generator": generator,
         "noise": noise,
         "strategy": strategy,
@@ -105,7 +117,7 @@ def locator_combination_cache_config(
     d: dict[str, Any] = {
         "kind": "locator_combination",
         "schema_version": CACHE_SCHEMA_VERSION,
-        "physics_fingerprint": PHYSICS_CONFIG_FINGERPRINT,
+        "physics_fingerprint": _physics_fingerprint_for(strategy),
         "generator": generator,
         "noise": noise,
         "strategy": strategy,
