@@ -70,7 +70,7 @@ def _overall_run_ms(
 ) -> None:
     rng = random.Random(2)
     needs_belief = getattr(locator_class, "REQUIRES_BELIEF", False)
-    if needs_belief and "builder" not in config:
+    if needs_belief:
         config.setdefault("belief", _dummy_belief(experiment.true_signal.model))
         config.setdefault("signal_model", experiment.true_signal.model)
     benchmark(lambda: list(run_loop(locator_class, experiment, rng, max_steps=max_steps, **config)))
@@ -112,9 +112,6 @@ class TestOverallNVCenter:
             exp,
             max_steps=20,
             spacing_divisor=None,
-            builder=nv_center_smc_belief,
-            parameter_bounds=None,
-            noise_model=gaussian_noise(),
         )
 
     @pytest.mark.skip(reason="SBEDLocator is slow")
