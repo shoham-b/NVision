@@ -10,12 +10,16 @@ import numpy as np
 from numpy.typing import NDArray
 
 from nvision.belief.abstract_marginal import AbstractMarginalDistribution
+from nvision.belief.fit_belief import FitBelief
 from nvision.models.fisher_information import lorentzian_zero_field_freq_crlb
 from nvision.models.observation import Observation, ObservationHistory
 from nvision.sim.defaults import (
     NVISION_CONVERGENCE_THRESHOLD,
+    NVISION_DIP_SCAN_EVERY,
     NVISION_MAX_MEASUREMENTS,
     NVISION_SWEEP_FIT_EARLY_STOP_SIGMAS,
+    NVISION_SWEEP_FIT_EVERY,
+    NVISION_SWEEP_FIT_ONLY,
 )
 from nvision.sim.locs.bayesian.sequential_bayesian_locator import NVISION_CONVERGENCE_PATIENCE, ConvergenceStopRules
 from nvision.sim.locs.coarse.sweep_locator import SweepingLocator
@@ -105,6 +109,10 @@ NVISION_SWEEP_FIT_FLOAT32: bool = os.getenv("NVISION_SWEEP_FIT_FLOAT32", "0") no
 # zero. A step well above the float32 noise floor keeps the gradient nonzero.
 _FIT_FLOAT32_DIFF_STEP: float = float(os.getenv("NVISION_SWEEP_FIT_FLOAT32_DIFF_STEP", "1e-4"))
 
+# Particles of the throwaway template belief a ``fit_only`` sweep builds just to read the model, bounds, priors and
+# prior estimates off (it is never updated).
+_FIT_ONLY_TEMPLATE_PARTICLES: int = 64
+
 
 class GenericSweepLocator(ConvergenceStopRules, SweepingLocator):
     """Uniform grid sweep over the whole drive-frequency axis, then a least-squares model fit.
@@ -149,6 +157,13 @@ class GenericSweepLocator(ConvergenceStopRules, SweepingLocator):
         Domain lower bound in physical units.
     domain_hi : float, default 1.0
         Domain upper bound in physical units.
+    fit_only : bool, default False
+        Infer without an SMC belief. The belief is a :class:`~nvision.belief.fit_belief.FitBelief` whose
+        estimates and uncertainties are the latest least-squares fit's. The boxcar dip scan runs every
+        ``NVISION_DIP_SCAN_EVERY`` measurements; nothing is fitted until it shows a dip. That first fit is the full
+        multi-start fit; later fits (every ``NVISION_SWEEP_FIT_EVERY`` measurements, at the end of each pass, and
+        in :meth:`finalize`) start from the previous one. A sweep that never shows a dip reports no estimate
+        (``fit_failed``). ``create`` takes the default from ``NVISION_SWEEP_FIT_ONLY``.
     """
 
     @classmethod
@@ -167,15 +182,20 @@ class GenericSweepLocator(ConvergenceStopRules, SweepingLocator):
         parameter_bounds: dict[str, tuple[float, float]] | None = None,
         spacing_divisor: int | None = SWEEP_POINTS_PER_FWHM,
         max_measurements: int = NVISION_MAX_MEASUREMENTS,
+        fit_only: bool | None = None,
         **kwargs: Any,
     ) -> GenericSweepLocator:
         domain_lo = kwargs.pop("domain_lo", None)
         domain_hi = kwargs.pop("domain_hi", None)
+        fit_only = NVISION_SWEEP_FIT_ONLY if fit_only is None else fit_only
         if builder is not None:
             # The belief is built exactly as the Bayesian locators build theirs (``kwargs`` are the
             # builder's own options), so every locator infers with the same belief and prior.
             if belief is not None or signal_model is not None:
                 raise ValueError("GenericSweepLocator.create: pass either a builder or a belief + signal_model.")
+            if fit_only and "num_particles" in kwargs:
+                # Only the model, bounds, priors and prior estimates are read off it (see FitBelief).
+                kwargs["num_particles"] = _FIT_ONLY_TEMPLATE_PARTICLES
             belief = builder(parameter_bounds, **kwargs)
             signal_model = belief.model
         elif belief is None or signal_model is None:
@@ -199,6 +219,7 @@ class GenericSweepLocator(ConvergenceStopRules, SweepingLocator):
             domain_hi=domain_hi,
             spacing_divisor=spacing_divisor,
             max_measurements=max_measurements,
+            fit_only=fit_only,
         )
         if parameter_bounds is not None:
             inst._parameter_bounds = dict(parameter_bounds)
@@ -219,6 +240,7 @@ class GenericSweepLocator(ConvergenceStopRules, SweepingLocator):
         domain_hi: float = 1.0,
         spacing_divisor: int | None = SWEEP_POINTS_PER_FWHM,
         max_measurements: int = NVISION_MAX_MEASUREMENTS,
+        fit_only: bool = False,
     ):
         if max_measurements < 1:
             raise ValueError(f"max_measurements must be >= 1, got {max_measurements!r}")
@@ -282,9 +304,21 @@ class GenericSweepLocator(ConvergenceStopRules, SweepingLocator):
         # ``max_steps`` stays the length of ONE pass over the grid; averaging repeats the pass.
         self.max_steps = n_points
         self.max_passes = max(1, max_measurements // n_points)
-        self._init_stop_rules(NVISION_CONVERGENCE_THRESHOLD, NVISION_CONVERGENCE_PATIENCE)
         self.history = ObservationHistory(n_points * self.max_passes)
         self._sweep_points = self._generate_sweep_points(n_points)
+
+        # fit_only state (unused otherwise): see _fit_only_step.
+        self.fit_only = fit_only
+        self._dip_seen = False
+        self._steps_since_dip_scan = 0
+        self._steps_since_fit = 0
+        self._last_fit_count = 0
+        # Measurement count before which a failed first fit is not retried (see _fit_only_step).
+        self._next_full_fit_count = 0
+        if fit_only:
+            # The template belief only supplies the model, bounds, priors and prior estimates; it is dropped.
+            self.belief = FitBelief(belief, self.history, n_points, float(noise_std))
+        self._init_stop_rules(NVISION_CONVERGENCE_THRESHOLD, NVISION_CONVERGENCE_PATIENCE)
 
     @property
     def passes_done(self) -> int:
@@ -302,9 +336,75 @@ class GenericSweepLocator(ConvergenceStopRules, SweepingLocator):
         """Record the observation, update the belief and run the same stopping rules as Bayesian-SBED."""
         if self.step_count <= self.max_steps * self.max_passes:
             self.history.append(obs)
-            self.belief.last_obs = obs
-            self.belief.update(obs)
+            if self.fit_only:
+                self.belief.advance(obs)
+                self._fit_only_step()
+            else:
+                self.belief.last_obs = obs
+                self.belief.update(obs)
             self._update_stop_rules()
+
+    def _data_show_dip(self) -> bool:
+        """Whether the data show a dip: the throttled boxcar scan of ``fit_only`` (see :meth:`_fit_only_step`)."""
+        if self.fit_only:
+            return self._dip_seen
+        return super()._data_show_dip()
+
+    def _fit_data(self) -> tuple[np.ndarray, np.ndarray, int]:
+        """``(drive_freqs_unit, ys, passes)`` a fit should use now (see :meth:`FitBelief.averaged_data`)."""
+        return self.belief.averaged_data()
+
+    def _fit_and_publish(self, *, warm: bool) -> None:
+        """Fit the current data and make the result the belief's estimates and uncertainties.
+
+        ``warm`` starts the single fit from the previous fit's parameters; otherwise the full multi-start fit.
+        Raises ``SweepFitNoDipError`` when the best fit is no better than a flat line.
+        """
+        x_unit, ys, passes = self._fit_data()
+        single_pass_noise_std = self._noise_std
+        self._noise_std = single_pass_noise_std / np.sqrt(passes)
+        try:
+            zero_field_freq_phys, uncert_phys = self._fit_model(
+                x_unit, ys, warm_start=self._fit_params_phys if warm else None
+            )
+        finally:
+            self._noise_std = single_pass_noise_std
+        self._last_fit_count = self.history.count
+        self._publish_fit(zero_field_freq_phys, uncert_phys)
+        stds = dict(self._fit_std_phys)
+        if self._center_fitted:
+            stds[self._center_param] = uncert_phys
+        self.belief.set_fit(self._fit_params_phys, stds)
+
+    def _fit_only_step(self) -> None:
+        """Dip scan and fits after one measurement (``fit_only``).
+
+        Nothing is fitted until the boxcar scan (re-run every ``NVISION_DIP_SCAN_EVERY`` measurements) shows a
+        dip. That first fit is the full multi-start fit; if it finds the fit no better than a flat line the scan
+        was a false alarm, and the next attempt waits until the measurement count has doubled (a multi-start
+        fit is too costly to repeat at every scan). Afterwards a warm-started fit runs every
+        ``NVISION_SWEEP_FIT_EVERY`` measurements and whenever a pass over the grid completes.
+        """
+        count = self.history.count
+        if self._dip_seen:
+            self._steps_since_fit += 1
+            if self._steps_since_fit >= NVISION_SWEEP_FIT_EVERY or count % self.max_steps == 0:
+                self._steps_since_fit = 0
+                self._fit_and_publish(warm=True)
+            return
+        self._steps_since_dip_scan += 1
+        if self._steps_since_dip_scan < NVISION_DIP_SCAN_EVERY or count < self._next_full_fit_count:
+            return
+        self._steps_since_dip_scan = 0
+        if not self.belief.current_dips():
+            return
+        try:
+            self._fit_and_publish(warm=False)
+        except SweepFitNoDipError:
+            self._next_full_fit_count = 2 * count
+            return
+        self._dip_seen = True
+        self._steps_since_fit = 0
 
     def done(self) -> bool:
         """Stop once the stopping rules fired -- at the end of a pass, so the average covers whole passes -- or
@@ -326,8 +426,17 @@ class GenericSweepLocator(ConvergenceStopRules, SweepingLocator):
         """
         return self._inner_model().expected_dip_count()
 
-    def _fit_model(self, drive_freqs_unit: np.ndarray, ys: np.ndarray) -> tuple[float, float]:
+    def _fit_model(
+        self,
+        drive_freqs_unit: np.ndarray,
+        ys: np.ndarray,
+        *,
+        warm_start: dict[str, float] | None = None,
+    ) -> tuple[float, float]:
         """Fit the physical model to sweep data via least squares.
+
+        ``warm_start`` (physical parameters of an earlier fit, keyed by name) replaces the multi-start race
+        with one fit from that point.
 
         Returns (zero_field_freq_phys, uncert_phys).  The fit uses all sweep points
         jointly, which gives sub-step accuracy even when dips are partially
@@ -391,20 +500,25 @@ class GenericSweepLocator(ConvergenceStopRules, SweepingLocator):
         # roughly hwhm_est instead of hwhm_est-plus-an-assumed-Gaussian-component, so the
         # optimizer only grows sigma_inhom if the data actually supports it.
         sigma_inhom_idx = param_names.index("sigma_inhom") if "sigma_inhom" in param_names else None
-        seeds = self._seed_zero_field_freq_and_splits(
-            drive_freqs_unit,
-            ys,
-            smoothed,
-            contrast,
-            domain_lo,
-            domain_width,
-            zs_idx,
-            hyperfine_shift_idx,
-            lo_bounds,
-            hi_bounds,
+        # A warm start needs no data-driven seeds or candidate starts.
+        seeds = (
+            []
+            if warm_start is not None
+            else self._seed_zero_field_freq_and_splits(
+                drive_freqs_unit,
+                ys,
+                smoothed,
+                contrast,
+                domain_lo,
+                domain_width,
+                zs_idx,
+                hyperfine_shift_idx,
+                lo_bounds,
+                hi_bounds,
+            )
         )
 
-        if fixed_center_value is not None and zs_idx is not None:
+        if fixed_center_value is not None and zs_idx is not None and warm_start is None:
             seeds = self._anchor_zeeman_seeds_to_fixed_center(seeds, fixed_center_value, domain_lo, domain_hi)
 
         # Parameters with no data-driven seed below (e.g. k_np) start at their belief-prior
@@ -453,18 +567,27 @@ class GenericSweepLocator(ConvergenceStopRules, SweepingLocator):
                 )
             return p0
 
-        candidates = self._build_fit_candidates(
-            drive_freqs_unit=drive_freqs_unit,
-            ys=ys,
-            domain_lo=domain_lo,
-            domain_width=domain_width,
-            contrast=contrast,
-            seeds=seeds,
-            zs_idx=zs_idx,
-            hyperfine_shift_idx=hyperfine_shift_idx,
-            lo_bounds=lo_bounds,
-            hi_bounds=hi_bounds,
-        )
+        if warm_start is not None:
+            missing_warm = [n for n in param_names if n not in warm_start]
+            if missing_warm:
+                raise ValueError(f"warm_start has no value for parameters {missing_warm}; got {sorted(warm_start)}")
+            warm_p0 = [float(np.clip(warm_start[n], lo_bounds[i], hi_bounds[i])) for i, n in enumerate(param_names)]
+            # One start: the previous fit.
+            candidates = [(0.0, None, None)]
+            make_p0 = lambda *_: list(warm_p0)  # noqa: E731
+        else:
+            candidates = self._build_fit_candidates(
+                drive_freqs_unit=drive_freqs_unit,
+                ys=ys,
+                domain_lo=domain_lo,
+                domain_width=domain_width,
+                contrast=contrast,
+                seeds=seeds,
+                zs_idx=zs_idx,
+                hyperfine_shift_idx=hyperfine_shift_idx,
+                lo_bounds=lo_bounds,
+                hi_bounds=hi_bounds,
+            )
 
         if hwhm_est is not None and hwhm_est > 0:
             lw_guess = hwhm_est
@@ -561,7 +684,9 @@ class GenericSweepLocator(ConvergenceStopRules, SweepingLocator):
             early_stop_redchi2=early_stop_redchi2,
             data_noise_std=max(float(self._noise_std), 1e-12),
             # With the centre fixed the dip pattern's position reaches the fit only through zeeman_shift.
-            late_starts=zeeman_profile_starts if center_idx is None and zs_idx is not None else None,
+            late_starts=(
+                zeeman_profile_starts if center_idx is None and zs_idx is not None and warm_start is None else None
+            ),
         )
 
         self._require_fit_beats_flat_baseline(curve_fn(xs_fit, *best_popt)[:n_pts], ys, best_popt, param_names)
@@ -1338,7 +1463,9 @@ class GenericSweepLocator(ConvergenceStopRules, SweepingLocator):
         """
         if self.history.count == 0:
             return
-        domain_width = self._domain_hi - self._domain_lo
+        if self.fit_only:
+            self._finalize_fit_only()
+            return
         passes = self.passes_done
         try:
             if passes <= 1:
@@ -1362,6 +1489,30 @@ class GenericSweepLocator(ConvergenceStopRules, SweepingLocator):
             self._fit_chi2_gain = exc.chi2_gain
             return
 
+        self._publish_fit(zero_field_freq_phys, uncert_phys)
+
+    def _finalize_fit_only(self) -> None:
+        """Final fit of a ``fit_only`` sweep: warm from the last fit, or none at all when no dip was ever shown.
+
+        A sweep whose data never show a dip (boxcar scan) is not fitted: it records ``fit_failed`` with no
+        chi-square gain (NaN). If the scan's dip turns out to be no better than a flat line it is recorded the
+        same way, with the gain.
+        """
+        if self._last_fit_count != self.history.count:
+            warm = self._fit_params_phys is not None
+            if not warm and not self.belief.current_dips():
+                self._fit_failed = True
+                self._fit_chi2_gain = float("nan")
+                return
+            try:
+                self._fit_and_publish(warm=warm)
+            except SweepFitNoDipError as exc:
+                self._fit_failed = True
+                self._fit_chi2_gain = exc.chi2_gain
+
+    def _publish_fit(self, zero_field_freq_phys: float, uncert_phys: float) -> None:
+        """Record a fit's ``zero_field_freq`` and uncertainty and the acquisition window around it."""
+        domain_width = self._domain_hi - self._domain_lo
         self._zero_field_freq_estimate_phys = zero_field_freq_phys
         self._zero_field_freq_uncert_phys = uncert_phys
         self._signal_found = True

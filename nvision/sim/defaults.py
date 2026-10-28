@@ -48,6 +48,16 @@ NVISION_GRAPH_REPEATS: int = int(os.getenv("NVISION_GRAPH_REPEATS", "10"))
 # multi-start race stays). 0 disables early stop (race every start, as before).
 NVISION_SWEEP_FIT_EARLY_STOP_SIGMAS: float = float(os.getenv("NVISION_SWEEP_FIT_EARLY_STOP_SIGMAS", "3.0"))
 
+# Sweep inference without an SMC belief (GenericSweepLocator ``fit_only``): the dip scan and a least-squares fit
+# replace the per-step particle filter. The first dip triggers one full multi-start fit; later fits start from the
+# previous one. Off by default; the SMC sweep is unchanged. Results differ from the SMC sweep's (the uncertainty
+# is the fit covariance), so they are cached apart from it.
+NVISION_SWEEP_FIT_ONLY: bool = os.getenv("NVISION_SWEEP_FIT_ONLY", "0").lower() in ("1", "true", "yes")
+
+# With ``fit_only``, after the first dip a warm-started fit runs every this many measurements (and at the end of
+# every pass over the grid).
+NVISION_SWEEP_FIT_EVERY: int = max(1, int(os.getenv("NVISION_SWEEP_FIT_EVERY", "20")))
+
 # --- Robust Dip Detection Defaults -----------------------------------------
 
 # Family-wise false-alarm probability of the boxcar dip scan (Bonferroni over every window
