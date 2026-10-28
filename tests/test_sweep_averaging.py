@@ -16,11 +16,15 @@ class _FakeBelief:
     drive_freq_bounds_phys = (0.0, 1.0)
 
     def __init__(self):
+        self.physical_param_bounds = {"zeeman_shift": (0.0, 1.0), "hwhm": (0.01, 0.1)}
         self.model = SimpleNamespace(parameter_names=lambda: ["zeeman_shift"])
         self.last_obs = None
 
-    def update(self, obs) -> None:
-        pass
+    def estimates(self) -> dict[str, float]:
+        return {"zeeman_shift": 0.5}
+
+    def uncertainty(self) -> dict[str, float]:
+        return {"zeeman_shift": 0.3}
 
 
 def _signal_model():

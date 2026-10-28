@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from nvision.sim.defaults import NVISION_SWEEP_FIT_ONLY
 from nvision.sim.grid_enums import is_plain_sweep
 from nvision.spectra.nv_center import PHYSICS_CONFIG_FINGERPRINT
 
@@ -59,11 +58,11 @@ MIN_VIEWABLE_CACHE_SCHEMA_VERSION = 14
 def _physics_fingerprint_for(strategy: str) -> str:
     """The physics fingerprint folded into ``strategy``'s cache keys.
 
-    The plain sweeps infer with a least-squares fit instead of an SMC belief when ``NVISION_SWEEP_FIT_ONLY`` is
-    set; their results are not comparable to the SMC sweep's, so they are keyed apart from them.
+    The plain sweeps infer with a least-squares fit, not an SMC belief; results cached from the SMC sweep are not
+    comparable, so they are keyed apart (and the SBED family's keys are untouched).
     """
-    if NVISION_SWEEP_FIT_ONLY and is_plain_sweep(strategy):
-        return f"{PHYSICS_CONFIG_FINGERPRINT}+sweep-fit-only"
+    if is_plain_sweep(strategy):
+        return f"{PHYSICS_CONFIG_FINGERPRINT}+sweep-fit-v1"
     return PHYSICS_CONFIG_FINGERPRINT
 
 

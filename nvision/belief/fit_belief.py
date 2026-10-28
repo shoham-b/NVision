@@ -2,7 +2,7 @@
 
 :class:`FitBelief` carries what the snapshot / metrics / plotting code reads off a belief at each step
 (estimates, uncertainties, the dips the data show, the parameter bounds), without any particles. The locator
-that owns it (``GenericSweepLocator`` with ``fit_only=True``) pushes each new fit into it with :meth:`set_fit`;
+that owns it (``GenericSweepLocator``) pushes each new fit into it with :meth:`set_fit`;
 between fits the estimates and uncertainties hold their last values.
 """
 
@@ -17,6 +17,7 @@ from scipy.stats import norm
 from nvision.belief.abstract_marginal import AbstractMarginalDistribution, ParameterValues
 from nvision.belief.dip_detection import DipCandidate, find_dips, hwhm_fwhm_prior_hz
 from nvision.models.observation import Observation, ObservationHistory
+from nvision.spectra.nv_center_drive import is_drive_param_dict
 
 
 class FitBelief(AbstractMarginalDistribution):
@@ -65,7 +66,16 @@ class FitBelief(AbstractMarginalDistribution):
         self._history = history
         self._grid_points = int(grid_points)
         self._noise_std = float(noise_std)
-        self._gamma_prior = hwhm_fwhm_prior_hz(self.physical_param_bounds)
+        # The boxcar dip scan needs the dip-width prior implied by the bounds; a model with no width parameter
+        # (a toy signal) cannot be scanned.
+        names_with_bounds = set(self.physical_param_bounds)
+        self.can_scan_dips: bool = bool(
+            names_with_bounds & {"hwhm", "hwhm_lorentz"}
+            or {"saturation", "sigma_inhom"} <= names_with_bounds
+            or is_drive_param_dict(self.physical_param_bounds)
+        )
+        # (mean, std, min, max) of the dip FWHM implied by the prior bounds; resolved at the first dip scan.
+        self._gamma_prior: tuple[float, float, float, float] | None = None
         # Measurements this snapshot covers; ``_step_count`` is the key Observer.watch uses to dedupe snapshots.
         self._count = 0
         self._step_count = 0
@@ -78,6 +88,10 @@ class FitBelief(AbstractMarginalDistribution):
         """Count ``obs`` (already appended to the shared history) as covered by this belief."""
         self.last_obs = obs
         self.resampled = False
+        self.sync()
+
+    def sync(self) -> None:
+        """Cover every measurement in the shared history (for data added without :meth:`advance`)."""
         self._count = self._history.count
         self._step_count = self._count
 
@@ -103,6 +117,8 @@ class FitBelief(AbstractMarginalDistribution):
         noise is ``noise_std / sqrt(passes)``). ``p_fa`` is the family-wise false-alarm level (default
         ``NVISION_DIP_P_FA``). Empty until 5 measurements exist.
         """
+        if not self.can_scan_dips:
+            raise ValueError("this model has no dip-width parameter in its bounds; the dip scan cannot run")
         k = self._count
         if k < 5:
             return []
@@ -110,6 +126,8 @@ class FitBelief(AbstractMarginalDistribution):
         cached = self._dip_cache.get(key)
         if cached is None:
             x_unit, ys, passes = self.averaged_data(k)
+            if self._gamma_prior is None:
+                self._gamma_prior = hwhm_fwhm_prior_hz(self.physical_param_bounds)
             lo, hi = self._drive_freq_bounds_phys
             cached = find_dips(
                 lo + x_unit * (hi - lo),

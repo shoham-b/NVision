@@ -1,4 +1,4 @@
-"""GenericSweepLocator(fit_only=True): dip scan + least-squares fits instead of an SMC belief."""
+"""GenericSweepLocator: dip scan + least-squares fits instead of an SMC belief."""
 
 from __future__ import annotations
 
@@ -46,7 +46,6 @@ def _locator(passes: int = 3, n_grid: int = 100) -> GenericSweepLocator:
         noise_std=_NOISE,
         domain_lo=_LO,
         domain_hi=_HI,
-        fit_only=True,
     )
 
 
