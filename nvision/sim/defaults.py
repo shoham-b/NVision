@@ -48,10 +48,6 @@ NVISION_GRAPH_REPEATS: int = int(os.getenv("NVISION_GRAPH_REPEATS", "10"))
 # multi-start race stays). 0 disables early stop (race every start, as before).
 NVISION_SWEEP_FIT_EARLY_STOP_SIGMAS: float = float(os.getenv("NVISION_SWEEP_FIT_EARLY_STOP_SIGMAS", "3.0"))
 
-# Plain sweeps infer by least squares: after the first dip a warm-started fit runs every this many
-# measurements (and at the end of every pass over the grid).
-NVISION_SWEEP_FIT_EVERY: int = max(1, int(os.getenv("NVISION_SWEEP_FIT_EVERY", "20")))
-
 # --- Robust Dip Detection Defaults -----------------------------------------
 
 # Family-wise false-alarm probability of the boxcar dip scan (Bonferroni over every window
