@@ -95,6 +95,11 @@ class SweepFitNoDipError(RuntimeError):
         super().__init__(message)
         self.chi2_gain = chi2_gain
 
+    def __reduce__(self):
+        # Default RuntimeError pickling replays only ``args`` (the message), dropping ``chi2_gain``; an unpicklable
+        # exception raised in a pool worker breaks the whole ProcessPool instead of reaching the parent.
+        return (type(self), (self.args[0], self.chi2_gain))
+
 
 # Experimental: evaluate curve_fn via the model's vectorized float32 Numba kernel
 # instead of a per-point Python loop in float64. Off by default -- needs an A/B
@@ -385,7 +390,14 @@ class GenericSweepLocator(ConvergenceStopRules, SweepingLocator):
             self._steps_since_fit += 1
             if self._steps_since_fit >= NVISION_SWEEP_FIT_EVERY or count % self.max_steps == 0:
                 self._steps_since_fit = 0
-                self._fit_and_publish(warm=True)
+                try:
+                    self._fit_and_publish(warm=True)
+                except SweepFitNoDipError:
+                    # More data showed the earlier dip was no better than flat: back to scanning, and the next
+                    # full fit waits until the measurement count has doubled (as after a false-alarm first fit).
+                    self._dip_seen = False
+                    self._steps_since_dip_scan = 0
+                    self._next_full_fit_count = 2 * count
             return
         self._steps_since_dip_scan += 1
         if self._steps_since_dip_scan < NVISION_DIP_SCAN_EVERY or count < self._next_full_fit_count:

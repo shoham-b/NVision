@@ -777,6 +777,26 @@ def test_sweep_fit_no_dip_error_is_a_runtime_error_carrying_the_gain():
     assert err.value.chi2_gain == pytest.approx(0.0)
 
 
+def test_sweep_warm_refit_without_dip_resumes_scanning_instead_of_raising(monkeypatch):
+    """A warm refit that gains nothing over flat (dip was a false alarm) must not escape ``_fit_step``.
+
+    It used to propagate out of ``observe()`` and, in a pool worker, abort the whole run.
+    """
+    from nvision.sim.locs.coarse.generic_sweep_locator import SweepFitNoDipError
+
+    locator = _fixed_center_voigt_locator(None)
+    locator._dip_seen = True
+    locator._steps_since_fit = 10**9  # due for a warm refit now
+
+    def _no_dip(*, warm):
+        raise SweepFitNoDipError("flat", chi2_gain=0.0)
+
+    monkeypatch.setattr(locator, "_fit_and_publish", _no_dip)
+    locator._fit_step()
+    assert locator._dip_seen is False
+    assert locator._next_full_fit_count == 2 * locator.history.count
+
+
 def test_sweep_fit_successful_fit_is_not_flagged_failed():
     locator = _fixed_center_voigt_locator(18.15e6)
     locator.finalize()
