@@ -1111,3 +1111,48 @@ def nv_center_zeeman_pseudo_voigt_vectorized_many_fast(
                 has_gamma_arr[j],
                 has_sigma_arr[j],
             )
+
+
+@njit(cache=True)
+def nv_center_lorentzian_eval_xs(
+    xs: np.ndarray,
+    zero_field_freq: float,
+    hwhm: float,
+    hyperfine_shift: float,
+    k_np: float,
+    w_center: float,
+    contrast_total: float,
+    background: float,
+    out: np.ndarray,
+) -> None:
+    """float64 :func:`nv_center_lorentzian_eval` at many probes ``xs`` (shape ``(n_x,)``) for ONE parameter set.
+
+    Bit-identical to the scalar kernel per point; ``out`` has shape ``(n_x,)``. Used by the sweep curve fit.
+    """
+    for i in range(xs.shape[0]):
+        out[i] = nv_center_lorentzian_eval(
+            xs[i], zero_field_freq, hwhm, hyperfine_shift, k_np, w_center, contrast_total, background
+        )
+
+
+@njit(cache=True)
+def nv_center_zeeman_lorentzian_eval_xs(
+    xs: np.ndarray,
+    zero_field_freq: float,
+    hwhm: float,
+    zeeman_shift: float,
+    hyperfine_shift: float,
+    k_np: float,
+    w_center: float,
+    contrast_total: float,
+    background: float,
+    out: np.ndarray,
+) -> None:
+    """float64 :func:`nv_center_zeeman_lorentzian_eval` at many probes ``xs`` (shape ``(n_x,)``) for ONE parameter set.
+
+    Bit-identical to the scalar kernel per point; ``out`` has shape ``(n_x,)``. Used by the sweep curve fit.
+    """
+    for i in range(xs.shape[0]):
+        out[i] = nv_center_zeeman_lorentzian_eval(
+            xs[i], zero_field_freq, hwhm, zeeman_shift, hyperfine_shift, k_np, w_center, contrast_total, background
+        )

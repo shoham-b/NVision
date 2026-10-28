@@ -20,10 +20,12 @@ from nvision.spectra.numba_kernels import (
     get_background_zeros,
     get_cached_constant_array,
     nv_center_lorentzian_eval,
+    nv_center_lorentzian_eval_xs,
     nv_center_lorentzian_vectorized_many,
     nv_center_lorentzian_vectorized_many_fast,
     nv_center_lorentzian_vectorized_one_serial,
     nv_center_zeeman_lorentzian_eval,
+    nv_center_zeeman_lorentzian_eval_xs,
     nv_center_zeeman_lorentzian_vectorized_many,
     nv_center_zeeman_lorentzian_vectorized_many_fast,
     nv_center_zeeman_lorentzian_vectorized_one_serial,
@@ -784,6 +786,38 @@ class NVCenterLorentzianModel(
         return self.compute_nvcenter_lorentzian_model(
             float(x), params.zero_field_freq, params.hwhm, hyperfine_shift, k_np, params.contrast_total, self._w_center
         )
+
+    def compute_many_float64(self, xs: np.ndarray, params) -> np.ndarray:
+        hyperfine_shift = params.hyperfine_shift if self._infer_hyperfine else self._hf_offset
+        k_np = params.k_np if self._infer_hyperfine else 1.0
+        xs64 = np.ascontiguousarray(xs, dtype=np.float64)
+        out = np.empty(xs64.shape[0], dtype=np.float64)
+        if self._with_zeeman_splitting:
+            nv_center_zeeman_lorentzian_eval_xs(
+                xs64,
+                float(params.zero_field_freq),
+                float(params.hwhm),
+                float(params.zeeman_shift),
+                float(hyperfine_shift),
+                float(k_np),
+                float(self._w_center),
+                float(params.contrast_total),
+                1.0,
+                out,
+            )
+        else:
+            nv_center_lorentzian_eval_xs(
+                xs64,
+                float(params.zero_field_freq),
+                float(params.hwhm),
+                float(hyperfine_shift),
+                float(k_np),
+                float(self._w_center),
+                float(params.contrast_total),
+                1.0,
+                out,
+            )
+        return out
 
     def gradient(self, x: float, params) -> dict[str, float]:
         """Closed-form d(signal)/d(parameter), in the same units as ``compute``.
