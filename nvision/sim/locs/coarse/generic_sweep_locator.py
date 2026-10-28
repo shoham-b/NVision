@@ -81,6 +81,10 @@ _FIT_GRID_SNR: float = float(os.getenv("NVISION_SWEEP_FIT_GRID_SNR", "6.0"))
 _FIT_MIN_CHI2_GAIN: float = float(os.getenv("NVISION_SWEEP_FIT_MIN_CHI2_GAIN", "9.0"))
 
 
+# New measurements inside the focus window needed before a warm refit runs (0 = refit on schedule regardless).
+_FIT_MIN_WINDOW_OBS: int = int(os.getenv("NVISION_SWEEP_FIT_MIN_WINDOW_OBS", "1"))
+
+
 class SweepFitNoDipError(RuntimeError):
     """The sweep's best fit explains the data no better than a flat line: the sweep holds no detectable dip.
 
@@ -307,6 +311,8 @@ class GenericSweepLocator(ConvergenceStopRules, SweepingLocator):
         self._dip_seen = False
         self._steps_since_dip_scan = 0
         self._steps_since_fit = 0
+        # Measurements since the last fit that fell inside the acquisition (focus) window around the fitted dip.
+        self._in_window_since_fit = 0
         self._last_fit_count = 0
         # Measurement count before which a failed first fit is not retried (see _fit_step).
         self._next_full_fit_count = 0
@@ -383,8 +389,17 @@ class GenericSweepLocator(ConvergenceStopRules, SweepingLocator):
         count = self.history.count
         if self._dip_seen:
             self._steps_since_fit += 1
-            if self._steps_since_fit >= NVISION_SWEEP_FIT_EVERY or count % self.max_steps == 0:
+            drive_freq_phys = self._domain_lo + float(self.history.drive_freqs_unit[count - 1]) * (
+                self._domain_hi - self._domain_lo
+            )
+            if self._acquisition_lo <= drive_freq_phys <= self._acquisition_hi:
+                self._in_window_since_fit += 1
+            # A measurement outside the focus window barely moves the fit: refit only once the window has new data.
+            if (
+                self._steps_since_fit >= NVISION_SWEEP_FIT_EVERY or count % self.max_steps == 0
+            ) and self._in_window_since_fit >= _FIT_MIN_WINDOW_OBS:
                 self._steps_since_fit = 0
+                self._in_window_since_fit = 0
                 self._fit_and_publish(warm=True)
             return
         self._steps_since_dip_scan += 1
@@ -400,6 +415,7 @@ class GenericSweepLocator(ConvergenceStopRules, SweepingLocator):
             return
         self._dip_seen = True
         self._steps_since_fit = 0
+        self._in_window_since_fit = 0
 
     def done(self) -> bool:
         """Stop once the stopping rules fired -- at the end of a pass, so the average covers whole passes -- or

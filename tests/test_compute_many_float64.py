@@ -8,13 +8,14 @@ import pytest
 from nvision.sim.combinations import CombinationGrid
 
 GENERATORS = [
+    "NVCenter-lorentzian",
     "NVCenter-voigt-w0.50MHz-c0.10-si0.60MHz-hfn14",
     "NVCenter-voigt-w0.50MHz-c0.10-si0.60MHz-hfunresolved",
 ]
 
 
 @pytest.mark.parametrize("gen_name", GENERATORS)
-def test_voigt_compute_many_float64_matches_scalar_loop(gen_name: str):
+def test_compute_many_float64_matches_scalar_loop(gen_name: str):
     combo = CombinationGrid().resolve(gen_name, "Gauss(0.01)", "SimpleSweep-3perFWHM")
     assert combo is not None
     signal = combo.generator.generate(random.Random(3))
