@@ -15,6 +15,7 @@ from nvision.models.observation import Observation, ObservationHistory
 from nvision.sim.defaults import (
     NVISION_CONVERGENCE_THRESHOLD,
     NVISION_MAX_MEASUREMENTS,
+    NVISION_SWEEP_BELIEF_CHUNK,
     NVISION_SWEEP_FIT_EARLY_STOP_SIGMAS,
 )
 from nvision.sim.locs.bayesian.sequential_bayesian_locator import NVISION_CONVERGENCE_PATIENCE, ConvergenceStopRules
@@ -76,12 +77,6 @@ _FIT_GRID_SNR: float = float(os.getenv("NVISION_SWEEP_FIT_GRID_SNR", "6.0"))
 # the start point off as an estimate. A dip the stop rule accepted gains far more than this (the boxcar scan
 # fires at z > ~4.6, i.e. a gain above ~20), while fitting noise alone gains about the parameter count.
 _FIT_MIN_CHI2_GAIN: float = float(os.getenv("NVISION_SWEEP_FIT_MIN_CHI2_GAIN", "9.0"))
-
-
-# Observations the sweep's belief absorbs per batched update (1 = the old one-by-one update). The sweep grid is
-# fixed, so batching only saves per-call overhead; too large a chunk lets the weights degenerate before the
-# single resample check at the end of the chunk, and coarsens how often the belief (and its snapshots) refresh.
-_BELIEF_CHUNK: int = max(1, int(os.getenv("NVISION_SWEEP_BELIEF_CHUNK", "8")))
 
 
 class SweepFitNoDipError(RuntimeError):
@@ -313,7 +308,7 @@ class GenericSweepLocator(ConvergenceStopRules, SweepingLocator):
     def observe(self, obs: Observation) -> None:
         """Record the observation; absorb it into the belief in chunks and run Bayesian-SBED's stopping rules.
 
-        The grid is fixed in advance, so the belief absorbs ``_BELIEF_CHUNK`` observations at once (one batched
+        The grid is fixed in advance, so the belief absorbs ``NVISION_SWEEP_BELIEF_CHUNK`` observations at once (one
         model evaluation, one resample check) instead of one by one. A chunk is also flushed at the end of every
         pass, so the belief is complete whenever :meth:`done` can stop the sweep. The stop rules run once per
         absorbed observation after the flush, so patience and the dip-scan cadence stay in measurement units
@@ -323,7 +318,7 @@ class GenericSweepLocator(ConvergenceStopRules, SweepingLocator):
             self.history.append(obs)
             self.belief.last_obs = obs
             self._pending_obs.append(obs)
-            if len(self._pending_obs) >= _BELIEF_CHUNK or self.step_count % self.max_steps == 0:
+            if len(self._pending_obs) >= NVISION_SWEEP_BELIEF_CHUNK or self.step_count % self.max_steps == 0:
                 self._flush_pending_obs()
 
     def _flush_pending_obs(self) -> None:

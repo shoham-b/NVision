@@ -65,10 +65,10 @@ def _drive(loc: GenericSweepLocator, seed: int = 5) -> None:
 
 def test_chunked_update_matches_one_by_one_without_resampling(monkeypatch):
     """With resampling off, only the order-independent weight / noise recursion remains: it must agree."""
-    monkeypatch.setattr(gsl, "_BELIEF_CHUNK", 1)
+    monkeypatch.setattr(gsl, "NVISION_SWEEP_BELIEF_CHUNK", 1)
     ref = _locator(_belief(auto_resample=False))
     _drive(ref)
-    monkeypatch.setattr(gsl, "_BELIEF_CHUNK", 8)
+    monkeypatch.setattr(gsl, "NVISION_SWEEP_BELIEF_CHUNK", 8)
     chunked = _locator(_belief(auto_resample=False))
     _drive(chunked)
 
@@ -81,7 +81,7 @@ def test_chunked_update_matches_one_by_one_without_resampling(monkeypatch):
 
 def test_belief_is_complete_at_every_pass_end(monkeypatch):
     """A chunk is flushed at the pass boundary, where done() may stop the sweep (chunk size not dividing the pass)."""
-    monkeypatch.setattr(gsl, "_BELIEF_CHUNK", 7)  # 40-point pass: 5 full chunks + a flush of 5
+    monkeypatch.setattr(gsl, "NVISION_SWEEP_BELIEF_CHUNK", 7)  # 40-point pass: 5 full chunks + a flush of 5
     belief = _belief(auto_resample=False)
     loc = _locator(belief)
     seen = []
@@ -95,7 +95,7 @@ def test_belief_is_complete_at_every_pass_end(monkeypatch):
 
 def test_chunked_update_keeps_calibrated_uncertainty_with_resampling(monkeypatch):
     """With resampling on the random stream differs, but the estimate must stay near the truth and finite."""
-    monkeypatch.setattr(gsl, "_BELIEF_CHUNK", 8)
+    monkeypatch.setattr(gsl, "NVISION_SWEEP_BELIEF_CHUNK", 8)
     loc = _locator(_belief(auto_resample=True))
     _drive(loc)
     est = loc.belief.estimates()["zero_field_freq"]

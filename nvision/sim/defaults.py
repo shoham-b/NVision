@@ -48,6 +48,12 @@ NVISION_GRAPH_REPEATS: int = int(os.getenv("NVISION_GRAPH_REPEATS", "10"))
 # multi-start race stays). 0 disables early stop (race every start, as before).
 NVISION_SWEEP_FIT_EARLY_STOP_SIGMAS: float = float(os.getenv("NVISION_SWEEP_FIT_EARLY_STOP_SIGMAS", "3.0"))
 
+# Plain sweeps (GenericSweepLocator) absorb this many observations into their SMC belief per batched update (one
+# model evaluation over all particles, one resample check) instead of one by one; a chunk is always flushed at the
+# end of a pass. 1 reproduces the per-step update. Larger chunks are faster but let the weights degenerate before
+# the single resample check and refresh the belief (and its snapshots) less often.
+NVISION_SWEEP_BELIEF_CHUNK: int = max(1, int(os.getenv("NVISION_SWEEP_BELIEF_CHUNK", "8")))
+
 # --- Robust Dip Detection Defaults -----------------------------------------
 
 # Family-wise false-alarm probability of the boxcar dip scan (Bonferroni over every window
