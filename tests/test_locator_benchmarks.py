@@ -54,8 +54,15 @@ def _nv_center_experiment() -> CoreExperiment:
 def _dummy_belief(model) -> GridMarginalDistribution:
     grid = np.linspace(0.0, 1.0, 64)
     posterior = np.ones(64) / 64
+    # The sweep's dip scan derives its width prior from the hwhm bounds, which must be positive.
     parameters = [
-        GridParameter(name=name, bounds=(0.0, 1.0), grid=grid, posterior=posterior) for name in model.parameter_names()
+        GridParameter(
+            name=name,
+            bounds=(1e-3 if name.startswith("hwhm") else 0.0, 1.0),
+            grid=grid,
+            posterior=posterior,
+        )
+        for name in model.parameter_names()
     ]
     return GridMarginalDistribution(model=model, parameters=parameters)
 
