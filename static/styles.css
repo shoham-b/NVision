@@ -167,6 +167,27 @@ body {
             margin-bottom: 0;
         }
 
+        /* Selector rows that stay on screen while scrolling the plots they control. */
+        .sticky-selectors {
+            position: sticky;
+            top: 0;
+            z-index: 1000;
+            background: #f4f4f4;
+            padding-top: 0.4em;
+            padding-bottom: 0.4em;
+        }
+
+        /* Sits under #ss-controls (locator chips) when that is stuck too; --ss-sticky-h is kept current by app.js. */
+        .sticky-selectors.below-ss {
+            top: var(--ss-sticky-h, 0px);
+            z-index: 999;
+        }
+
+        .sticky-selectors > .global-timeline-controls {
+            position: static;
+            margin: 0.5rem 0 0;
+        }
+
         .repeat-row {
             margin-top: 0.5rem;
             padding-top: 1rem;

@@ -136,6 +136,15 @@ function main() {
         plots.some((p) => p.type === 'bayesian_fisher_crlb_pairs') ||
         plots.some((p) => p.type === 'bayesian_jitter') ||
         plots.some((p) => p.type === 'bayesian_covariance_ellipses_data');
+    // Keep --ss-sticky-h = height of the stuck locator-chip bar (0 while hidden) so the selector rows below it stick underneath, not on top of it.
+    function updateSsStickyHeight() {
+        const el = document.getElementById('ss-controls');
+        if (el) document.documentElement.style.setProperty('--ss-sticky-h', `${el.offsetHeight}px`);
+    }
+    (function trackSsControlsHeight() {
+        const el = document.getElementById('ss-controls');
+        if (el && typeof ResizeObserver !== 'undefined') new ResizeObserver(updateSsStickyHeight).observe(el);
+    })();
     // Global Timeline Controls Sync Controller
     const globalControls = document.getElementById('global-timeline-controls');
     const globalPlayBtn = document.getElementById('global-play-btn');
@@ -8590,6 +8599,7 @@ function main() {
         if (stepSizeView) stepSizeView.style.display = 'none';
         // Stages shows them itself under "Whole run" (hlApplyStageSelector).
         if (ssControls) ssControls.style.display = mode === 'sanity' ? 'block' : 'none';
+        updateSsStickyHeight();
         if (accuracyView) accuracyView.style.display = 'none';
         if (stagesView) stagesView.style.display = 'none';
         if (scalingView) scalingView.style.display = 'none';
