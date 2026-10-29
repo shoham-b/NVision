@@ -53,7 +53,16 @@ def test_all_group_is_the_union_of_every_scenario_with_its_own_locators():
     sim_run_groups.clear_run_group_cache()
     scenarios = [sim_run_groups.get_run_group(n) for n in ("voigt-grid", "drive-control")]
     everything = sim_run_groups.get_run_group("all")
-    assert everything.task_count == sum(g.task_count for g in scenarios)
+    # ``all`` stops the voigt-grid window axis at ALL_MAX_WINDOW_FWHM; drive-control is taken whole.
+    voigt_gens = {
+        g
+        for g in scenarios[0].generator_names
+        if scenarios[0].extra_generators[g].window_fwhm <= sim_run_groups.ALL_MAX_WINDOW_FWHM
+    }
+    assert voigt_gens
+    assert voigt_gens < set(scenarios[0].generator_names)
+    n_voigt = len(voigt_gens) * len(scenarios[0].noise_names) * len(scenarios[0].strategy_names)
+    assert everything.task_count == n_voigt + scenarios[1].task_count
     combos = set(everything.combinations())
     assert len(combos) == everything.task_count
     # Drive-choosing SBED only runs on the drive-controlled generators, not on every generator.
@@ -62,8 +71,8 @@ def test_all_group_is_the_union_of_every_scenario_with_its_own_locators():
     # Running only the sweeps across every scenario is a plain --filter-strategy on the composite group.
     sweeps = [c for c in combos if "Sweep" in c[2]]
     assert sweeps
-    assert {c[0] for c in sweeps} == {g for sc in scenarios for g in sc.generator_names} - drive_gens
-    assert set(everything.extra_generators) == {g for sc in scenarios for g in sc.generator_names}
+    assert {c[0] for c in sweeps} == voigt_gens
+    assert set(everything.extra_generators) == voigt_gens | drive_gens
 
 
 def test_default_run_group_is_voigt_grid():

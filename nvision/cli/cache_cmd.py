@@ -816,11 +816,26 @@ def cache_clean(
         int | None,
         typer.Option("--repeats", help="Repeats filter"),
     ] = None,
+    window_above: Annotated[
+        float | None,
+        typer.Option(
+            "--window-above",
+            help="Only voigt-grid signals whose window exceeds this many total FWHMs (e.g. 15).",
+        ),
+    ] = None,
     dry_run: Annotated[bool, typer.Option("--dry-run", help="Show matches without deleting")] = False,
     force: Annotated[bool, typer.Option("--force", help="Skip confirmation")] = False,
 ) -> None:
     """Delete cached simulation artifacts matching optional filters."""
     cache_root = out / "cache"
+
+    wide_window_generators: set[str] | None = None
+    if window_above is not None:
+        from nvision.sim import presets as sim_presets
+
+        wide_window_generators = {
+            name for name, gen in sim_presets.voigt_snr_window_param_grid_generators() if gen.window_fwhm > window_above
+        }
 
     # (CategoryName, CacheInstance, Key, Payload)
     keys_to_delete: list[tuple[str, Any, str, dict[str, Any] | None]] = []
@@ -839,6 +854,8 @@ def cache_clean(
                     cfg_copy = dict(cfg)
                     if kind == "locator_combination_pointer" and "data" in payload and len(payload["data"]) > 0:
                         cfg_copy["repeats"] = payload["data"][0].get("achieved_repeats")
+                    if wide_window_generators is not None and cfg_copy.get("generator") not in wide_window_generators:
+                        continue
                     if _matches_filter(cfg_copy, None, strategy, generator, noise, max_steps, repeats):
                         keys_to_delete.append((cat_name, cat_cache, key, payload))
 
