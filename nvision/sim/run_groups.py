@@ -134,16 +134,34 @@ def _group_drive_control() -> RunGroup:
     )
 
 
+# The ``all`` group stops the window axis here (window in units of the total FWHM): the wider windows only dilute
+# the signal and add cost; ``voigt-grid`` itself still spans the whole axis.
+ALL_MAX_WINDOW_FWHM = 15.0
+
+
+def _voigt_grid_up_to_window(group: RunGroup, max_window_fwhm: float) -> RunGroup:
+    """``group`` restricted to generators whose window is at most ``max_window_fwhm`` total FWHMs."""
+    kept = {
+        name: gen
+        for name, gen in (group.extra_generators or {}).items()
+        if gen.window_fwhm is not None and gen.window_fwhm <= max_window_fwhm
+    }
+    return replace(group, generator_names=list(kept), extra_generators=kept)
+
+
 def _group_all() -> RunGroup:
     """Every scenario with every locator used in it."""
-    members = (_group_voigt_grid(), _group_drive_control())
+    members = (_voigt_grid_up_to_window(_group_voigt_grid(), ALL_MAX_WINDOW_FWHM), _group_drive_control())
 
     def union(lists):
         return list(dict.fromkeys(x for xs in lists for x in xs))
 
     return RunGroup(
         name="all",
-        description="Every scenario above with all of its locators (voigt-grid + drive-control).",
+        description=(
+            "Every scenario above with all of its locators (voigt-grid up to a "
+            f"{ALL_MAX_WINDOW_FWHM:g}-FWHM window + drive-control)."
+        ),
         generator_names=union(m.generator_names for m in members),
         noise_names=union(m.noise_names for m in members),
         strategy_names=union(m.strategy_names for m in members),
