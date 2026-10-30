@@ -76,7 +76,7 @@ def compare(
             "focus_found",
             "focus_step",
             "max_info",
-            "max_info_step",
+            "refine_start_step",
         ],
         "Per stage: median measurements, uncertainty ratio (end / start), true error at stage end, sensitivity": [
             "stage1_steps",

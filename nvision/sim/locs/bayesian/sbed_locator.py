@@ -305,8 +305,8 @@ class SmartSBEDLocator(_SearchThenFocusMixin, SequentialBayesianExperimentDesign
 
 # Smart-Sweep stops re-sweeping and measures only at the estimated max-information points once the posterior
 # expects those points to carry at least (1 - this) of the information the true optimum would. Same delta as the
-# stage-3 ("refine") rule's REFINE_INFO_LOSS in nvision.metrics.stages, deliberately a separate constant so that
-# editing the metric never silently changes the acquisition.
+# REFINE_INFO_LOSS that sets the metric's refine tolerance eps in nvision.metrics.stages, deliberately a separate
+# constant so that editing the metric never silently changes the acquisition.
 SMART_SWEEP_REFINE_INFO_LOSS: float = 0.1
 # Spacing of the drive-frequency grid the sensitivity argmax is taken over, as a fraction of the estimated HWHM.
 # eta loses only second order in the grid offset (Lorentzian: 4.5 (eps/HWHM)^2), so HWHM/50 costs < 0.1%.
@@ -341,8 +341,8 @@ class SmartSweepLocator(_SearchThenFocusMixin, SequentialBayesianExperimentDesig
     posterior particle ``p`` taken as the truth, a measurement at ``x*`` would carry the fraction
     ``eta_p = g_p(x*)^2 / max_x g_p(x)^2`` of the information the true optimum gives. Refine mode is used on a
     step when, inside a focus, every chosen point has posterior-expected efficiency ``E_post[eta] >= 1 - delta``
-    with ``delta = SMART_SWEEP_REFINE_INFO_LOSS``: the stage-3 criterion of ``nvision.metrics.stages`` (refine
-    CRLB within ``1 / (1 - delta)`` of the oracle's), evaluated under the posterior instead of the unknown truth.
+    with ``delta = SMART_SWEEP_REFINE_INFO_LOSS``: the same efficiency level that defines the refine tolerance ``eps``
+    of ``nvision.metrics.stages``, evaluated under the posterior instead of the unknown truth.
     Because the loss is second order in the position error (Lorentzian ``eta ~ 1 - 4.5 (eps / HWHM)^2``) this is
     "``x*`` known to about 0.15 HWHM", but taken from the model, not a Lorentzian formula, and it accounts for
     the nuisance-parameter (width) uncertainty too. The rule is re-evaluated every step, not latched: if the

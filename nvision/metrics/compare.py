@@ -51,8 +51,8 @@ def compare_locators(df: pl.DataFrame, *, group_by: tuple[str, ...] = ()) -> pl.
         (pl.col("final_err_primary") <= 2.0 * pl.col("uncert")).mean().alias("cover_2sigma"),
         reached("focus_found_step").alias("focus_found"),
         med("focus_found_step").alias("focus_step"),
-        reached("max_info_step").alias("max_info"),
-        med("max_info_step").alias("max_info_step"),
+        reached("refine_start_step").alias("max_info"),
+        med("refine_start_step").alias("refine_start_step"),
     ]
     for k in (1, 2, 3):
         exprs += [

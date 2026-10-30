@@ -1194,6 +1194,32 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         lo, hi = self.physical_param_bounds[name]
         return lo + float(u) * (hi - lo)
 
+    def primary_sensitivity_sq_phys(self, primary: str, drive_freq_phys: np.ndarray) -> np.ndarray:
+        """Squared sensitivity ``(d prediction / d primary)^2`` of the belief's model at its posterior-mean estimates.
+
+        ``drive_freq_phys``: drive frequencies (Hz), shape: (n_points,). Returns shape: (n_points,), in
+        (signal / Hz)^2, from a central difference on ``primary`` in the unit cube. It needs no true parameter, so it
+        is available to an experiment, and it uses the parameterisation the belief infers (which can differ from
+        the generating model's, e.g. one effective ``hwhm`` for a Voigt line).
+        """
+        j = self._param_names.index(primary)
+        lo_phys, hi_phys = self.physical_param_bounds[primary]
+        est_unit = self._estimates_unit()
+        cols = [np.array([est_unit[name]], dtype=self._particles.dtype) for name in self._param_names]
+        h_unit = 1e-4
+        up_unit = min(float(cols[j][0]) + h_unit, 1.0)
+        dn_unit = max(float(cols[j][0]) - h_unit, 0.0)
+        if not up_unit > dn_unit:
+            raise ValueError(f"Degenerate finite-difference step for {primary!r}.")
+        cols_up = [np.array([up_unit], dtype=c.dtype) if k == j else c for k, c in enumerate(cols)]
+        cols_dn = [np.array([dn_unit], dtype=c.dtype) if k == j else c for k, c in enumerate(cols)]
+        lo, hi = self.drive_freq_bounds_phys
+        xs_unit = (np.asarray(drive_freq_phys, dtype=np.float64) - lo) / (hi - lo)
+        drives = [self.model.fixed_drive] * xs_unit.size
+        y_up = np.asarray(self._predict_at_drives(xs_unit, cols_up, drives), dtype=np.float64)[:, 0]
+        y_dn = np.asarray(self._predict_at_drives(xs_unit, cols_dn, drives), dtype=np.float64)[:, 0]
+        return ((y_up - y_dn) / ((up_unit - dn_unit) * (hi_phys - lo_phys))) ** 2
+
     def particles_phys(self) -> dict[str, np.ndarray]:
         """Particle positions in physical units, by parameter name. Each array shape: (n_particles,)"""
         out = {}

@@ -197,8 +197,9 @@ def _find_repeat(bridge: CacheBridge, combo_key: str, repeat_idx: int) -> tuple[
 _COMPARE_FIELDS = (
     "final_err_primary",
     "uncert",
+    "dip_detected_step",
     "focus_found_step",
-    "max_info_step",
+    "refine_start_step",
     *(f"stage{k}_{m}" for k in (1, 2, 3) for m in ("steps", "unc_start", "unc_ratio", "err_end", "sens_eff")),
     # The oracle and the axes behind the Stages / Scaling views (nvision/metrics/stages.py).
     "snr",
@@ -274,8 +275,9 @@ _RUN_ROW_FIELDS = (
     "final_err_primary",
     "uncert",
     "stage_primary_param",
+    "dip_detected_step",
     "focus_found_step",
-    "max_info_step",
+    "refine_start_step",
     "stage1_steps",
     "stage2_steps",
     "stage3_steps",
