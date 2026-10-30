@@ -366,9 +366,9 @@ function main() {
 
         // Stage boundaries sit BELOW the track so they read apart from the convergence
         // milestones above it. Stage 2 (focus) starts the measurement after the step a
-        // dip was found; stage 3 (refine) starts at max_info_step (see metrics/stages.py).
+        // dip was found; stage 3 (refine) starts at refine_start_step (see metrics/stages.py).
         const focusFound = _mv(d, 'focus_found_step');
-        const refineStart = _mv(d, 'max_info_step');
+        const refineStart = _mv(d, 'refine_start_step');
         const stageTicks = [
             { label: 'Focus', title: 'Start of stage 2: focus', step: focusFound != null ? focusFound + 1 : null, cls: 'stage-focus' },
             { label: 'Refine', title: 'Start of stage 3: refine', step: refineStart, cls: 'stage-refine' },
@@ -7615,7 +7615,7 @@ function main() {
                     return shares.length > 1 ? `${med} <span style="color:#94a3b8">(worst ${fmt.pct(Math.max(...shares))})</span>` : med;
                 })(),
                 focus: fmt.pct(hlMedian(hlCaseShares(runs, p => _mv(p, 'focus_found_step') != null))),
-                refine: fmt.pct(hlMedian(hlCaseShares(runs, p => _mv(p, 'max_info_step') != null))),
+                refine: fmt.pct(hlMedian(hlCaseShares(runs, p => _mv(p, 'refine_start_step') != null))),
             };
         }).sort((a, b) => (a.med ?? Infinity) - (b.med ?? Infinity));
         const th = (t, tip) => `<th style="padding:2px 8px;text-align:right" title="${escapeHtml(tip)}">${t}</th>`;
@@ -7699,7 +7699,7 @@ function main() {
         }
         const steps = _mv(p, `stage${stage}_steps`);
         if (!(steps > 0)) return null;
-        const first = stage === 1 ? 1 : stage === 2 ? _mv(p, 'focus_found_step') + 1 : _mv(p, 'max_info_step');
+        const first = stage === 1 ? 1 : stage === 2 ? _mv(p, 'focus_found_step') + 1 : _mv(p, 'refine_start_step');
         return { start: first, end: first - 1 + steps };
     }
 
@@ -7796,7 +7796,7 @@ function main() {
             if (stage >= 2 && slopeRef == null && xs.length >= 3) slopeRef = { x: xs, y0: med[0], x0: xs[0] };
             // A stage view marks only where its own stage ends: search at the focus-found step, focus at the max-information
             // step, refine nothing; the whole run marks both.
-            const stageMarkers = [['focus_found_step', 'diamond', 'focus found'], ['max_info_step', 'star', 'max information']]
+            const stageMarkers = [['focus_found_step', 'diamond', 'focus found'], ['refine_start_step', 'star', 'max information']]
                 .filter((m, i) => stage === 0 || stage === i + 1);
             for (const [field, symbol, what] of stageMarkers) {
                 const rel = hlMedian(hlUnits(runs.map(r => r.p), p => _mv(p, field)));

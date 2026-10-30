@@ -345,7 +345,7 @@ def test_scan_fields_carries_compare_fields(tmp_path):
     assert compare["final_err_primary"] == 4.0
     assert compare["focus_found_step"] == 3
     assert compare["stage2_unc_ratio"] == 0.5
-    assert compare["max_info_step"] is None
+    assert compare["refine_start_step"] is None
 
 
 def test_run_rows_serves_scalar_rows_for_the_requested_strategies(tmp_path):

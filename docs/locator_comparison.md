@@ -154,15 +154,28 @@ the **true** signal. An oracle that knows $\theta$ spends the same shots at the 
 The per-step efficiency is $\eta = g(x,d)^2/\max g^2 \in [0, 1]$: 1 at the steepest point of the dip, ~0 at the dip
 centre or on the flat baseline.
 
-**Rule.** Refine starts at the first measurement $n$ after the focus from which
+**Boundaries (causal, observable).** Both are decided from the snapshots at the step itself and the next
+`BOUNDARY_HOLD_STEPS` = 3 (a condition must hold that long), never from how the run went on, and need no true
+parameter, so they apply unchanged to an experiment:
 
-$$\sum_{t\ge n} k_t\,\eta_t \;\ge\; (1-\delta) \sum_{t\ge n} k_t, \qquad \delta = \texttt{REFINE\_INFO\_LOSS} = 0.1 .$$
+* *Search → focus*: the **claimed** uncertainty of the primary parameter has fallen to 0.7 (`FOCUS_SIGMA_DROP`) of its
+  value after the first measurement and stays there.
+* *Focus → refine*: the claimed uncertainty stays $\le \epsilon$, where $\epsilon$ is the tolerance below, evaluated on
+  the line as the run finally *estimated* it (`_estimated_tolerance_phys`).
 
-Measurements are independent given $\theta$, so Fisher information adds and the CRLB on $\theta$ from the refine
-stage is $1/\sum_{t\ge n} I_t$. The rule therefore **guarantees** the refine stage's CRLB is within $1/(1-\delta)$
-(about 1.11x) of the best any design could reach with the same measurements. A steady information rate alone is not
-enough: a locator stuck at a weak point is steady too, at low $\eta$. The tail mean tolerates an occasional
-exploratory probe instead of resetting on it.
+Two things happen at different times: the **evidence** (the dip test rejects "no dip") and the **precision** (the
+uncertainty drops). Only the precision defines stages; the evidence is its own marker, `dip_detected_step` (the
+locator's dip test at `NVISION_DIP_P_FA`, held). On 20 single-dip runs the true error first stayed $\le \epsilon$ at a
+median step 16 (SNR 10) / 60 (SNR 3); the claimed σ halved at 18.5 / 76.5 and reached ε at 24 / 90, while the dip test
+at 0.1 fired at 26 / 150, and the two markers disagree in both directions run by run.
+
+The efficiency $\eta$ is not part of either boundary (it needs the true signal). It is reported per stage
+(`stage{k}_sens_eff`, `stage{k}_wasted_share`): a locator can reach the precision $\epsilon$ and still spend its
+measurements away from the best point, which shows up there. The claimed $\sigma$ is known to be overconfident
+(Sanity view), so the boundaries can fire early: in 3 of 12 SNR-10 runs the true error was still 2.7-14 $\epsilon$ when
+refine started. The hold and the Sanity coverage plot bound that, they do not remove it.
+Measurements are independent given $\theta$, so Fisher information adds and the CRLB from the refine stage is
+$1/\sum_{t\ge n} I_t$.
 
 **"Near" the optimum is enough.** The locator aims at the optimum of its *estimate*, off by its error $\epsilon$.
 The optimum is a maximum of $\eta$, so the loss is second order. For a Lorentzian of HWHM $\gamma$ the optimum is
@@ -174,7 +187,7 @@ known-nuisance scenario -- with free nuisances the diagonal term is an upper bou
 For drive-controlled models the oracle also picks the drive amplitude (and the true pi-pulse when pulsed). $\eta$
 uses the true signal, not the belief (whose own precision is overconfident), so it is simulation-only ground truth.
 
-Per run (results-row columns): `focus_found_step`, `max_info_step`, `stage{1,2,3}_steps`,
+Per run (results-row columns): `focus_found_step`, `refine_start_step`, `stage{1,2,3}_steps`,
 `stage{1,2,3}_unc_start|unc_end|unc_ratio|sens_eff` (shot-weighted mean $\eta$ per stage). A stage a run never reached is `None` -- a plain sweep, which
 keeps moving across the dip, has no refine stage, which is a result, not missing data. The UI's "Stages" view
 shows them.

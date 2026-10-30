@@ -58,8 +58,10 @@ N ≈ 1/(ε² I\*): **they fall as 1/SNR²**. `stage_fisher_star` stores I\* (Hz
   true curve (`stage_eps_target_phys`), so it holds for any line shape. Oracle: `stage2_oracle_steps` = 1/(ε² I\*), about
   100/SNR² for a Lorentzian (the constant depends on the SNR and width definitions; the exponent is the point).
   Not defined for drive-controlled models (the best point is a drive setting; pulse fringes can be narrower than the grid).
-* **Refine ends at the stop target τ** (`stage_tau_phys`). Oracle: `stage3_oracle_steps` = (τ⁻² − σ₀⁻²)/I\* with σ₀
-  the claimed σ at refine start. It scales like (FWHM_true / (SNR τ))²: the Scaling view's refine panel axis.
+* **Refine starts when the claimed σ has stayed ≤ ε** for a few steps (`refine_start_step`; ε taken on the line as the run
+  estimated it, so the boundary needs no true parameter and applies to an experiment). **It ends at the stop target τ**
+  (`stage_tau_phys`). Oracle: `stage3_oracle_steps` = (τ⁻² − ε⁻²)/I\*. It scales like (FWHM_true / (SNR τ))²: the Scaling
+  view's refine panel axis.
 * **Search** has no Fisher bound (nothing is known about where the dip is); its scale is the number of dip-widths to cover,
   window / FWHM_true (`stage_window_fwhm`), times the passes needed to see the dip at the given SNR.
 * **Efficiency** = oracle steps / steps spent (`stage2_efficiency`, `stage3_efficiency`): 1 = Fisher-limited. The oracle is a
@@ -77,6 +79,10 @@ SBED's focus stage took 25-150× the bound and flattened at roughly 20-40 steps 
 the claimed σ at focus start was already 0.1-0.5 γ (not ≈ the FWHM) while the true error was 2-4× larger (overconfidence);
 focus steps grew about 2× from window 5 to 10 × FWHM; SBED search steps were far flatter in the window than proportional.
 With the focus stage's mean η only 0.3-0.5, the stage length looks set by exploration the tail rule counts, not by information.
+(These were measured with the old boundaries: search→focus at a 0.5 false-alarm dip scan, refine = first step whose whole
+remaining tail had mean η ≥ 0.9. In those rows the true error was already ≤ ε at "dip found" in about a third of SBED runs,
+and refine was reached in about 15% of runs. The boundaries above replace both; the old `max_info_step` column is now
+`refine_start_step`, so older rows show a dash and need a re-run.)
 
 ## Rules
 
@@ -131,7 +137,11 @@ With the focus stage's mean η only 0.3-0.5, the stage length looks set by explo
   Re-run to get them.
 * Search is judged by its steps against window / FWHM_true in the Scaling view; there is no analytic "passes" model for it
   yet, and the prior FWHM / grid step enters only through `stage_prior_fwhm_phys`.
-* Stage boundaries depend on the dip detector (`NVISION_DIP_P_FA`) and δ = 0.1; a one-off sensitivity check (δ = 0.05 / 0.1 /
+* The boundaries inherit the claimed σ's overconfidence (on the SNR × window study σ is ≈ 2 ε after the first measurement
+  while the true error is ≈ 5 ε, and a few runs start refine with the error still several ε). They are as good as the
+  Sanity coverage; a σ-free observable for "position known to within ε" is still to find.
+* The search→focus factor `FOCUS_SIGMA_DROP` = 0.7 is arbitrary (0.9 fires before the data have localised anything; 0.25 fires later than the true error reaches ε, at
+  step 37 / 200); the stage boundaries also depend on δ = 0.1; a one-off sensitivity check (δ = 0.05 / 0.1 /
   0.2) that the locator ranking survives is still to do.
 * The signed z = (estimate − truth) / claimed σ is not stored (only |error|), so σ honesty is checked against a
   half-normal, not N(0, 1).

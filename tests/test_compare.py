@@ -20,7 +20,7 @@ def _results() -> pl.DataFrame:
             "final_err_primary": [100.0, 300.0, 1.0, 50.0, 70.0],
             "uncert": [150.0, 100.0, 1.0, 40.0, 60.0],
             "focus_found_step": [5, 7, None, None, 12],
-            "max_info_step": [9, None, None, None, None],
+            "refine_start_step": [9, None, None, None, None],
             "stage1_steps": [5, 7, None, 30, 12],
             "stage1_unc_ratio": [0.1, 0.3, None, 0.9, 0.2],
         }
@@ -43,7 +43,7 @@ def test_compare_reports_reach_rates_and_medians_per_strategy():
 
 
 def test_compare_tolerates_missing_stage_columns():
-    df = _results().drop("stage1_steps", "stage1_unc_ratio", "focus_found_step", "max_info_step")
+    df = _results().drop("stage1_steps", "stage1_unc_ratio", "focus_found_step", "refine_start_step")
     assert compare_locators(df).height == 2
 
 

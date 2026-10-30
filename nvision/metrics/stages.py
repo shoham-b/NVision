@@ -2,21 +2,36 @@
 
 A search for a resonance whose other parameters are already known passes through three stages:
 
-1. **search** -- until the measurements first show a dip (the *focus window* exists).
-2. **focus** -- from then until every measurement is taken where it carries the most information about the
-   primary parameter (the *max-information* point).
-3. **refine** -- from there to the end of the run, each measurement gaining the maximum (Cramer-Rao) information.
+1. **search** -- until the claimed uncertainty of the primary parameter has dropped to ``FOCUS_SIGMA_DROP`` of
+   its first value: the data have started to localise the dip.
+2. **focus** -- from then until the primary parameter is known well enough that the locator's aim point is
+   within the near-optimal region (claimed uncertainty ``<= eps``, see below).
+3. **refine** -- from there to the end of the run, each measurement gaining (nearly) the maximum
+   (Cramer-Rao) information.
 
 The boundaries are read off the run's per-step snapshots by one function, never from a locator's own
-bookkeeping, so a sweep and an SBED run are compared by the same rule.
+bookkeeping, so a sweep and an SBED run are compared by the same rule. They are *causal* and *observable*: whether
+step ``n`` starts a stage is decided from the claimed uncertainty at ``n .. n + BOUNDARY_HOLD_STEPS - 1`` only
+(never from how the run went on, and with no true parameter), so they apply unchanged to an experiment. A condition
+must hold for ``BOUNDARY_HOLD_STEPS`` consecutive steps, so one noise fluctuation does not move a boundary.
 
-* ``focus_found_step``: first step whose belief has a significant dip, per
-  :meth:`~nvision.belief.smc_marginal.SMCMarginalDistribution.current_dips` (the deterministic
-  ``find_dips`` of the measurements and the conjugate noise estimate).
-* ``max_info_step``: first step ``n`` after ``focus_found_step`` from which the measurements, taken
-  together, gather at least ``1 - REFINE_INFO_LOSS`` of the Fisher information an oracle would:
+Two things happen at different times and are kept apart: the *evidence* (a hypothesis test rejects "no dip") and
+the *precision* (the uncertainty drops). Only the precision defines stages. The evidence is reported as its own
+marker, ``dip_detected_step``, the first step where the locator's dip test (``NVISION_DIP_P_FA``, the one it uses to
+narrow its focus) shows a dip and keeps showing one.
 
-  .. math:: \\sum_{t \\ge n} I(x_t) \\ge (1 - \\delta) \\sum_{t \\ge n} I^*_t
+* ``focus_found_step``: first step from which the claimed uncertainty stays ``<= FOCUS_SIGMA_DROP`` x its value after
+  the first measurement. On 20 single-dip runs this came within ~2 steps (SNR 10) and ~16 steps (SNR 3) of the
+  step the true error first stays ``<= eps``; the dip test at 0.1 came 10 and 90 steps later.
+* ``refine_start_step``: the measurement after the first step ``n >= focus_found_step`` from which the claimed
+  uncertainty stays ``<= eps``, the half-width of the region around the best measurement point where the efficiency
+  ``eta`` stays ``>= 1 - REFINE_INFO_LOSS`` (``_optimum_tolerance_phys``). ``eps`` is taken on the line as the run
+  finally estimated it (``_estimated_tolerance_phys``). A locator whose estimate is within ``eps`` aims inside the
+  near-optimal region. It is ``None`` for drive-controlled models, which have no single best point.
+  The oracle bound ``stage2_oracle_steps`` uses the true-signal ``eps``, which the estimated one approximates.
+
+The claimed uncertainty is known to be overconfident (Sanity view), so both boundaries can fire early; they are as
+good as that calibration.
 
 Fisher information
 ------------------
@@ -24,16 +39,13 @@ Measurement ``t`` at drive frequency ``x_t`` (and drive ``d_t``) with ``k_t`` av
 primary parameter ``theta`` at its true value, ``I(x_t) = k_t g(x_t, d_t)^2 / sigma^2`` with
 ``g = d signal / d theta`` (Gaussian noise of standard deviation ``sigma`` per shot). The oracle knows
 ``theta`` and spends the same shots at the best point, ``I^*_t = k_t max_{x, d} g(x, d)^2 / sigma^2``.
-``sigma`` cancels, so the per-step **efficiency** is ``eta_t = g(x_t, d_t)^2 / max g^2`` in ``[0, 1]`` and the
-rule above is a shot-weighted tail mean, ``sum k_t eta_t / sum k_t >= 1 - delta``.
-
-Why this rule: measurements are independent given ``theta``, so their Fisher information adds and the
-Cramer-Rao bound on ``theta`` from steps ``n..N`` is ``1 / sum_{t>=n} I(x_t)``. The rule therefore guarantees
-that the refine stage's CRLB is within a factor ``1 / (1 - delta)`` of the best any design could reach with
-the same measurements -- i.e. in stage 3 the locator gains (nearly) the CRLB-optimal information at every
-step. A steady information rate alone is not enough: a locator stuck sampling a weak point is steady too, at
-a low ``eta``. ``eta`` uses the true signal, not the locator's belief (whose own precision is overconfident),
-so it is a simulation-only ground truth that grades sweeps and SBED identically.
+``sigma`` cancels, so the per-step **efficiency** is ``eta_t = g(x_t, d_t)^2 / max g^2`` in ``[0, 1]``: the share
+of the oracle's information the measurement gathers. Measurements are independent given ``theta``, so their
+Fisher information adds and the Cramer-Rao bound from steps ``n..N`` is ``1 / sum_{t>=n} I(x_t)``. A steady
+information rate alone says little: a locator stuck sampling a weak point is steady too, at a low ``eta``.
+``eta`` uses the true signal, not the locator's belief (whose own precision is overconfident), so it is a
+simulation-only ground truth that grades sweeps and SBED identically. It does not set the stage boundaries; it is
+reported per stage (``stage{k}_sens_eff``, ``stage{k}_wasted_share``).
 
 The locator never measures *exactly* at the optimum -- it aims at the optimum of its estimate, off by its
 estimation error ``eps``. That costs only second order: the optimum is a maximum of ``eta``, so
@@ -53,9 +65,9 @@ Oracle per stage
 Each stage is also compared with the fewest measurements any locator could need, from the same truth-side Fisher
 information: ``I* = max g^2 / sigma^2`` per step. Focus ends at the precision ``eps`` where eta stays >= ``1 - delta``
 (half-width of that region around the best point), so its bound is ``1 / (eps^2 I*)``; refine ends at the stop target
-``tau``, so its bound is ``(tau^-2 - u3^-2) / I*``. Both fall as 1 / SNR^2. The efficiency (bound / steps spent) and the
-axes (true / prior FWHM, window) are stored with the stage metrics; see :func:`compute_stage_metrics` and
-``docs/evaluation_metrics.md``.
+``tau``, so its bound is ``(tau^-2 - eps^-2) / I*`` (refine starts at precision ``eps``). Both fall as 1 / SNR^2.
+The efficiency (bound / steps spent) and the axes (true / prior FWHM, window) are stored with the stage metrics; see
+:func:`compute_stage_metrics` and ``docs/evaluation_metrics.md``.
 
 Steps are 1-indexed measurement counts. A stage that was never reached has ``None`` metrics -- for
 a plain sweep, which does not stop when it has converged, a short or absent *refine* stage is a real
@@ -65,6 +77,7 @@ result, not missing data.
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
 from typing import Any, NamedTuple
 
 import numpy as np
@@ -76,10 +89,11 @@ from nvision.spectra.nv_center_drive import RABI_PER_AMP_BOUNDS
 
 # delta: the refine stage may lose at most this fraction of the oracle's Fisher information (CRLB within 1/(1-delta)).
 REFINE_INFO_LOSS = 0.1
-# Family-wise false-alarm level of the dip scan that marks the start of the focus stage. Looser than the
-# locator's NVISION_DIP_P_FA: the uncertainty already drops like a focus stage before a dip passes the
-# locator's test, so the metric declares the focus stage earlier than the locator acts on it.
-FOCUS_FOUND_P_FA = 0.5
+# Consecutive steps a boundary condition must hold, so a single noise fluctuation does not move it.
+BOUNDARY_HOLD_STEPS = 3
+# The search ends once the claimed uncertainty of the primary parameter has fallen to this fraction of its value
+# after the first measurement (an arbitrary but observable "the data have started to localise the dip").
+FOCUS_SIGMA_DROP = 0.7
 _EFFICIENCY_GRID_POINTS = 4001
 _GRID_MAX_TOLERANCE = 0.01
 _ORACLE_DRIVE_AMPS = 48
@@ -95,8 +109,9 @@ STAGE_NAMES: tuple[str, str, str] = ("search", "focus", "refine")
 # Every key compute_stage_metrics returns (the results-row columns).
 STAGE_METRIC_KEYS: tuple[str, ...] = (
     "stage_primary_param",
+    "dip_detected_step",
     "focus_found_step",
-    "max_info_step",
+    "refine_start_step",
     *(
         f"stage{k}_{field}"
         for k in (1, 2, 3)
@@ -176,6 +191,56 @@ def _optimum_tolerance_phys(grid_phys: np.ndarray, g2: np.ndarray, best: float) 
     return eps
 
 
+def _grad_sq_fn(
+    true_signal: Any, primary: str, base: list[float]
+) -> Callable[[DriveSetting | None, np.ndarray], np.ndarray]:
+    """Squared sensitivity ``(d signal / d primary)^2`` of the model at parameter values ``base``.
+
+    ``base``: the model's packed parameter values (``model.spec`` order). Returns ``grad_sq(drive, xs_phys)`` with
+    ``xs_phys`` shape (n,) in Hz and result shape (n,) in (signal / Hz)^2, by a central difference on ``primary``.
+    """
+    names = list(true_signal.parameter_names)
+    if primary not in names:
+        raise ValueError(f"Primary parameter {primary!r} is not a parameter of the true signal {names}.")
+    idx = names.index(primary)
+    lo_bound, hi_bound = true_signal.get_param_bounds(primary)
+    spec = true_signal.model.spec
+    h = 1e-4 * (hi_bound - lo_bound)
+    up, dn = list(base), list(base)
+    up[idx], dn[idx] = min(base[idx] + h, hi_bound), max(base[idx] - h, lo_bound)
+    if up[idx] <= dn[idx]:
+        raise ValueError(f"Degenerate bounds for {primary!r}: {(lo_bound, hi_bound)}.")
+    params_up, params_dn = spec.unpack_params(up), spec.unpack_params(dn)
+
+    def grad_sq(drive: DriveSetting | None, xs_phys: np.ndarray) -> np.ndarray:
+        model = true_signal.model_at(drive)
+        y_up = model.compute_many_float64(xs_phys, params_up)
+        y_dn = model.compute_many_float64(xs_phys, params_dn)
+        return ((y_up - y_dn) / (up[idx] - dn[idx])) ** 2
+
+    return grad_sq
+
+
+def _estimated_tolerance_phys(run_result: RunResult, primary: str) -> float | None:
+    """``eps`` (Hz) of the line as the run finally estimated it, so no true parameter is needed.
+
+    Same definition as the true-signal ``eps`` (:func:`_optimum_tolerance_phys`) but on the sensitivity of the
+    belief's own model at its final estimate (``primary_sensitivity_sq_phys``), which a real experiment also has.
+    ``None`` for drive-controlled models (no single best point). Raises if the estimated line is too narrow for the
+    grid to resolve.
+    """
+    if run_result.true_signal.model.controls_drive:
+        return None
+    belief = run_result.snapshots[-1].belief
+    x_lo_phys, x_hi_phys = belief.drive_freq_bounds_phys
+    grid_phys = np.linspace(x_lo_phys, x_hi_phys, _EFFICIENCY_GRID_POINTS)
+    g2 = belief.primary_sensitivity_sq_phys(primary, grid_phys)
+    best = float(np.max(g2))
+    if not best > 0.0:
+        raise ValueError(f"The estimated signal does not depend on {primary!r} anywhere on the drive range.")
+    return _optimum_tolerance_phys(grid_phys, g2, best)
+
+
 def _primary_sensitivity(run_result: RunResult, primary: str) -> _Sensitivity:
     """:class:`_Sensitivity`: squared sensitivity of each step's measurement and of the best possible one.
 
@@ -184,30 +249,12 @@ def _primary_sensitivity(run_result: RunResult, primary: str) -> _Sensitivity:
     range (and, for drive-controlled models, of drive amplitudes).
     """
     true_signal = run_result.true_signal
-    names = list(true_signal.parameter_names)
-    if primary not in names:
-        raise ValueError(f"Primary parameter {primary!r} is not a parameter of the true signal {names}.")
-    idx = names.index(primary)
-    lo_bound, hi_bound = true_signal.get_param_bounds(primary)
     spec = true_signal.model.spec
-    base = [float(v) for v in spec.pack_params(true_signal.typed_parameters)]
-    h = 1e-4 * (hi_bound - lo_bound)
-    up, dn = list(base), list(base)
-    up[idx], dn[idx] = min(base[idx] + h, hi_bound), max(base[idx] - h, lo_bound)
-    if up[idx] <= dn[idx]:
-        raise ValueError(f"Degenerate bounds for {primary!r}: {(lo_bound, hi_bound)}.")
-    params_up, params_dn = spec.unpack_params(up), spec.unpack_params(dn)
+    grad_sq = _grad_sq_fn(true_signal, primary, [float(v) for v in spec.pack_params(true_signal.typed_parameters)])
 
     snapshots = run_result.snapshots
     x_lo_phys, x_hi_phys = snapshots[0].belief.drive_freq_bounds_phys
     grid_phys = np.linspace(x_lo_phys, x_hi_phys, _EFFICIENCY_GRID_POINTS)
-
-    def grad_sq(drive: DriveSetting | None, xs_phys: np.ndarray) -> np.ndarray:
-        """Squared sensitivity d signal / d primary at ``xs_phys`` (Hz) under ``drive``; shape: (len(xs_phys),)."""
-        model = true_signal.model_at(drive)
-        y_up = model.compute_many_float64(xs_phys, params_up)
-        y_dn = model.compute_many_float64(xs_phys, params_dn)
-        return ((y_up - y_dn) / (up[idx] - dn[idx])) ** 2
 
     best, best_g2 = 0.0, None
     for d in _oracle_drives(true_signal):
@@ -271,15 +318,14 @@ def fisher_information_trace(run_result: RunResult, primary: str) -> np.ndarray:
     return shots * measured / noise_std**2
 
 
-def _refine_start(eta: np.ndarray, shots: np.ndarray, first: int) -> int | None:
-    """Earliest index ``n >= first`` whose tail ``n..end`` has shot-weighted mean efficiency >= ``1 - delta``.
+def _first_held(holds: Callable[[int], bool], first: int, n_steps: int) -> int | None:
+    """Earliest index ``n >= first`` with ``holds(i)`` true for the ``BOUNDARY_HOLD_STEPS`` steps ``n..n+hold-1``.
 
-    ``eta``, ``shots``: shape (n_steps,) -- per-step efficiency and number of averaged shots.
+    The window must lie inside the run (``n + hold <= n_steps``). ``holds`` is evaluated lazily and only on the
+    steps needed, since a dip scan per step is not free.
     """
-    tail_info = np.cumsum((shots * eta)[::-1])[::-1]
-    tail_shots = np.cumsum(shots[::-1])[::-1]
-    for n in range(first, len(eta)):
-        if tail_info[n] >= (1.0 - REFINE_INFO_LOSS) * tail_shots[n]:
+    for n in range(first, n_steps - BOUNDARY_HOLD_STEPS + 1):
+        if all(holds(i) for i in range(n, n + BOUNDARY_HOLD_STEPS)):
             return n
     return None
 
@@ -291,7 +337,9 @@ def compute_stage_metrics(run_result: RunResult) -> dict[str, Any]:
 
     * ``stage_primary_param``: the parameter whose sensitivity defines stage 3 (``None``, and every other
       field ``None`` too, when the model has no primary parameter -- see ``resolve_primary_param``).
-    * ``focus_found_step`` / ``max_info_step``: 1-indexed boundaries (``None`` if not reached).
+    * ``focus_found_step`` / ``refine_start_step``: 1-indexed boundaries (``None`` if not reached).
+    * ``dip_detected_step``: 1-indexed step the locator's dip test first shows a dip and keeps showing one (the
+      evidence marker, not a boundary; ``None`` if never).
     * ``stage{1,2,3}_steps``: measurements spent in the stage (``None`` if the stage was not reached).
     * ``stage{1,2,3}_unc_start`` / ``_unc_end`` / ``_unc_ratio``: primary-parameter uncertainty (Hz) at the
       stage's first and last step, and ``end / start`` (< 1 means the stage shrank the uncertainty).
@@ -313,13 +361,14 @@ def compute_stage_metrics(run_result: RunResult) -> dict[str, Any]:
       ``stage_window_fwhm`` = window over true FWHM: the axes the stages scale with.
     * ``stage2_oracle_steps`` = ``1 / (eps^2 I*)``: measurements to reach ``eps`` from scratch at the best point.
       ``stage2_efficiency`` = that over ``stage2_steps``.
-    * ``stage3_oracle_steps`` = ``max(0, tau^-2 - u3^-2) / I*`` with ``u3`` the claimed sigma at refine start.
+    * ``stage3_oracle_steps`` = ``max(0, tau^-2 - eps^-2) / I*``: measurements from precision ``eps`` to ``tau``
+      (``None`` for drive-controlled models).
       ``stage3_efficiency`` = that over ``stage3_steps``.
     * ``stage{2,3}_wasted_share``: share of the stage's measurements with eta < 1 - delta.
     """
     snapshots = run_result.snapshots
     n_steps = len(snapshots)
-    out: dict[str, Any] = {"stage_primary_param": None, "focus_found_step": None, "max_info_step": None}
+    out: dict[str, Any] = {"stage_primary_param": None, "focus_found_step": None, "refine_start_step": None}
     for k in (1, 2, 3):
         out[f"stage{k}_steps"] = None
         out[f"stage{k}_unc_start"] = None
@@ -346,17 +395,33 @@ def compute_stage_metrics(run_result: RunResult) -> dict[str, Any]:
     true_value = float(run_result.true_signal.get_param_value(primary))
     err_trace = [abs(float(s.belief.estimates()[primary]) - true_value) for s in snapshots]  # Hz, (n_steps,)
 
-    # Measurement indices (0-based). The measurement that reveals the dip ends the search; refine is the
-    # efficient tail, which starts after that measurement.
-    focus_idx: int | None = next(
-        (i for i, s in enumerate(snapshots) if s.belief.current_dips(p_fa=FOCUS_FOUND_P_FA)), None
-    )
+    # Measurement indices (0-based). The measurement from which the claimed sigma has halved (and stays so) ends
+    # the search; refine starts with the measurement after the one from which it stays within eps.
+    sigma_focus_phys = FOCUS_SIGMA_DROP * unc_trace[0]
+    focus_idx = _first_held(lambda i: unc_trace[i] <= sigma_focus_phys, 0, n_steps)
     refine_idx: int | None = None
     if focus_idx is not None:
-        refine_idx = _refine_start(eta, shots, focus_idx + 1)
+        # The claimed sigma against the tolerance of the line as the run estimated it: both are available to a real
+        # experiment (no true parameter), and the Sanity view shows how well sigma tracks the true error.
+        eps_est_phys = _estimated_tolerance_phys(run_result, primary)
+        if eps_est_phys is not None:
+            aimed = _first_held(lambda i: unc_trace[i] <= eps_est_phys, focus_idx, n_steps)
+            if aimed is not None:
+                refine_idx = aimed + 1  # the held window lies inside the run, so this measurement exists
 
+    # The evidence marker: the locator's own dip test, held. Not a stage boundary.
+    dip_cache: dict[int, bool] = {}
+
+    def shows_dip(i: int) -> bool:
+        if i not in dip_cache:
+            dip_cache[i] = bool(snapshots[i].belief.current_dips())
+        return dip_cache[i]
+
+    dip_idx = _first_held(shows_dip, 0, n_steps)
+
+    out["dip_detected_step"] = None if dip_idx is None else dip_idx + 1
     out["focus_found_step"] = None if focus_idx is None else focus_idx + 1
-    out["max_info_step"] = None if refine_idx is None else refine_idx + 1
+    out["refine_start_step"] = None if refine_idx is None else refine_idx + 1
 
     # Each stage's measurements as [first, last] indices (None = not reached). Its uncertainty runs from the
     # belief before its first measurement (snapshot 0 for the search) to the belief after its last one.
@@ -426,9 +491,9 @@ def _add_oracle_metrics(
         out["stage2_oracle_steps"] = _finite_or_none(oracle2)
         if out["stage2_steps"]:
             out["stage2_efficiency"] = _finite_or_none(oracle2 / out["stage2_steps"])
-    u3 = out["stage3_unc_start"]
-    if tau is not None and u3 is not None:
-        oracle3 = max(0.0, float(tau) ** -2 - u3**-2) / fisher_star
+    # Refine starts at precision eps (the focus oracle's endpoint), so the two oracles chain to the whole-run bound.
+    if tau is not None and sens.eps_phys is not None and out["stage3_steps"] is not None:
+        oracle3 = max(0.0, float(tau) ** -2 - sens.eps_phys**-2) / fisher_star
         out["stage3_oracle_steps"] = _finite_or_none(oracle3)
         if out["stage3_steps"]:
             out["stage3_efficiency"] = _finite_or_none(oracle3 / out["stage3_steps"])

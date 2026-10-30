@@ -967,7 +967,7 @@ def generate_attempt_plots(
                 if isinstance(final_unc, int | float) and math.isfinite(final_unc):
                     step_series["u"][-1] = _round_sig(float(final_unc))
                 # Refine stage aligned to its start, for runs that reached it (``r``, see extract_refine_series).
-                refine_step = entry_base.get("max_info_step")
+                refine_step = entry_base.get("refine_start_step")
                 stage_param = entry_base.get("stage_primary_param")
                 if refine_step is not None and stage_param is not None:
                     step_series["r"] = extract_refine_series(run_result, stage_param, int(refine_step))

@@ -99,7 +99,7 @@ def _resolve_series_param(run_result: RunResult, param: str) -> str:
 def extract_refine_series(run_result: RunResult, primary: str, refine_step: int) -> dict[str, Any]:
     """The refine stage (stage 3) of one run, aligned to its start, every measurement kept.
 
-    ``refine_step`` is the 1-indexed ``max_info_step`` (first refine measurement). Entry ``j`` of each list
+    ``refine_step`` is the 1-indexed ``refine_start_step`` (first refine measurement). Entry ``j`` of each list
     is the state after ``j`` refine measurements (``j = 0``: the belief just before the first one):
 
     * ``e``: ``|estimate - truth|`` of ``primary`` (Hz).
