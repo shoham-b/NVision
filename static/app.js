@@ -7951,6 +7951,8 @@ function main() {
     // what the stage's driver predicts, anchored on the first point; the dashed line is the Fisher bound. They are
     // hypotheses to read the data against (docs/evaluation_metrics.md), not fits: where the data disagree, the data win.
     const scalingShown = new Set();   // locators the user switched on; empty = default (SBED, else the first)
+    // Vs-window panels combine the selected SNRs into one curve unless split; the vs-SNR panel splits by window.
+    const scalingSplit = { snr: false, window: true };
 
     function renderScalingTab(gen, noises) {
         if (toGenSet(gen).size === 0) return;
@@ -7997,8 +7999,8 @@ function main() {
                 x: pts.map(p => p.x), y: pts.map(p => p.stat.med), mode: 'lines+markers', name: ln.name, legendgroup: ln.name,
                 line: { color: ln.color, width: 2 }, marker: { color: ln.color, size: 7, symbol: ln.symbol || 'circle' },
                 error_y: { type: 'data', symmetric: false, array: pts.map(p => p.stat.hi - p.stat.med), arrayminus: pts.map(p => p.stat.med - p.stat.lo), color: hlHexToRgba(ln.color, 0.5), thickness: 1 },
-                customdata: pts.map(p => p.stat.n),
-                hovertemplate: `${ln.name}<br>x %{x:.3g}<br>median %{y:.4g} (%{customdata} repeats)<extra></extra>`,
+                customdata: pts.map(p => p.stat.nText || `${p.stat.n} repeats`),
+                hovertemplate: `${ln.name}<br>x %{x:.3g}<br>${pts[0].stat.kind || 'median'} %{y:.4g} (%{customdata})<extra></extra>`,
             });
             const withBound = pts.filter(p => p.bound);
             if (withBound.length) {
@@ -8075,24 +8077,72 @@ function main() {
             return out;
         };
 
+        // Combine over a nuisance variable (SNR for the vs-window panels, window for the vs-SNR panel): within each
+        // nuisance value the curve is divided by its own value at the smallest x, then the curves are combined by
+        // geometric mean (bar = min..max across them). If the hypothesis holds the curves collapse onto the
+        // prediction, so the combination loses nothing; the spread shows where one value deviates.
+        const geo = (a) => Math.exp(a.reduce((s, v) => s + Math.log(v), 0) / a.length);
+        const combinedLines = (xOf, nuisanceOf, yField, boundField, nuisanceName) => {
+            const xs = distinct(xOf);
+            const out = [];
+            for (const strat of shown) {
+                for (const share of (shares.length ? shares : [null])) {
+                    const mine = pointsOf.get(strat).filter(p => (share == null || p.share === share) && xOf(p) != null);
+                    const groups = new Map();
+                    for (const p of mine) { const k = nuisanceOf(p); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(p); }
+                    const at = (g, x, field) => { const v = g.filter(p => xOf(p) === x && p[field] && p[field].med > 0).map(p => p[field].med); return v.length ? geo(v) : null; };
+                    const norm = (field) => {
+                        const byX = new Map(xs.map(x => [x, []]));
+                        for (const g of groups.values()) {
+                            const ref = at(g, xs[0], field);
+                            if (ref == null) continue;
+                            for (const x of xs) { const v = at(g, x, field); if (v != null) byX.get(x).push(v / ref); }
+                        }
+                        return byX;
+                    };
+                    const y = norm(yField), b = boundField ? norm(boundField) : null;
+                    const pts = xs.filter(x => y.get(x).length).map(x => {
+                        const v = y.get(x);
+                        const bv = b && b.get(x).length ? b.get(x) : null;
+                        return { x, stat: { med: geo(v), lo: Math.min(...v), hi: Math.max(...v), n: v.length, kind: 'geo-mean', nText: `${v.length} ${nuisanceName} level${v.length > 1 ? 's' : ''}` },
+                            bound: bv ? { med: geo(bv) } : null };
+                    });
+                    if (pts.length) out.push({ name: lineName(strat, share), color: colorOf(strat), symbol: symbols[Math.max(0, shares.indexOf(share)) % symbols.length], pts });
+                }
+            }
+            return out;
+        };
+        const toggle = (key, label, on) => `<button type="button" data-split="${key}" aria-pressed="${on}" style="border:1px solid ${on ? '#334155' : '#cbd5e1'}; background:${on ? '#e2e8f0' : '#fff'}; color:#0f172a; border-radius:999px; padding:2px 10px; font-size:0.85em; cursor:pointer;">${label}: ${on ? 'split' : 'combined'}</button>`;
+        const toggles = [];
+
         const panels = [];
         const addPanel = (title, help, facets) => panels.push({ title, help, facets });
         const notes = [];
-        // Search and focus against the window, one chart per SNR.
+        // Search and focus against the window: SNR combined by default, or one chart per SNR.
         if (windows.length >= 2) {
+            const splitSnr = scalingSplit.snr && snrs.length > 1;
+            if (snrs.length > 1) toggles.push(toggle('snr', 'SNR', scalingSplit.snr));
             const bySnr = snrs.length ? snrs : [null];
-            addPanel('Search steps vs window', 'Measurements in the search stage against the window in units of the true dip FWHM, one chart per SNR. A blind search must cover about window / FWHM dip-widths, so the dotted line (proportional to the window) is the prediction; SNR enters through the passes needed to see the dip. Locators should be roughly alike here.',
-                bySnr.map(snr => ({ label: snr == null ? '' : snrLabel(snr), lines: linesFor(p => p.window, 'search', null, p => snr == null || p.snr === snr), opts: { xTitle: 'Window (× true FWHM)', yTitle: 'Search steps (median)', xLog: true, ref: { slope: 1 }, refName: '∝ window' } })));
-            addPanel('Focus steps vs window', 'Measurements in the focus stage against the window, one chart per SNR. Focus starts once the dip is seen and aims at a precision set by the line width, so the prediction (dotted) is flat in the window. A slope means search is leaking into focus or the locator keeps searching.',
-                bySnr.map(snr => ({ label: snr == null ? '' : snrLabel(snr), lines: linesFor(p => p.window, 'focus', 'focusBound', p => snr == null || p.snr === snr), opts: { xTitle: 'Window (× true FWHM)', yTitle: 'Focus steps (median)', xLog: true, ref: { slope: 0 }, refName: 'flat' } })));
+            const windowFacets = (yField, boundField, yTitle, slope, refName) => splitSnr
+                ? bySnr.map(snr => ({ label: snr == null ? '' : snrLabel(snr), lines: linesFor(p => p.window, yField, boundField, p => snr == null || p.snr === snr), opts: { xTitle: 'Window (× true FWHM)', yTitle: `${yTitle} (median)`, xLog: true, ref: { slope }, refName } }))
+                : [{ label: snrs.length > 1 ? `${snrs.length} SNR levels combined` : (snrs.length ? snrLabel(snrs[0]) : ''), lines: combinedLines(p => p.window, p => p.snr, yField, boundField, 'SNR'), opts: { xTitle: 'Window (× true FWHM)', yTitle: `${yTitle} ÷ at smallest window`, xLog: true, ref: { slope }, refName } }];
+            addPanel('Search steps vs window', 'Measurements in the search stage against the window in units of the true dip FWHM. A blind search must cover about window / FWHM dip-widths, so the dotted line (proportional to the window) is the prediction for the slope; SNR only shifts the level (the passes needed to see the dip). Combined: each SNR is divided by its own value at the smallest window and the SNRs are averaged (geometric mean, bar = min..max), so the chart tests the slope. Split: raw steps, one chart per SNR. Locators should be roughly alike here.',
+                windowFacets('search', null, 'Search steps', 1, '∝ window'));
+            addPanel('Focus steps vs window', 'Measurements in the focus stage against the window. Focus starts once the dip is seen and aims at a precision set by the line width, so the prediction (dotted) is flat in the window. A slope means search is leaking into focus or the locator keeps searching. Combined: each SNR is divided by its own value at the smallest window and the SNRs are averaged (geometric mean, bar = min..max). Split: raw steps, one chart per SNR.',
+                windowFacets('focus', 'focusBound', 'Focus steps', 0, 'flat'));
         } else {
             notes.push('Select two or more windows (Parameters: Window) to see search and focus against the window.');
         }
-        // Focus against SNR, one chart per window.
+        // Focus against SNR: one chart per window by default, or windows combined.
         if (snrs.length >= 2) {
+            const splitWin = scalingSplit.window && windows.length > 1;
+            if (windows.length > 1) toggles.push(toggle('window', 'Window', scalingSplit.window));
             const byWindow = windows.length ? windows : [null];
-            addPanel('Focus steps vs SNR', 'Measurements in the focus stage against SNR = contrast / noise σ, one chart per window. The information per measurement grows as SNR², so the steps needed for a given precision fall as 1/SNR²: the dotted line has slope −2, and the dashed line is the Fisher bound (every measurement at the best point). Steps flatten at high SNR where a few probing measurements dominate.',
-                byWindow.map(w => ({ label: w == null ? '' : `window ${w} × FWHM`, lines: linesFor(p => p.snr, 'focus', 'focusBound', p => w == null || p.window === w), opts: { xTitle: 'SNR (contrast / noise σ)', yTitle: 'Focus steps (median)', xLog: true, ref: { slope: -2 }, refName: 'slope −2 (1/SNR²)' } })));
+            const snrOpts = { xTitle: 'SNR (contrast / noise σ)', xLog: true, ref: { slope: -2 }, refName: 'slope −2 (1/SNR²)' };
+            addPanel('Focus steps vs SNR', 'Measurements in the focus stage against SNR = contrast / noise σ. The information per measurement grows as SNR², so the steps needed for a given precision fall as 1/SNR²: the dotted line has slope −2, and the dashed line is the Fisher bound (every measurement at the best point). Steps flatten at high SNR where a few probing measurements dominate. Split: one chart per window. Combined: each window is divided by its own value at the lowest SNR and the windows are averaged (geometric mean, bar = min..max).',
+                splitWin
+                    ? byWindow.map(w => ({ label: w == null ? '' : `window ${w} × FWHM`, lines: linesFor(p => p.snr, 'focus', 'focusBound', p => w == null || p.window === w), opts: { ...snrOpts, yTitle: 'Focus steps (median)' } }))
+                    : [{ label: windows.length > 1 ? `${windows.length} windows combined` : (windows.length ? `window ${windows[0]} × FWHM` : ''), lines: combinedLines(p => p.snr, p => p.window, 'focus', 'focusBound', 'window'), opts: { ...snrOpts, yTitle: 'Focus steps ÷ at lowest SNR' } }]);
         } else {
             notes.push('Select two or more SNR levels to see focus against SNR.');
         }
@@ -8104,7 +8154,17 @@ function main() {
             notes.push('The refine panel needs two or more use cases with recorded oracle columns (runs from after the Stages oracle was added) and more than one SNR or width.');
         }
 
-        body.innerHTML = notes.map(n => `<p style="margin:0.4em 0; font-size:0.85em; color:#64748b;">${escapeHtml(n)}</p>`).join('') +
+        if (!body._hasListener) {
+            body.addEventListener('click', (e) => {
+                const btn = e.target.closest('button[data-split]');
+                if (!btn) return;
+                scalingSplit[btn.dataset.split] = !scalingSplit[btn.dataset.split];
+                const mode = document.querySelector('#scan-view-mode button.is-active');
+                if (mode) showScanViewPanels(mode.dataset.value);
+            });
+            body._hasListener = true;
+        }
+        body.innerHTML = (toggles.length ? `<div style="display:flex; gap:0.5em; margin:0.4em 0;">${toggles.join('')}</div>` : '') + notes.map(n => `<p style="margin:0.4em 0; font-size:0.85em; color:#64748b;">${escapeHtml(n)}</p>`).join('') +
             panels.map((pn, i) => `<section style="margin:1em 0 1.5em;"><h3 style="margin:0 0 0.4em; font-size:1.05em; color:#0f172a;">${escapeHtml(pn.title)} <span tabindex="0" class="help-icon-visible" title="${escapeHtml(pn.help)}">?</span></h3>
                 <div style="display:flex; flex-wrap:wrap; gap:1em;">${pn.facets.map((f, j) => `<div style="flex:1 1 ${pn.facets.length > 1 ? '30%' : '60%'}; min-width:320px; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:8px;">
                     ${f.label ? `<div style="margin:0 0 2px 8px; font-size:0.85em; font-weight:600; color:#334155;">${escapeHtml(f.label)}</div>` : ''}<div id="scaling-chart-${i}-${j}" style="height:320px; width:100%;"></div></div>`).join('')}</div></section>`).join('') +
