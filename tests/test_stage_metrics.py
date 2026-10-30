@@ -56,12 +56,12 @@ def _with_eta(monkeypatch, eta: list[float], eps_est: float = 2e6, eps_true: flo
 
 
 def test_all_three_stages_reached(monkeypatch):
-    uncs = [10e6, 8e6, 6e6, 1e6, 500e3, 200e3, 90e3, 80e3, 70e3, 60e3]
+    uncs = [10e6, 8e6, 7.5e6, 1e6, 500e3, 200e3, 90e3, 80e3, 70e3, 60e3]
     # Dip shown from index 3 on (held for 3 steps) -> focus at index 3. The claimed sigma is <= eps_est = 100 kHz from
     # index 6 on (held 6..8) -> refine starts with the next measurement, index 7.
     _with_eta(monkeypatch, [0.0, 0.0, 0.0, 0.0, 0.2, 0.2, 0.2, 1.0, 0.9, 1.0], eps_est=100e3)
     m = compute_stage_metrics(_run(uncs, dip_from=3))
-    assert m["focus_found_step"] == 4  # sigma <= half of 10e6 from index 3 on
+    assert m["focus_found_step"] == 4  # sigma <= 0.7 of 10e6 from index 3 on
     assert m["dip_detected_step"] == 4  # the evidence marker is separate (here it happens to coincide)
     assert m["refine_start_step"] == 8
     assert (m["stage1_steps"], m["stage2_steps"], m["stage3_steps"]) == (4, 3, 3)
@@ -78,7 +78,7 @@ def test_all_three_stages_reached(monkeypatch):
 
 
 def test_error_at_the_end_of_each_stage(monkeypatch):
-    uncs = [10e6, 8e6, 6e6, 1e6, 500e3, 200e3, 90e3, 80e3, 70e3, 60e3]
+    uncs = [10e6, 8e6, 7.5e6, 1e6, 500e3, 200e3, 90e3, 80e3, 70e3, 60e3]
     _with_eta(monkeypatch, [0.0] * 10, eps_est=100e3)
     run = _run(uncs, dip_from=3)
     # Estimate error (truth is 1.0) after measurement i: 10 - i, so stages end after indices 3, 6 and 9.
@@ -89,7 +89,7 @@ def test_error_at_the_end_of_each_stage(monkeypatch):
 
 
 def test_an_isolated_drop_in_sigma_starts_neither_focus_nor_refine(monkeypatch):
-    # Sigma touches the focus level (half of 1e6) and the tolerance at index 2 only; each must hold for 3 steps.
+    # Sigma touches the focus level (0.7 of 1e6) and the tolerance at index 2 only; each must hold for 3 steps.
     uncs = [1e6, 1e6, 50e3, 1e6, 1e6, 1e6, 50e3, 40e3, 30e3, 20e3]
     _with_eta(monkeypatch, [0.0] * len(uncs), eps_est=100e3)
     m = compute_stage_metrics(_run(uncs, dip_from=None))
@@ -352,7 +352,7 @@ def test_optimum_tolerance_of_a_lorentzian_is_015_hwhm():
 def test_oracle_steps_and_efficiency(monkeypatch):
     # With best g^2 = 1, sigma = 1 and one shot per step, I* = 1 per step; eps = 0.1 Hz -> 1 / (eps^2 I*) = 100 steps.
     _with_eta(monkeypatch, [0.0] * 6 + [1.0] * 4, eps_est=500e3)
-    # sigma <= half of 2e6 from index 2 (focus), <= eps_est from index 5 (refine starts with index 6)
+    # sigma <= 0.7 of 2e6 from index 2 (focus), <= eps_est from index 5 (refine starts with index 6)
     uncs = [2e6] * 2 + [900e3] * 3 + [100e3] * 5
     m = compute_stage_metrics(_run(uncs, dip_from=1))
     assert m["stage_fisher_star"] == pytest.approx(1.0)

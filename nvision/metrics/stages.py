@@ -93,7 +93,7 @@ REFINE_INFO_LOSS = 0.1
 BOUNDARY_HOLD_STEPS = 3
 # The search ends once the claimed uncertainty of the primary parameter has fallen to this fraction of its value
 # after the first measurement (an arbitrary but observable "the data have started to localise the dip").
-FOCUS_SIGMA_DROP = 0.5
+FOCUS_SIGMA_DROP = 0.7
 _EFFICIENCY_GRID_POINTS = 4001
 _GRID_MAX_TOLERANCE = 0.01
 _ORACLE_DRIVE_AMPS = 48

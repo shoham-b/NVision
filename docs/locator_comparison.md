@@ -158,7 +158,7 @@ centre or on the flat baseline.
 `BOUNDARY_HOLD_STEPS` = 3 (a condition must hold that long), never from how the run went on, and need no true
 parameter, so they apply unchanged to an experiment:
 
-* *Search → focus*: the **claimed** uncertainty of the primary parameter has fallen to half (`FOCUS_SIGMA_DROP`) of its
+* *Search → focus*: the **claimed** uncertainty of the primary parameter has fallen to 0.7 (`FOCUS_SIGMA_DROP`) of its
   value after the first measurement and stays there.
 * *Focus → refine*: the claimed uncertainty stays $\le \epsilon$, where $\epsilon$ is the tolerance below, evaluated on
   the line as the run finally *estimated* it (`_estimated_tolerance_phys`).

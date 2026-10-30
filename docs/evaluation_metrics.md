@@ -140,7 +140,7 @@ and refine was reached in about 15% of runs. The boundaries above replace both; 
 * The boundaries inherit the claimed σ's overconfidence (on the SNR × window study σ is ≈ 2 ε after the first measurement
   while the true error is ≈ 5 ε, and a few runs start refine with the error still several ε). They are as good as the
   Sanity coverage; a σ-free observable for "position known to within ε" is still to find.
-* The search→focus factor `FOCUS_SIGMA_DROP` = 0.5 is arbitrary (0.25 fires later than the true error reaches ε, at
+* The search→focus factor `FOCUS_SIGMA_DROP` = 0.7 is arbitrary (0.9 fires before the data have localised anything; 0.25 fires later than the true error reaches ε, at
   step 37 / 200); the stage boundaries also depend on δ = 0.1; a one-off sensitivity check (δ = 0.05 / 0.1 /
   0.2) that the locator ranking survives is still to do.
 * The signed z = (estimate − truth) / claimed σ is not stored (only |error|), so σ honesty is checked against a
