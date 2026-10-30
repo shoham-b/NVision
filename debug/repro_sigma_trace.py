@@ -67,12 +67,12 @@ def patched(self, observations):
         )
         _ts = TRUTH[-1]
         _pm, _ps = _ts.bounds["_priors"]["zeeman_shift"]  # the generator's stated prior (mean, std), physical Hz
-        _off = (float(_pm) - float(getattr(_ts.typed_parameters, "zeeman_shift"))) / float(_ps)
+        _off = (float(_pm) - float(_ts.typed_parameters.zeeman_shift)) / float(_ps)
         _BELIEFS[key] = (len(_BELIEFS), _ts, tag, _off)
     bid, ts, tag, prior_off = _BELIEFS[key]
     if n % 5 and n > 20:
         return
-    true_z = float(getattr(ts.typed_parameters, "zeeman_shift"))
+    true_z = float(ts.typed_parameters.zeeman_shift)
     est = self.estimates()["zeeman_shift"]
     sig = float(self.uncertainty()["zeeman_shift"])
     crlb = self.crlb_per_param().get("zeeman_shift", float("nan"))
@@ -94,5 +94,17 @@ def _dump():
 
 atexit.register(_dump)
 reps = sys.argv[4] if len(sys.argv) > 4 else "8"
-sys.argv = ["nv", "run-single", sys.argv[1], sys.argv[2], sys.argv[3], "--repeats", reps, "--runners", "1", "--dry-run", "--no-progress"]
+sys.argv = [
+    "nv",
+    "run-single",
+    sys.argv[1],
+    sys.argv[2],
+    sys.argv[3],
+    "--repeats",
+    reps,
+    "--runners",
+    "1",
+    "--dry-run",
+    "--no-progress",
+]
 main()

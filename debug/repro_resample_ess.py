@@ -48,5 +48,17 @@ import atexit  # noqa: E402
 
 atexit.register(_dump)
 reps = sys.argv[4] if len(sys.argv) > 4 else "6"
-sys.argv = ["nv", "run-single", sys.argv[1], sys.argv[2], sys.argv[3], "--repeats", reps, "--runners", "1", "--dry-run", "--no-progress"]
+sys.argv = [
+    "nv",
+    "run-single",
+    sys.argv[1],
+    sys.argv[2],
+    sys.argv[3],
+    "--repeats",
+    reps,
+    "--runners",
+    "1",
+    "--dry-run",
+    "--no-progress",
+]
 main()
