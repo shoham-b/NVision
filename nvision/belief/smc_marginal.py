@@ -31,6 +31,11 @@ NVISION_SMC_ESS_THRESHOLD: float = float(os.getenv("NVISION_SMC_ESS_THRESHOLD", 
 NVISION_SMC_A_PARAM: float = float(os.getenv("NVISION_SMC_A_PARAM", "0.98"))
 NVISION_SMC_MIN_EXPLORATION_FRAC: float = float(os.getenv("NVISION_SMC_MIN_EXPLORATION_FRAC", "0.01"))
 NVISION_SMC_TEMPERING_FACTOR: float = float(os.getenv("NVISION_SMC_TEMPERING_FACTOR", "1.0"))
+# Fraction of the initial particles, per Gaussian-prior parameter, drawn uniformly over the whole bound instead of from
+# the truncated normal: the prior becomes ``(1 - f) N(mean, std) + f U(lo, hi)`` so a prior mean several stds from the
+# truth still leaves particles near it (the generator's prior mean is deliberately several stds off). 0 keeps the pure
+# Gaussian prior (and draws no extra random numbers).
+PRIOR_BROAD_FRACTION: float = 0.1
 
 # Maximum particles used for EIG / acquisition scoring.
 # EIG only estimates prediction variance — that converges with ~200–500 particles.
@@ -408,6 +413,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
     auto_resample: bool = True
     priors: dict[str, tuple[float, float]] | None = None
     min_exploration_frac: float = NVISION_SMC_MIN_EXPLORATION_FRAC
+    prior_broad_fraction: float = PRIOR_BROAD_FRACTION
     tempering_factor: float = NVISION_SMC_TEMPERING_FACTOR
     noise_discount_factor: float = 0.99
     noise_prior_strength: float = 10.0
@@ -533,6 +539,10 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
                     self._particles[:, i] = _sample_truncated_normal(
                         mean, std, lo, hi, self.num_particles, rng=self._rng
                     )
+                    if self.prior_broad_fraction > 0.0:
+                        n_broad = round(self.prior_broad_fraction * self.num_particles)
+                        broad = self._rng.choice(self.num_particles, size=n_broad, replace=False)
+                        self._particles[broad, i] = self._rng.uniform(lo, hi, n_broad)
             else:
                 self._particles[:, i] = self._rng.uniform(lo, hi, self.num_particles)
 
@@ -1384,6 +1394,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             auto_resample=self.auto_resample,
             priors=self.priors,
             min_exploration_frac=self.min_exploration_frac,
+            prior_broad_fraction=self.prior_broad_fraction,
             tempering_factor=self.tempering_factor,
             noise_discount_factor=self.noise_discount_factor,
             noise_prior_strength=self.noise_prior_strength,
