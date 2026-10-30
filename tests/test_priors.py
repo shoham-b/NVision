@@ -87,8 +87,14 @@ def test_smc_belief_initializes_with_sin2_and_gaussian_priors():
     # requires zero_field_freq to be a free particle dimension (it's fixed by default --
     # see NVCenterCoreGenerator's docstring -- so nv_center_smc_belief's own default
     # would otherwise leave it out of belief._param_names entirely).
+    # prior_broad_fraction=0.0: this test checks the Gaussian prior's shape; the uniform mixture
+    # component widens the particle std on purpose and is covered in test_smc_prior_mixture.py.
     belief = nv_center_smc_belief(
-        signal.bounds, num_particles=1000, with_fixed_zero_field_freq=False, noise_model=gaussian_noise()
+        signal.bounds,
+        num_particles=1000,
+        with_fixed_zero_field_freq=False,
+        noise_model=gaussian_noise(),
+        prior_broad_fraction=0.0,
     )
 
     # Verify particles for zero_field_freq follow sin^2(k f) prior

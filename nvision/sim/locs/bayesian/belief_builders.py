@@ -25,6 +25,7 @@ from nvision.belief.smc_marginal import (
     NVISION_SMC_MIN_EXPLORATION_FRAC,
     NVISION_SMC_NUM_PARTICLES,
     NVISION_SMC_TEMPERING_FACTOR,
+    PRIOR_BROAD_FRACTION,
     SMCMarginalDistribution,
 )
 from nvision.sim.gen.nv_center_generator import (
@@ -69,6 +70,7 @@ def nv_center_smc_belief(
     ess_threshold: float = NVISION_SMC_ESS_THRESHOLD,
     a_param: float = NVISION_SMC_A_PARAM,
     min_exploration_frac: float = NVISION_SMC_MIN_EXPLORATION_FRAC,
+    prior_broad_fraction: float = PRIOR_BROAD_FRACTION,
     tempering_factor: float = NVISION_SMC_TEMPERING_FACTOR,
     hyperfine: str = "unresolved",
     infer_hyperfine: bool = False,
@@ -245,6 +247,7 @@ def nv_center_smc_belief(
         drive_freq_bounds_phys=drive_freq_bounds_phys,
         priors=unit_priors,
         min_exploration_frac=min_exploration_frac,
+        prior_broad_fraction=prior_broad_fraction,
         tempering_factor=tempering_factor,
         seed=seed,
     )

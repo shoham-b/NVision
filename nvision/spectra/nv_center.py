@@ -313,6 +313,9 @@ def physics_config_fingerprint() -> str:
         # Bumped when the dip scan's default family-wise false-alarm level NVISION_DIP_P_FA went 0.01 -> 0.1:
         # the dip is declared (focus stage starts) earlier, so focus sections and SBED trajectories differ.
         "dip-p-fa-0.1-v1",
+        # Bumped when the SMC initial particles gained a 10 % uniform component per Gaussian-prior parameter
+        # (the prior mean is drawn several stds off the truth): every SBED/SMC trajectory differs.
+        "prior-mixture-v1",
         NV_ZEEMAN_EDGE_PAD_FWHM,
         MIN_HWHM,
         MAX_HWHM,
