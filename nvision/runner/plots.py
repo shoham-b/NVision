@@ -11,7 +11,6 @@ from typing import Any
 import numpy as np
 import polars as pl
 
-from nvision.belief.dip_detection import min_hwhm_hz
 from nvision.models.experiment import CoreExperiment
 from nvision.models.observer import RunResult
 from nvision.runner.convert import belief_mode_estimates
@@ -21,6 +20,13 @@ from nvision.runner.plots_data import (
     write_fisher_data,
     write_parameter_convergence_data,
     write_posterior_data,
+)
+from nvision.runner.sweep_data import (
+    SWEEP_DATA_KEY,
+    MissingSweepDataError,
+    SweepLoader,
+    reference_sweep_strategy,
+    sweep_data_from_run,
 )
 from nvision.sim.defaults import (
     NVISION_CONVERGENCE_THRESHOLD,
@@ -710,119 +716,6 @@ def _bayesian_auxiliary_entries(
     return extra
 
 
-def get_or_run_simplesweep_baseline(
-    experiment: Any,
-    seed: int,
-    generator_name: str,
-    noise_name: str,
-    repeat_idx: int,
-) -> dict[str, Any] | None:
-    """Retrieve SimpleSweep baseline data from cache, or run the simulation if not cached."""
-    from nvision.runner.sweep_cache import get_cached_simplesweep_baseline, put_cached_simplesweep_baseline
-    from nvision.sim.locs.search_grid import SWEEP_POINTS_PER_FWHM, max_sweep_points
-
-    data = get_cached_simplesweep_baseline(experiment, seed, generator_name, noise_name, repeat_idx)
-    if data is not None and "sweep_drive_freqs_unit" in data:
-        return data
-
-    import random
-
-    from nvision.noises.drift import attach_drift_for_repeat
-    from nvision.runner.convert import belief_mode_estimates
-    from nvision.runner.repeat_keys import measurement_repeat_key, repeat_seed_int
-    from nvision.sim.locs.bayesian.belief_builders import nv_center_smc_belief, nv_lineshape_for_model
-    from nvision.sim.locs.coarse.generic_sweep_locator import GenericSweepLocator
-
-    experiment = attach_drift_for_repeat(experiment, seed, generator_name, repeat_idx)
-
-    noise_std = 0.05
-    noise_max_dev = None
-    if experiment.noise is not None:
-        noise_std = float(experiment.noise.estimated_noise_std())
-        if hasattr(experiment.noise, "estimated_max_noise_deviation"):
-            noise_max_dev = float(experiment.noise.estimated_max_noise_deviation(n_samples=6))
-
-    domain_width = float(experiment.drive_freq_max_phys - experiment.drive_freq_min_phys)
-    signal_max_span = None
-    model = experiment.true_signal.model
-    if hasattr(model, "signal_max_span") and callable(model.signal_max_span):
-        signal_max_span = model.signal_max_span(domain_width)
-
-    bounds: dict[str, tuple[float, float]] = {}
-    for name, bounds_val in experiment.true_signal.bounds.items():
-        if name == "_priors" or name.startswith("_"):
-            bounds[name] = bounds_val
-            continue
-        lo, hi = float(bounds_val[0]), float(bounds_val[1])
-        if hi > lo:
-            name_lc = name.lower()
-            if ("amplitude" in name_lc or "depth" in name_lc) and hi > noise_std:
-                lo = max(lo, noise_std)
-                if lo >= hi:
-                    lo = float(bounds_val[0])
-        bounds[name] = (lo, hi)
-    if experiment.true_signal.noise_bounds:
-        bounds.update(experiment.true_signal.noise_bounds)
-
-    belief = nv_center_smc_belief(
-        bounds,
-        noise_model=experiment.true_signal.noise_model,
-        lineshape=nv_lineshape_for_model(model),
-        fixed_drive=experiment.true_signal.baseline_drive,
-    )
-
-    min_hwhm = min_hwhm_hz(bounds)
-    max_steps = max_sweep_points(
-        float(experiment.drive_freq_min_phys),
-        float(experiment.drive_freq_max_phys),
-        min_hwhm,
-        SWEEP_POINTS_PER_FWHM,
-    )
-
-    locator = GenericSweepLocator(
-        belief=belief,
-        signal_model=experiment.true_signal.baseline_model,
-        max_steps=max_steps,
-        noise_std=noise_std,
-        domain_lo=experiment.drive_freq_min_phys,
-        domain_hi=experiment.drive_freq_max_phys,
-        **({} if noise_max_dev is None else {"noise_max_dev": noise_max_dev}),
-        **({} if signal_max_span is None else {"signal_max_span": signal_max_span}),
-    )
-
-    key = measurement_repeat_key(seed, generator_name, "simplesweep_baseline", noise_name, repeat_idx)
-    sweep_rng = random.Random(repeat_seed_int(key))
-
-    sweep_drive_freqs_unit: list[float] = []
-    sweep_ys: list[float] = []
-
-    while not locator.done():
-        drive_freq_unit = locator.next_drive_freq_unit()
-        obs = experiment.measure(drive_freq_unit, sweep_rng, shot_index=len(sweep_drive_freqs_unit))
-        locator.observe(obs)
-        sweep_drive_freqs_unit.append(float(obs.drive_freq_unit))
-        sweep_ys.append(float(obs.signal_value))
-
-    # finalize() flushes the deferred belief updates and runs the dip fit;
-    # without it the belief is still the prior.
-    locator.finalize()
-    # Prefer the actual least-squares model fit over the SMC belief marginal
-    # mode: during a sweep the belief is batch-updated without resampling and
-    # can collapse, drawing a garbage "most likely signal" curve.
-    sweep_mode_estimates = locator.fit_mode_estimates()
-    if sweep_mode_estimates is None:
-        sweep_mode_estimates = belief_mode_estimates(locator.belief)
-
-    new_data = {
-        "sweep_drive_freqs_unit": sweep_drive_freqs_unit,
-        "sweep_ys": sweep_ys,
-        "sweep_mode_estimates": sweep_mode_estimates,
-    }
-
-    put_cached_simplesweep_baseline(experiment, seed, generator_name, noise_name, repeat_idx, new_data)
-    return new_data
-
-
 def generate_attempt_plots(
     viz: Viz,
     entry_base: dict[str, Any],
@@ -837,8 +730,12 @@ def generate_attempt_plots(
     bayes_dir: Path,
     run_result: RunResult | None = None,
     defer: bool = False,
+    sweep_loader: SweepLoader | None = None,
 ) -> list[dict[str, Any]]:
     """Generate visualizations and graph manifest entries for a single repeat.
+
+    ``sweep_loader(repeat_idx)`` returns the persisted reference-sweep data of this repeat (see
+    ``nvision.runner.sweep_data``) for the sweep overlay of a Bayesian scan figure; None draws no overlay.
 
     All generated bytes are stored in each entry under ``"_bytes"`` (stripped
     before manifests are written).  No files are written to disk.
@@ -916,37 +813,37 @@ def generate_attempt_plots(
         if isinstance(m, UnitCubeSignalModel):
             belief_unit_cube = m
 
-    # Retrieve SimpleSweep baseline measurements & estimates
+    # The sweep overlay is the reference sweep's own persisted measurements and fit of this repeat.
     sweep_drive_freqs_unit: list[float] | None = None
     sweep_ys: list[float] | None = None
     sweep_mode_estimates: dict[str, float] | None = None
     wants_baselines = plots_wanted(strat_name, attempt_idx_in_combo) and not defer
     # Drive-controlled models have no sweep baseline (a sweep chooses no drive, so their width is undefined).
-    if not is_plain_sweep(strat_name) and wants_baselines and not current_scan.true_signal.model.controls_drive:
+    if (
+        sweep_loader is not None
+        and not is_plain_sweep(strat_name)
+        and wants_baselines
+        and not current_scan.true_signal.model.controls_drive
+    ):
         try:
-            # entry_base["seed"] is explicitly None (not missing) for MATLAB real-data
-            # runs, which have no synthetic generator seed -- `.get(..., 0)` only
-            # covers a missing key, so None must be coalesced separately.
-            seed = int(entry_base.get("seed") or 0)
-            generator_name = str(entry_base.get("generator", ""))
-            noise_name = str(entry_base.get("noise", ""))
-            simplesweep_data = get_or_run_simplesweep_baseline(
-                current_scan,
-                seed,
-                generator_name,
-                noise_name,
-                attempt_idx_in_combo,
-            )
-            if simplesweep_data:
-                sweep_drive_freqs_unit = simplesweep_data.get("sweep_drive_freqs_unit")
-                sweep_ys = simplesweep_data.get("sweep_ys")
-                sweep_mode_estimates = simplesweep_data.get("sweep_mode_estimates")
-        except Exception as exc:
-            log.warning("Failed to retrieve or simulate SimpleSweep baseline for plotting: %s", exc)
+            sweep_data = sweep_loader(attempt_idx_in_combo)
+        except MissingSweepDataError as exc:
+            log.warning("No sweep overlay for %s repeat %s: %s", strat_name, attempt_idx_in_combo + 1, exc)
+        else:
+            sweep_drive_freqs_unit = sweep_data["drive_freqs_unit"]
+            sweep_ys = sweep_data["signal_values"]
+            sweep_mode_estimates = sweep_data["mode_estimates"]
 
     scan_entry = entry_base.copy()
     scan_entry["type"] = "scan"
     scan_entry["path"] = out_path.relative_to(out_dir).as_posix()
+    if (
+        strat_name == reference_sweep_strategy()
+        and run_result is not None
+        and not current_scan.true_signal.model.controls_drive
+    ):
+        # The reference sweep's measurements are what the Bayesian figures overlay and the smart searches replay.
+        scan_entry[SWEEP_DATA_KEY] = sweep_data_from_run(run_result)
 
     # Per-step (error, uncertainty) series for the UI Highlights view.
     # Attached to the scan entry only — entry_base is also copied into the

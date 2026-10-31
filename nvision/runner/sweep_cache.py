@@ -195,51 +195,6 @@ def has_cached_sweep(experiment: CoreExperiment, sweep_steps: int) -> bool:
     return _sync_from_shm(key) is not None
 
 
-def _simplesweep_baseline_cache_key(
-    experiment: CoreExperiment, seed: int, generator_name: str, noise_name: str, repeat_idx: int
-) -> str:
-    return f"simplesweep_baseline:{seed}:{generator_name}:{noise_name}:{repeat_idx}"
-
-
-def get_cached_simplesweep_baseline(
-    experiment: CoreExperiment, seed: int, generator_name: str, noise_name: str, repeat_idx: int
-) -> dict | None:
-    key = _simplesweep_baseline_cache_key(experiment, seed, generator_name, noise_name, repeat_idx)
-    cached = _DESERIALIZED_CACHE.get(key)
-    if cached is None:
-        cached = _sync_from_shm(key)
-    return cached
-
-
-def put_cached_simplesweep_baseline(
-    experiment: CoreExperiment,
-    seed: int,
-    generator_name: str,
-    noise_name: str,
-    repeat_idx: int,
-    data: dict,
-) -> None:
-    key = _simplesweep_baseline_cache_key(experiment, seed, generator_name, noise_name, repeat_idx)
-    if _SHM_LOCK is not None:
-        try:
-            with _SHM_LOCK:
-                cached = _sync_from_shm(key)
-                if cached is None:
-                    _DESERIALIZED_CACHE[key] = data
-                    _write_to_shm(key, data)
-        except (OSError, EOFError, RuntimeError) as exc:
-            log.debug("Shared lock connection closed in put_cached_simplesweep_baseline: %s", exc)
-            with _LOCK:
-                if key not in _SWEEP_OBSERVATIONS_BY_KEY:
-                    _SWEEP_OBSERVATIONS_BY_KEY[key] = data  # type: ignore
-                    _DESERIALIZED_CACHE[key] = data
-    else:
-        with _LOCK:
-            if key not in _SWEEP_OBSERVATIONS_BY_KEY:
-                _SWEEP_OBSERVATIONS_BY_KEY[key] = data  # type: ignore
-                _DESERIALIZED_CACHE[key] = data
-
-
 def clear_sweep_cache() -> None:
     """Clear all cached sweep observations."""
     with _LOCK:
@@ -266,22 +221,6 @@ class SweepCache:
 
     def has(self, experiment: CoreExperiment, sweep_steps: int) -> bool:
         return has_cached_sweep(experiment, sweep_steps)
-
-    def get_simplesweep_baseline(
-        self, experiment: CoreExperiment, seed: int, generator_name: str, noise_name: str, repeat_idx: int
-    ) -> dict | None:
-        return get_cached_simplesweep_baseline(experiment, seed, generator_name, noise_name, repeat_idx)
-
-    def put_simplesweep_baseline(
-        self,
-        experiment: CoreExperiment,
-        seed: int,
-        generator_name: str,
-        noise_name: str,
-        repeat_idx: int,
-        data: dict,
-    ) -> None:
-        put_cached_simplesweep_baseline(experiment, seed, generator_name, noise_name, repeat_idx, data)
 
 
 def _create_sweep_belief(experiment: CoreExperiment) -> AbstractMarginalDistribution:

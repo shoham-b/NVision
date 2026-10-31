@@ -18,13 +18,13 @@ __all__ = [
 ]
 
 
-_HEAVY_FIELDS = frozenset({"content", "content_bin", "plot_data", "_bytes"})
+_HEAVY_FIELDS = frozenset({"content", "content_bin", "plot_data", "_bytes", "sweep_data"})
 
 
 def strip_heavy_fields(entry: dict) -> dict:
     """Return a copy of *entry* with heavy fields removed.
 
-    Stripped fields: ``content``, ``content_bin``, ``plot_data``, ``_bytes``.
+    Stripped fields: ``content``, ``content_bin``, ``plot_data``, ``_bytes``, ``sweep_data``.
     These are used for cache storage or in-memory transport but must not
     appear in ``plots_manifest.json``.
     """

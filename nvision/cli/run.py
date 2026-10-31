@@ -209,6 +209,7 @@ def _split_oversized_tasks(tasks: list[LocatorTask], runners: int, min_chunk: in
                 repeat_offset=offset,
                 repeat_total=task.repeat_total,
                 defer_graphs=task.defer_graphs,
+                sweep_pending=task.sweep_pending,
             )
             split.append(sub)
             offset += chunk_size
@@ -623,7 +624,12 @@ def _run_tasks_process_pool(
                         locator_task.slug,
                         exc_info=True,
                     )
-                    errors.append(RuntimeError(f"Check logs for details: {run_log_path.resolve().as_uri()}"))
+                    errors.append(
+                        RuntimeError(
+                            f"{locator_task.slug}: {type(exc).__name__}: {exc} "
+                            f"(traceback: {run_log_path.resolve().as_uri()})"
+                        )
+                    )
                     _sub_task_failed = True
                     if len(errors) > 5:
                         log.error("Too many errors (>5), terminating...")
@@ -1567,7 +1573,12 @@ def run(  # noqa: C901
                                 type(exc).__name__,
                             )
                             log.debug("Task failed with error (combination=%s)", locator_task.slug, exc_info=True)
-                            errors.append(RuntimeError(f"Check logs for details: {run_log_path.resolve().as_uri()}"))
+                            errors.append(
+                                RuntimeError(
+                                    f"{locator_task.slug}: {type(exc).__name__}: {exc} "
+                                    f"(traceback: {run_log_path.resolve().as_uri()})"
+                                )
+                            )
                             if len(errors) > 5:
                                 log.error("Too many errors (>5), terminating...")
                                 break
@@ -1601,11 +1612,10 @@ def run(  # noqa: C901
                 sweep_shm.unlink()
 
         if errors and not interrupted:
-            _update_run_status("error")
+            # The tasks that did succeed still get their results written below; the exit code is 1.
             console.print("\n[bold red]Errors occurred during execution:[/bold red]")
             for i, err in enumerate(errors, 1):
                 console.print(f"{i}. {err}")
-            raise typer.Exit(code=1)
     finally:
         # Drain the log queue before stopping the listener to avoid losing messages
         try:
@@ -1620,9 +1630,9 @@ def run(  # noqa: C901
         if manager is not None:
             manager.shutdown()
 
-    # Skip UI generation if there are hard errors (not just interruption)
-    if errors and not interrupted:
-        return 1
+    # Failed tasks do not stop the successful ones from being written (and shown); they set the status and exit code.
+    failed = bool(errors)
+    exit_code = 1 if failed else 0
 
     logging.basicConfig(
         level=log_level_value,
@@ -1634,22 +1644,25 @@ def run(  # noqa: C901
     logging.getLogger("nvision").setLevel(log_level_value)
 
     # Generate UI even with partial results after interruption
+    final_status = "error" if failed else "partial" if interrupted else "complete"
     if not df_rows:
-        _update_run_status("partial" if interrupted else "complete")
+        _update_run_status(final_status)
         if interrupted:
             console.print("[yellow]No results collected before interruption.[/yellow]")
         else:
             console.print("[yellow]No results to display.[/yellow]")
+        if failed:
+            raise typer.Exit(code=1)
         return 0
 
+    _update_run_status(final_status)
     if interrupted:
-        _update_run_status("partial")
         console.print(f"[cyan]Processing {len(df_rows)} partial result(s)...[/cyan]")
-    else:
-        _update_run_status("complete")
 
     if dry_run:
         log.info("Dry-run complete. Bypassed saving results to cache database and writing permanent artifacts to disk.")
+        if failed:
+            raise typer.Exit(code=1)
         return 0
 
     df_loc = pl.from_dicts(df_rows, infer_schema_length=None)
@@ -1667,6 +1680,8 @@ def run(  # noqa: C901
     # On Windows, ProcessPoolExecutor and multiprocessing.Manager may leave
     # threads alive that prevent clean process exit even after all work is done.
     if runners > 1 and sys.platform == "win32":
-        os._exit(0)
+        os._exit(exit_code)
 
+    if failed:
+        raise typer.Exit(code=1)
     return 0

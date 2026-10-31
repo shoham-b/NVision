@@ -35,7 +35,6 @@ def _job(slug: str, rid: int) -> graph_queue.GraphJob:
         noise_obj=None,
         strat_obj=None,
         run_result=None,
-        simplesweep_baseline=None,
     )
 
 
@@ -258,3 +257,20 @@ def test_slow_repeat_outputs_graph_mode_reported_accurately(monkeypatch):
     assert determine_graph_mode(runner_bayes_deferred, 0, object()) == "graphs deferred"
     # Repeat 1: beyond NVISION_GRAPH_REPEATS=1 -> skipped
     assert determine_graph_mode(runner_bayes_deferred, 1, object()) == "graphs skipped"
+
+
+def test_a_failed_graph_names_its_cause_in_the_error_line(tmp_path, monkeypatch, caplog):
+    spool = tmp_path / "graph_queue"
+    path = graph_queue.write_state(spool, _job("a_b", 0))
+
+    def boom(job, bridge):
+        raise ValueError("plot exploded")
+
+    monkeypatch.setattr(graph_queue, "_generate_and_save", boom)
+    with caplog.at_level("ERROR", logger=graph_queue.log.name):
+        assert graph_queue.process_combo(spool, "a_b", bridge=None) == (0, 1)
+
+    assert path.with_suffix(".failed").exists()
+    (record,) = [r for r in caplog.records if r.levelname == "ERROR"]
+    assert "ValueError: plot exploded" in record.getMessage()
+    assert "boom" in record.getMessage()  # the frame that raised

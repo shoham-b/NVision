@@ -341,6 +341,38 @@ class LocatorResultsRepository:
         ptr_key = stable_config_hash(ptr_config)
         self._repeats.save_repeat(ptr_key, repeat_idx, entries, main_result_row)
 
+    def load_scan_field(
+        self,
+        *,
+        generator: str,
+        noise: str,
+        strategy: str,
+        seed: int,
+        max_steps: int,
+        timeout_s: int,
+        repeat_offset: int = 0,
+        repeat_idx: int,
+        field: str,
+    ) -> Any | None:
+        """``field`` of the scan entry of one saved repeat, or None if the repeat or the field is not saved."""
+        ptr_config = combination_base_cache_config(
+            generator=generator,
+            noise=noise,
+            strategy=strategy,
+            seed=seed,
+            max_steps=max_steps,
+            timeout_s=timeout_s,
+            repeat_offset=repeat_offset,
+        )
+        loaded = self._repeats.load_repeat(stable_config_hash(ptr_config), repeat_idx)
+        if loaded is None:
+            return None
+        entries, _ = loaded
+        for entry in entries:
+            if entry.get("type") == "scan":
+                return entry.get(field)
+        return None
+
     def archive_if_complete(
         self,
         *,

@@ -389,3 +389,28 @@ def test_estimated_tolerance_is_the_tolerance_of_the_final_estimate():
         snapshots=[SimpleNamespace(belief=belief)],
     )
     assert stages._estimated_tolerance_phys(run, "c") == pytest.approx(np.sqrt(0.1 / 4.5), rel=0.05)
+
+
+def _estimated_run(g2: np.ndarray) -> SimpleNamespace:
+    belief = SimpleNamespace(
+        drive_freq_bounds_phys=(0.0, 1.0), primary_sensitivity_sq_phys=lambda primary, grid_phys: g2
+    )
+    return SimpleNamespace(
+        true_signal=SimpleNamespace(model=SimpleNamespace(controls_drive=False)),
+        snapshots=[SimpleNamespace(belief=belief)],
+    )
+
+
+def test_unresolvable_estimated_line_means_refine_is_not_reached(monkeypatch):
+    n = stages._EFFICIENCY_GRID_POINTS
+    one_cell = np.zeros(n)
+    one_cell[n // 2] = 1.0  # a line narrower than one grid cell
+    assert stages._estimated_tolerance_phys(_estimated_run(one_cell), "zeeman_shift") is None
+    assert stages._estimated_tolerance_phys(_estimated_run(np.zeros(n)), "zeeman_shift") is None
+
+
+def test_unresolvable_true_line_still_raises():
+    g2 = np.zeros(stages._EFFICIENCY_GRID_POINTS)
+    g2[10] = 1.0
+    with pytest.raises(stages.UnresolvedLineError):
+        stages._optimum_tolerance_phys(np.linspace(0.0, 1.0, g2.size), g2, 1.0)

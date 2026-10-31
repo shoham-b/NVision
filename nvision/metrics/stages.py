@@ -76,6 +76,7 @@ result, not missing data.
 
 from __future__ import annotations
 
+import logging
 import math
 from collections.abc import Callable
 from typing import Any, NamedTuple
@@ -86,6 +87,8 @@ from nvision.metrics.milestones import resolve_primary_param
 from nvision.models.observer import RunResult
 from nvision.spectra.drive import DRIVE_AMP_MIN_UNIT, DriveSetting
 from nvision.spectra.nv_center_drive import RABI_PER_AMP_BOUNDS
+
+log = logging.getLogger(__name__)
 
 # delta: the refine stage may lose at most this fraction of the oracle's Fisher information (CRLB within 1/(1-delta)).
 REFINE_INFO_LOSS = 0.1
@@ -170,6 +173,14 @@ class _Sensitivity(NamedTuple):
     eps_phys: float | None
 
 
+class UnresolvedLineError(ValueError):
+    """The sensitivity of a signal cannot be turned into a tolerance ``eps`` on the drive-frequency grid.
+
+    Raised for the true signal (a setup bug: the grid is too coarse for the true line) and caught for the
+    estimated one, whose line is whatever the run ended up with and may be narrower than a grid cell or flat.
+    """
+
+
 def _optimum_tolerance_phys(grid_phys: np.ndarray, g2: np.ndarray, best: float) -> float:
     """Half-width (Hz) of the contiguous region around ``argmax g2`` where ``g2 >= (1 - delta) best``.
 
@@ -187,7 +198,9 @@ def _optimum_tolerance_phys(grid_phys: np.ndarray, g2: np.ndarray, best: float) 
         hi += 1
     eps = 0.5 * float(grid_phys[hi] - grid_phys[lo])
     if not eps > 0.0:
-        raise ValueError("The efficiency grid is too coarse to resolve the region of near-optimal sensitivity.")
+        raise UnresolvedLineError(
+            "The efficiency grid is too coarse to resolve the region of near-optimal sensitivity."
+        )
     return eps
 
 
@@ -226,8 +239,9 @@ def _estimated_tolerance_phys(run_result: RunResult, primary: str) -> float | No
 
     Same definition as the true-signal ``eps`` (:func:`_optimum_tolerance_phys`) but on the sensitivity of the
     belief's own model at its final estimate (``primary_sensitivity_sq_phys``), which a real experiment also has.
-    ``None`` for drive-controlled models (no single best point). Raises if the estimated line is too narrow for the
-    grid to resolve.
+    ``None`` for drive-controlled models (no single best point), and also when the estimated line cannot be resolved
+    (narrower than a grid cell, or no dependence on ``primary``): that is a property of the run's final estimate, not
+    of the setup, so the run keeps its other metrics and simply never reaches refine. It is logged as a warning.
     """
     if run_result.true_signal.model.controls_drive:
         return None
@@ -237,8 +251,15 @@ def _estimated_tolerance_phys(run_result: RunResult, primary: str) -> float | No
     g2 = belief.primary_sensitivity_sq_phys(primary, grid_phys)
     best = float(np.max(g2))
     if not best > 0.0:
-        raise ValueError(f"The estimated signal does not depend on {primary!r} anywhere on the drive range.")
-    return _optimum_tolerance_phys(grid_phys, g2, best)
+        log.warning(
+            "The estimated signal does not depend on %r anywhere on the drive range; refine is not reached.", primary
+        )
+        return None
+    try:
+        return _optimum_tolerance_phys(grid_phys, g2, best)
+    except UnresolvedLineError as exc:
+        log.warning("The estimated line is unresolved on the sensitivity grid (%s); refine is not reached.", exc)
+        return None
 
 
 def _primary_sensitivity(run_result: RunResult, primary: str) -> _Sensitivity:
