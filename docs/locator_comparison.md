@@ -113,10 +113,11 @@ parameters, clipped to their bounds) -- never the true signal's width (`nvision/
 * A dip is seen only if several measurements fall inside it. Three points per FWHM
   (`SWEEP_POINTS_PER_FWHM = 3`) cannot step over a dip and give `find_dips` the cluster it needs. It is derived,
   not a tuning knob, so it is a module constant and not an env var.
-* Smart-Sweep and Smart-SBED start from one shared coarse grid, FWHM/2 (`COARSE_SEARCH_POINTS_PER_FWHM = 2`),
-  so they differ only in the acquisition after the dip is seen. 2 was chosen from the plain-sweep spacing study
-  (k = 2 had the lowest median and p75 cost). A one-point-per-FWHM grid often leaves too few points in the dip for
-  `find_dips`; a grid that misses the dip is swept again.
+* Smart-Sweep and Smart-SBED search the reference sweep's own grid, FWHM/3 (`COARSE_SEARCH_POINTS_PER_FWHM =
+  SWEEP_POINTS_PER_FWHM`), and take each search measurement from the persisted `SimpleSweep-3perFWHM` repeat of the
+  same signal (see [runner_architecture.md](runner_architecture.md)). Until the focus they therefore *are* that
+  sweep, so they differ from it, and from each other, only in what happens after the dip is seen. (They used a
+  FWHM/2 grid, chosen from the plain-sweep spacing study, before this.) A grid that misses the dip is swept again.
 * Smart-Sweep's focus sweep uses a finer grid, FWHM/10 (`FOCUS_SWEEP_POINTS_PER_FWHM = 10`), laid fresh inside each
   focus section from its lower edge. Lower bound, derived: a measurement eps from the max-information point keeps
   eta ~ 1 - 4.5 (eps/HWHM)^2 of the optimal information, so eta >= 0.9 (the refine switch's

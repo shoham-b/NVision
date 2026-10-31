@@ -61,6 +61,34 @@ class CoreExperiment:
             return spec_getter()
         return None
 
+    def replay_observation(
+        self,
+        *,
+        drive_freq_unit: float,
+        signal_value: float,
+        noise_std: float,
+        n_shots: int,
+        sample_var: float | None,
+    ) -> Observation:
+        """An Observation built from an earlier measurement of this experiment (no new noise is drawn).
+
+        Carries what :meth:`measure` would attach for this experiment: the over-frequency noise model and the
+        baseline drive. Only for static experiments; a drifting one would be fed a truth from the wrong moment.
+        """
+        if self.drift is not None or (self.noise is not None and self.noise.drift is not None):
+            raise ValueError("Cannot replay a stored measurement into a drifting experiment.")
+        return Observation(
+            drive_freq_unit=drive_freq_unit,
+            signal_value=signal_value,
+            noise_std=noise_std,
+            frequency_noise_model=self.frequency_noise_model()
+            if self.noise is not None and self.noise.over_frequency_noise is not None
+            else None,
+            n_shots=n_shots,
+            sample_var=sample_var,
+            drive=self.resolve_drive(None),
+        )
+
     def measure(
         self,
         drive_freq_unit: float,

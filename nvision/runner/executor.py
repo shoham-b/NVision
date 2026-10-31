@@ -17,7 +17,6 @@ from typing import Any
 
 import polars as pl
 
-from nvision.belief.dip_detection import min_hwhm_hz
 from nvision.cache import CacheBridge
 from nvision.models.experiment import CoreExperiment, Observation
 from nvision.models.locator import Locator
@@ -36,6 +35,7 @@ from nvision.runner.sweep_cache import (
     _create_sweep_belief,
     precompute_sweep,
 )
+from nvision.runner.sweep_data import SWEEP_WAIT_S, SweepLoader, SweepReplay, load_sweep_data
 from nvision.sim.combinations import CombinationGrid
 from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBayesianLocator
 from nvision.sim.locs.coarse import SweepingLocator
@@ -111,6 +111,7 @@ def run_loop(
     rng: random.Random,
     sweep_cache: SweepCache | None = None,
     n_shots: int = 1,
+    search_replay: SweepReplay | None = None,
     **locator_config: Any,
 ) -> Iterator[Locator]:
     """Run one repeat's measurement loop and yield locator states.
@@ -181,6 +182,9 @@ def run_loop(
                 drive=_replayed_drive(cached_obs, drive),
             )
 
+        if obs is None and search_replay is not None and getattr(locator, "picked_in_search", False):
+            # The search phase of a smart locator is the reference sweep: take its measurement at this grid point.
+            obs = search_replay.take(experiment, drive_freq_unit)
         if obs is None:
             obs = experiment.measure(drive_freq_unit, rng, n_shots=n_shots, shot_index=shot_index, drive=drive)
         shot_index += n_shots
@@ -828,6 +832,24 @@ class _TaskRunner:
             run_results=run_results,
         )
 
+    def _sweep_loader(self) -> SweepLoader:
+        """Reads this combination's reference-sweep data (for the sweep overlay of a Bayesian figure)."""
+        combo_kw = self._combo_kw()
+        return lambda rid: load_sweep_data(self.cache, combo_kw, rid)
+
+    def _search_replay(self, locator_class: type[Locator], experiment: CoreExperiment, rid: int) -> SweepReplay | None:
+        """The persisted reference sweep of repeat ``rid`` for a locator whose search phase replays it, else None.
+
+        Fails fast (``MissingSweepDataError``) when the sweep is not in the cache; it is waited for only if this run
+        computes it (``task.sweep_pending``).
+        """
+        if not getattr(locator_class, "REPLAYS_REFERENCE_SWEEP", False):
+            return None
+        if experiment.drift is not None or experiment.true_signal.model.controls_drive:
+            return None
+        wait_s = SWEEP_WAIT_S if self.task.sweep_pending else 0.0
+        return SweepReplay(load_sweep_data(self.cache, self._combo_kw(), rid, wait_s=wait_s))
+
     def _combo_kw(self) -> dict[str, Any]:
         """``save_repeat`` keyword arguments identifying this combination (built once per task)."""
         if self._combo_kw_memo is None:
@@ -859,7 +881,6 @@ class _TaskRunner:
         experiment: CoreExperiment,
         run_result: Any,
     ) -> GraphJob:
-        seed, gen, noise = self.task.seed, self.generator_name, self.noise_name
         return GraphJob(
             slug=self.task.slug,
             rid=attempt_idx,
@@ -877,7 +898,6 @@ class _TaskRunner:
             noise_obj=self.task.noise,
             strat_obj=self.task.strategy,
             run_result=run_result,
-            simplesweep_baseline=self._sweep_cache.get_simplesweep_baseline(experiment, seed, gen, noise, attempt_idx),
         )
 
     def _spool_graph_job(self, rid: int) -> None:
@@ -986,6 +1006,7 @@ class _TaskRunner:
                 bayes_dir=self.task.bayes_dir,
                 run_result=run_result,
                 defer=defer,
+                sweep_loader=self._sweep_loader(),
             )
             if defer:
                 self._graph_jobs[attempt_idx] = self._make_graph_job(
@@ -1060,87 +1081,6 @@ class _TaskRunner:
             self.task.seed, self.generator_name, self.strategy_name, self.noise_name, repeat_idx
         )
         return random.Random(repeat_seed_int(key))
-
-    def _rng_for_simplesweep_baseline(self, repeat_idx: int) -> random.Random:
-        """RNG for SimpleSweep baseline measurement noise — strategy-independent."""
-        key = measurement_repeat_key(
-            self.task.seed, self.generator_name, "simplesweep_baseline", self.noise_name, repeat_idx
-        )
-        return random.Random(repeat_seed_int(key))
-
-    def _run_simplesweep_baseline(
-        self,
-        rid: int,
-        experiment: CoreExperiment,
-        noise_std: float,
-        noise_max_dev: float | None,
-        signal_max_span: float | None,
-    ) -> dict[str, Any]:
-        """Run GenericSweepLocator baseline and return xs/ys/mode_estimates for visualization."""
-
-        from nvision.runner.convert import belief_mode_estimates
-        from nvision.sim.locs.bayesian.belief_builders import nv_center_smc_belief, nv_lineshape_for_model
-
-        sweep_rng = self._rng_for_simplesweep_baseline(rid)
-        parameter_bounds = self._injected_parameter_bounds(experiment)
-        belief = nv_center_smc_belief(
-            parameter_bounds,
-            noise_model=experiment.true_signal.noise_model,
-            lineshape=nv_lineshape_for_model(experiment.true_signal.model),
-            fixed_drive=experiment.true_signal.baseline_drive,
-        )
-
-        from nvision.sim.locs.search_grid import SWEEP_POINTS_PER_FWHM, max_sweep_points
-
-        max_steps = max_sweep_points(
-            float(experiment.drive_freq_min_phys),
-            float(experiment.drive_freq_max_phys),
-            min_hwhm_hz(parameter_bounds),
-            SWEEP_POINTS_PER_FWHM,
-        )
-
-        locator = GenericSweepLocator(
-            belief=belief,
-            signal_model=experiment.true_signal.baseline_model,
-            max_steps=max_steps,
-            noise_std=noise_std,
-            domain_lo=experiment.drive_freq_min_phys,
-            domain_hi=experiment.drive_freq_max_phys,
-            **({} if noise_max_dev is None else {"noise_max_dev": noise_max_dev}),
-            **({} if signal_max_span is None else {"signal_max_span": signal_max_span}),
-        )
-
-        sweep_drive_freqs_unit: list[float] = []
-        sweep_ys: list[float] = []
-
-        while not locator.done():
-            _check_memory_limit()
-            drive_freq_unit = locator.next_drive_freq_unit()
-            obs = experiment.measure(drive_freq_unit, sweep_rng, shot_index=len(sweep_drive_freqs_unit))
-            locator.observe(obs)
-            sweep_drive_freqs_unit.append(float(obs.drive_freq_unit))
-            sweep_ys.append(float(obs.signal_value))
-
-        # finalize() flushes the deferred belief updates and runs the dip fit;
-        # without it the belief is still the prior.
-        locator.finalize()
-        sweep_result = locator.result()
-        if sweep_result["fit_failed"]:
-            # No fit, and the belief's mode is the un-updated prior: there is no baseline curve to draw
-            # (the caller logs this and skips the overlay).
-            raise RuntimeError(f"SimpleSweep baseline found no dip (chi2 gain {sweep_result['fit_chi2_gain']:.1f})")
-        # Prefer the actual least-squares model fit over the SMC belief marginal
-        # mode: during a sweep the belief is batch-updated without resampling and
-        # can collapse, drawing a garbage "most likely signal" curve.
-        sweep_mode_estimates = locator.fit_mode_estimates()
-        if sweep_mode_estimates is None:
-            sweep_mode_estimates = belief_mode_estimates(locator.belief)
-
-        return {
-            "sweep_drive_freqs_unit": sweep_drive_freqs_unit,
-            "sweep_ys": sweep_ys,
-            "sweep_mode_estimates": sweep_mode_estimates,
-        }
 
     def _build_signal_experiment(self, rng: random.Random) -> CoreExperiment:
         """Build the noise-independent ground-truth experiment (no noise model on ``true_signal``).
@@ -1347,27 +1287,6 @@ class _TaskRunner:
             model.signal_min_span(domain_width)
         if hasattr(model, "signal_max_span") and callable(model.signal_max_span):
             signal_max_span = model.signal_max_span(domain_width)
-        from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBayesianLocator
-
-        # Run SimpleSweep baseline for visualization (cached only, no manifest metrics). Not for drive-controlled
-        # models: a sweep has no drive to choose, so their width (and hence the baseline) is undefined.
-        if (
-            issubclass(locator_class, SequentialBayesianLocator)
-            and not model.controls_drive
-            and self._sweep_cache.get_simplesweep_baseline(
-                experiment, self.task.seed, self.generator_name, self.noise_name, rid
-            )
-            is None
-        ):
-            try:
-                simplesweep_data = self._run_simplesweep_baseline(
-                    rid, experiment, noise_std, noise_max_dev, signal_max_span
-                )
-                self._sweep_cache.put_simplesweep_baseline(
-                    experiment, self.task.seed, self.generator_name, self.noise_name, rid, simplesweep_data
-                )
-            except Exception as exc:
-                log.warning("Failed to run SimpleSweep baseline: %s", exc)
 
         requires_belief = getattr(locator_class, "REQUIRES_BELIEF", False)
         max_steps = self._resolve_sweep_max_steps(experiment)
@@ -1412,7 +1331,18 @@ class _TaskRunner:
         token = set_combination_log_initials(self.generator_name, self.noise_name, self.strategy_name, repeat_idx=rid)
 
         try:
-            result = observer.watch(run_loop(locator_class, experiment, rng, self._sweep_cache, n_shots=n_shots, **cfg))
+            replay = self._search_replay(locator_class, experiment, rid)
+            result = observer.watch(
+                run_loop(
+                    locator_class,
+                    experiment,
+                    rng,
+                    self._sweep_cache,
+                    n_shots=n_shots,
+                    search_replay=replay,
+                    **cfg,
+                )
+            )
             stop_reason = "locator_stop"
         except TimeoutError:
             result = RunResult(

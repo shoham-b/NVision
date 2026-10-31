@@ -31,7 +31,7 @@ class RepeatsRepository:
         """Storage key for a single repeat."""
         return f"repeat:{combo_key}:{repeat_idx}"
 
-    _HEAVY_FIELDS = frozenset({"content", "content_bin", "plot_data", "_bytes"})
+    _HEAVY_FIELDS = frozenset({"content", "content_bin", "plot_data", "_bytes", "sweep_data"})
 
     def _extract_blobs(
         self, combo_key: str, repeat_idx: int, entries: list[dict]

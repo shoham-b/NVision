@@ -32,6 +32,7 @@ import logging
 import os
 import pickle
 import time
+import traceback
 import uuid
 import zlib
 from dataclasses import dataclass
@@ -75,7 +76,6 @@ class GraphJob:
     noise_obj: Any
     strat_obj: Any
     run_result: Any  # RunResult
-    simplesweep_baseline: dict[str, Any] | None  # the SBED task's own baseline, so the worker need not re-simulate
 
 
 def spool_dir(cache_dir: Path) -> Path:
@@ -170,17 +170,12 @@ def _generate_and_save(job: GraphJob, bridge: Any) -> None:
     """Build one repeat's full graph entries and re-save the repeat with them."""
     from nvision.runner.cache import embed_graph_content
     from nvision.runner.plots import generate_attempt_plots
-    from nvision.runner.sweep_cache import put_cached_simplesweep_baseline
+    from nvision.runner.sweep_data import load_sweep_data
     from nvision.sim.combinations import CombinationGrid
     from nvision.viz import Viz
 
     kw = job.combo_kw
-    # This process has no SBED task's in-memory baseline; hand it the one that task computed,
-    # otherwise the plots would re-simulate it.
-    if job.simplesweep_baseline is not None:
-        put_cached_simplesweep_baseline(
-            job.current_scan, kw["seed"], kw["generator"], kw["noise"], job.rid, job.simplesweep_baseline
-        )
+    repo = bridge.get_cache_for_category(CombinationGrid.generator_category(kw["generator"]))
 
     entries = generate_attempt_plots(
         viz=Viz(job.out_dir / "graphs"),
@@ -196,9 +191,9 @@ def _generate_and_save(job: GraphJob, bridge: Any) -> None:
         bayes_dir=job.bayes_dir,
         run_result=job.run_result,
         defer=False,
+        sweep_loader=lambda rid: load_sweep_data(repo, kw, rid),
     )
     embedded = embed_graph_content(entries, job.out_dir)
-    repo = bridge.get_cache_for_category(CombinationGrid.generator_category(kw["generator"]))
     for attempt in range(_SAVE_ATTEMPTS):
         try:
             repo.save_repeat(
@@ -237,8 +232,20 @@ def process_combo(spool: Path, slug: str, bridge: Any) -> tuple[int, int]:
         try:
             job = _load_job(path)
             _generate_and_save(job, bridge)
-        except Exception:
-            log.error("Graph generation failed for %s (kept as %s)", path.name, path.with_suffix(_FAILED).name)
+        except Exception as exc:
+            # The cause is in the ERROR line itself: a worker's DEBUG records are dropped at the default log level,
+            # so a traceback logged there never reached the run log.
+            frame = traceback.extract_tb(exc.__traceback__)[-1]
+            log.error(
+                "Graph generation failed for %s (kept as %s): %s: %s [%s:%s in %s]",
+                path.name,
+                path.with_suffix(_FAILED).name,
+                type(exc).__name__,
+                exc,
+                Path(frame.filename).name,
+                frame.lineno,
+                frame.name,
+            )
             log.debug("Graph generation failure detail for %s", path.name, exc_info=True)
             with contextlib.suppress(OSError):
                 os.replace(path, path.with_suffix(_FAILED))

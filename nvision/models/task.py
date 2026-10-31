@@ -81,6 +81,9 @@ class LocatorTask:
     # inputs for a separate graph-worker process instead of building the graphs inline
     # (see nvision/runner/graph_queue.py). Ignored for dry runs.
     defer_graphs: bool = False
+    # True when this run also computes the reference sweep (SimpleSweep-3perFWHM) of this task's generator and noise,
+    # so a locator that replays it (Smart-Sweep / Smart-SBED) may wait for a repeat still being computed.
+    sweep_pending: bool = False
 
     def __post_init__(self) -> None:
         self.strategy_spec = StrategySpec.from_raw(self.combination.strategy)

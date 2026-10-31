@@ -245,6 +245,10 @@ class _SearchThenFocusMixin:
 
     _grid: RepeatingGrid
     _last_focus: object
+    # The search phase is the reference sweep (same grid), so a run replays its persisted measurements there.
+    REPLAYS_REFERENCE_SWEEP = True
+    # True while the point being measured was chosen by the search (focus still the whole axis).
+    picked_in_search: bool = False
 
     def _init_search_grid(self, points_per_fwhm: int) -> None:
         """Size the search grid from the prior FWHM: ``points_per_fwhm`` grid points per FWHM."""
@@ -271,6 +275,7 @@ class _SearchThenFocusMixin:
 
     def _acquire(self) -> float:
         changed = self._refresh_focus()
+        self.picked_in_search = self._focus.is_full_domain()
         drive_freq_phys = self._pick(focus_changed=changed)
         self._grid.record(drive_freq_phys)
         return drive_freq_phys
@@ -318,10 +323,10 @@ _REFINE_EXPECTATION_PARTICLES: int = 256
 
 
 class SmartSweepLocator(_SearchThenFocusMixin, SequentialBayesianExperimentDesignLocator):
-    """A FWHM/2 sweep over the axis, a FWHM/10 sweep inside the focus, then measurements at the max-information points.
+    """A FWHM/3 sweep over the axis, a FWHM/10 sweep inside the focus, then measurements at the max-information points.
 
     **Search / focus.** Each step measures the lowest-frequency grid point not yet measured. With the focus still
-    the whole axis that is a plain FWHM/2 sweep (``COARSE_SEARCH_POINTS_PER_FWHM``). Once the data show a dip, the
+    the whole axis that is a plain FWHM/3 sweep (``COARSE_SEARCH_POINTS_PER_FWHM``). Once the data show a dip, the
     focus narrows to it and a fresh grid of spacing FWHM/10 (``FOCUS_SWEEP_POINTS_PER_FWHM``) is laid inside each
     focus section, starting at its lower edge and ignoring the coarser search measurements: fine enough that a
     grid point lies within the refine efficiency tolerance of each max-information point (see ``search_grid``).

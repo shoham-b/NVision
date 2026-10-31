@@ -7,12 +7,11 @@ grid spacing is not a tuning knob but follows from how many points must land ins
   points per full width at half maximum (FWHM), the grid cannot step over a dip, and the three
   points are what the binomial test in :func:`nvision.belief.dip_detection.find_dips` needs to call
   a cluster of low points a dip rather than noise. This is the spacing of every sweep.
-* The adaptive locators (Smart-Sweep, Smart-SBED) start from one shared coarse grid,
-  ``COARSE_SEARCH_POINTS_PER_FWHM`` = 2 points per prior FWHM: Smart-Sweep measures it in order, Smart-SBED lets
-  expected information gain pick among its unmeasured points; sharing it keeps their difference to the acquisition
-  after the dip is seen. 2 was chosen from the plain-sweep spacing study (k = 2 had the lowest median and p75 cost
-  and a short search). A one-point-per-FWHM grid often puts only one or two points in the dip, too few for
-  ``find_dips``; a grid that misses the dip is swept again.
+* The adaptive locators (Smart-Sweep, Smart-SBED) search the very same grid, ``COARSE_SEARCH_POINTS_PER_FWHM`` =
+  ``SWEEP_POINTS_PER_FWHM``: their search phase *is* the reference sweep until the focus, and takes its measurements
+  from the sweep's persisted repeat (``nvision.runner.sweep_data``) instead of measuring again. Smart-Sweep visits
+  the points in order, Smart-SBED lets expected information gain pick among the unmeasured ones; either way a
+  point's value is the sweep's. (Before this they used 2 points per FWHM, chosen from the plain-sweep spacing study.)
 * Smart-Sweep's focus sweep uses a finer grid, ``FOCUS_SWEEP_POINTS_PER_FWHM`` = 10 points per FWHM, laid fresh
   inside each focus section. At least 7 points per FWHM are needed for a grid point to lie within the refine-mode
   efficiency tolerance of the max-information point; 10 also gives the posterior enough measurements to reach the
@@ -35,8 +34,9 @@ from nvision.spectra.nv_center import effective_hwhm
 
 # Points per FWHM so a dip cannot be stepped over and ``find_dips`` has the cluster it needs.
 SWEEP_POINTS_PER_FWHM: int = 3
-# Coarse search grid of Smart-Sweep and Smart-SBED before the focus (Smart-SBED's EIG picks among its points).
-COARSE_SEARCH_POINTS_PER_FWHM: int = 2
+# Search grid of Smart-Sweep and Smart-SBED before the focus: the reference sweep's grid (Smart-SBED's EIG picks
+# among its points).
+COARSE_SEARCH_POINTS_PER_FWHM: int = SWEEP_POINTS_PER_FWHM
 
 # Grid of Smart-Sweep's focus sweep. Lower bound: fine enough that wherever the max-information point x* lies, a grid
 # point is within the refine-mode efficiency tolerance of it. A measurement offset eps from x* keeps
