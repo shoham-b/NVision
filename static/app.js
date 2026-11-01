@@ -2600,9 +2600,14 @@ function main() {
         const store = facetSelectionStore.get(familyKey);
         const prevMember = familyGroup.members.find((m) => m.name === previousGeneratorName);
 
+        // The window grid ran each window with one isotope (the isotope is set by the window, not a free axis), so
+        // there the isotope does not take part in the match: it would only intersect the windows to nothing.
+        const derivedKeys = new Set(axisMeta.some((m) => m.key === 'window') ? ['hyperfine'] : []);
+        const matchAxes = axisMeta.filter((meta) => !derivedKeys.has(meta.key));
+
         function computeMatches() {
             return familyGroup.members.filter((m) =>
-                axisMeta.every((meta) => {
+                matchAxes.every((meta) => {
                     const sel = store[meta.key];
                     if (!sel || sel.size === 0) return false;
                     return sel.has(axisDisplayValue(m.axisValues.find((a) => a.key === meta.key).value));
@@ -2610,11 +2615,29 @@ function main() {
             );
         }
 
+        // Why nothing matched: for each axis, the values that exist together with the other axes' selections.
+        function emptyReason() {
+            const parts = matchAxes.map((meta) => {
+                const others = matchAxes.filter((o) => o !== meta);
+                const available = [...new Set(familyGroup.members
+                    .filter((m) => others.every((o) => (store[o.key] || new Set()).has(axisDisplayValue(m.axisValues.find((a) => a.key === o.key).value))))
+                    .map((m) => axisDisplayValue(m.axisValues.find((a) => a.key === meta.key).value)))].sort(axisValueCompare);
+                const chosen = [...(store[meta.key] || [])].sort(axisValueCompare);
+                return `${meta.label}: selected ${chosen.join(', ') || 'none'}; run with the other selections: ${available.join(', ') || 'none'}`;
+            });
+            return parts.join(' · ');
+        }
+
+        // No fallback: a selection no generator matches is an empty selection (flag + reason), never another generator.
         function applySelection(options = {}) {
             const matches = computeMatches();
-            const effective = matches.length ? matches : [familyGroup.members[0]];
-            scanGeneratorFacets.dataset.selectedGenerators = JSON.stringify(effective.map((m) => m.name));
-            setControlValue(scanGenerator, effective[0].name, options);
+            scanGeneratorFacets.dataset.selectedGenerators = JSON.stringify(matches.map((m) => m.name));
+            if (!matches.length) {
+                scanGeneratorFacets.dataset.selectionEmpty = emptyReason();
+                return;
+            }
+            delete scanGeneratorFacets.dataset.selectionEmpty;
+            setControlValue(scanGenerator, matches[0].name, options);
         }
 
         scanGeneratorFacets.innerHTML = '';
@@ -2625,6 +2648,10 @@ function main() {
         const anyVaries = axisMeta.some((meta) => valuesOf(meta).length > 1);
         const fixedNotes = [];
         for (const meta of axisMeta) {
+            if (derivedKeys.has(meta.key)) {
+                fixedNotes.push(`${meta.label} set by the window`);
+                continue;
+            }
             if (anyVaries && valuesOf(meta).length === 1) {
                 const [only] = valuesOf(meta);
                 store[meta.key] = new Set([axisDisplayValue(only)]);
@@ -2924,6 +2951,7 @@ function main() {
     // Falls back to the single #scan-generator value for plain/ungrouped
     // generators, where there is no facet control.
     function getSelectedScanGenerators() {
+        if (isGeneratorSelectionEmpty()) return [];
         try {
             const stored = JSON.parse(scanGeneratorFacets.dataset.selectedGenerators || '[]');
             if (stored.length) return stored;
@@ -2932,8 +2960,15 @@ function main() {
         return v ? [v] : [];
     }
 
+    // True when the facet pills match no generator (the reason is in dataset.selectionEmpty).
+    function isGeneratorSelectionEmpty() {
+        return scanGeneratorFacets.dataset.selectionEmpty != null
+            && scanGeneratorFacetsRow.style.display !== 'none';
+    }
+
+    // An empty selection counts as range mode: no single plot exists, so the aggregate views take over.
     function isGeneratorRangeMode() {
-        return getSelectedScanGenerators().length > 1;
+        return isGeneratorSelectionEmpty() || getSelectedScanGenerators().length > 1;
     }
 
     // Generator argument the aggregate renderers (Stages/Sanity)
@@ -2993,7 +3028,7 @@ function main() {
             scanGeneratorFlatRow.style.display = '';
             scanGeneratorFamilyRow.style.display = 'none';
             scanGeneratorFacetsRow.style.display = 'none';
-            scanGeneratorFacets.dataset.selectedGenerators = '[]';
+            scanGeneratorFacets.dataset.selectedGenerators = '[]'; delete scanGeneratorFacets.dataset.selectionEmpty;
             selectedScanGenerator = renderSegmentedControl(scanGenerator, scanGeneratorItems, previousGenerator);
         } else {
             const familyOptions = [
@@ -3039,12 +3074,12 @@ function main() {
             if (selectedFamilyKey === '__ungrouped__') {
                 scanGeneratorFacetsRow.style.display = 'none';
                 scanGeneratorFlatRow.style.display = '';
-                scanGeneratorFacets.dataset.selectedGenerators = '[]';
+                scanGeneratorFacets.dataset.selectedGenerators = '[]'; delete scanGeneratorFacets.dataset.selectionEmpty;
                 selectedScanGenerator = renderSegmentedControl(scanGenerator, ungrouped, previousGenerator);
             } else if (selectedFamilyKey === '__matlab__') {
                 scanGeneratorFacetsRow.style.display = 'none';
                 scanGeneratorFlatRow.style.display = '';
-                scanGeneratorFacets.dataset.selectedGenerators = '[]';
+                scanGeneratorFacets.dataset.selectedGenerators = '[]'; delete scanGeneratorFacets.dataset.selectionEmpty;
                 selectedScanGenerator = renderSegmentedControl(scanGenerator, matlab, previousGenerator);
             } else {
                 scanGeneratorFacetsRow.style.display = '';
@@ -6936,6 +6971,11 @@ function main() {
     }
 
     function renderStepSizeFor(currentSpacings, notice, clear) {
+        if (isGeneratorSelectionEmpty()) {
+            clear();
+            notice.innerHTML = `<div style="padding:2em;color:#64748b;text-align:center;background:#f8fafc;border:1px dashed #cbd5e1;border-radius:8px;"><strong>No runs for this combination.</strong><br>${escapeHtml(scanGeneratorFacets.dataset.selectionEmpty)}</div>`;
+            return Promise.resolve();
+        }
         const cached = [...new Set(scanPlots.map((p) => p.strategy))].filter(Boolean);
         const older = cached.filter((s) => ssSpacing(s) != null && !currentSpacings.has(s));
         const strategies = cached.filter((s) => !older.includes(s)).sort(hlStrategyCompare);
