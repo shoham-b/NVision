@@ -113,12 +113,16 @@ def _group(
 
 
 def _group_voigt_grid() -> RunGroup:
-    return _group(
-        "voigt-grid",
-        f"Voigt window/FWHM x Gaussian share x isotope (fixed total FWHM) x SNR grid; {_STUDY_LOCATORS}.",
-        _voigt_snr_window_param_grid(),
-        _snr_noise_names(),
-        list(_LOCATOR_STUDY_STRATEGIES),
+    return _voigt_grid_up_to_window(
+        _group(
+            "voigt-grid",
+            f"Voigt window/FWHM x Gaussian share x isotope (fixed total FWHM) x SNR grid, windows up to "
+            f"{MAX_WINDOW_FWHM:g} FWHM; {_STUDY_LOCATORS}.",
+            _voigt_snr_window_param_grid(),
+            _snr_noise_names(),
+            list(_LOCATOR_STUDY_STRATEGIES),
+        ),
+        MAX_WINDOW_FWHM,
     )
 
 
@@ -134,9 +138,9 @@ def _group_drive_control() -> RunGroup:
     )
 
 
-# The ``all`` group stops the window axis here (window in units of the total FWHM): the wider windows only dilute
-# the signal and add cost; ``voigt-grid`` itself still spans the whole axis.
-ALL_MAX_WINDOW_FWHM = 15.0
+# The ``voigt-grid`` window axis (and so ``all``) ends here (window in units of the total FWHM): wider windows only
+# dilute the signal and add cost.
+MAX_WINDOW_FWHM = 15.0
 
 
 def _voigt_grid_up_to_window(group: RunGroup, max_window_fwhm: float) -> RunGroup:
@@ -151,17 +155,14 @@ def _voigt_grid_up_to_window(group: RunGroup, max_window_fwhm: float) -> RunGrou
 
 def _group_all() -> RunGroup:
     """Every scenario with every locator used in it."""
-    members = (_voigt_grid_up_to_window(_group_voigt_grid(), ALL_MAX_WINDOW_FWHM), _group_drive_control())
+    members = (_group_voigt_grid(), _group_drive_control())
 
     def union(lists):
         return list(dict.fromkeys(x for xs in lists for x in xs))
 
     return RunGroup(
         name="all",
-        description=(
-            "Every scenario above with all of its locators (voigt-grid up to a "
-            f"{ALL_MAX_WINDOW_FWHM:g}-FWHM window + drive-control)."
-        ),
+        description=("Every scenario above with all of its locators (voigt-grid + drive-control)."),
         generator_names=union(m.generator_names for m in members),
         noise_names=union(m.noise_names for m in members),
         strategy_names=union(m.strategy_names for m in members),
