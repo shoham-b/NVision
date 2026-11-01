@@ -63,6 +63,7 @@
             <button type="button" role="radio" aria-checked="true" data-value="single" class="is-active" tabindex="0" id="scan-view-single-btn">Run</button>
             <button type="button" role="radio" aria-checked="false" data-value="stages" tabindex="-1">Stages</button>
             <button type="button" role="radio" aria-checked="false" data-value="scaling" tabindex="-1">Scaling</button>
+            <button type="button" role="radio" aria-checked="false" data-value="stories" tabindex="-1">Stories</button>
             <button type="button" role="radio" aria-checked="false" data-value="sanity" tabindex="-1" id="scan-view-sanity-btn">Sanity</button>
         </div>
     </div>
@@ -350,6 +351,11 @@
             <div id="scaling-pick" style="display:flex; flex-wrap:wrap; gap:0.4em;"></div>
         </div>
         <div id="scaling-body"></div>
+    </div>
+
+    <div id="stories-view" style="display:none; margin-top:1em; padding-top:1em; border-top:1px solid #eee;">
+        <h2 style="margin:0 0 0.4em;">Stories — a few charts that tell the overall picture</h2>
+        <div id="stories-body"></div>
     </div>
 
     <!-- ── Sanity tab: is the claimed σ right, is the stop reliable, did every run converge ─────────── -->
