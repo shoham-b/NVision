@@ -2538,6 +2538,13 @@ function main() {
     // swept axes), a "matlab" bucket for real-measurement generators, and an
     // "__ungrouped__" bucket for anything else that doesn't parse (e.g. bare default
     // generators from a plain, non-grid run).
+    // False for a window (in total FWHMs) wider than the current code studies (/api/max-window-fwhm, set by
+    // bootstrap.js); such runs are only left in the cache from older `voigt-grid` runs. No window or no cap: kept.
+    function withinWindowCap(windowFwhm) {
+        const cap = window.NVISION_MAX_WINDOW_FWHM;
+        return windowFwhm == null || cap == null || windowFwhm <= cap;
+    }
+
     function groupGeneratorsByFamily(items) {
         const families = new Map();
         const ungrouped = [];
@@ -2547,6 +2554,8 @@ function main() {
                 matlab.push(name);
                 continue;
             }
+            const info = window.NVISION_GENERATOR_GRID_INFO && window.NVISION_GENERATOR_GRID_INFO[name];
+            if (info && !withinWindowCap(info.grid_window_fwhm)) continue;
             const parsed = parseGeneratorFacets(name);
             if (!parsed) {
                 ungrouped.push(name);
@@ -7039,7 +7048,7 @@ function main() {
         ssRenderPicker(strategies, colorOf);
         const shown = strategies.filter((s) => !ssHidden.has(s));
 
-        const usableAll = rows.filter(ssUsable);
+        const usableAll = rows.filter((r) => ssUsable(r) && withinWindowCap(r.grid_window_fwhm));
         // The SNR x window study: runs that carry both a window and a Gaussian share. Without them (older caches)
         // there is one panel and no shape controls.
         const windows = [...new Set(usableAll.map((r) => r.grid_window_fwhm).filter((v) => v != null))].sort((a, b) => a - b);
@@ -7069,7 +7078,7 @@ function main() {
 
         // Every usable run per locator over the family (the charts pick a window / shape from it).
         const byAll = new Map(strategies.map((s) => [s, usable.filter((r) => r.strategy === s)]));
-        const failed = rows.length - usableAll.length;
+        const failed = rows.filter((r) => withinWindowCap(r.grid_window_fwhm)).length - usableAll.length;
         const noWindow = usableAll.length - usable.length;
         const noSnr = usable.filter((r) => ssSnr(r) == null).length;
         const ended = (r) => !ssCapped(r);

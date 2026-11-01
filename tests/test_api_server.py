@@ -7,6 +7,7 @@ from nvision.cache import CacheBridge
 from nvision.cli.api_server import build_app
 from nvision.sim.combinations import SWEEP_SPACING_DIVISORS
 from nvision.sim.defaults import NVISION_SIMPLESWEEP_MAX_STEPS
+from nvision.sim.run_groups import ALL_MAX_WINDOW_FWHM
 
 _MAIN_RESULT_ROW = {
     "generator": "NVCenter-lorentzian",
@@ -377,3 +378,10 @@ def test_sweep_spacings_lists_the_studied_sweep_strategies(tmp_path):
 
     names = client.get("/api/sweep-spacings").json()
     assert names == [f"SimpleSweep-{k}perFWHM" for k in SWEEP_SPACING_DIVISORS]
+
+
+def test_max_window_fwhm_is_the_all_group_cap(tmp_path):
+    cache_dir, static_dir = _build_client(tmp_path)
+    client = TestClient(build_app(cache_dir, static_dir))
+
+    assert client.get("/api/max-window-fwhm").json() == ALL_MAX_WINDOW_FWHM

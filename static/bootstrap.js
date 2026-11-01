@@ -158,12 +158,16 @@ window.NVISION_BOOTSTRAP = (async () => {
         let allGenerators = [];
         let gridInfoByName = {};
         try {
-            const [combos, gridInfo] = await Promise.all([
+            const [combos, gridInfo, maxWindow] = await Promise.all([
                 fetchJson('api/combos'),
                 fetchJson('api/generator-grid-info'),
+                fetchJson('api/max-window-fwhm'),
             ]);
             allGenerators = [...new Set(combos.map((c) => c.generator))].sort();
             gridInfoByName = gridInfo;
+            // Widest window the current code studies (ALL_MAX_WINDOW_FWHM in nvision/sim/run_groups.py); wider
+            // windows left in the cache from older runs are hidden from the pickers and the Stages view.
+            window.NVISION_MAX_WINDOW_FWHM = maxWindow;
         } catch (e) {
             console.warn('api/combos or api/generator-grid-info failed, falling back to an unscoped manifest fetch:', e);
         }
