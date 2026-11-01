@@ -28,7 +28,6 @@ from nvision.runner.cache import _decompress_text
 from nvision.sim.combinations import SWEEP_SPACING_DIVISORS, CombinationGrid
 from nvision.sim.defaults import PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS
 from nvision.sim.grid_enums import sweep_strategy_name
-from nvision.sim.run_groups import ALL_MAX_WINDOW_FWHM
 from nvision.tools.artifacts import _slim_manifest_entry
 from nvision.tools.json_sanitize import sanitize_non_finite
 
@@ -592,12 +591,6 @@ def build_app(cache_dir: Path, run_dir: Path) -> FastAPI:
         """Strategy names of the plain-sweep spacings the current code studies (``SWEEP_SPACING_DIVISORS``).
         The Step size view shows only these: older spacings left in the cache come from older code."""
         return [sweep_strategy_name(k) for k in SWEEP_SPACING_DIVISORS]
-
-    @app.get("/api/max-window-fwhm")
-    def max_window_fwhm() -> float:
-        """Widest window (in total FWHMs) the ``all`` run group studies (``ALL_MAX_WINDOW_FWHM``). The Stages view
-        hides wider windows: they stay in the cache from earlier ``voigt-grid`` runs but are no longer studied."""
-        return ALL_MAX_WINDOW_FWHM
 
     @app.get("/api/run-rows")
     def run_rows(strategies: str) -> list[dict]:
