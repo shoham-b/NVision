@@ -53,14 +53,10 @@ def test_all_group_is_the_union_of_every_scenario_with_its_own_locators():
     sim_run_groups.clear_run_group_cache()
     scenarios = [sim_run_groups.get_run_group(n) for n in ("voigt-grid", "drive-control")]
     everything = sim_run_groups.get_run_group("all")
-    # ``all`` stops the voigt-grid window axis at ALL_MAX_WINDOW_FWHM; drive-control is taken whole.
-    voigt_gens = {
-        g
-        for g in scenarios[0].generator_names
-        if scenarios[0].extra_generators[g].window_fwhm <= sim_run_groups.ALL_MAX_WINDOW_FWHM
-    }
+    # The voigt-grid window axis ends at MAX_WINDOW_FWHM; ``all`` takes both scenarios whole.
+    voigt_gens = set(scenarios[0].generator_names)
     assert voigt_gens
-    assert voigt_gens < set(scenarios[0].generator_names)
+    assert all(scenarios[0].extra_generators[g].window_fwhm <= sim_run_groups.MAX_WINDOW_FWHM for g in voigt_gens)
     n_voigt = len(voigt_gens) * len(scenarios[0].noise_names) * len(scenarios[0].strategy_names)
     assert everything.task_count == n_voigt + scenarios[1].task_count
     combos = set(everything.combinations())
@@ -352,8 +348,8 @@ def test_select_snr_window_narrows_a_group_by_snr_and_window():
     assert [sim_run_groups.snr_of_noise(n) for _, n, _ in at_snr] == pytest.approx([10.0] * len(at_snr))
     assert {g for g, _, _ in at_snr} == set(group.generator_names)
 
-    both = sim_run_groups.select_snr_window(combos, gens, snr=[2.0, 10.0], signal_occupancy=[0.2, 0.05])
-    # 18 generators have signal_occupancy in [0.2, 0.05] (3 shares x 3 isotopes at each),
+    both = sim_run_groups.select_snr_window(combos, gens, snr=[2.0, 10.0], signal_occupancy=[0.2, 0.5])
+    # 18 generators have signal_occupancy in [0.2, 0.5] (3 shares x 3 isotopes at each),
     # across 2 SNRs and all locators
     assert len(both) == 18 * 2 * len(group.strategy_names)
     assert sim_run_groups.select_snr_window(combos, gens, snr=[3.3]) == []
