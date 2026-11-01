@@ -7977,7 +7977,8 @@ function main() {
             return v.length ? { med: hlQuantileSorted(v, 0.5), lo: hlQuantileSorted(v, 0.25), hi: hlQuantileSorted(v, 0.75), n: v.length } : null;
         };
         return {
-            window: _mv(first, 'stage_window_fwhm') ?? row.grid_window_fwhm,
+            // The declared grid window (what the Window chips select); the measured one only when the study has none.
+            window: row.grid_window_fwhm ?? _mv(first, 'stage_window_fwhm'),
             snr: snr != null && isFinite(snr) ? snr : null,
             share: ssShareKey(row),
             driver: fwhm > 0 && tau > 0 && snr > 0 && isFinite(snr) ? Math.pow(fwhm / (snr * tau), 2) : null,
@@ -8188,19 +8189,38 @@ function main() {
     }
 
     // ── Stories tab ──────────────────────────────────────────────────────────
-    // A few curated charts that each tell one story about the locators, drawn from EVERY use case of the generator
-    // family (not the current parameter selection): the point is the overall picture, so each chart pools all the
-    // use cases that are not on its own x-axis. Per use case the value is the median over repeats; across use cases a
-    // point is their geometric mean and the bar is the min..max over those use cases.
+    // A few stories found in the data itself: the use cases (of the whole generator family, not the current
+    // Parameters selection) where the locators differ the most, each with its exact selection and a stage-by-stage chart.
+    // The whole study of the current selection: every loaded generator sharing its family, so the stories do not
+    // depend on which window / shape / isotope chips are on.
+    let storiesDrawnKey = null;
     function renderStoriesTab(gen) {
-        if (toGenSet(gen).size === 0) return;
-        const noises = [...new Set(scanPlots.filter(p => toGenSet(gen).has(p.generator)).map(p => p.noise).filter(Boolean))];
-        ensureScanFieldsFor(gen, noises).then(() => ensurePlotly()).then(() => renderStories(gen, noises)).catch(err => {
+        const view = document.getElementById('stories-view');
+        const first = [...toGenSet(gen)][0];
+        if (!view || !first) return;
+        const parsed = parseGeneratorFacets(first);
+        const famGens = [...new Set(scanPlots.map(p => p.generator).filter(g => {
+            if (g === 'Dummy-Generator') return false;
+            if (!parsed) return g === first;
+            const q = parseGeneratorFacets(g);
+            return q && q.family === parsed.family;
+        }))].sort();
+        if (!famGens.length) return;
+        const noises = [...new Set(scanPlots.filter(p => famGens.includes(p.generator)).map(p => p.noise).filter(Boolean))].sort();
+        const key = `${famGens.join(',')}|${noises.join(',')}|${scanPlots.length}`;
+        if (key === storiesDrawnKey) return;
+        storiesDrawnKey = key;
+        view.style.display = '';
+        ensureScanFieldsFor(famGens, noises).then(() => ensurePlotly()).then(() => renderStories(famGens, noises)).catch(err => {
+            storiesDrawnKey = null;
             const body = document.getElementById('stories-body');
             if (body) body.innerHTML = `<div style="padding:1em;color:#721c24;background:#f8d7da;border-radius:6px;"><strong>Stories render error:</strong> ${escapeHtml(String(err.message || err))}</div>`;
         });
     }
 
+    // What rose from the data: the use cases where the locators differ the most, found by scanning every use case
+    // (window x line shape x isotope x SNR) of the generator family. Each story names its exact selection and shows
+    // the locators there, stage by stage. The subject is Bayesian-SBED; the yardstick is the best sweep.
     function renderStories(gen, noises) {
         const body = document.getElementById('stories-body');
         if (!body) return;
@@ -8209,73 +8229,102 @@ function main() {
         const strategies = [...byStrategy.keys()].filter(s => byStrategy.get(s).some(p => _mv(p, 'stage1_steps') != null)).sort(hlStrategyCompare);
         if (!strategies.length) { body.innerHTML = '<p style="color:#94a3b8;padding:1em;">No stage metrics for this generator family.</p>'; return; }
         const colorOf = (s) => hlStratColor(strategies, s);
-        const geo = (a) => Math.exp(a.reduce((s, v) => s + Math.log(v), 0) / a.length);
-        // Per locator: one entry per use case with its x-values and the median of each field over its repeats.
-        const cases = new Map(strategies.map(s => [s, hlCaseGroups(byStrategy.get(s)).map(rs => {
-            const pt = scalingPoints(rs);
-            const med = (f) => { const v = hlSorted(rs.map(p => _mv(p, f))); return v.length ? hlQuantileSorted(v, 0.5) : null; };
-            return { window: pt.window, snr: pt.snr, search: med('stage1_steps'), focus: med('stage2_steps'), refine: med('stage3_steps'), total: med('measurements') };
-        })]));
-        const pooled = (strat, xOf, field) => {
-            const byX = new Map();
-            for (const c of cases.get(strat)) {
-                const x = xOf(c);
-                if (x == null || !(c[field] > 0)) continue;
-                if (!byX.has(x)) byX.set(x, []);
-                byX.get(x).push(c[field]);
+        const MIN_REPEATS = 3;
+        // key -> { label, window, snr, perStrat: Map(strategy -> { search, focus, refine, total, n }) }
+        const useCases = new Map();
+        for (const s of strategies) {
+            for (const rs of hlCaseGroups(byStrategy.get(s))) {
+                const pt = scalingPoints(rs);
+                const med = (f) => { const v = hlSorted(rs.map(p => _mv(p, f))); return v.length ? hlQuantileSorted(v, 0.5) : null; };
+                const total = med('measurements');
+                if (!(total > 0) || rs.length < MIN_REPEATS) continue;
+                const key = `${rs[0].generator}\u0000${rs[0].noise}`;
+                if (!useCases.has(key)) {
+                    const iso = /hf(unresolved|n14|n15)/.exec(rs[0].generator);
+                    const parts = [];
+                    if (pt.window != null) parts.push(`window ${pt.window} × FWHM`);
+                    if (pt.snr != null) parts.push(`SNR ${Number(pt.snr.toPrecision(3))}`);
+                    if (pt.share != null) parts.push(ssShapeLabel(pt.share));
+                    if (iso) parts.push(`isotope ${iso[1]}`);
+                    useCases.set(key, { label: parts.join(' · ') || rs[0].generator, perStrat: new Map() });
+                }
+                useCases.get(key).perStrat.set(s, { search: med('stage1_steps'), focus: med('stage2_steps'), refine: med('stage3_steps'), total, n: rs.length });
             }
-            return [...byX.entries()].map(([x, v]) => ({ x, stat: { med: geo(v), lo: Math.min(...v), hi: Math.max(...v), n: v.length, kind: 'geo-mean', nText: `${v.length} use cases` } }));
-        };
-        const lineChart = (xOf, field) => strategies.map(s => ({ name: _shortStratLabel(s), color: colorOf(s), pts: pooled(s, xOf, field) }));
-        const distinctX = (xOf) => new Set(strategies.flatMap(s => cases.get(s).map(xOf).filter(v => v != null))).size;
+        }
+        const SBED = strategies.find(s => s === 'Bayesian-SBED') || strategies.find(s => /SBED/.test(s) && !/Smart|Drive/.test(s));
+        const SMART = strategies.find(s => /Smart-SBED/.test(s));
+        const sweeps = strategies.filter(isSweepBaseline);
+        const fmt = (v) => Math.round(v).toLocaleString();
+        const rows = [...useCases.entries()].map(([key, uc]) => {
+            const sb = SBED && uc.perStrat.get(SBED);
+            const sm = SMART && uc.perStrat.get(SMART);
+            const sw = sweeps.map(s => [s, uc.perStrat.get(s)]).filter(([, v]) => v).sort((a, b) => a[1].total - b[1].total)[0] || null;
+            return { key, uc, sb, sm, sw };
+        });
 
         const stories = [];
-        if (distinctX(c => c.window) >= 2) stories.push({
-            title: 'Searching costs more in a wider window, whatever the SNR',
-            text: 'Measurements spent finding the dip against the window (in dip widths). All SNRs, line shapes and isotopes are pooled into one point per window. A good searcher grows about in proportion (dotted); the gap between lines is the price of each strategy.',
-            draw: (div) => scalingChart(div, lineChart(c => c.window, 'search'), { xTitle: 'Window (× true FWHM)', yTitle: 'Search steps (geo-mean of use cases)', xLog: true, ref: { slope: 1 }, refName: '∝ window' }),
-        });
-        if (distinctX(c => c.snr) >= 2) stories.push({
-            title: 'Noise is where locators differ most',
-            text: 'Total measurements against SNR, pooled over every window, line shape and isotope. Each use case ends when its own stop rule fires, so this is the whole bill, not one stage.',
-            draw: (div) => scalingChart(div, lineChart(c => c.snr, 'total'), { xTitle: 'SNR (contrast / noise σ)', yTitle: 'Total steps (geo-mean of use cases)', xLog: true, ref: { slope: -2 }, refName: 'slope −2 (1/SNR²)' }),
-        });
-        stories.push({
-            title: 'Where the measurements go',
-            text: 'Median measurements per stage, taken over all use cases. A locator that wins the search can still lose it back while focusing; compare the stack heights, not one segment.',
-            draw: (div) => {
-                const stage = [['search', 'Search', '#60a5fa'], ['focus', 'Focus', '#f59e0b'], ['refine', 'Refine', '#34d399']];
-                const names = strategies.map(_shortStratLabel);
-                const traces = stage.map(([f, label, color]) => ({
-                    type: 'bar', name: label, x: names, marker: { color },
-                    y: strategies.map(s => { const v = cases.get(s).map(c => c[f]).filter(x => x != null); return v.length ? hlQuantileSorted(hlSorted(v), 0.5) : 0; }),
-                    hovertemplate: `${label}: %{y:.0f}<extra></extra>`,
-                }));
-                const layout = hlBaseLayout();
-                layout.barmode = 'stack';
-                layout.yaxis = { ...layout.yaxis, title: { text: 'Median steps over use cases', font: { size: 11 } } };
-                Plotly.react(div, traces, layout, { displayModeBar: false, responsive: true });
-            },
-        });
-        const all = strategies.flatMap(s => cases.get(s)).filter(c => c.window != null && c.snr != null);
-        const hardest = all.length ? { window: Math.max(...all.map(c => c.window)), snr: Math.min(...all.map(c => c.snr)) } : null;
-        if (hardest) stories.push({
-            title: `The hardest corner: window ${hardest.window} × FWHM at SNR ${Number(hardest.snr.toPrecision(3))}`,
-            text: 'The widest window at the lowest SNR, every line shape and isotope pooled. Total measurements per locator: the case that decides whether a strategy is usable.',
-            draw: (div) => {
-                const vals = strategies.map(s => { const v = cases.get(s).filter(c => c.window === hardest.window && c.snr === hardest.snr && c.total > 0).map(c => c.total); return v.length ? geo(v) : null; });
-                const layout = hlBaseLayout();
-                layout.yaxis = { ...layout.yaxis, title: { text: 'Total steps (geo-mean)', font: { size: 11 } } };
-                Plotly.react(div, [{ type: 'bar', x: strategies.map(_shortStratLabel), y: vals, marker: { color: strategies.map(colorOf) }, hovertemplate: '%{x}: %{y:.0f}<extra></extra>' }], layout, { displayModeBar: false, responsive: true });
-            },
-        });
+        const used = new Set();
+        const pickMax = (cands, score) => {
+            let best = null, bs = -Infinity;
+            for (const r of cands) { if (used.has(r.key)) continue; const v = score(r); if (v != null && isFinite(v) && v > bs) { bs = v; best = r; } }
+            return best ? { r: best, score: bs } : null;
+        };
+        const add = (found, title, textOf, chartStrats) => {
+            if (!found) return;
+            used.add(found.r.key);
+            stories.push({ title, text: textOf(found.r, found.score), row: found.r, strats: chartStrats(found.r) });
+        };
+        const withSw = rows.filter(r => r.sb && r.sw);
+        const withSm = rows.filter(r => r.sb && r.sm);
 
+        add(pickMax(withSw, r => Math.log(r.sw[1].total / r.sb.total)),
+            'Where SBED beats the best sweep by the most',
+            (r) => `${r.uc.label}: SBED takes ${fmt(r.sb.total)} measurements (median over ${r.sb.n} repeats), the best sweep (${_shortStratLabel(r.sw[0])}) ${fmt(r.sw[1].total)}, i.e. ${(r.sw[1].total / r.sb.total).toFixed(1)}× more.`,
+            (r) => [SBED, SMART, r.sw[0]]);
+        add(pickMax(withSw, r => Math.log(r.sb.total / r.sw[1].total)),
+            'Where SBED loses to a sweep',
+            (r, sc) => sc > 0
+                ? `${r.uc.label}: the best sweep (${_shortStratLabel(r.sw[0])}) needs ${fmt(r.sw[1].total)} measurements, SBED ${fmt(r.sb.total)} (${(r.sb.total / r.sw[1].total).toFixed(1)}× more). The stack shows which stage the extra cost is in.`
+                : `${r.uc.label}: SBED is never worse than the best sweep in this data; the closest case is ${fmt(r.sb.total)} vs ${fmt(r.sw[1].total)} measurements (${_shortStratLabel(r.sw[0])}).`,
+            (r) => [SBED, SMART, r.sw[0]]);
+        add(pickMax(withSm, r => Math.abs(Math.log(r.sm.total / r.sb.total))),
+            'Where Smart-SBED and SBED differ the most',
+            (r) => r.sm.total < r.sb.total
+                ? `${r.uc.label}: Smart-SBED needs ${fmt(r.sm.total)} measurements against SBED's ${fmt(r.sb.total)} (${(r.sb.total / r.sm.total).toFixed(1)}× fewer); its search takes ${fmt(r.sm.search)} steps against ${fmt(r.sb.search)}.`
+                : `${r.uc.label}: SBED needs ${fmt(r.sb.total)} measurements against Smart-SBED's ${fmt(r.sm.total)} (${(r.sm.total / r.sb.total).toFixed(1)}× fewer); Smart-SBED's focus takes ${fmt(r.sm.focus)} steps against ${fmt(r.sb.focus)}.`,
+            (r) => [SBED, SMART]);
+        add(pickMax(rows.filter(r => r.sb && r.sb.search > 0), r => r.sb.search / r.sb.total),
+            'Where SBED spends almost everything searching',
+            (r) => `${r.uc.label}: ${Math.round(100 * r.sb.search / r.sb.total)}% of SBED's ${fmt(r.sb.total)} measurements go to finding the dip (${fmt(r.sb.search)} steps), only ${fmt(r.sb.focus)} to focus and ${fmt(r.sb.refine || 0)} to refine.`,
+            (r) => [SBED, SMART, r.sw && r.sw[0]]);
+        add(pickMax(rows.filter(r => r.sb && r.sb.focus != null), r => r.sb.focus / r.sb.total),
+            'Where SBED spends the most on focusing',
+            (r) => `${r.uc.label}: ${Math.round(100 * r.sb.focus / r.sb.total)}% of SBED's ${fmt(r.sb.total)} measurements are spent in focus (${fmt(r.sb.focus)} steps) after only ${fmt(r.sb.search)} to search.`,
+            (r) => [SBED, SMART]);
+        add(pickMax(rows.filter(r => r.sb), r => Math.log(r.sb.total)),
+            'The hardest case for SBED',
+            (r) => `${r.uc.label}: SBED needs ${fmt(r.sb.total)} measurements, more than anywhere else in the data.${r.sw ? ` The best sweep needs ${fmt(r.sw[1].total)}.` : ''}`,
+            (r) => [SBED, SMART, r.sw && r.sw[0]]);
+
+        if (!stories.length) { body.innerHTML = '<p style="color:#94a3b8;padding:1em;">Not enough use cases with several locators and at least 3 repeats each to find stories.</p>'; return; }
         body.innerHTML = stories.map((st, i) => `<section style="margin:1em 0 1.5em; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:12px;">
             <h3 style="margin:0 0 0.2em; font-size:1.05em; color:#0f172a;">${escapeHtml(st.title)}</h3>
-            <p style="margin:0 0 0.4em; font-size:0.85em; color:#475569;">${escapeHtml(st.text)}</p>
-            <div id="story-chart-${i}" style="height:340px; width:100%;"></div></section>`).join('') +
-            `<p style="margin:1em 0 0; font-size:0.8em; color:#94a3b8;">Every chart here pools all use cases of the generator family regardless of the Parameters selection; use Scaling or Stages to compare chosen use cases.</p>`;
-        stories.forEach((st, i) => st.draw(document.getElementById(`story-chart-${i}`)));
+            <p style="margin:0 0 0.4em; font-size:0.9em; color:#334155;">${escapeHtml(st.text)}</p>
+            <div id="story-chart-${i}" style="height:320px; width:100%;"></div></section>`).join('') +
+            `<p style="margin:1em 0 0; font-size:0.8em; color:#94a3b8;">Found by scanning every use case of this generator family (median over at least ${MIN_REPEATS} repeats per locator), whatever the Parameters selection; the stories change when the data does. Picking the extreme of many use cases flatters the headline, so read each as an example and check the trend in Scaling and Stages.</p>`;
+        stories.forEach((st, i) => {
+            const names = [...new Set(st.strats.filter(Boolean))].filter(s => st.row.uc.perStrat.has(s));
+            const stage = [['search', 'Search', '#60a5fa'], ['focus', 'Focus', '#f59e0b'], ['refine', 'Refine', '#34d399']];
+            const x = names.map(s => `${_shortStratLabel(s)}<br>${fmt(st.row.uc.perStrat.get(s).total)}`);
+            const traces = stage.map(([f, label, color]) => ({
+                type: 'bar', name: label, x, marker: { color },
+                y: names.map(s => st.row.uc.perStrat.get(s)[f] || 0), hovertemplate: `${label}: %{y:.0f}<extra></extra>`,
+            }));
+            const layout = hlBaseLayout();
+            layout.barmode = 'stack';
+            layout.yaxis = { ...layout.yaxis, title: { text: 'Median steps per stage (total under the name)', font: { size: 11 } } };
+            Plotly.react(document.getElementById(`story-chart-${i}`), traces, layout, { displayModeBar: false, responsive: true });
+        });
     }
 
     // ── Accuracy tab ─────────────────────────────────────────────────────────
@@ -8754,7 +8803,6 @@ function main() {
         const accuracyView = document.getElementById('accuracy-view');
         const stagesView = document.getElementById('stages-view');
         const scalingView = document.getElementById('scaling-view');
-        const storiesView = document.getElementById('stories-view');
         const stoppingRow = document.getElementById('stopping-criteria-row');
         const gen = compareGeneratorsArg();
         const noises = compareNoisesArg();
@@ -8770,7 +8818,6 @@ function main() {
         if (accuracyView) accuracyView.style.display = 'none';
         if (stagesView) stagesView.style.display = 'none';
         if (scalingView) scalingView.style.display = 'none';
-        if (storiesView) storiesView.style.display = 'none';
 
         const compareSweepRow = document.getElementById('scan-compare-sweep-row') || document.getElementById('scan-compare-sweep-container');
         if (compareSweepRow) {
@@ -8799,12 +8846,6 @@ function main() {
                 stagesView.style.display = 'block';
                 renderStagesTab(gen, noises);
             }
-        } else if (mode === 'stories') {
-            if (stoppingRow) stoppingRow.style.display = 'none';
-            if (storiesView) {
-                storiesView.style.display = 'block';
-                renderStoriesTab(gen);
-            }
         } else if (mode === 'scaling') {
             if (stoppingRow) stoppingRow.style.display = 'none';
             if (scalingView) {
@@ -8812,6 +8853,7 @@ function main() {
                 renderScalingTab(gen, noises);
             }
         }
+        renderStoriesTab(gen);
         syncHashFromState();
     }
 
