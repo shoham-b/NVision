@@ -595,20 +595,6 @@ def build_app(cache_dir: Path, run_dir: Path) -> FastAPI:
         The Step size view shows only these: older spacings left in the cache come from older code."""
         return [sweep_strategy_name(k) for k in SWEEP_SPACING_DIVISORS]
 
-    @app.post("/api/fit-segments")
-    def fit_segments(payload: dict) -> dict | None:
-        """Segmented log-log fit (1-3 segments: search, focus, refine tail) of a claimed-uncertainty curve.
-
-        Body: ``{"n": [measurements], "sigma": [claimed uncertainty in Hz]}``, equal lengths. Returns the fit of
-        :func:`nvision.metrics.loglog_fit.fit_segments`, or ``null`` when the curve is too short.
-        """
-        from nvision.metrics.loglog_fit import fit_segments
-
-        try:
-            return fit_segments(payload["n"], payload["sigma"])
-        except (KeyError, ValueError) as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
-
     @app.get("/api/run-rows")
     def run_rows(strategies: str) -> list[dict]:
         """Per-repeat scalar rows (see ``_run_row``) for every cached combo of the given
