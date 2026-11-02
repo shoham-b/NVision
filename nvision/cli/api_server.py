@@ -43,6 +43,7 @@ _STATIC_ASSET_NAMES = (
     "run-status.js",
     "reload.js",
     "styles.css",
+    "lab.html",
 )
 
 log = logging.getLogger("nvision.api_server")
@@ -366,8 +367,25 @@ def _warm_combo_memo(memo: dict, bridge: CacheBridge, combos: list[dict]) -> Non
         bridge.close()
 
 
-def build_app(cache_dir: Path, run_dir: Path) -> FastAPI:
+def _add_lab_study_route(app: FastAPI, lab_dir: Path | None) -> None:
+    """``/api/lab-study``: calibration study of the lab's own MATLAB runs (see
+    :func:`nvision.metrics.lab_study.lab_study_payload`); 404 unless ``nv serve --lab-dir`` was given."""
+    from nvision.metrics.lab_study import lab_study_payload
+
+    @app.get("/api/lab-study")
+    def lab_study() -> dict:
+        if lab_dir is None:
+            raise HTTPException(status_code=404, detail="Server started without --lab-dir")
+        try:
+            return lab_study_payload(lab_dir)
+        except (ValueError, OSError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+def build_app(cache_dir: Path, run_dir: Path, lab_dir: Path | None = None) -> FastAPI:
     """Build the FastAPI app serving the repo's frontend against *cache_dir*.
+
+    *lab_dir*: the lab's ``convergence_statistics`` folder for the Lab study page (``/api/lab-study``).
 
     *run_dir* is only needed for run-specific files that genuinely vary per
     run (``locator_results.parquet``, ``run_status.json``) — index.html, JS, CSS,
@@ -605,6 +623,8 @@ def build_app(cache_dir: Path, run_dir: Path) -> FastAPI:
             return fit_segments(payload["n"], payload["sigma"])
         except (KeyError, ValueError) as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    _add_lab_study_route(app, lab_dir)
 
     @app.get("/api/run-rows")
     def run_rows(strategies: str) -> list[dict]:
