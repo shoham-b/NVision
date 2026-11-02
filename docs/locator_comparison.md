@@ -34,16 +34,18 @@ sigma and linewidth separately, and each axis changes one thing:
   from SNR 20 up (10 vs 50 barely differs), at SNR 10 most runs still converge, at 5 a quarter to three quarters hit
   the budget, and at 2 and below nearly every run does (the sweep fit finds no dip at SNR 1). 1 is the smallest SNR
   worth running.
-- **Signal occupancy.** The window is sized so one dip group covers a stated share of it: `window = covered / x`, for
-  `x` in `NVISION_SBED_SIGNAL_OCCUPANCY_VALUES` (default 0.5, 0.2, 0.1, 0.05; `occ<x>` in the generator name,
-  `grid_signal_occupancy` in the results). `covered` is the union of the dip group's hyperfine lines' FWHM intervals
+- **Window span.** The window is a multiple of the width one dip group covers: `window = x * covered`, for `x` in
+  `NVISION_SBED_WINDOW_SPANS` (default 1.6, 2, 3, 5; `span<x>` in the generator name). The results and UI report the
+  inverse, the signal occupancy `1 / x` (`grid_signal_occupancy`). Wide windows are dominated by the window's own
+  uniform prior (variance `W^2/12`), so the study stays close to the signal; 1.6 is about the tightest window every
+  isotope fits (N-15 needs `x` > 1.572). `covered` is the union of the dip group's hyperfine lines' FWHM intervals
   (ONE total FWHM shared by every signal, `NVISION_SBED_FWHM`, 2 MHz): one line for the unresolved isotope, two for N-15
   (`2 FWHM - overlap`), three for N-14 (`3 FWHM - 2 overlaps`), where lines closer than one FWHM overlap by
-  `FWHM - spacing` (none at the default FWHM). So the same occupancy is the same share of signal in view for every
-  isotope, but a different absolute window: at 0.1 the window is 20 MHz unresolved, 40 MHz N-15, 60 MHz N-14.
+  `FWHM - spacing` (none at the default FWHM). So the same span is the same share of signal in view for every
+  isotope, but a different absolute window: at span 10 the window is 20 MHz unresolved, 40 MHz N-15, 60 MHz N-14.
   The window changes the window only: the search is hard when the dips are a sizeable part of the window, not only when
   it is orders of magnitude wider than the line. Everything with a physical scale (hyperfine offsets, the absolute
-  convergence thresholds, the candidate step) keeps its meaning across the axis. The window is `[D, D + covered / x]`
+  convergence thresholds, the candidate step) keeps its meaning across the axis. The window is `[D, D + x * covered]`
   and the Zeeman range follows it (`0.4 * window`; the default 150 MHz window has 60 MHz). The generator also records
   `grid_window_fwhm` (window / FWHM) as a derived number. The dip must clear the lower edge by the edge pad
   (`NVISION_NV_ZEEMAN_EDGE_PAD_FWHM`, 0.5 FWHM plus the outermost hyperfine offset), which is what limits the largest
@@ -60,7 +62,7 @@ sigma and linewidth separately, and each axis changes one thing:
 - **Budget.** The same for every window and locator: `NVISION_MAX_MEASUREMENTS` (2500). A run that hits it is
   censored at that count, so censored costs of different windows are on one scale.
 
-3 windows x 3 shares x 5 SNR x 6 locators = 270 tasks.
+4 occupancies x 3 shares x 3 isotopes (36 signals) x 5 SNR x 6 locators = 1080 tasks.
 
 Only the positions follow the window (`zero_field_freq` range, `zeeman_shift` range and its prior std). The width
 bounds (`hwhm_lorentz`, `sigma_inhom`, `hyperfine_shift`) are normally sized as a fraction of the window; for these
@@ -89,7 +91,7 @@ when asked for with `--all`, `--filter-category/-generator/-noise`, `--width`, `
 
 ## Running the comparison
 
-`voigt-grid` has 270 tasks (9 signals x 5 SNR levels x 6 strategies); narrow it for a first look.
+`voigt-grid` has 1080 tasks (36 signals x 5 SNR levels x 6 strategies); narrow it for a first look.
 
 ```bash
 uv run nv run --run-group voigt-grid --filter-strategy "Sweep,SBED" --repeats 30 --runners 8
@@ -100,7 +102,7 @@ uv run nv serve              # View: "Step size" (sweep spacing), "Stages" (stag
 `nv compare` prints three tables (accuracy; stage boundaries and reach rates; per-stage duration and
 uncertainty ratio) for every locator on the same footing; `--filter-signal`, `--filter-noise`,
 `--by generator,noise` and `--csv` refine and export it. `nv groups count voigt-grid` shows the task count.
-A quick look: `NVISION_SBED_SNR_VALUES=5 uv run nv run --run-group voigt-grid --filter-signal "occ0.1-gs0.15" --repeats 5`.
+A quick look: `NVISION_SBED_SNR_VALUES=5 uv run nv run --run-group voigt-grid --filter-signal "span5-gs0.15" --repeats 5`.
 
 In the UI the plain sweeps appear as one "Sweep" entry; choosing it reveals a second dropdown for the spacing
 (k points per FWHM, 2-4).
@@ -208,7 +210,7 @@ one row per strategy (each `SimpleSweep-<k>perFWHM` spacing is its own row). The
 Manual check that UI and CLI agree on a tiny run:
 
 ```bash
-NVISION_SBED_SNR_VALUES=5 uv run nv run --run-group voigt-grid --filter-signal occ0.1 --repeats 3 --runners 2 --out scratch/x
-uv run nv compare --out scratch/x --filter-signal occ0.1 --filter-noise "SNR(5)"
-uv run nv serve --dir scratch/x   # Stages view, an occ0.1 generator, noise SNR(5), compare the tables
+NVISION_SBED_SNR_VALUES=5 uv run nv run --run-group voigt-grid --filter-signal span5 --repeats 3 --runners 2 --out scratch/x
+uv run nv compare --out scratch/x --filter-signal span5 --filter-noise "SNR(5)"
+uv run nv serve --dir scratch/x   # Stages view, a span5 generator, noise SNR(5), compare the tables
 ```

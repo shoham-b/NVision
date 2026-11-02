@@ -172,7 +172,7 @@ def test_gaussian_share_is_only_defined_for_the_snr_window_study():
 def test_snr_window_generator_draws_dips_inside_its_window():
     import random
 
-    gen = next(g for n, g in sim_presets.voigt_snr_window_param_grid_generators() if "-occ0.05-" in n)
+    gen = next(g for n, g in sim_presets.voigt_snr_window_param_grid_generators() if "-span5-" in n)
     for seed in range(20):
         signal = gen.generate(random.Random(seed))
         values = signal.parameter_values()
@@ -218,7 +218,7 @@ def test_snr_window_belief_inherits_the_generator_window():
 
     from nvision.sim.locs.bayesian.belief_builders import nv_center_smc_belief
 
-    name = next(n for n, _ in sim_presets.voigt_snr_window_param_grid_generators() if "-occ0.05-" in n)
+    name = next(n for n, _ in sim_presets.voigt_snr_window_param_grid_generators() if "-span5-" in n)
     combo = CombinationGrid().resolve(name, sim_presets.snr_study_noises()[0][0], "Bayesian-SBED")
     signal = combo.generator.generate(random.Random(0))
     cfg = {k: v for k, v in combo.strategy["config"].items() if k not in ("builder", "max_steps")}
@@ -339,9 +339,9 @@ def test_select_snr_window_narrows_a_group_by_snr_and_window():
     combos = group.combinations()
     gens = group.extra_generators
 
-    at_window = sim_run_groups.select_snr_window(combos, gens, signal_occupancy=[0.1])
+    at_window = sim_run_groups.select_snr_window(combos, gens, signal_occupancy=[0.2])
     assert at_window
-    assert {round(gens[g].signal_occupancy, 9) for g, _, _ in at_window} == {0.1}
+    assert {round(gens[g].signal_occupancy, 9) for g, _, _ in at_window} == {0.2}
     assert {n for _, n, _ in at_window} == set(group.noise_names)
 
     at_snr = sim_run_groups.select_snr_window(combos, gens, snr=[10.0])
@@ -418,13 +418,13 @@ def test_signal_occupancy_is_the_union_of_the_hyperfine_lines_fwhm_intervals():
         assert 0.0 < gen.signal_occupancy <= 1.0
     # The grid is posed in occupancy, so every isotope hits the grid value exactly; the window is what differs.
     grid_values = {round(g.signal_occupancy, 9) for g in by_name.values()}
-    assert grid_values == {round(v, 9) for v in sim_defaults.NVISION_SBED_SIGNAL_OCCUPANCY_VALUES}
+    assert grid_values == {round(1.0 / v, 9) for v in sim_defaults.NVISION_SBED_WINDOW_SPANS}
     at_occ = {
-        g.hyperfine: g.drive_freq_max_phys - g.drive_freq_min_phys for n, g in by_name.items() if "-occ0.1-gs0-" in n
+        g.hyperfine: g.drive_freq_max_phys - g.drive_freq_min_phys for n, g in by_name.items() if "-span2-gs0-" in n
     }
-    assert at_occ["unresolved"] == pytest.approx(10 * fwhm)
-    assert at_occ["n15"] == pytest.approx(20 * fwhm)  # lines 3.03 MHz apart > FWHM: no overlap, 2 FWHM covered
-    assert at_occ["n14"] == pytest.approx(30 * fwhm)  # lines 2.16 MHz apart > FWHM: no overlap, 3 FWHM covered
+    assert at_occ["unresolved"] == pytest.approx(2 * fwhm)
+    assert at_occ["n15"] == pytest.approx(4 * fwhm)  # lines 3.03 MHz apart > FWHM: no overlap, 2 FWHM covered
+    assert at_occ["n14"] == pytest.approx(6 * fwhm)  # lines 2.16 MHz apart > FWHM: no overlap, 3 FWHM covered
     assert NVCenterCoreGenerator(variant="voigt").signal_occupancy is None
 
 

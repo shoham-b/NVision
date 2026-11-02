@@ -291,8 +291,8 @@ def voigt_sigma_inhom_param_grid_generators() -> list[tuple[str, object]]:
     return generators
 
 
-def _fmt_occupancy(occupancy: float) -> str:
-    return f"occ{occupancy:g}"
+def _fmt_span(span: float) -> str:
+    return f"span{span:g}"
 
 
 def _fmt_gaussian_share(share: float) -> str:
@@ -304,11 +304,12 @@ def voigt_snr_window_param_grid_generators() -> list[tuple[str, object]]:
 
     One thing changes per axis:
 
-    * **Signal occupancy** (``occ<x>`` in the name): the share of the drive-frequency window one dip group covers
+    * **Window span** (``span<x>`` in the name): the window as a multiple ``x`` of the width one dip group covers
       (its hyperfine lines' FWHM intervals, overlap counted once). ONE total FWHM (``NVISION_SBED_FWHM``) is shared by
-      every signal, so the covered width is that FWHM times the lines it spans and the window is that width / ``x``:
-      the same occupancy is a different absolute window per isotope, and the same share of signal in view.
-      The window is ``[D, D + covered / x]``, and the Zeeman range follows it
+      every signal, so the covered width is that FWHM times the lines it spans and the window is ``x`` times that width:
+      the same span is a different absolute window per isotope, and the same share of signal in view
+      (occupancy ``1 / x``, which is what the results and UI report).
+      The window is ``[D, D + x * covered]``, and the Zeeman range follows it
       (:func:`~nvision.spectra.nv_center.max_zeeman_shift_for_window`). Fixing the FWHM rather than stretching the
       window is what keeps everything with a physical scale (hyperfine offsets, the absolute convergence thresholds,
       the candidate step) meaningful across the axis.
@@ -325,8 +326,8 @@ def voigt_snr_window_param_grid_generators() -> list[tuple[str, object]]:
         NVISION_SBED_FWHM,
         NVISION_SBED_GAUSSIAN_SHARES,
         NVISION_SBED_HYPERFINE_VALUES,
-        NVISION_SBED_SIGNAL_OCCUPANCY_VALUES,
         NVISION_SBED_SNR_CONTRAST,
+        NVISION_SBED_WINDOW_SPANS,
     )
     from nvision.spectra.nv_center import (
         _SATURATION_VOIGT_SQRT2LOG2,
@@ -340,9 +341,9 @@ def voigt_snr_window_param_grid_generators() -> list[tuple[str, object]]:
     )
 
     generators: list[tuple[str, object]] = []
-    for occupancy in NVISION_SBED_SIGNAL_OCCUPANCY_VALUES:
-        if not 0.0 < occupancy <= 1.0:
-            raise ValueError(f"Signal occupancy must be in (0, 1], got {occupancy}")
+    for span in NVISION_SBED_WINDOW_SPANS:
+        if span < 1.0:
+            raise ValueError(f"Window span must be >= 1 signal width, got {span}")
         for share in NVISION_SBED_GAUSSIAN_SHARES:
             if not 0.0 <= share < 1.0:
                 raise ValueError(f"Gaussian share must be in [0, 1), got {share}")
@@ -356,13 +357,13 @@ def voigt_snr_window_param_grid_generators() -> list[tuple[str, object]]:
             fwhm_total, _ = _voigt_reparam_scalar(hwhm_lorentz, sigma_inhom)
 
             for hyperfine in NVISION_SBED_HYPERFINE_VALUES:
-                window = hyperfine_covered_width(fwhm_total, hyperfine) / occupancy
+                window = hyperfine_covered_width(fwhm_total, hyperfine) * span
                 zeeman_max = max_zeeman_shift_for_window(window)
                 pad = zeeman_shift_edge_pad(fwhm_total, hyperfine_geometry(hyperfine)[0])
                 if not pad < zeeman_max:
                     continue
                 name = (
-                    f"NVCenter-voigt-{_fmt_occupancy(occupancy)}-{_fmt_gaussian_share(share)}-"
+                    f"NVCenter-voigt-{_fmt_span(span)}-{_fmt_gaussian_share(share)}-"
                     f"{_fmt_hyperfine(hyperfine)}"
                 )
                 generators.append(
