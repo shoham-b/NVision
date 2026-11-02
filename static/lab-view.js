@@ -28,7 +28,7 @@ async function renderLabStudy(container, name) {
         ['Steps, median (IQR)', (r) => `${fmt(r.steps_median, 0)} (${fmt(r.steps_q25, 0)}–${fmt(r.steps_q75, 0)})`],
         ['Claimed σ (MHz)', (r) => fmt(r.claimed_sigma_mhz)],
         ['Across-run std (MHz)', (r) => fmt(r.across_run_std_mhz)],
-        ['Actual ÷ claimed', (r) => fmt(r.overconfidence)],
+        ['Spread ÷ claimed σ', (r) => fmt(r.overconfidence)],
         ['Within 1σ (nominal 0.68)', (r) => fmt(r.within_1sigma)],
         ['Within 2σ (nominal 0.95)', (r) => fmt(r.within_2sigma)],
         ['95% interval hit', (r) => fmt(r.ci95_hit)],
@@ -40,9 +40,9 @@ async function renderLabStudy(container, name) {
             <thead><tr>${cols.map((c) => `<th style="${cell} background:#f8fafc; color:#475569;">${c[0]}</th>`).join('')}</tr></thead>
             <tbody>${data.windows.map((r) => `<tr>${cols.map((c) => `<td style="${cell} font-family:ui-monospace,monospace;">${c[1](r)}</td>`).join('')}</tr>`).join('')}</tbody>
         </table>
-        <p style="color:#475569; font-size:0.85em;">No ground truth exists for real data: error is measured against the reference, so the across-run std also contains any real drift of the resonance between runs. Read "Actual ÷ claimed" as an upper bound on miscalibration.</p>
+        <p style="color:#475569; font-size:0.85em;">No ground truth exists for real data: error is measured against the reference, so the across-run std also contains any real drift of the resonance between runs. Read "Spread ÷ claimed σ" as an upper bound on miscalibration: the runs disagree with each other by that many times the σ each one claims.</p>
         <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(420px, 1fr)); gap:1em;">
-            <div><h3 style="margin:0 0 0.3em; font-size:1em;">Claimed σ vs actual spread <span tabindex="0" class="help-icon-visible" title="Solid: median self-reported posterior std (band: quartiles). Dashed: std across runs of the posterior mean at that step. Dashed above solid means the runs are overconfident. Both include only runs still measuring at that step.">?</span></h3><div id="lab-sigma" style="height:420px"></div></div>
+            <div><h3 style="margin:0 0 0.3em; font-size:1em;">Claimed σ vs across-run spread <span tabindex="0" class="help-icon-visible" title="Solid: median self-reported posterior std (band: quartiles). Dashed: how far the runs' posterior means scatter from each other at that step (std across runs; not an error against a known truth). Dashed above solid means the runs disagree more than they claim. Both include only runs still measuring at that step.">?</span></h3><div id="lab-sigma" style="height:420px"></div></div>
             <div><h3 style="margin:0 0 0.3em; font-size:1em;">Steps to convergence <span tabindex="0" class="help-icon-visible" title="Median number of measurements until the run's own stop rule fired, with the interquartile range, per drive_freq window.">?</span></h3><div id="lab-steps" style="height:420px"></div></div>
         </div>`;
     await ensurePlotly();
@@ -54,7 +54,7 @@ async function renderLabStudy(container, name) {
         traces.push({ x: c.step, y: c.claimed_q75, mode: 'lines', line: { width: 0 }, hoverinfo: 'skip', showlegend: false, legendgroup: name });
         traces.push({ x: c.step, y: c.claimed_q25, mode: 'lines', line: { width: 0 }, fill: 'tonexty', fillcolor: color + '22', hoverinfo: 'skip', showlegend: false, legendgroup: name });
         traces.push({ x: c.step, y: c.claimed_median, mode: 'lines', line: { color, width: 2 }, name: `${name} claimed`, legendgroup: name });
-        traces.push({ x: c.actual_step, y: c.across_run_std, mode: 'lines', line: { color, width: 2, dash: 'dash' }, name: `${name} actual`, legendgroup: name });
+        traces.push({ x: c.actual_step, y: c.across_run_std, mode: 'lines', line: { color, width: 2, dash: 'dash' }, name: `${name} spread`, legendgroup: name });
     });
     Plotly.newPlot('lab-sigma', traces, {
         margin: { t: 10, r: 10, b: 50, l: 60 }, hovermode: 'x unified',

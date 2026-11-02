@@ -33,7 +33,7 @@ def lab_study_payload(root: Path) -> dict:
     *root*: the ``convergence_statistics`` directory. Returned ``windows`` rows are in MHz;
     ``curves[window]`` holds arrays over ``step`` (1-based measurement count):
     ``claimed_median/q25/q75`` (the runs' self-reported posterior std) and ``across_run_std``
-    (the std of the runs' posterior means at that step, the error they actually made).
+    (the std of the runs' posterior means at that step, the scatter of their estimates, not an error against a known truth).
     """
     windows = _windows(root)
     runs = pl.concat(
