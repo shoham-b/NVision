@@ -43,6 +43,7 @@ _STATIC_ASSET_NAMES = (
     "run-status.js",
     "reload.js",
     "styles.css",
+    "lab-view.js",
 )
 
 log = logging.getLogger("nvision.api_server")
@@ -369,8 +370,30 @@ def _warm_combo_memo(memo: dict, bridge: CacheBridge, combos: list[dict]) -> Non
         bridge.close()
 
 
-def build_app(cache_dir: Path, run_dir: Path) -> FastAPI:
+def _add_lab_study_route(app: FastAPI, lab_dirs: list[Path]) -> None:
+    """``/api/lab-studies`` (names of the labs found under ``nv serve --lab-dir``) and
+    ``/api/lab-study?name=`` (one lab's :func:`nvision.metrics.lab_study.lab_study_payload`)."""
+    from nvision.metrics.lab_study import discover_labs, lab_study_payload
+
+    @app.get("/api/lab-studies")
+    def lab_studies() -> list[str]:
+        return list(discover_labs(lab_dirs))
+
+    @app.get("/api/lab-study")
+    def lab_study(name: str) -> dict:
+        labs = discover_labs(lab_dirs)
+        if name not in labs:
+            raise HTTPException(status_code=404, detail=f"No lab named {name!r}")
+        try:
+            return lab_study_payload(labs[name])
+        except (ValueError, OSError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+def build_app(cache_dir: Path, run_dir: Path, lab_dirs: list[Path] | None = None) -> FastAPI:
     """Build the FastAPI app serving the repo's frontend against *cache_dir*.
+
+    *lab_dirs*: folders searched for the lab studies listed under the UI's Study dropdown.
 
     *run_dir* is only needed for run-specific files that genuinely vary per
     run (``locator_results.parquet``, ``run_status.json``) — index.html, JS, CSS,
@@ -594,6 +617,8 @@ def build_app(cache_dir: Path, run_dir: Path) -> FastAPI:
         """Strategy names of the plain-sweep spacings the current code studies (``SWEEP_SPACING_DIVISORS``).
         The Step size view shows only these: older spacings left in the cache come from older code."""
         return [sweep_strategy_name(k) for k in SWEEP_SPACING_DIVISORS]
+
+    _add_lab_study_route(app, lab_dirs or [])
 
     @app.get("/api/run-rows")
     def run_rows(strategies: str) -> list[dict]:
