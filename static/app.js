@@ -7684,15 +7684,200 @@ function main() {
                 r.cols.map((c, i) => td(c, n > 1 && i === 1 && r.effMed != null && r.effMed === bestEff)).join('') + '</tr>').join('')}</tbody></table>`;
     }
 
-    // The whole run: every locator's total cost next to the shares that reached each stage. The median total is not
-    // the sum of the stage medians, so the table reads the totals off the runs directly.
-    function renderHlWholeTable(byStrategy, strategies, sfx) {
+    // ── Information: how fast each locator approaches the van Trees bound ───────────────────────────────────────
+    // Every run is one accumulation of information from the prior J0 = sigma_0^-2 of the PRIMARY parameter (not the
+    // drive window: the primary parameter's own prior is far tighter). sigma_0 is the claimed sigma after the first
+    // measurement (stage_prior_info = sigma_0^-2); J0 is taken as the median over every run of the use case, so all
+    // locators share one ceiling. No locator can beat
+    //   sigma(n) >= (J0 + n I*)^(-1/2),
+    // I* = stage_fisher_star = the information of one measurement at the steepest point of the true signal. All values
+    // are physical (Hz, Hz^-2). A run missing stage_fisher_star / stage_prior_info / its series is left out (a dash),
+    // never given a fallback.
+    // Precision targets of the cost ladder, as the gain over the prior: tau = sigma_0 / gain.
+    const HL_GAIN_LADDER = [1.5, 2, 3, 5, 8, 12, 20, 30, 50, 80];
+    const HL_GAIN_REF = 5;   // the rung quoted in the table
+
+    function hlInfoRun(p, j0) {
+        const s = p.series;
+        if (!s || !s.s || !s.e || !s.u) return null;
+        const star = _mv(p, 'stage_fisher_star'), end = hlRunSteps(p);
+        if (!(star > 0) || !(j0 > 0) || end == null) return null;
+        return { p, c: `${p.generator}\u0000${p.noise}`, end, star, j0 };
+    }
+
+    // First measurement from which the true error stays <= tau to the end of the run, or null when the run ends above it.
+    function hlPassageStep(series, tau) {
+        const { s, e } = series;
+        let last = -1;
+        for (let i = e.length - 1; i >= 0; i--) {
+            if (e[i] != null && e[i] > tau) { last = i; break; }
+        }
+        return last === e.length - 1 ? null : s[last + 1];
+    }
+
+    // Least-squares line y = a + b x; null with fewer than 3 points or no spread in x.
+    function hlLinFit(xs, ys) {
+        const n = xs.length;
+        if (n < 3) return null;
+        const mx = xs.reduce((a, b) => a + b, 0) / n, my = ys.reduce((a, b) => a + b, 0) / n;
+        let sxx = 0, sxy = 0;
+        for (let i = 0; i < n; i++) { sxx += (xs[i] - mx) ** 2; sxy += (xs[i] - mx) * (ys[i] - my); }
+        if (!(sxx > 0)) return null;
+        const b = sxy / sxx;
+        return { a: my - b * mx, b };
+    }
+
+    // Cost ladder of one locator. Per use case and rung tau = sigma_0 / gain (sigma_0 = J0^-1/2):
+    // T = median first-passage step over the runs that got there (share >= 1/2 or the rung is dropped, so a rung a locator
+    // mostly never reaches is not drawn), O = median bound (tau^-2 - J0) / I* = (gain^2 - 1) J0 / I*. Then the lag n0 and
+    // efficiency e come from the line T = n0 + O / e through each use case's rungs (>= 3 needed); the summary over use
+    // cases is the median. n0 is the measurements spent beyond the bound, e the share of the best information rate.
+    function hlInfoLadder(runs) {
+        const byCase = new Map();
+        for (const r of runs) {
+            if (!byCase.has(r.c)) byCase.set(r.c, []);
+            byCase.get(r.c).push(r);
+        }
+        const rungs = HL_GAIN_LADDER.map(g => ({ g, T: [], O: [], share: [] }));
+        const n0s = [], effs = [];
+        for (const rs of byCase.values()) {
+            const fx = [], fy = [];
+            for (const rung of rungs) {
+                const O = hlMedian(rs.map(r => (rung.g * rung.g - 1) * r.j0 / r.star));
+                const Ts = rs.map(r => hlPassageStep(r.p.series, 1 / (rung.g * Math.sqrt(r.j0)))).filter(v => v != null);
+                const share = Ts.length / rs.length;
+                if (!(O > 0) || share < 0.5) continue;
+                const T = hlMedian(Ts);
+                rung.T.push(T); rung.O.push(O); rung.share.push(share);
+                fx.push(O); fy.push(T);
+            }
+            const fit = hlLinFit(fx, fy);
+            if (fit && fit.b > 0) { n0s.push(fit.a); effs.push(1 / fit.b); }
+        }
+        const pts = rungs.filter(r => r.T.length)
+            .map(r => ({ g: r.g, T: hlMedian(r.T), O: hlMedian(r.O), share: hlMedian(r.share), nCases: r.T.length }));
+        return { pts, n0: hlMedian(n0s), eff: hlMedian(effs), nFit: n0s.length };
+    }
+
+    // z_i(n) = v_i(n)^2 (J0_i + n I*_i) per repeat still running at n, v = true error ('e') or claimed sigma ('u'): the
+    // squared error in units of the bound's variance. R = 1 / mean(z): the mean square is the quantity the van Trees bound
+    // is on (a few catastrophic runs dominate it), 1 = on the bound, below = measurements wasted. Several use cases: the
+    // median of the use cases' own R (at least half of them present). A run that has stopped keeps its final value; a
+    // grid point needs at least half of a use case's repeats still running.
+    function hlInfoRatioAt(runs, x, key) {
+        const byCase = new Map();
+        for (const r of runs) {
+            if (!byCase.has(r.c)) byCase.set(r.c, []);
+            byCase.get(r.c).push(r);
+        }
+        const perCase = [];
+        for (const rs of byCase.values()) {
+            const alive = rs.filter(r => r.end >= x);
+            if (alive.length < Math.max(1, Math.ceil(rs.length / 2))) continue;
+            const z = alive.map(r => hlSeriesValueAt(r.p.series, key, x)).map((v, i) => (v != null ? v * v * (alive[i].j0 + x * alive[i].star) : null))
+                .filter(v => v != null);
+            if (!z.length) continue;
+            const m = z.reduce((a, b) => a + b, 0) / z.length;
+            if (m > 0) perCase.push(1 / m);
+        }
+        return perCase.length >= Math.max(1, Math.ceil(byCase.size / 2)) ? hlMedian(perCase) : null;
+    }
+
+    function hlInfoByStrategy(byStrategy, strategies) {
+        // One J0 per use case: the median prior information over all of its runs, every locator.
+        const priors = new Map();
+        for (const strat of strategies) {
+            for (const p of byStrategy.get(strat)) {
+                const j = _mv(p, 'stage_prior_info');
+                if (!(j > 0)) continue;
+                const key = `${p.generator}\u0000${p.noise}`;
+                if (!priors.has(key)) priors.set(key, []);
+                priors.get(key).push(j);
+            }
+        }
+        const j0Of = new Map([...priors].map(([k, v]) => [k, hlMedian(v)]));
+        const out = new Map();
+        for (const strat of strategies) {
+            const runs = byStrategy.get(strat).map(p => hlInfoRun(p, j0Of.get(`${p.generator}\u0000${p.noise}`))).filter(r => r != null);
+            if (runs.length) out.set(strat, runs);
+        }
+        return out;
+    }
+
+    function renderHlInfoRatio(div, info, strategies) {
+        if (!div) return;
+        const traces = [];
+        let maxEnd = 1;
+        for (const runs of info.values()) for (const r of runs) if (r.end > maxEnd) maxEnd = r.end;
+        const grid = hlStepGrid(maxEnd);
+        for (const strat of strategies) {
+            const runs = info.get(strat);
+            if (!runs) continue;
+            const color = hlStratColor(strategies, strat);
+            const label = _shortStratLabel(strat);
+            const nCases = new Set(runs.map(r => r.c)).size;
+            const base = nCases > 1 ? `${label} (${nCases} use cases)` : `${label} (repeats=${runs.length})`;
+            // True error (solid) and claimed sigma (dotted), both as mean square.
+            for (const [key, dash, what] of [['e', undefined, 'true error'], ['u', 'dot', 'claimed σ']]) {
+                const xs = [], ys = [];
+                for (const x of grid) {
+                    const v = hlInfoRatioAt(runs, x, key);
+                    if (v != null) { xs.push(x); ys.push(v); }
+                }
+                if (!xs.length) continue;
+                traces.push({ x: xs, y: ys, mode: 'lines', legendgroup: strat, showlegend: key === 'e', name: base,
+                    line: { color, width: 2, dash },
+                    hovertemplate: `step %{x}<br>R %{y:.3g} (${what}, mean square)<extra>${label}</extra>` });
+            }
+        }
+        if (!traces.length) { Plotly.purge(div); div.innerHTML = '<p style="color:#94a3b8;padding:1em;font-size:0.9em;">No run has the Fisher columns (stage_fisher_star, stage_prior_info) or the per-step series. Re-run to include them.</p>'; return; }
+        div.innerHTML = '';
+        const layout = hlBaseLayout();
+        layout.xaxis = { ...layout.xaxis, title: { text: 'Measurements', font: { size: 11 } }, type: 'log' };
+        layout.yaxis = { ...layout.yaxis, title: { text: 'R, 1 = the bound', font: { size: 11 } }, type: 'log' };
+        layout.shapes = [{ type: 'line', xref: 'paper', x0: 0, x1: 1, yref: 'y', y0: 1, y1: 1, line: { color: '#475569', width: 1.5, dash: 'dash' } }];
+        layout.legend = { orientation: 'h', yanchor: 'top', y: -0.2, xanchor: 'left', x: 0, font: { size: 9 } };
+        layout.margin = { ...layout.margin, b: 150 };
+        Plotly.react(div, traces, layout, { displayModeBar: false, responsive: true });
+    }
+
+    function renderHlInfoCost(div, ladders, strategies) {
+        if (!div) return;
+        const traces = [];
+        let boundPts = null;
+        for (const strat of strategies) {
+            const lad = ladders.get(strat);
+            if (!lad || !lad.pts.length) continue;
+            if (!boundPts || lad.pts.length > boundPts.length) boundPts = lad.pts;
+            const color = hlStratColor(strategies, strat);
+            const label = _shortStratLabel(strat);
+            traces.push({ x: lad.pts.map(q => q.g), y: lad.pts.map(q => q.T), mode: 'lines+markers', name: label, legendgroup: strat,
+                line: { color, width: 2 }, marker: { color, size: 6 }, customdata: lad.pts.map(q => [q.share, q.nCases]),
+                hovertemplate: `gain σ₀/τ %{x:.3g}<br>%{y:.4g} measurements (median)<br>reached by %{customdata[0]:.0%} of the runs (%{customdata[1]} use cases)<extra>${label}</extra>` });
+        }
+        if (!traces.length) { Plotly.purge(div); div.innerHTML = '<p style="color:#94a3b8;padding:1em;font-size:0.9em;">No locator reached a precision rung in at least half of its runs (or the Fisher columns are missing).</p>'; return; }
+        div.innerHTML = '';
+        traces.push({ x: boundPts.map(q => q.g), y: boundPts.map(q => q.O), mode: 'lines', name: 'Bound (τ⁻² − J₀) / I*',
+            line: { color: '#475569', width: 1.5, dash: 'dash' }, hovertemplate: 'bound: %{y:.4g} measurements<extra></extra>' });
+        const layout = hlBaseLayout();
+        layout.xaxis = { ...layout.xaxis, title: { text: 'Precision gain over the prior, σ₀ / τ', font: { size: 11 } }, type: 'log' };
+        layout.yaxis = { ...layout.yaxis, title: { text: 'Measurements to reach τ (median)', font: { size: 11 } }, type: 'log' };
+        layout.legend = { orientation: 'h', yanchor: 'top', y: -0.2, xanchor: 'left', x: 0, font: { size: 9 } };
+        layout.margin = { ...layout.margin, b: 100 };
+        Plotly.react(div, traces, layout, { displayModeBar: false, responsive: true });
+    }
+
+    // Locators side by side: total cost next to the two numbers that summarise the gap to the bound. The median total is
+    // not the sum of anything, so it is read off the runs directly.
+    function renderHlWholeTable(byStrategy, strategies, ladders, sfx) {
         const box = document.getElementById(`hl-whole-table${sfx}`);
         if (!box) return;
         const fmt = HL_CMP_FMT;
         const rows = strategies.map(strat => {
             const runs = byStrategy.get(strat);
             const totals = hlSorted(hlUnits(runs, p => hlRunSteps(p)));
+            const lad = ladders.get(strat);
+            const ref = lad ? lad.pts.find(q => q.g === HL_GAIN_REF) : null;
             return {
                 strat, n: runs.length, med: hlQuantileSorted(totals, 0.5),
                 html: totals.length
@@ -7703,10 +7888,12 @@ function main() {
                     const med = fmt.pct(hlMedian(shares));
                     return shares.length > 1 ? `${med} <span style="color:#94a3b8">(worst ${fmt.pct(Math.max(...shares))})</span>` : med;
                 })(),
-                focus: fmt.pct(hlMedian(hlCaseShares(runs, p => _mv(p, 'focus_found_step') != null))),
-                refine: fmt.pct(hlMedian(hlCaseShares(runs, p => _mv(p, 'refine_start_step') != null))),
+                found: fmt.pct(hlMedian(hlCaseShares(runs, p => _mv(p, 'focus_found_step') != null))),
+                n0: lad ? lad.n0 : null, eff: lad ? lad.eff : null,
+                over: ref ? ref.T / ref.O : null, overShare: ref ? ref.share : null,
             };
         }).sort((a, b) => (a.med ?? Infinity) - (b.med ?? Infinity));
+        const bestEff = Math.max(...rows.map(r => r.eff).filter(v => v != null));
         const th = (t, tip) => `<th style="padding:2px 8px;text-align:right" title="${escapeHtml(tip)}">${t}</th>`;
         const td = (v, bold) => `<td style="padding:2px 8px;text-align:right;${bold ? 'font-weight:700;color:#047857' : ''}">${v}</td>`;
         box.innerHTML = '<table class="metric-table" style="border-collapse:collapse;font-size:0.85em;"><thead><tr>' +
@@ -7714,29 +7901,15 @@ function main() {
             th('Runs', 'Repeats of the use case (use cases when several are selected: medians over use cases)') +
             th('Total measurements', 'Median measurements of the whole run, with the 25th and 75th percentile. Runs that hit the shared budget count at the budget, a lower bound.') +
             th('Capped', 'Share of runs that used the whole shared measurement budget without the stop rule firing (median over use cases, with the worst use case in brackets when several are selected).') +
-            th('Found a dip', 'Share of runs that left the search stage.') +
-            th('Reached refine', 'Share of runs that reached the refine stage (a plain sweep never does).') +
+            th('Found a dip', 'Share of runs whose measurements ever showed a dip.') +
+            th('Lag n₀', 'Measurements spent beyond the bound: the intercept of the line T = n₀ + bound / e through the cost-to-precision points (T = median first-passage measurement to σ₀ / gain, bound = (τ⁻² − J₀) / I*), fitted per use case and summarised by the median. Needs at least three precision rungs reached by half the runs of the use case.') +
+            th('Efficiency e', 'The steady information rate as a share of the best possible I* (1/slope of the same line). 1 = every measurement at the Fisher-optimal point once the lag is paid. The cost points use the median run, and the bound is on the mean square, so a value a little above 1 can occur; a fit through few rungs is noisy.') +
+            th(`Cost at ${HL_GAIN_REF}× gain ÷ bound`, `Median measurements until the true error stays below σ₀ / ${HL_GAIN_REF} (the prior's σ divided by ${HL_GAIN_REF}), divided by the bound's cost. 1 = on the bound. The share of runs that got there is in brackets.`) +
             `</tr></thead><tbody>${rows.map(r => `<tr><td style="padding:2px 12px 2px 0">${_shortStratLabel(r.strat)}</td>` +
-                td(r.n) + td(r.html) + td(r.capped) + td(r.focus) + td(r.refine) + '</tr>').join('')}</tbody></table>`;
-    }
-
-    // Stacked bars of the median measurements in each stage, one bar per locator. The stage medians are over the runs
-    // that reached the stage, so the stack is a decomposition of where a typical run spends its measurements, not the
-    // median total (see the table above).
-    const HL_STAGE_COLORS = { 1: '#94a3b8', 2: '#f59e0b', 3: '#2563eb' };
-    function hlStageStackTraces(byStrategy, strategies) {
-        return HL_STAGES.map(st => {
-            const x = [], y = [], text = [];
-            for (const strat of strategies) {
-                const runs = byStrategy.get(strat);
-                const vals = hlSorted(hlUnits(runs, p => _mv(p, `stage${st.n}_steps`)));
-                x.push(_shortStratLabel(strat));
-                y.push(vals.length ? hlQuantileSorted(vals, 0.5) : 0);
-                text.push(`${vals.length}/${hlCaseGroups(runs).length > 1 ? hlCaseGroups(runs).length + ' use cases' : runs.length + ' repeats'} reached this stage`);
-            }
-            return { x, y, text, textposition: 'none', type: 'bar', name: st.label, marker: { color: HL_STAGE_COLORS[st.n] },
-                hovertemplate: `${st.label}: %{y:.3g} measurements (median)<br>%{text}<extra>%{x}</extra>` };
-        });
+                td(r.n) + td(r.html) + td(r.capped) + td(r.found) +
+                td(r.n0 == null ? '–' : fmt.num(r.n0)) +
+                td(r.eff == null ? '–' : r.eff.toFixed(2), r.eff != null && r.eff === bestEff) +
+                td(r.over == null ? '–' : `${r.over.toFixed(1)}× <span style="color:#94a3b8">(${fmt.pct(r.overShare)})</span>`) + '</tr>').join('')}</tbody></table>`;
     }
 
     // Paired per-repeat difference. Repeat i has the same true signal for every locator within a use case, so the
@@ -7792,16 +7965,17 @@ function main() {
         return { start: first, end: first - 1 + steps };
     }
 
-    // Fisher bound on the claimed uncertainty (Hz) of run p at measurement x of its stage 2 / 3, which began at
-    // measurement `start`: the claimed sigma at the stage's start improved only by the information the best possible
+    // Fisher bound on the claimed uncertainty (Hz) of run p at measurement x. Whole run (stage 0): the van Trees line
+    // (J0 + x I*)^(-1/2) from the run's own prior. Stage 2 / 3, which began
+    // at measurement `start`: the claimed sigma at the stage's start improved only by the information the best possible
     // measurements carry, (u0^-2 + j I*)^(-1/2) after j in-stage measurements (nvision/metrics/stages.py). A lower
     // bound for the locator, not a target: it assumes every measurement sits at the Fisher-optimal point.
     function hlFisherAt(p, stage, x, start) {
         const star = _mv(p, 'stage_fisher_star');
-        // Whole run (stage 0): the reference starts from the prior (the claimed sigma at the run's start) and counts
-        // every measurement, so it is the van Trees line J0 + n I*, not a restart at the focus.
+        if (!(star > 0)) return null;
+        // Whole run: the claimed sigma after the first measurement is the prior (stage1_unc_start), counted from step 1.
         const u0 = _mv(p, `stage${stage === 0 ? 1 : stage}_unc_start`);
-        if (!(star > 0) || !(u0 > 0)) return null;
+        if (!(u0 > 0)) return null;
         return 1 / Math.sqrt(1 / (u0 * u0) + (x - start + 1) * star);
     }
 
@@ -7885,19 +8059,6 @@ function main() {
             strip.push({ x: xs, y: nLeft, type: 'scatter', mode: 'lines', line: { color, width: 1.5, shape: 'hv' }, xaxis: 'x', yaxis: 'y2',
                 legendgroup: strat, showlegend: false, hovertemplate: `%{y} runs left<extra>${label}</extra>` });
             if (stage >= 2 && slopeRef == null && xs.length >= 3) slopeRef = { x: xs, y0: med[0], x0: xs[0] };
-            // A stage view marks only where its own stage ends: search at the focus-found step, focus at the max-information
-            // step, refine nothing; the whole run marks both.
-            const stageMarkers = [['focus_found_step', 'diamond', 'focus found'], ['refine_start_step', 'star', 'max information']]
-                .filter((m, i) => stage === 0 || stage === i + 1);
-            for (const [field, symbol, what] of stageMarkers) {
-                const rel = hlMedian(hlUnits(runs.map(r => r.p), p => _mv(p, field)));
-                if (rel == null || rel < 1) continue;
-                const at = xs.findIndex(x => x >= rel);
-                if (at < 0) continue;
-                markers.push({ x: [rel], y: [med[at]], mode: 'markers', legendgroup: strat, showlegend: false,
-                    marker: { color, size: 11, symbol, line: { color: '#fff', width: 1 } },
-                    hovertemplate: `${what}: measurement ${Math.round(rel)}<extra>${label}</extra>` });
-            }
         }
         if (drewFisher) {
             traces.push({ x: [null], y: [null], mode: 'lines', name: 'Fisher bound (dashed)',
@@ -8000,140 +8161,50 @@ function main() {
         Plotly.react(div, traces, layout, { displayModeBar: false, responsive: true });
     }
 
-    // One Stages block (a use case, or the median over the selection); `sfx` is the id suffix of its copy of the
-    // markup (see ucRenderBlocks).
+    // One Information block (a use case, or the median over the selection); `sfx` is the id suffix of its copy of the
+    // markup (see ucRenderBlocks). Whole run: the information-vs-bound charts and table; Search: the one stage kept.
     function renderHlStages(generator, noises, sfx) {
-        const stepsDiv = document.getElementById(`hl-stages-steps${sfx}`);
         const uncDiv = document.getElementById(`hl-stages-unc${sfx}`);
         const errCurveDiv = document.getElementById(`hl-stages-errcurve${sfx}`);
-        if (!stepsDiv || !uncDiv || !errCurveDiv) return;
+        if (!uncDiv || !errCurveDiv) return;
         const byStrategy = hlStageRuns(generator, noises);
-        const strategies = [...byStrategy.keys()]
-            .filter(s => byStrategy.get(s).some(p => _mv(p, 'stage1_steps') != null))
-            .sort(hlStrategyCompare);
-        if (!strategies.length) {
-            for (const st of HL_STAGES) {
-                const cmpBox = document.getElementById(`hl-stage-compare-${st.n}${sfx}`);
-                if (cmpBox) cmpBox.innerHTML = '<p style="color:#94a3b8;padding:1em;font-size:0.9em;">No stage metrics for this use case — these runs predate the stage export. Re-run to include them.</p>';
-                for (const id of [`hl-stages-steps-${st.n}`, `hl-stage-unc-${st.n}`, `hl-stage-err-${st.n}`]) {
-                    const el = document.getElementById(`${id}${sfx}`);
-                    if (el) Plotly.purge(el);
-                }
-            }
-            Plotly.purge(stepsDiv);
-            Plotly.purge(uncDiv);
-            Plotly.purge(errCurveDiv);
-            for (const id of ['hl-info-prior', 'hl-info-rate']) {
+        const strategies = [...byStrategy.keys()].sort(hlStrategyCompare);
+        const info = hlInfoByStrategy(byStrategy, strategies);
+        const searchStrategies = strategies.filter(s => byStrategy.get(s).some(p => _mv(p, 'stage1_steps') != null));
+        const ids = ['hl-info-ratio', 'hl-info-cost', 'hl-info-rate', 'hl-stages-unc', 'hl-stages-errcurve', 'hl-stage-unc-1', 'hl-stage-err-1', 'hl-stages-steps-1'];
+        if (!strategies.length || !(info.size || searchStrategies.length)) {
+            const cmpBox = document.getElementById(`hl-stage-compare-1${sfx}`);
+            if (cmpBox) cmpBox.innerHTML = '<p style="color:#94a3b8;padding:1em;font-size:0.9em;">No stage or Fisher metrics for this use case — these runs predate the export. Re-run to include them.</p>';
+            for (const id of ids) {
                 const el = document.getElementById(`${id}${sfx}`);
                 if (el) Plotly.purge(el);
             }
             return;
         }
 
-        const barLayout = () => {
+        const ladders = new Map([...info].map(([strat, runs]) => [strat, hlInfoLadder(runs)]));
+        renderHlInfoRatio(document.getElementById(`hl-info-ratio${sfx}`), info, strategies);
+        renderHlInfoCost(document.getElementById(`hl-info-cost${sfx}`), ladders, strategies);
+        renderHlWholeTable(byStrategy, strategies, ladders, sfx);
+        renderHlStageCurve(uncDiv, byStrategy, strategies, 'u', 'Median claimed uncertainty (Hz)');
+        renderHlStageCurve(errCurveDiv, byStrategy, strategies, 'e', 'Median true |error| (Hz)');
+        renderHlInfoCurve(document.getElementById(`hl-info-rate${sfx}`), byStrategy, strategies, 'rate');
+        renderHlPaired(document.getElementById(`hl-paired-0${sfx}`), byStrategy, strategies, 0);
+
+        // Search: the one stage kept (finding the dip is detection, not a Fisher regime).
+        renderHlStageCompare(byStrategy, searchStrategies, sfx, 1);
+        const bars = document.getElementById(`hl-stages-steps-1${sfx}`);
+        if (bars) {
             const layout = hlBaseLayout();
             layout.barmode = 'group';
             layout.yaxis = { ...layout.yaxis, title: { text: 'Measurements in stage (median)', font: { size: 11 } } };
-            return layout;
-        };
-        for (const st of HL_STAGES) {
-            renderHlStageCompare(byStrategy, strategies, sfx, st.n);
-            const bars = document.getElementById(`hl-stages-steps-${st.n}${sfx}`);
-            if (bars) {
-                Plotly.react(bars, hlStageBarTraces(byStrategy, strategies, 'steps', 'measurements', st.n), barLayout(),
-                    { displayModeBar: false, responsive: true });
-            }
+            Plotly.react(bars, hlStageBarTraces(byStrategy, searchStrategies, 'steps', 'measurements', 1), layout, { displayModeBar: false, responsive: true });
         }
-        const stackLayout = barLayout();
-        stackLayout.barmode = 'stack';
-        stackLayout.yaxis = { ...stackLayout.yaxis, title: { text: 'Measurements (median per stage)', font: { size: 11 } } };
-        Plotly.react(stepsDiv, hlStageStackTraces(byStrategy, strategies), stackLayout, { displayModeBar: false, responsive: true });
-        renderHlWholeTable(byStrategy, strategies, sfx);
-        for (const stage of [0, 1, 2, 3]) renderHlPaired(document.getElementById(`hl-paired-${stage}${sfx}`), byStrategy, strategies, stage);
-
-        renderHlStageCurve(uncDiv, byStrategy, strategies, 'u', 'Median claimed uncertainty (Hz)');
-        renderHlStageCurve(errCurveDiv, byStrategy, strategies, 'e', 'Median true |error| (Hz)');
-        renderHlInfoCurve(document.getElementById(`hl-info-prior${sfx}`), byStrategy, strategies, 'prior');
-        renderHlInfoCurve(document.getElementById(`hl-info-rate${sfx}`), byStrategy, strategies, 'rate');
-        for (const st of HL_STAGES) {
-            const unc = document.getElementById(`hl-stage-unc-${st.n}${sfx}`);
-            const err = document.getElementById(`hl-stage-err-${st.n}${sfx}`);
-            if (unc) renderHlStageCurve(unc, byStrategy, strategies, 'u', 'Median claimed uncertainty (Hz)', st.n);
-            if (err) renderHlStageCurve(err, byStrategy, strategies, 'e', 'Median true |error| (Hz)', st.n);
-        }
-
-        renderHlRefineCurves(byStrategy, strategies, sfx);
-    }
-
-    // Refine stage aligned to its start: x = measurements since the stage began, y relative to the claimed
-    // uncertainty at its start. Solid = the run's own curve (median + IQR over the runs still going), dashed =
-    // the Fisher reference (series.r.f: start uncertainty improved only by the true Fisher information of the
-    // measurements since; see nvision/metrics/series.py extract_refine_series). Same for every locator that
-    // reaches the stage.
-    const HL_REFINE_MIN_RUNS = 3;
-    let hlRefineShowLocators = true;   // the single show/hide switch for all locator curves of the refine plot
-    function renderHlRefineCurves(byStrategy, strategies, sfx) {
-        const div = document.getElementById(`hl-refine-unc${sfx}`);
-        if (!div) return;
-        const traces = [];
-        const toggle = document.getElementById(`hl-refine-locators${sfx}`);
-        if (toggle) {
-            toggle.checked = hlRefineShowLocators;
-            toggle.onchange = () => {
-                hlRefineShowLocators = toggle.checked;
-                // One switch for every copy of the plot (one per use case): show or hide all locator curves at once.
-                document.querySelectorAll('[id^="hl-refine-unc"]').forEach((el) => {
-                    if (!el.data) return;
-                    const idx = el.data.map((t, i) => (t.meta === 'locator' ? i : -1)).filter(i => i >= 0);
-                    if (idx.length) Plotly.restyle(el, { visible: hlRefineShowLocators }, idx);
-                });
-                document.querySelectorAll('input[id^="hl-refine-locators"]').forEach((el) => { el.checked = hlRefineShowLocators; });
-            };
-        }
-        for (const strat of strategies) {
-            const runs = byStrategy.get(strat).map(p => p.series && p.series.r).filter(r => r && r.u && r.u[0] > 0);
-            if (runs.length < HL_REFINE_MIN_RUNS) continue;
-            const color = hlStratColor(strategies, strat);
-            const label = _shortStratLabel(strat);
-            const maxK = Math.max(...runs.map(r => r.u.length - 1));
-            const add = (key, name, dash, band, isLocator) => {
-                const xs = [], med = [], lo = [], hi = [], n = [];
-                for (let k = 0; k <= maxK; k++) {
-                    const vals = hlSorted(runs.filter(r => r[key].length > k && r[key][k] != null).map(r => r[key][k] / r.u[0]));
-                    if (vals.length < HL_REFINE_MIN_RUNS) break;
-                    xs.push(k); n.push(vals.length);
-                    med.push(hlQuantileSorted(vals, 0.5)); lo.push(hlQuantileSorted(vals, 0.25)); hi.push(hlQuantileSorted(vals, 0.75));
-                }
-                if (!xs.length) return;
-                if (band) {
-                    const vis = isLocator ? hlRefineShowLocators : true;
-                    traces.push({ x: xs, y: hi, mode: 'lines', line: { width: 0 }, hoverinfo: 'skip', showlegend: false, legendgroup: strat, meta: 'locator', visible: vis });
-                    traces.push({ x: xs, y: lo, mode: 'lines', line: { width: 0 }, fill: 'tonexty', fillcolor: hlHexToRgba(color, 0.13), hoverinfo: 'skip', showlegend: false, legendgroup: strat, meta: 'locator', visible: vis });
-                }
-                traces.push({
-                    x: xs, y: med, mode: 'lines', legendgroup: strat, name: `${label} ${name}`, customdata: n,
-                    line: { color, width: 2, dash },
-                    meta: isLocator ? 'locator' : 'fisher', visible: isLocator ? hlRefineShowLocators : true,
-                    hovertemplate: `${label} ${name}<br>%{x} refine steps<br>%{y:.3g} × start σ (%{customdata} runs)<extra></extra>`,
-                });
-            };
-            // Claimed σ (solid, with its IQR band), true error (dotted) and the Fisher reference (dashed, the same
-            // for both) share one plot, all relative to the claimed σ at refine start.
-            add('u', `claimed σ (repeats=${runs.length})`, undefined, true, true);
-            add('e', `true error (repeats=${runs.length})`, 'dot', false, true);
-            add('f', 'Fisher reference', 'dash', false, false);
-        }
-        if (!traces.length) {
-            Plotly.purge(div);
-            div.innerHTML = '<p style="color:#94a3b8;padding:1em;font-size:0.9em;">No run reached the refine stage (or these runs predate the refine export).</p>';
-            return;
-        }
-        const layout = hlBaseLayout();
-        layout.legend = { orientation: 'h', yanchor: 'top', y: -0.22, xanchor: 'left', x: 0, font: { size: 10 } };
-        layout.margin = { ...layout.margin, b: 110 };
-        layout.xaxis = { ...layout.xaxis, title: { text: 'Measurements since refine start', font: { size: 11 } } };
-        layout.yaxis = { ...layout.yaxis, title: { text: 'Claimed σ and |true error| / claimed σ at refine start', font: { size: 11 } }, type: 'log' };
-        Plotly.react(div, traces, layout, { displayModeBar: false, responsive: true });
+        renderHlPaired(document.getElementById(`hl-paired-1${sfx}`), byStrategy, searchStrategies, 1);
+        const sUnc = document.getElementById(`hl-stage-unc-1${sfx}`);
+        const sErr = document.getElementById(`hl-stage-err-1${sfx}`);
+        if (sUnc) renderHlStageCurve(sUnc, byStrategy, searchStrategies, 'u', 'Median claimed uncertainty (Hz)', 1);
+        if (sErr) renderHlStageCurve(sErr, byStrategy, searchStrategies, 'e', 'Median true |error| (Hz)', 1);
     }
 
     // ── Scaling tab ──────────────────────────────────────────────────────────

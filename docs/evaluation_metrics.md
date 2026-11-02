@@ -136,8 +136,7 @@ $$\sigma_{\mathrm{CRLB}}(N) = \Big(\frac{12}{W^2} + N\,I^*\Big)^{-1/2}.$$
 It starts at W/√12, bends where N I\* ≈ 12/W², then has slope −½ (van Trees form). A claimed σ below the plain
 1/√(N I\*) at small N is expected; only a true error (averaged over repeats) below this curve would indicate a defect.
 The Stages view's Whole run chart draws it from the run's own start (J₀ from the claimed σ after the first measurement,
-every measurement counted); the focus and refine charts restart from each stage's own claimed σ. Not yet done: starting the
-whole-run curve exactly at W/√12.
+every measurement counted); the focus and refine charts restart from each stage's own claimed σ. The Information tab starts it from the primary parameter's own prior instead (see below): W is the drive window, not that prior.
 
 The stages are regimes of one continuous accumulation of information, J = 1/σ² from J₀. The Whole run scope therefore
 also shows two stage-free charts (`renderHlInfoCurve`), both from the claimed σ: the **prior share** J₀/J (1 → 0, dashed =
@@ -160,6 +159,35 @@ sensitivity *at that target*. It tends to the refine sensitivity as τ → 0 and
 time is not in the data yet, so T is in steps.
 
 Stored only for runs recorded after these columns were added; re-run to get them (the cache has no belief snapshots).
+
+## Information against the bound (the Information tab)
+
+The stage boundaries are not used to judge a locator any more. The claim is the single bound σ(n) ≥ (J₀ + n·I\*)^(-1/2),
+and every locator is judged by its distance to it. All of it is computed in the browser from the per-step `series.e` /
+`series.u` and the stored `stage_fisher_star` and `stage_prior_info`, so `nv render` is enough (no re-run).
+
+* **J₀ is the prior of the primary parameter, not the drive window.** `stage_window_phys` is the swept drive-frequency
+  range; the primary parameter (e.g. `zeeman_shift`) has its own, much tighter prior (for the span-1.6 voigt study σ₀ ≈ 180 kHz
+  against a 3.2 MHz window, so a window-based J₀ = 12/W² put the "bound" 25× too low and locators appeared to beat it). J₀ =
+  σ₀⁻² with σ₀ the claimed σ after the first measurement (`stage_prior_info`), taken as the median over every run of the
+  use case, so all locators share one ceiling.
+* **Information vs the bound**: per repeat and step, z = error² · (J₀ + n·I\*); R(n) = 1 / mean(z) over the repeats still
+  running (a run that has stopped keeps its final error; a step needs at least half of a use case's repeats), and the median
+  over use cases when several are selected. R = 1 is the bound, below it measurements are wasted. The mean square is the
+  quantity the bound is on, so a few catastrophic runs dominate it on purpose (rule 8); R of the true error must stay ≤ 1, and
+  a value above 1 is a defect in J₀ or I\*. The same quantity from the claimed σ (dotted) above the true one is overconfidence.
+  A median-based "typical run" version was tried and dropped: median error² is not tied to the variance for non-Gaussian
+  errors (it read up to 1.65), so it is no bound.
+* **Cost to reach a precision**: T(τ) = the first measurement from which the true error stays ≤ τ = σ₀ / gain (gains
+  1.5 … 80), median over the runs that got there, shown only where at least half did (a locator's curve ends where most
+  of its runs stop short; the share is in the hover). The bound's cost is (τ⁻² − J₀)/I\* = (gain² − 1) J₀/I\*. Targets are
+  in units of σ₀, not of the FWHM, because a tight prior can already beat 0.1 FWHM.
+* **Lag n₀ and efficiency e**: the line T = n₀ + bound/e through a use case's rungs (at least three), summarised by the
+  median over use cases. n₀ is the measurements spent beyond the bound (search plus focus, with no thresholds), e the share
+  of the best information rate afterwards. The ladder is a median-run statistic against a mean-square bound, so e a little
+  above 1 can occur, and a fit through three or four rungs is noisy; read n₀ and e together with the R chart.
+* **Search stays** as the one real stage (detecting the dip is not a Fisher regime). The stage columns in `stages.py`
+  and the Scaling view are untouched.
 
 ## Rules
 
@@ -194,13 +222,12 @@ Stored only for runs recorded after these columns were added; re-run to get them
 
 * Per-run metrics: `nvision/metrics/stages.py` (stage boundaries, η), `nvision/metrics/milestones.py` (stop step),
   `nvision/metrics/series.py` (per-step series), `nvision/metrics/compare.py` (`nv compare` tables).
-* Results UI views: **Stages** (scope selector Whole run /
-  Search / Focus / Refine; **Whole run** also carries **Cost & search**: every locator side by side, chips to show/hide, a
-  median-over-selection block and a block per use case, and cost and search vs SNR across use cases, `/api/run-rows`;
-  per stage the claimed-σ and true-error curves with the Fisher bound (dashed) and a -1/2 slope
-  reference, the median with an interquartile band, a "runs left" strip (curves stop where fewer than half the repeats remain
-  in the stage), a table with the stage's Fisher bound, efficiency and off-optimum share, and for a single use case the
-  paired per-repeat difference against SBED; Whole run shows the stacked stage bar and the total / capped table),
+* Results UI views: **Information** (the former Stages tab; scope selector Whole run / Search; **Whole run** also carries
+  **Cost & search**: every locator side by side, chips to show/hide, a median-over-selection block and a block per use
+  case, and cost and search vs SNR across use cases, `/api/run-rows`; the Whole run charts are the information-vs-bound
+  ratio R(n), the cost to reach a precision against the bound, a table with the lag n₀, efficiency e and cost at 5× gain,
+  the claimed-σ and true-error curves, the information rate and the paired per-repeat difference against SBED; Search keeps
+  its stage metrics; see "Information against the bound" below),
   **Scaling** (fixed locator, many use cases: search and focus steps vs window, focus steps vs SNR, refine steps vs
   (FWHM/(SNR τ))², each with its predicted scaling dotted and the Fisher bound dashed, a panel only when the selection spans
   at least two values of its axis), **Sanity** (σ coverage vs SNR "Is the claimed σ right?", then the stop-quality panels, then the failed runs; the failed-run

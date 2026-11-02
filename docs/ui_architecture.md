@@ -156,20 +156,19 @@ Key sections inside `main()` (in order of appearance):
      run counts live in `#ss-controls`, shown above both the Stages view under *Whole run* (Cost & search) and the Sanity view (the σ chart is
      rendered by `renderStepSizeContent`, which `showScanViewPanels` also calls for Sanity; a chart whose view is
      hidden is skipped).
-   * **Stages** (`renderStagesTab`, `renderHlStages`) — the search / focus / refine comparison
-     (`docs/locator_comparison.md`), one section per stage, each headed by what drives it and its metric (as in
-     `docs/evaluation_metrics.md`), shown one at a time with the **Show:** selector (`hlStageShown`; the other sections are
-     collapsed, not `display:none`, so Plotly keeps their width): *Whole run* (over-time curves, measurements per stage), *1. Search* (measurements,
-     dip-found share), *2. Focus* (measurements, sensitivity), *3. Refine* (measurements, Fisher efficiency η, claimed
-     σ / true error vs the Fisher reference). Each stage has `hl-stage-compare-<n>` (`renderHlStageCompare(..., n)`),
-     `hl-stages-steps-<n>` and the claimed-uncertainty / true-error curves over that stage only (`hl-stage-unc-<n>`,
-     `hl-stage-err-<n>`; `renderHlStageCurve(..., stage)` draws each run at its own measurement numbers, only between the start and end of the stage). The
-     single-repeat panels (`#scan-run-content`) are shown only in the Run view, collapsed the same way elsewhere.
-     The curves also draw the Fisher bound (dashed, claimed σ of stages 2 and 3, `hlFisherAt`: from `stage_fisher_star`
-     and the stage's claimed σ at its start), a −½ slope reference, and a "runs left" strip on a second y-axis; they stop
-     where fewer than half the repeats remain in the stage. `hl-whole-table` (`renderHlWholeTable`) and the stacked
-     `hl-stages-steps` bar (`hlStageStackTraces`) belong to *Whole run*; `hl-paired-<n>` (`renderHlPaired`) is the paired
-     per-repeat difference against Bayesian-SBED, drawn only for a single use case.
+   * **Information** (the tab keeps the id `stages`: `renderStagesTab`, `renderHlStages`, `#stages-view`) — how fast each
+     locator approaches the van Trees bound σ(n) ≥ (J₀ + n·I*)^(-1/2) (`docs/evaluation_metrics.md`). The **Show:** selector
+     (`hlStageShown`; the other section is collapsed, not `display:none`, so Plotly keeps its width) has *Whole run* and *Search*.
+     *Whole run*: `hl-info-ratio` (`renderHlInfoRatio`: R = 1/(mean error² · (J₀ + n·I*)), true error solid and claimed σ
+     dotted, 1 = the bound), `hl-info-cost` (`renderHlInfoCost`: measurements until the true error stays below τ = σ₀/gain
+     against the gain, with the bound's cost dashed), `hl-whole-table` (`renderHlWholeTable`: total cost plus the lag n₀,
+     efficiency e and cost at 5× gain from `hlInfoLadder`), the claimed-σ / true-error curves with the bound drawn from the
+     run's own prior (`renderHlStageCurve`, `hlFisherAt`), the information rate (`renderHlInfoCurve`, mode `rate`) and the
+     paired per-repeat difference (`hl-paired-0`, `renderHlPaired`, single use case only). *Search*, the one stage kept:
+     `hl-stage-compare-1`, `hl-stages-steps-1`, the claimed-σ / true-error curves over that stage and `hl-paired-1`. All
+     information metrics are computed in the browser from `series.e` / `series.u`, `stage_fisher_star` and
+     `stage_prior_info` (one J₀ per use case: the median over every locator's runs); nothing new is stored, so `nv render`
+     is enough. The single-repeat panels (`#scan-run-content`) are shown only in the Run view, collapsed the same way elsewhere.
    * **Scaling** (`renderScalingTab`, `renderScaling`, view `#scaling-view`) — one point per use case (median over its
      repeats) of the stage steps against window, SNR and (FWHM/(SNR τ))², for the locators picked in `#scaling-pick`
      (default SBED). A panel is drawn only when the selection spans at least two values of its x-axis (a window or SNR
