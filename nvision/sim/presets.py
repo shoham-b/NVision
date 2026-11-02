@@ -362,10 +362,7 @@ def voigt_snr_window_param_grid_generators() -> list[tuple[str, object]]:
                 pad = zeeman_shift_edge_pad(fwhm_total, hyperfine_geometry(hyperfine)[0])
                 if not pad < zeeman_max:
                     continue
-                name = (
-                    f"NVCenter-voigt-{_fmt_span(span)}-{_fmt_gaussian_share(share)}-"
-                    f"{_fmt_hyperfine(hyperfine)}"
-                )
+                name = f"NVCenter-voigt-{_fmt_span(span)}-{_fmt_gaussian_share(share)}-{_fmt_hyperfine(hyperfine)}"
                 generators.append(
                     (
                         name,
