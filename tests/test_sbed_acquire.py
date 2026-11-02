@@ -1,4 +1,4 @@
-"""SBED acquisition is exactly: a decaying uniform probe, otherwise the EIG maximiser. No other path."""
+"""SBED acquisition is exactly: a gap-filling falsification probe, otherwise the EIG maximiser. No other path."""
 
 from __future__ import annotations
 
@@ -6,7 +6,13 @@ import numpy as np
 import pytest
 
 from nvision.sim.locs.bayesian.belief_builders import nv_center_smc_belief
-from nvision.sim.locs.bayesian.sbed_locator import SequentialBayesianExperimentDesignLocator
+from nvision.sim.locs.bayesian.sbed_locator import (
+    EXPLORE_PROBABILITY_FLOOR,
+    EXPLORE_PROBABILITY_MAX,
+    SequentialBayesianExperimentDesignLocator,
+    exploration_probability,
+    largest_gap_midpoint_unit,
+)
 from tests.noise import gaussian_noise
 
 
@@ -28,33 +34,54 @@ class _FixedRng:
         return 0.5 * (lo + hi)
 
 
-def test_acquire_explores_uniformly_over_the_full_probe_axis_when_the_draw_is_low():
+def test_acquire_probes_the_middle_of_the_widest_unmeasured_stretch_when_the_draw_is_low():
     loc = _locator()
-    loc.inference_step_count = 0
     loc.belief._rng = _FixedRng(0.0)
-    loc._eig_acquire = lambda: pytest.fail("EIG must be skipped on an explore step")
+    loc._eig_acquire = lambda: pytest.fail("EIG must be skipped on a probe step")
     lo, hi = loc.belief.drive_freq_bounds_phys
-    assert loc._acquire() == 0.5 * (lo + hi)
+    assert loc._acquire() == 0.5 * (lo + hi)  # nothing measured: the whole axis is one gap
 
 
-def test_acquire_is_eig_otherwise_even_where_the_old_dip_branch_used_to_fire():
+def test_acquire_is_eig_when_the_draw_is_above_the_probe_probability():
     loc = _locator()
-    loc.inference_step_count = 100  # exploration probability ~ 0.002
     sentinel = 123.0
     loc._eig_acquire = lambda: sentinel
-    # 0.15 sat inside the removed dip-biased band [0.1*decay, 0.2): it must now be a plain EIG step.
-    loc.belief._rng = _FixedRng(0.15)
+    loc.belief._rng = _FixedRng(0.99)
     assert loc._acquire() == sentinel
 
 
-def test_exploration_probability_decays_with_the_step_count():
-    loc = _locator()
-    loc._eig_acquire = lambda: -1.0
-    loc.belief._rng = _FixedRng(0.05)
-    loc.inference_step_count = 0
-    assert loc._acquire() != -1.0  # 0.05 < 0.1 * exp(0)
-    loc.inference_step_count = 200
-    assert loc._acquire() == -1.0  # 0.05 > 0.1 * exp(-8)
+def test_largest_gap_midpoint_unit_cuts_the_axis_at_the_measured_positions():
+    mid, gap = largest_gap_midpoint_unit(np.array([0.5, 0.1, 0.2]))
+    assert (mid, gap) == pytest.approx((0.75, 0.5))
+    mid, gap = largest_gap_midpoint_unit(np.array([0.1, 0.9]))
+    assert (mid, gap) == pytest.approx((0.5, 0.8))
+    assert largest_gap_midpoint_unit(np.array([]))[0] == 0.5
+    assert largest_gap_midpoint_unit(np.array([0.5, 0.5]))[1] == pytest.approx(0.5)  # unmeasured edge is a gap
+
+
+def test_largest_gap_midpoint_unit_rejects_positions_off_the_axis():
+    with pytest.raises(ValueError, match=r"\[0, 1\]"):
+        largest_gap_midpoint_unit(np.array([0.5, 1.2]))
+
+
+def test_exploration_probability_falls_with_coverage_to_a_floor_and_not_below():
+    assert exploration_probability(1.0) == pytest.approx(EXPLORE_PROBABILITY_MAX)
+    assert exploration_probability(0.0) == pytest.approx(EXPLORE_PROBABILITY_FLOOR)
+    assert exploration_probability(0.5) == pytest.approx(0.5 * (EXPLORE_PROBABILITY_MAX + EXPLORE_PROBABILITY_FLOOR))
+    with pytest.raises(ValueError, match="gap must lie"):
+        exploration_probability(1.5)
+
+
+def test_probes_fill_the_axis_instead_of_clustering():
+    """Consecutive probes always take the widest remaining gap, so the largest gap shrinks every time."""
+    xs = np.array([0.5])
+    gaps = []
+    for _ in range(6):
+        mid, gap = largest_gap_midpoint_unit(xs)
+        gaps.append(gap)
+        xs = np.append(xs, mid)
+    assert gaps == sorted(gaps, reverse=True)
+    assert gaps[-1] < gaps[0]
 
 
 def test_select_max_information_gain_fails_fast_on_no_candidates():

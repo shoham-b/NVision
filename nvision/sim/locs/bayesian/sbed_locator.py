@@ -8,7 +8,6 @@ import numpy as np
 from numba import njit
 
 from nvision.belief.focus_window import NVISION_SMC_FOCUSING_COVER_FACTOR, next_focus_region
-from nvision.belief.smc_marginal import NVISION_EXPLORATION_DECAY_STEPS
 from nvision.models.observation import Observation
 from nvision.sim.defaults import (
     NVISION_CONVERGENCE_THRESHOLD,
@@ -48,12 +47,51 @@ def _thin_by_step_indices(candidate_drive_freq_phys: np.ndarray, step: float) ->
     return kept[: m + 1]
 
 
+# Falsification probes: chance of a probe when the axis is unmeasured (largest gap = 1) and when it is densely
+# covered (largest gap -> 0). The floor keeps checking away from a suspected dip for the whole run.
+EXPLORE_PROBABILITY_MAX: float = 0.10
+EXPLORE_PROBABILITY_FLOOR: float = 0.02
+
+
+def largest_gap_midpoint_unit(obs_drive_freqs_unit: np.ndarray) -> tuple[float, float]:
+    """Midpoint of the widest unmeasured stretch of the unit drive-frequency axis, and that gap's width.
+
+    The axis ``[0, 1]`` is cut at the measured positions (the ends count as boundaries, so an unmeasured
+    edge is a gap too). Depends on where measurements are, never on the belief.
+
+    Args:
+        obs_drive_freqs_unit: Measured drive frequencies in unit space, any order. shape: (n_observations,)
+
+    Returns:
+        ``(midpoint_unit, gap_unit)``, both in ``[0, 1]``.
+    """
+    xs = np.asarray(obs_drive_freqs_unit, dtype=float)
+    if xs.size and (xs.min() < 0.0 or xs.max() > 1.0):
+        raise ValueError(f"largest_gap_midpoint_unit: positions must lie in [0, 1], got [{xs.min()}, {xs.max()}]")
+    edges = np.concatenate(([0.0], np.sort(xs), [1.0]))
+    gaps = np.diff(edges)
+    k = int(np.argmax(gaps))
+    return 0.5 * (edges[k] + edges[k + 1]), float(gaps[k])
+
+
+def exploration_probability(largest_gap_unit: float) -> float:
+    """Chance of a falsification probe: ``FLOOR + (MAX - FLOOR) * largest_gap_unit``.
+
+    Falls as the axis gets covered (no step clock), never below the floor.
+    """
+    if not (0.0 <= largest_gap_unit <= 1.0):
+        raise ValueError(f"exploration_probability: gap must lie in [0, 1], got {largest_gap_unit!r}")
+    return EXPLORE_PROBABILITY_FLOOR + (EXPLORE_PROBABILITY_MAX - EXPLORE_PROBABILITY_FLOOR) * largest_gap_unit
+
+
 class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
     """Sequential Bayesian Experiment Design acquisition.
 
     Each step measures the candidate x (inside the focus) with the highest Expected Information
-    Gain (prediction variance disagreement across particles), except for a uniform probe over the
-    whole drive-frequency axis with probability ``0.1 * exp(-step / NVISION_EXPLORATION_DECAY_STEPS)``.
+    Gain (prediction variance disagreement across particles), except for a falsification probe: with
+    probability :func:`exploration_probability` the step measures the middle of the widest unmeasured
+    stretch of the whole drive-frequency axis instead. Once SBED has piled measurements onto a
+    suspected dip the data cannot contradict it, so only a measurement elsewhere can.
     """
 
     REQUIRES_BELIEF = True
@@ -124,16 +162,23 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         return candidate_drive_freq_phys[kept]
 
     def _acquire(self) -> float:
-        """Next drive frequency in Hz (``next`` maps it to unit): uniform explore draw, else the EIG maximiser."""
-        # Drawn first so the (much more expensive) EIG search is skipped on explore steps. The probe is
-        # uniform over the *full* drive-frequency axis so it can still reach a location the focus has narrowed away
-        # from; `_to_experiment_normalized` normalizes against that same full axis.
-        rng = self.belief._rng
-        explore_probability = 0.1 * np.exp(-self.inference_step_count / NVISION_EXPLORATION_DECAY_STEPS)
-        if rng.random() < explore_probability:
-            drive_freq_min_phys, drive_freq_max_phys = self.belief.drive_freq_bounds_phys
-            return float(rng.uniform(drive_freq_min_phys, drive_freq_max_phys))
-        return self._eig_acquire()
+        """Next drive frequency in Hz (``next`` maps it to unit): falsification probe, else the EIG maximiser."""
+        probe = self._exploration_probe()
+        return self._eig_acquire() if probe is None else probe
+
+    def _exploration_probe(self) -> float | None:
+        """Drive frequency (Hz) of a falsification probe this step, or None for an EIG step.
+
+        Drawn first so the (much more expensive) EIG search is skipped on probe steps. The probe sits in the
+        widest unmeasured stretch of the *full* axis, so it can reach a location the focus has narrowed away
+        from; `_to_experiment_normalized` normalizes against that same full axis.
+        """
+        obs_unit, _ = self.belief.observation_arrays()
+        midpoint_unit, gap_unit = largest_gap_midpoint_unit(obs_unit)
+        if self.belief._rng.random() >= exploration_probability(gap_unit):
+            return None
+        drive_freq_min_phys, drive_freq_max_phys = self.belief.drive_freq_bounds_phys
+        return float(drive_freq_min_phys + midpoint_unit * (drive_freq_max_phys - drive_freq_min_phys))
 
     def _eig_acquire(self) -> float:
         """The EIG-maximising candidate among the belief's epoch candidate points inside a focus section."""

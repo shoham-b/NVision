@@ -316,6 +316,10 @@ def physics_config_fingerprint() -> str:
         # Bumped when the SMC initial particles gained a 10 % uniform component per Gaussian-prior parameter
         # (the prior mean is drawn several stds off the truth): every SBED/SMC trajectory differs.
         "prior-mixture-v1",
+        # Bumped when SBED's random exploration draw (10 % decaying on a step clock) became a gap-filling
+        # falsification probe (widest unmeasured stretch, chance 2-10 % falling with axis coverage) and the
+        # focus pad shrank from 3 to 1 effective HWHM per side: every SBED trajectory differs.
+        "sbed-gap-probe-pad1-v1",
         NV_ZEEMAN_EDGE_PAD_FWHM,
         MIN_HWHM,
         MAX_HWHM,
