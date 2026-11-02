@@ -5,12 +5,15 @@ from __future__ import annotations
 import json
 
 import polars as pl
+import pytest
 from typer.testing import CliRunner
 
 from nvision.cli.main import app
 from nvision.runner import run_task as real_run_task
 
 
+# Runs a real SimpleSweep task (about 25 s locally); under CI coverage on Ubuntu that passes the global 60 s limit.
+@pytest.mark.timeout(240)
 def test_failed_task_still_writes_the_other_results(tmp_path, monkeypatch):
     def flaky(task, **kwargs):
         if "3perfwhm" in task.slug.lower():
