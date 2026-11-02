@@ -55,7 +55,7 @@ def lab_study_payload(root: Path) -> dict:
     rows = []
     for (w,), g in conv.group_by("window", maintain_order=True):
         claimed = float(g["finalStdMHz"].median())
-        spread = float(g["finalMeanMHz"].std())
+        spread = g["finalMeanMHz"].std()  # None for a single run
         rows.append(
             {
                 "window_mhz": w,
@@ -65,8 +65,8 @@ def lab_study_payload(root: Path) -> dict:
                 "steps_q25": float(g["stepsToConvergence"].quantile(0.25)),
                 "steps_q75": float(g["stepsToConvergence"].quantile(0.75)),
                 "claimed_sigma_mhz": claimed,
-                "across_run_std_mhz": spread,
-                "overconfidence": spread / claimed,
+                "across_run_std_mhz": None if spread is None else float(spread),
+                "overconfidence": None if spread is None else spread / claimed,
                 "within_1sigma": float((g["z"] <= 1).mean()),
                 "within_2sigma": float((g["z"] <= 2).mean()),
                 "ci95_hit": float(g["ci_hit"].mean()),
