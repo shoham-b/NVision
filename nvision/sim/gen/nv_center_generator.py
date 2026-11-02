@@ -237,11 +237,9 @@ class NVCenterCoreGenerator:
                     infer_hyperfine=True,
                     with_zeeman_splitting=True,
                 )
-                zeeman_std = (MAX_ZEEMAN_SHIFT - MIN_ZEEMAN_SHIFT) * PRIOR_STD_FRACTION
                 hyperfine_shift_std = (MAX_HYPERFINE_SHIFT - MIN_HYPERFINE_SHIFT) * PRIOR_STD_FRACTION
                 k_np_std = (MAX_K_NP - MIN_K_NP) * PRIOR_STD_FRACTION
                 bounds["_priors"] = {
-                    "zeeman_shift": (_widened_prior_mean(rng, zeeman_shift, zeeman_std), zeeman_std),
                     "hyperfine_shift": (
                         _widened_prior_mean(rng, hyperfine_shift, hyperfine_shift_std),
                         hyperfine_shift_std,
@@ -268,9 +266,7 @@ class NVCenterCoreGenerator:
                     hyperfine=self.hyperfine,
                     with_zeeman_splitting=True,
                 )
-                zeeman_std = (MAX_ZEEMAN_SHIFT - MIN_ZEEMAN_SHIFT) * PRIOR_STD_FRACTION
                 bounds["_priors"] = {
-                    "zeeman_shift": (_widened_prior_mean(rng, zeeman_shift, zeeman_std), zeeman_std),
                     "hwhm": (_widened_prior_mean(rng, hwhm, hwhm_std), hwhm_std),
                     "contrast_total": (
                         _widened_prior_mean(rng, contrast_total, contrast_total_std),
@@ -364,10 +360,8 @@ class NVCenterCoreGenerator:
                     hyperfine_shift=hyperfine_shift,
                     k_np=k_np,
                 )
-                zeeman_std = (MAX_ZEEMAN_SHIFT - MIN_ZEEMAN_SHIFT) * PRIOR_STD_FRACTION
                 hyperfine_shift_std = (MAX_HYPERFINE_SHIFT - MIN_HYPERFINE_SHIFT) * PRIOR_STD_FRACTION
                 k_np_std = (MAX_K_NP - MIN_K_NP) * PRIOR_STD_FRACTION
-                priors["zeeman_shift"] = (_widened_prior_mean(rng, zeeman_shift, zeeman_std), zeeman_std)
                 priors["hyperfine_shift"] = (
                     _widened_prior_mean(rng, hyperfine_shift, hyperfine_shift_std),
                     hyperfine_shift_std,
@@ -380,8 +374,6 @@ class NVCenterCoreGenerator:
                     sigma_inhom=sigma_inhom,
                     zeeman_shift=zeeman_shift,
                 )
-                zeeman_std = (MAX_ZEEMAN_SHIFT - MIN_ZEEMAN_SHIFT) * PRIOR_STD_FRACTION
-                priors["zeeman_shift"] = (_widened_prior_mean(rng, zeeman_shift, zeeman_std), zeeman_std)
             elif self.infer_hyperfine:
                 k_np = rng.uniform(MIN_K_NP, MAX_K_NP)
                 typed_params = NVCenterSaturationVoigtSpectrum(
@@ -451,13 +443,12 @@ class NVCenterCoreGenerator:
                     infer_hyperfine=True,
                     with_zeeman_splitting=True,
                     max_zeeman_shift=zeeman_max,
+                    min_zeeman_shift=self.zeeman_min_phys,
                     reference_width=self.width_bounds_reference_phys,
                 )
-                zeeman_std = (zeeman_max - MIN_ZEEMAN_SHIFT) * PRIOR_STD_FRACTION
                 hyperfine_shift_std = (MAX_HYPERFINE_SHIFT - MIN_HYPERFINE_SHIFT) * PRIOR_STD_FRACTION
                 k_np_std = (MAX_K_NP - MIN_K_NP) * PRIOR_STD_FRACTION
                 bounds["_priors"] = {
-                    "zeeman_shift": (_widened_prior_mean(rng, zeeman_shift, zeeman_std), zeeman_std),
                     "hyperfine_shift": (
                         _widened_prior_mean(rng, hyperfine_shift, hyperfine_shift_std),
                         hyperfine_shift_std,
@@ -489,11 +480,10 @@ class NVCenterCoreGenerator:
                     hyperfine=self.hyperfine,
                     with_zeeman_splitting=True,
                     max_zeeman_shift=zeeman_max,
+                    min_zeeman_shift=self.zeeman_min_phys,
                     reference_width=self.width_bounds_reference_phys,
                 )
-                zeeman_std = (zeeman_max - MIN_ZEEMAN_SHIFT) * PRIOR_STD_FRACTION
                 bounds["_priors"] = {
-                    "zeeman_shift": (_widened_prior_mean(rng, zeeman_shift, zeeman_std), zeeman_std),
                     "hwhm_lorentz": (
                         _widened_prior_mean(rng, hwhm_lorentz, hwhm_std),
                         hwhm_std,
@@ -614,11 +604,6 @@ class NVCenterCoreGenerator:
             "sigma_inhom": (_widened_prior_mean(rng, sigma_inhom, _std("sigma_inhom")), _std("sigma_inhom")),
             "zero_field_freq": ("sin^2", np.pi / (2.0 * MIN_HWHM)),
         }
-        if self.with_zeeman_splitting:
-            priors["zeeman_shift"] = (
-                _widened_prior_mean(rng, zeeman_shift, _std("zeeman_shift")),
-                _std("zeeman_shift"),
-            )
 
         if mode == "cw":
             # Log-uniform: the response scale spans a decade.

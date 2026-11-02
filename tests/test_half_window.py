@@ -54,6 +54,7 @@ def test_window_grid_dip_keeps_its_left_half_maximum_inside_the_window(monkeypat
         for seed in range(12):
             signal = gen.generate(random.Random(seed))
             assert pad <= signal.get_param_value("zeeman_shift") <= gen.zeeman_max_phys, (name, seed)
+            assert signal.bounds["zeeman_shift"] == (gen.zeeman_min_phys, gen.zeeman_max_phys), (name, seed)
             ys = np.array([signal(x) for x in xs])
             baseline, depth = ys.max(), ys.max() - ys.min()
             assert signal(gen.drive_freq_min_phys) >= baseline - 0.5 * depth, (name, seed)
