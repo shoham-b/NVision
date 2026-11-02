@@ -28,6 +28,7 @@ from rich.console import Console
 
 from nvision.cli.api_server import build_app
 from nvision.cli.app_instance import app
+from nvision.metrics.lab_study import labs_dir
 from nvision.tools.paths import ARTIFACTS_ROOT
 
 log = logging.getLogger("nvision")
@@ -115,7 +116,10 @@ def serve(
     ] = "127.0.0.1",
     lab_dir: Annotated[
         list[Path] | None,
-        typer.Option("--lab-dir", help="Folder searched for processed lab runs (repeatable); each becomes a Study"),
+        typer.Option(
+            "--lab-dir",
+            help="Extra folder of processed lab runs (repeatable); <dir>/labs from `nv lab-add` is always included",
+        ),
     ] = None,
 ) -> None:
     """Start a local API server for viewing NVision results, live from the cache.
@@ -168,7 +172,9 @@ def serve(
         webbrowser.open(url)
 
     fastapi_app = build_app(
-        cache_dir=directory / "cache", run_dir=directory, lab_dirs=[p.resolve() for p in lab_dir or []]
+        cache_dir=directory / "cache",
+        run_dir=directory,
+        lab_dirs=[*(p.resolve() for p in lab_dir or []), labs_dir(directory)],
     )
     config = uvicorn.Config(fastapi_app, host=host, port=port, log_level="warning")
     server = uvicorn.Server(config)

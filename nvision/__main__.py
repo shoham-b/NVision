@@ -7,6 +7,7 @@ from nvision.cli import compare_cmd as _compare_cmd  # noqa: F401
 from nvision.cli import demo as _demo  # noqa: F401
 from nvision.cli import graphs_cmd as _graphs_cmd  # noqa: F401
 from nvision.cli import groups_cmd as _groups_cmd  # noqa: F401
+from nvision.cli import lab_cmd as _lab_cmd  # noqa: F401
 from nvision.cli import matlab_cmd as _matlab_cmd  # noqa: F401
 from nvision.cli import metrics_cmd as _metrics_cmd  # noqa: F401
 from nvision.cli import render as _render  # noqa: F401

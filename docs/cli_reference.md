@@ -142,6 +142,16 @@ uv run nv serve --lab-dir path/to/runs_full_budget
 uv run nv matlab-run --bayesian-runs --drive-url "https://drive.google.com/drive/folders/<id>" --dir data/lab
 ```
 
+### `nv lab-add`
+Register a Google Drive folder of the lab's Bayesian ESR runs. Downloads it with `rclone` (read-only `gdrive` remote), processes every sub-folder (see `nv matlab-run --bayesian-runs`) and keeps it under `<dir>/labs/<folder id>`; `nv serve` lists each lab in its Study dropdown automatically.
+
+```bash
+uv run nv lab-add "https://drive.google.com/drive/folders/<id>"   # once; again to pick up new runs
+uv run nv serve
+```
+
+- `--dir`: the artifacts directory to store the labs under (default: `artifacts/`; use the same one for `nv serve --dir`).
+
 ### `nv cache`
 Manage the simulation SQLite cache.
 
