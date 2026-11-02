@@ -65,7 +65,7 @@ In live mode (`nv serve`), `bootstrap.js` does NOT fetch the whole cache's `/api
 front — on a large shared cache (many unrelated generators/noises/strategies/repeats) that full
 scan is what made every page load slow, even though any one view only ever looks at one
 parameter-study "family" at a time (a family being either a single ungrouped generator, every
-generator sharing the same swept-parameter grid coordinates, or — for `nv matlab-run` real-data
+generator sharing the same swept-parameter grid coordinates, or — for `nv matlab` real-data
 generators — the flat "MATLAB (real data)" study bucket). Instead:
 
 1. `bootstrap.js` fetches two cheap indexes in parallel: `/api/combos` (generator/noise/strategy/

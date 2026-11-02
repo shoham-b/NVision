@@ -46,3 +46,9 @@ def fetch_drive_folder(url_or_id: str, dest: Path, remote: str = "gdrive") -> Pa
             f"rclone exited with {result.returncode}; if the login expired run: rclone config reconnect {remote}:"
         )
     return dest
+
+
+def looks_like_drive_folder(source: str) -> bool:
+    """True for a Drive folder link, or a bare folder id that is not an existing local path."""
+    text = source.strip()
+    return "drive.google.com" in text or (bool(_BARE_ID_RE.fullmatch(text)) and not Path(text).exists())

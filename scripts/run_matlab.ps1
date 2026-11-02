@@ -3,7 +3,7 @@
     Run the SBED locator on every real ESR .mat file in data/matlab/.
 
 .DESCRIPTION
-    Runs `nv matlab-run --all`, which processes every .mat file in data/matlab/
+    Runs `nv matlab --sweeps`, which processes every .mat file in data/matlab/
     (or -MatlabDir) in turn. Each run:
       * writes a self-contained result bundle to artifacts/matlab_<stem>/
       * registers the run in the MATLAB-only cache at artifacts/matlab/cache/
@@ -30,10 +30,9 @@ $ErrorActionPreference = "Stop"
 $repo = Split-Path $PSScriptRoot -Parent
 Push-Location $repo
 try {
-    $dirArgs = @()
-    if ($MatlabDir) { $dirArgs = @("--dir", $MatlabDir) }
+    $source = if ($MatlabDir) { $MatlabDir } else { "data/matlab" }
 
-    uv run --no-sync nv matlab-run --all --max-steps $MaxSteps --no-progress @dirArgs
+    uv run --no-sync nv matlab $source --sweeps --max-steps $MaxSteps --no-progress
 
     if ($Serve) {
         uv run --no-sync nv serve --dir artifacts/matlab

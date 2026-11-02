@@ -14,7 +14,7 @@ The NVision CLI (`uv run nv`) is a Typer-driven command-line interface for runni
 | `render` | Render reports and graphs from cache without running simulations. |
 | `serve` | Start a local HTTP server for viewing NVision results. |
 | `cache` | Manage simulation cache (list, clean, recalc). |
-| `matlab-run` | Run the SBED locator on real ESR measurements from a MATLAB `.mat` file. |
+| `matlab` | Load the lab's MATLAB data (Drive link, folder or `.mat`): Bayesian-run lab studies and SBED on raw sweeps. |
 
 ## Usage and Examples
 
@@ -103,43 +103,44 @@ Start the local HTTP server to interactively view simulation results.
 uv run nv serve
 ```
 
-### `nv matlab-run`
-Run the Bayesian SBED locator against real ESR measurements recorded in a MATLAB
-`.mat` file, instead of a simulated generator. Results land in the artifact store
-next to simulated runs, so they show up in `nv serve` — see
-[`ui_architecture.md`](ui_architecture.md) for how the UI groups these under the
-"MATLAB (real data)" study bucket.
+### `nv matlab`
+The one command for the lab's MATLAB data. `SOURCE` is a Google Drive folder link (or id), a local folder, or a single
+`.mat` file; every `.mat` file below it is handled by what it holds:
+
+- **The lab's Bayesian ESR runs** (`myStruct.BayesianESR`): processed into one lab study per folder (claimed σ vs the
+  scatter between runs, steps to convergence) and listed as "Lab: …" in the UI's Study dropdown. A run that stopped on
+  precision keeps its own stop; a full-budget run has its stop replayed from its history. A folder the lab's own
+  `Gather_and_Process_data.m` already summarised keeps those statistics.
+- **Raw ESR sweeps** (`myStruct.ESR`): run through the Bayesian SBED locator instead of a simulated generator. Results
+  land in the artifact store next to simulated runs — see [`ui_architecture.md`](ui_architecture.md) for the
+  "MATLAB (real data)" study bucket. Runs only when `SOURCE` is a single file, or with `--sweeps` (a folder can hold
+  many sweeps and each SBED run takes minutes).
+
+A Drive link is downloaded first with `rclone` (read-only `gdrive` remote; `.png`/`.fig` skipped) into
+`<dir>/downloads/<folder id>`; if the login expired run `rclone config reconnect gdrive:`. Everything is stored under
+`--dir`, and `nv serve --dir` shows it with no other flags. Run it again on the same `SOURCE` to pick up new files.
 
 **Common Options:**
-- `matlab_file`: path to the `.mat` file (or a bare filename resolved via `data/matlab/`). Omit when using `--all`.
-- `--all`: run every `.mat` file in `data/matlab/` (or `--dir`) in turn, continuing past any single file's failure so one bad recording doesn't abort the rest.
-- `--dir`: directory to scan for `.mat` files with `--all` (default: `data/matlab/`).
-- `--bayesian-runs`: treat `--dir` as the lab's own Bayesian ESR runs (`myStruct.BayesianESR`, not raw sweeps). No SBED is run: writes `convergence_statistics/` CSVs next to the runs (a run that stopped on precision keeps its stop; a full-budget run has its stop replayed from its history), to be shown with `nv serve --lab-dir`. Refuses to overwrite a folder written by the lab's own `Gather_and_Process_data.m`.
-- `--drive-url`: with `--bayesian-runs`, first download this Google Drive folder (link or id) into `--dir` with `rclone` (read-only `gdrive` remote; figures skipped), then process every sub-folder holding Bayesian runs. Needs `rclone` installed and a Drive remote; if the login expired run `rclone config reconnect gdrive:`.
-- `--noise-std`: override the auto-estimated measurement noise std instead of deriving it from the file's own shot spread.
-- `--max-steps`: maximum SBED measurement steps (default: 300).
-- `--infer-center-freq` / `--no-infer-center-freq`: fit the NV zero-field-splitting center instead of fixing it to 2.87 GHz (default: infer — real samples run 1-2 MHz off the textbook value from strain/temperature).
-- `--particles`: SMC particle count (default: 10000, 10x the simulation default).
-- `--out`: write a JSON result summary to this path.
-- `--no-ui`: skip artifact writing (no `nv serve` integration) — useful for a quick numeric check.
+- `source`: Drive folder link/id, local folder, or `.mat` file.
+- `--dir`: artifacts directory results are stored under (default: `artifacts/`; give `nv serve` the same one).
+- `--sweeps` / `--no-sweeps`: run SBED on raw sweeps (default: only for a single `.mat` file).
+- `--noise-std`, `--max-steps` (default 300), `--valid-shots`, `--particles` (default 10000), `--out`, `--no-ui`,
+  `--no-progress`, `--infer-center-freq` / `--no-infer-center-freq`: options of the sweep (SBED) runs.
 
 **Example Use Cases:**
 ```bash
-# Run one recording
-uv run nv matlab-run data/matlab/sample.mat
+# The lab's shared Drive folder: download, process the Bayesian runs, then view every lab
+uv run nv matlab "https://drive.google.com/drive/folders/<id>"
+uv run nv serve
 
-# Run every recording in a directory, writing per-file JSON summaries
-uv run nv matlab-run --all --dir data/matlab --out artifacts/matlab_summaries
+# One raw sweep recording through SBED
+uv run nv matlab data/matlab/sample.mat
 
-# View results in their own small, fast-to-reload cache
+# Every raw sweep in a folder, writing per-file JSON summaries
+uv run nv matlab data/matlab --sweeps --out artifacts/matlab_summaries
+
+# View sweep results in their own small, fast-to-reload cache
 uv run nv serve --dir artifacts/matlab
-
-# Lab Bayesian ESR runs: process, then view each folder as a Study
-uv run nv matlab-run --bayesian-runs --dir path/to/runs_full_budget
-uv run nv serve --lab-dir path/to/runs_full_budget
-
-# ... or fetch from a shared Drive folder and process in one go
-uv run nv matlab-run --bayesian-runs --drive-url "https://drive.google.com/drive/folders/<id>" --dir data/lab
 ```
 
 ### `nv cache`

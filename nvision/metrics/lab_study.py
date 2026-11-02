@@ -108,3 +108,8 @@ def discover_labs(roots: list[Path]) -> dict[str, Path]:
                 name, n = f"{base}-{n}", n + 1
             labs[name] = stats
     return labs
+
+
+def labs_dir(artifacts_dir: Path) -> Path:
+    """Where ``nv matlab`` keeps Drive labs under an artifacts directory; ``nv serve`` lists them automatically."""
+    return artifacts_dir / "labs"

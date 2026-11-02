@@ -6,6 +6,7 @@ import contextlib
 import json
 import logging
 import os
+import shutil
 import time
 from collections.abc import Generator
 from dataclasses import dataclass
@@ -19,6 +20,7 @@ import typer
 
 from nvision.cli.app_instance import app
 from nvision.models.locator import Locator
+from nvision.tools.paths import ARTIFACTS_ROOT
 
 log = logging.getLogger(__name__)
 
@@ -181,79 +183,60 @@ def _matlab_loop(
 # ---------------------------------------------------------------------------
 
 
-@app.command("matlab-run")
-def matlab_run(
-    matlab_file: Annotated[
-        Path | None,
-        typer.Argument(
-            help="Path to the ESR .mat file (or bare filename resolved via data/matlab/). Omit when using --all."
-        ),
-    ] = None,
-    all_files: Annotated[
-        bool,
+@app.command("matlab")
+def matlab(
+    source: Annotated[
+        str,
+        typer.Argument(help="A Google Drive folder link (or id), a local folder, or a single .mat file."),
+    ],
+    directory: Annotated[
+        Path,
+        typer.Option("--dir", help="Artifacts directory results are stored under (the one given to `nv serve`)."),
+    ] = ARTIFACTS_ROOT,
+    sweeps: Annotated[
+        bool | None,
         typer.Option(
-            "--all",
-            help="Run every .mat file in data/matlab/ (or --dir) instead of a single file. Ignores matlab_file.",
-        ),
-    ] = False,
-    matlab_dir: Annotated[
-        Path | None,
-        typer.Option(
-            "--dir",
-            help="Directory to scan for .mat files with --all or --bayesian-runs (default: data/matlab/).",
-        ),
-    ] = None,
-    drive_url: Annotated[
-        str | None,
-        typer.Option(
-            "--drive-url",
-            help="With --bayesian-runs: first download this Google Drive folder (link or id) into --dir with rclone.",
-        ),
-    ] = None,
-    bayesian_runs: Annotated[
-        bool,
-        typer.Option(
-            "--bayesian-runs",
+            "--sweeps/--no-sweeps",
             help=(
-                "Treat --dir (and its sub-folders) as the lab's own Bayesian ESR runs (myStruct.BayesianESR, "
-                "not raw sweeps): write convergence_statistics CSVs for `nv serve --lab-dir` instead of running SBED."
+                "Run SBED on raw ESR sweep files. Default: only when SOURCE is a single .mat file, since a folder "
+                "can hold many sweeps and each SBED run takes minutes."
             ),
         ),
-    ] = False,
+    ] = None,
     noise_std: Annotated[
         float | None,
-        typer.Option("--noise-std", help="Override the auto-estimated measurement noise std."),
+        typer.Option("--noise-std", help="Sweeps: override the auto-estimated measurement noise std."),
     ] = None,
     max_steps: Annotated[
         int,
-        typer.Option("--max-steps", help="Maximum SBED measurement steps."),
+        typer.Option("--max-steps", help="Sweeps: maximum SBED measurement steps."),
     ] = 300,
     valid_shots: Annotated[
         int | None,
-        typer.Option("--valid-shots", help="Number of shot columns to use (default: esr.currIter)."),
+        typer.Option("--valid-shots", help="Sweeps: number of shot columns to use (default: esr.currIter)."),
     ] = None,
     out: Annotated[
         Path | None,
-        typer.Option("--out", help="Write JSON result summary to this file."),
+        typer.Option("--out", help="Sweeps: write JSON result summary to this file (a folder with several sweeps)."),
     ] = None,
     no_progress: Annotated[
         bool,
-        typer.Option("--no-progress", help="Suppress per-step output."),
+        typer.Option("--no-progress", help="Sweeps: suppress per-step output."),
     ] = False,
     no_ui: Annotated[
         bool,
-        typer.Option("--no-ui", help="Skip artifact writing (no web UI integration)."),
+        typer.Option("--no-ui", help="Sweeps: skip artifact writing (no web UI integration)."),
     ] = False,
     particles: Annotated[
         int,
-        typer.Option("--particles", help="SMC particle count (default 10x the simulation default)."),
+        typer.Option("--particles", help="Sweeps: SMC particle count (default 10x the simulation default)."),
     ] = 10000,
     infer_zero_field_freq: Annotated[
         bool,
         typer.Option(
             "--infer-center-freq/--no-infer-center-freq",
             help=(
-                "Fit the NV zero-field-splitting center instead of fixing it to the "
+                "Sweeps: fit the NV zero-field-splitting center instead of fixing it to the "
                 "textbook 2.87 GHz. Real samples run 1-2 MHz off that value from strain/"
                 "temperature, which is comparable to the Zeeman splitting itself — a fixed "
                 "wrong center visibly distorts the fit. The simulated grid always uses the "
@@ -262,104 +245,102 @@ def matlab_run(
         ),
     ] = True,
 ) -> None:
-    """Run the SBED locator on real ESR measurements from a MATLAB file.
+    """Load the lab's MATLAB data from a Drive link or a local path, and show it in ``nv serve``.
 
-    Loads a .mat file recorded by the NVision lab instrument, then adaptively
-    selects candidate_drive_freq points using the Bayesian SBED strategy. Results
-    are written to the artifact store so they appear in the ``nvision serve`` UI.
+    SOURCE is fetched first when it is a Drive link (read-only, with rclone). Every ``.mat`` file below it is
+    then handled by what it holds:
 
-    With ``--all``, runs this same procedure over every ``.mat`` file in
-    ``data/matlab/`` (or ``--dir``) in turn, continuing past any single file's
-    failure so one bad recording doesn't abort the rest of the batch.
+    - the lab's Bayesian ESR runs (``myStruct.BayesianESR``): turned into a lab study per folder (calibration,
+      steps to convergence), listed under "Lab: ..." in the UI's Study dropdown;
+    - raw ESR sweeps (``myStruct.ESR``): run through the Bayesian SBED locator, as a simulated generator would be
+      (see ``--sweeps``), appearing under "MATLAB (real data)".
+
+    Run it again on the same SOURCE to pick up new files.
     """
-    if bayesian_runs:
-        _process_bayesian_runs(matlab_dir, drive_url)
-        return
+    from nvision.metrics.lab_process import load_bayesian_runs, write_statistics
+    from nvision.metrics.lab_study import labs_dir
+    from nvision.tools.drive_fetch import fetch_drive_folder, looks_like_drive_folder, parse_drive_folder_id
 
-    if all_files:
-        from nvision.tools.matlab_loader import _MATLAB_DATA_DIR
+    try:
+        if looks_like_drive_folder(source):
+            folder_id = parse_drive_folder_id(source)
+            root = fetch_drive_folder(source, directory / "downloads" / folder_id)
+            label = folder_id
+        else:
+            root = Path(source)
+            if not root.exists():
+                raise ValueError(f"{source} is neither a Drive folder link nor an existing path")
+            label = root.stem if root.is_file() else root.name
+    except (ValueError, RuntimeError) as exc:
+        typer.echo(f"Error: {exc}")
+        raise typer.Exit(code=1) from exc
 
-        scan_dir = matlab_dir if matlab_dir is not None else _MATLAB_DATA_DIR
-        mat_files = sorted(scan_dir.glob("*.mat"))
-        if not mat_files:
-            typer.echo(f"No .mat files found in {scan_dir}")
-            raise typer.Exit(code=1)
-
-        typer.echo(f"Found {len(mat_files)} .mat file(s) in {scan_dir}\n")
-        failures: list[str] = []
-        summaries: list[_MatlabRunSummary] = []
-        for i, f in enumerate(mat_files, 1):
-            typer.echo(f"=== [{i}/{len(mat_files)}] {f.name} ===")
-            file_out = (out / f"{f.stem}.json") if out is not None else None
-            try:
-                summaries.append(
-                    _matlab_run_one(
-                        matlab_file=f,
-                        noise_std=noise_std,
-                        max_steps=max_steps,
-                        valid_shots=valid_shots,
-                        out=file_out,
-                        no_progress=no_progress,
-                        no_ui=no_ui,
-                        particles=particles,
-                        infer_zero_field_freq=infer_zero_field_freq,
-                    )
-                )
-            except Exception as exc:
-                log.exception("matlab-run failed for %s", f)
-                typer.echo(f"FAILED: {f.name}: {exc}")
-                failures.append(f.name)
-            typer.echo("")
-
-        n_ok = len(mat_files) - len(failures)
-        typer.echo(f"Done: {n_ok}/{len(mat_files)} succeeded.")
-        if failures:
-            typer.echo(f"Failed: {', '.join(failures)}")
-
-        if summaries:
-            _echo_convergence_breakdown(summaries)
-
-        if failures:
-            raise typer.Exit(code=1)
-        return
-
-    if matlab_file is None:
-        typer.echo("Error: provide a .mat file, or pass --all to run every file in data/matlab/.")
+    files = [root] if root.is_file() else sorted(root.rglob("*.mat"))
+    if not files:
+        typer.echo(f"No .mat files found in {root}")
         raise typer.Exit(code=1)
+    base = root.parent if root.is_file() else root
+    typer.echo(f"Found {len(files)} .mat file(s) in {root}\n")
 
-    _matlab_run_one(
-        matlab_file=matlab_file,
+    runs_by_folder, others = load_bayesian_runs(files)
+    for folder, runs in runs_by_folder.items():
+        rel = folder.relative_to(base)
+        stats_dir = labs_dir(directory) / label / rel / "convergence_statistics"
+        own = folder / "convergence_statistics"
+        if (own / "window_summary.csv").exists():
+            shutil.copytree(own, stats_dir, dirs_exist_ok=True)  # the lab's own script already summarised these
+            typer.echo(f"Lab study {rel}: kept the lab's own statistics ({len(runs)} runs)")
+        else:
+            write_statistics(runs, stats_dir)
+            typer.echo(f"Lab study {rel}: processed {len(runs)} runs")
+
+    run_sweeps = sweeps if sweeps is not None else root.is_file()
+    if others and not run_sweeps:
+        typer.echo(
+            f"\nSkipped {len(others)} file(s) that are not Bayesian runs; add --sweeps to run SBED on raw sweeps."
+        )
+    failures = _run_sweeps(
+        others if run_sweeps else [],
+        out=out,
         noise_std=noise_std,
         max_steps=max_steps,
         valid_shots=valid_shots,
-        out=out,
         no_progress=no_progress,
         no_ui=no_ui,
         particles=particles,
         infer_zero_field_freq=infer_zero_field_freq,
     )
-
-
-def _process_bayesian_runs(matlab_dir: Path | None, drive_url: str | None) -> None:
-    """``matlab-run --bayesian-runs``: optionally fetch from Drive, then write lab statistics for every folder."""
-    from nvision.metrics.lab_process import process_lab_tree
-    from nvision.tools.drive_fetch import fetch_drive_folder
-    from nvision.tools.matlab_loader import _MATLAB_DATA_DIR
-
-    runs_dir = matlab_dir if matlab_dir is not None else _MATLAB_DATA_DIR
-    if drive_url is not None:
-        try:
-            fetch_drive_folder(drive_url, runs_dir)
-        except (ValueError, RuntimeError) as exc:
-            typer.echo(f"Error: {exc}")
-            raise typer.Exit(code=1) from exc
-    outcomes = process_lab_tree(runs_dir)
-    for folder, outcome in outcomes.items():
-        typer.echo(f"{folder}: {outcome}")
-    if "processed" not in outcomes.values():
-        typer.echo(f"Error: no Bayesian ESR runs found under {runs_dir}")
+    if not runs_by_folder and not (others and run_sweeps):
+        typer.echo("Error: nothing to load from this source.")
         raise typer.Exit(code=1)
-    typer.echo(f'View: uv run nv serve --lab-dir "{runs_dir}"')
+    if runs_by_folder:
+        typer.echo(f'\nView: uv run nv serve --dir "{directory}"')
+    if failures:
+        raise typer.Exit(code=1)
+
+
+def _run_sweeps(files: list[Path], *, out: Path | None, **options: Any) -> list[str]:
+    """Run SBED on each raw sweep file, continuing past a failing file; returns the failed file names."""
+    if not files:
+        return []
+    failures: list[str] = []
+    summaries: list[_MatlabRunSummary] = []
+    for i, f in enumerate(files, 1):
+        typer.echo(f"=== [{i}/{len(files)}] {f.name} ===")
+        file_out = out if len(files) == 1 or out is None else out / f"{f.stem}.json"
+        try:
+            summaries.append(_matlab_run_one(matlab_file=f, out=file_out, **options))
+        except Exception as exc:
+            log.exception("matlab failed for %s", f)
+            typer.echo(f"FAILED: {f.name}: {exc}")
+            failures.append(f.name)
+        typer.echo("")
+    typer.echo(f"Done: {len(files) - len(failures)}/{len(files)} succeeded.")
+    if failures:
+        typer.echo(f"Failed: {', '.join(failures)}")
+    if summaries:
+        _echo_convergence_breakdown(summaries)
+    return failures
 
 
 # contrast_total prior for real data. The positive-only sign is the simulated grid's (the ratio

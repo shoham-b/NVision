@@ -13,6 +13,7 @@ from pathlib import Path
 import numpy as np
 import polars as pl
 import scipy.io as sio
+from scipy.io.matlab import MatReadError
 
 _Z95 = 1.959963984540054
 
@@ -49,20 +50,16 @@ def _load_run(path: Path) -> dict | None:
     }
 
 
-def process_bayesian_runs(folder: Path, out_dir: Path | None = None) -> Path:
+def write_statistics(runs: list[dict], out_dir: Path) -> Path:
     """Write ``window<W>MHz_*`` CSVs for every Bayesian ESR run in *folder*; return the output dir.
 
     Per window: ``statistics_perRun`` (replayed precision stop), ``self_reported_std_vs_step`` (quartiles
     over runs of the posterior std) and ``resonance_std_vs_step_retained`` (std over runs of the posterior
     mean). The credible interval of a replayed stop is mean +/- 1.96 std (the runs save only the final one).
     """
-    out_dir = out_dir or folder / "convergence_statistics"
     if (out_dir / "window_summary.csv").exists():
         raise ValueError(f"{out_dir} was written by the lab's own script; not overwriting it")
-    runs = [r for p in sorted(folder.glob("*.mat")) if (r := _load_run(p)) is not None]
-    if not runs:
-        raise ValueError(f"No Bayesian ESR runs in {folder}")
-    out_dir.mkdir(exist_ok=True)
+    out_dir.mkdir(parents=True, exist_ok=True)
     for window in sorted({r["window"] for r in runs}):
         group = [r for r in runs if r["window"] == window]
         rows = []
@@ -119,19 +116,28 @@ def process_bayesian_runs(folder: Path, out_dir: Path | None = None) -> Path:
     return out_dir
 
 
-def process_lab_tree(root: Path) -> dict[Path, str]:
-    """Process *root* and every folder below it that holds ``.mat`` files; map folder -> outcome.
+def load_bayesian_runs(files: list[Path]) -> tuple[dict[Path, list[dict]], list[Path]]:
+    """Split *files* into Bayesian ESR runs grouped by their folder, and the files that are not such runs.
 
-    Outcome is ``"processed"`` or a skip reason (no Bayesian ESR runs there, or the lab's own script already wrote
-    its statistics), so one raw-sweep folder doesn't stop the rest.
+    A file that cannot be read as a MATLAB file is "not a Bayesian run" too, so the caller decides what to do with it.
     """
-    outcomes: dict[Path, str] = {}
-    for folder in sorted({p.parent for p in root.rglob("*.mat")}):
-        if folder.name == "convergence_statistics":
-            continue
+    runs: dict[Path, list[dict]] = {}
+    others: list[Path] = []
+    for path in sorted(files):
         try:
-            process_bayesian_runs(folder)
-            outcomes[folder] = "processed"
-        except ValueError as exc:
-            outcomes[folder] = f"skipped: {exc}"
-    return outcomes
+            run = _load_run(path)
+        except (OSError, ValueError, NotImplementedError, MatReadError):
+            run = None
+        if run is None:
+            others.append(path)
+        else:
+            runs.setdefault(path.parent, []).append(run)
+    return runs, others
+
+
+def process_bayesian_runs(folder: Path, out_dir: Path | None = None) -> Path:
+    """Write the lab statistics of the Bayesian ESR runs directly in *folder* (see :func:`write_statistics`)."""
+    runs, _others = load_bayesian_runs(sorted(folder.glob("*.mat")))
+    if not runs:
+        raise ValueError(f"No Bayesian ESR runs in {folder}")
+    return write_statistics(runs[folder], out_dir or folder / "convergence_statistics")
