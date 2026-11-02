@@ -117,3 +117,21 @@ def process_bayesian_runs(folder: Path, out_dir: Path | None = None) -> Path:
             }
         ).write_csv(out_dir / f"window{window}MHz_resonance_std_vs_step_retained.csv")
     return out_dir
+
+
+def process_lab_tree(root: Path) -> dict[Path, str]:
+    """Process *root* and every folder below it that holds ``.mat`` files; map folder -> outcome.
+
+    Outcome is ``"processed"`` or a skip reason (no Bayesian ESR runs there, or the lab's own script already wrote
+    its statistics), so one raw-sweep folder doesn't stop the rest.
+    """
+    outcomes: dict[Path, str] = {}
+    for folder in sorted({p.parent for p in root.rglob("*.mat")}):
+        if folder.name == "convergence_statistics":
+            continue
+        try:
+            process_bayesian_runs(folder)
+            outcomes[folder] = "processed"
+        except ValueError as exc:
+            outcomes[folder] = f"skipped: {exc}"
+    return outcomes

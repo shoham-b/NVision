@@ -203,13 +203,20 @@ def matlab_run(
             help="Directory to scan for .mat files with --all or --bayesian-runs (default: data/matlab/).",
         ),
     ] = None,
+    drive_url: Annotated[
+        str | None,
+        typer.Option(
+            "--drive-url",
+            help="With --bayesian-runs: first download this Google Drive folder (link or id) into --dir with rclone.",
+        ),
+    ] = None,
     bayesian_runs: Annotated[
         bool,
         typer.Option(
             "--bayesian-runs",
             help=(
-                "Treat --dir as the lab's own Bayesian ESR runs (myStruct.BayesianESR, not raw sweeps): write "
-                "convergence_statistics CSVs next to them for `nv serve --lab-dir` instead of running SBED."
+                "Treat --dir (and its sub-folders) as the lab's own Bayesian ESR runs (myStruct.BayesianESR, "
+                "not raw sweeps): write convergence_statistics CSVs for `nv serve --lab-dir` instead of running SBED."
             ),
         ),
     ] = False,
@@ -266,17 +273,7 @@ def matlab_run(
     failure so one bad recording doesn't abort the rest of the batch.
     """
     if bayesian_runs:
-        from nvision.metrics.lab_process import process_bayesian_runs
-        from nvision.tools.matlab_loader import _MATLAB_DATA_DIR
-
-        runs_dir = matlab_dir if matlab_dir is not None else _MATLAB_DATA_DIR
-        try:
-            stats_dir = process_bayesian_runs(runs_dir)
-        except ValueError as exc:
-            typer.echo(f"Error: {exc}")
-            raise typer.Exit(code=1) from exc
-        typer.echo(f"Wrote lab statistics to {stats_dir}")
-        typer.echo(f'View: uv run nv serve --lab-dir "{runs_dir}"')
+        _process_bayesian_runs(matlab_dir, drive_url)
         return
 
     if all_files:
@@ -341,6 +338,28 @@ def matlab_run(
         particles=particles,
         infer_zero_field_freq=infer_zero_field_freq,
     )
+
+
+def _process_bayesian_runs(matlab_dir: Path | None, drive_url: str | None) -> None:
+    """``matlab-run --bayesian-runs``: optionally fetch from Drive, then write lab statistics for every folder."""
+    from nvision.metrics.lab_process import process_lab_tree
+    from nvision.tools.drive_fetch import fetch_drive_folder
+    from nvision.tools.matlab_loader import _MATLAB_DATA_DIR
+
+    runs_dir = matlab_dir if matlab_dir is not None else _MATLAB_DATA_DIR
+    if drive_url is not None:
+        try:
+            fetch_drive_folder(drive_url, runs_dir)
+        except (ValueError, RuntimeError) as exc:
+            typer.echo(f"Error: {exc}")
+            raise typer.Exit(code=1) from exc
+    outcomes = process_lab_tree(runs_dir)
+    for folder, outcome in outcomes.items():
+        typer.echo(f"{folder}: {outcome}")
+    if "processed" not in outcomes.values():
+        typer.echo(f"Error: no Bayesian ESR runs found under {runs_dir}")
+        raise typer.Exit(code=1)
+    typer.echo(f'View: uv run nv serve --lab-dir "{runs_dir}"')
 
 
 # contrast_total prior for real data. The positive-only sign is the simulated grid's (the ratio
