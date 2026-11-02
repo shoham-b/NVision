@@ -201,3 +201,21 @@ def test_prior_mean_offset_from_truth_is_widened_by_prior_mean_offset_sigmas():
     finally:
         gen_mod.PRIOR_MEAN_OFFSET_SIGMAS = orig
     assert halved_mean_offset < mean_offset_in_std * 0.7
+
+
+def test_zeeman_shift_has_no_prior_in_any_variant():
+    """The search position's prior is uniform over its bounds (no Gaussian), so it has no ``_priors`` entry."""
+    rng = random.Random(7)
+    for kwargs in (
+        {"variant": "lorentzian"},
+        {"variant": "lorentzian", "infer_hyperfine": True, "hyperfine": "n14"},
+        {"variant": "voigt"},
+        {"variant": "voigt", "infer_hyperfine": True, "hyperfine": "n14"},
+        {"variant": "saturation_voigt"},
+        {"variant": "saturation_voigt", "infer_hyperfine": True, "hyperfine": "n14"},
+        {"variant": "cw_drive"},
+        {"variant": "pulsed_drive"},
+    ):
+        signal = NVCenterCoreGenerator(**kwargs).generate(rng)
+        assert "zeeman_shift" in signal.bounds, kwargs
+        assert "zeeman_shift" not in signal.bounds["_priors"], kwargs

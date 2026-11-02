@@ -2331,11 +2331,14 @@ def nv_center_voigt_bounds_for_domain(
     with_zeeman_splitting: bool = False,
     max_zeeman_shift: float = MAX_ZEEMAN_SHIFT,
     reference_width: float | None = None,
+    min_zeeman_shift: float = MIN_ZEEMAN_SHIFT,
 ) -> dict[str, tuple[float, float]]:
     """Physical parameter bounds for NV Voigt signals over ``[drive_freq_min_phys, drive_freq_max_phys]``.
 
     ``max_zeeman_shift`` (Hz) is the upper ``zeeman_shift`` bound; the default is the module constant,
-    a window-scaled generator passes :func:`max_zeeman_shift_for_window`.
+    a window-scaled generator passes :func:`max_zeeman_shift_for_window`. ``min_zeeman_shift`` (Hz) is the
+    lower bound; a window-grid generator passes its edge pad so the (uniform) belief covers exactly the
+    range the true value is drawn from.
     ``reference_width`` (Hz) is the window width the width bounds (``hwhm_lorentz``, ``sigma_inhom``,
     ``hyperfine_shift``) are sized off; the default is the actual window, a generator that stretches the
     window while holding the linewidth fixed passes the default window so those bounds do not move with it.
@@ -2373,7 +2376,7 @@ def nv_center_voigt_bounds_for_domain(
         # Zeeman group is out of range and only the upper one is measured.
         f_lo = float(drive_freq_min_phys)
         f_hi = float(drive_freq_max_phys)
-        zeeman_bounds = (MIN_ZEEMAN_SHIFT, max_zeeman_shift)
+        zeeman_bounds = (min_zeeman_shift, max_zeeman_shift)
         max_span = 2.0 * max_zeeman_shift + 2.0 * hf_hi + 4.0 * VOIGT_FWHM_TOTAL_HI
 
         if infer_hyperfine:

@@ -178,7 +178,7 @@ def test_snr_window_generator_draws_dips_inside_its_window():
         values = signal.parameter_values()
         window = gen.drive_freq_max_phys - gen.drive_freq_min_phys
         assert 0.0 <= values["zeeman_shift"] <= gen.zeeman_max_phys < window
-        assert signal.bounds["zeeman_shift"] == (0.0, gen.zeeman_max_phys)
+        assert signal.bounds["zeeman_shift"] == (gen.zeeman_min_phys, gen.zeeman_max_phys)
         assert signal.bounds["zero_field_freq"] == (gen.drive_freq_min_phys, gen.drive_freq_max_phys)
 
 
