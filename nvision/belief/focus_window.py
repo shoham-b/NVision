@@ -35,7 +35,7 @@ NVISION_MIN_STEPS_BEFORE_NARROWING: int = int(os.getenv("NVISION_MIN_STEPS_BEFOR
 # Each significant dip's extent is padded by k * hwhm on each side to form its focus section; k is
 # this cover factor. Dip extents are the run of significant boxcar windows -- at least the line core --
 # so the pad restores the wings and the centre's uncertainty (3 HWHM of a Lorentzian carries ~90% of its depth).
-NVISION_SMC_FOCUSING_COVER_FACTOR: float = float(os.getenv("NVISION_SMC_FOCUSING_COVER_FACTOR", "3.0"))
+NVISION_SMC_FOCUSING_COVER_FACTOR: float = float(os.getenv("NVISION_SMC_FOCUSING_COVER_FACTOR", "1.0"))
 # A narrowing is only applied when it shrinks the focus's total covered width by at least this fraction.
 _MIN_NARROWING_FRACTION: float = 0.05
 

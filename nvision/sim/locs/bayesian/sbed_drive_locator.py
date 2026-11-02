@@ -26,7 +26,6 @@ import math
 
 import numpy as np
 
-from nvision.belief.smc_marginal import NVISION_EXPLORATION_DECAY_STEPS
 from nvision.sim.locs.bayesian.sbed_locator import SequentialBayesianExperimentDesignLocator
 from nvision.spectra.drive import DRIVE_AMP_MIN_UNIT, DriveSetting
 from nvision.spectra.nv_center_drive import pi_pulse_duration_s
@@ -139,14 +138,12 @@ class DriveChoosingSBEDLocator(SequentialBayesianExperimentDesignLocator):
     def _acquire(self) -> float:
         """Next drive frequency in Hz; the matching drive is stored for :meth:`next_drive`."""
         drives = self._current_drive_candidates()
-        rng = self.belief._rng
-        explore_probability = 0.1 * np.exp(-self.inference_step_count / NVISION_EXPLORATION_DECAY_STEPS)
-        if rng.random() < explore_probability:
-            # Uniform probe over the full axis, at a log-uniform amplitude.
-            drive_freq_min_phys, drive_freq_max_phys = self.belief.drive_freq_bounds_phys
-            amp = math.exp(rng.uniform(math.log(DRIVE_AMP_MIN_UNIT), 0.0))
+        probe = self._exploration_probe()
+        if probe is not None:
+            # Falsification probe in the widest unmeasured stretch, at a log-uniform amplitude.
+            amp = math.exp(self.belief._rng.uniform(math.log(DRIVE_AMP_MIN_UNIT), 0.0))
             self._next_drive = self._make_drive(amp)
-            return float(rng.uniform(drive_freq_min_phys, drive_freq_max_phys))
+            return probe
         candidate_drive_freq_phys = self._eig_candidate_drive_freq_phys()
         drive_freq_phys, drive = self.belief.select_max_information_gain_driven(candidate_drive_freq_phys, drives)
         self._next_drive = drive
