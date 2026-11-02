@@ -2,7 +2,6 @@
 
 import pytest
 
-from nvision.metrics.lab_process import process_lab_tree
 from nvision.tools.drive_fetch import fetch_drive_folder, parse_drive_folder_id
 from tests.test_lab_process import _save_run
 
@@ -33,23 +32,10 @@ def test_fetch_fails_fast_without_rclone(tmp_path, monkeypatch):
         fetch_drive_folder(_ID, tmp_path)
 
 
-def test_process_lab_tree_reports_each_folder(tmp_path):
-    (tmp_path / "good").mkdir()
-    (tmp_path / "other").mkdir()
-    _save_run(tmp_path / "good" / "a.mat", no_stop=1, std=[2.0, 0.5], stop_reason="budget", step_count=2)
-    _save_run(tmp_path / "other" / "b.mat", no_stop=1, std=[2.0, 0.5], stop_reason="budget", step_count=2)
-    import scipy.io as sio
-
-    sio.savemat(tmp_path / "other" / "b.mat", {"myStruct": {"ESR": {"x": 1}}})  # a raw sweep, not a Bayesian run
-    outcomes = process_lab_tree(tmp_path)
-    assert outcomes[tmp_path / "good"] == "processed"
-    assert outcomes[tmp_path / "other"].startswith("skipped")
-
-
-def test_lab_add_stores_under_labs_and_serve_finds_it(tmp_path, monkeypatch):
+def test_matlab_command_fetches_a_drive_link_and_serve_finds_the_lab(tmp_path, monkeypatch):
     from typer.testing import CliRunner
 
-    from nvision.cli.lab_cmd import app as _  # noqa: F401  (registers the command)
+    import nvision.__main__  # noqa: F401  (registers every command; a lone command would become the root)
     from nvision.cli.main import app
     from nvision.metrics.lab_study import discover_labs, labs_dir
 
@@ -59,6 +45,25 @@ def test_lab_add_stores_under_labs_and_serve_finds_it(tmp_path, monkeypatch):
         return dest
 
     monkeypatch.setattr("nvision.tools.drive_fetch.fetch_drive_folder", fake_fetch)
-    result = CliRunner().invoke(app, ["lab-add", _ID, "--dir", str(tmp_path)])
+    result = CliRunner().invoke(
+        app, ["matlab", f"https://drive.google.com/drive/folders/{_ID}", "--dir", str(tmp_path)]
+    )
     assert result.exit_code == 0, result.output
     assert list(discover_labs([labs_dir(tmp_path)])) == ["runs"]
+
+
+def test_matlab_command_loads_a_local_folder_and_skips_sweeps_by_default(tmp_path):
+    import scipy.io as sio
+    from typer.testing import CliRunner
+
+    import nvision.__main__  # noqa: F401  (registers every command; a lone command would become the root)
+    from nvision.cli.main import app
+
+    src = tmp_path / "src"
+    src.mkdir()
+    _save_run(src / "a.mat", no_stop=1, std=[2.0, 0.5], stop_reason="budget", step_count=2)
+    sio.savemat(src / "sweep.mat", {"myStruct": {"ESR": {"x": 1}}})
+    result = CliRunner().invoke(app, ["matlab", str(src), "--dir", str(tmp_path / "art")])
+    assert result.exit_code == 0, result.output
+    assert "Skipped 1 file(s)" in result.output
+    assert (tmp_path / "art" / "labs" / "src" / "convergence_statistics").is_dir()

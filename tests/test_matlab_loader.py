@@ -552,10 +552,11 @@ def test_convergence_breakdown_none_converged(capsys):
 
 
 def test_matlab_run_all_prints_convergence_breakdown(tmp_path, monkeypatch):
-    """``nv matlab-run --all`` should summarize convergence across every file, not just
+    """``nv matlab --sweeps`` should summarize convergence across every file, not just
     report a pass/fail count."""
     from typer.testing import CliRunner
 
+    import nvision.__main__  # noqa: F401  (registers every command; a lone command would become the root)
     import nvision.cli.matlab_cmd as matlab_cmd
     from nvision.cli.app_instance import app
 
@@ -577,7 +578,7 @@ def test_matlab_run_all_prints_convergence_breakdown(tmp_path, monkeypatch):
     monkeypatch.setattr(matlab_cmd, "_matlab_run_one", fake_run_one)
 
     runner = CliRunner()
-    result = runner.invoke(app, ["matlab-run", "--all", "--dir", str(tmp_path)])
+    result = runner.invoke(app, ["matlab", str(tmp_path), "--sweeps"])
 
     assert result.exit_code == 0, result.output
     assert "Done: 2/2 succeeded." in result.output
@@ -589,6 +590,7 @@ def test_matlab_run_all_failure_still_reports_breakdown_for_successes(tmp_path, 
     """A failing file shouldn't suppress the breakdown for the files that did succeed."""
     from typer.testing import CliRunner
 
+    import nvision.__main__  # noqa: F401  (registers every command; a lone command would become the root)
     import nvision.cli.matlab_cmd as matlab_cmd
     from nvision.cli.app_instance import app
 
@@ -617,7 +619,7 @@ def test_matlab_run_all_failure_still_reports_breakdown_for_successes(tmp_path, 
     caplog.set_level(logging.CRITICAL, logger="nvision.cli.matlab_cmd")
 
     runner = CliRunner()
-    result = runner.invoke(app, ["matlab-run", "--all", "--dir", str(tmp_path)])
+    result = runner.invoke(app, ["matlab", str(tmp_path), "--sweeps"])
 
     assert result.exit_code == 1
     assert "FAILED: b.mat" in result.output

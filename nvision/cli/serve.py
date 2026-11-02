@@ -118,7 +118,7 @@ def serve(
         list[Path] | None,
         typer.Option(
             "--lab-dir",
-            help="Extra folder of processed lab runs (repeatable); <dir>/labs from `nv lab-add` is always included",
+            help="Extra folder of processed lab runs (repeatable); <dir>/labs from `nv matlab` is always included",
         ),
     ] = None,
 ) -> None:

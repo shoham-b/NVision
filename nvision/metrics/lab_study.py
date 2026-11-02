@@ -111,5 +111,5 @@ def discover_labs(roots: list[Path]) -> dict[str, Path]:
 
 
 def labs_dir(artifacts_dir: Path) -> Path:
-    """Where ``nv lab-add`` keeps Drive labs under an artifacts directory; ``nv serve`` lists them automatically."""
+    """Where ``nv matlab`` keeps Drive labs under an artifacts directory; ``nv serve`` lists them automatically."""
     return artifacts_dir / "labs"
