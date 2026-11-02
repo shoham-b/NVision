@@ -64,7 +64,8 @@ Oracle per stage
 ----------------
 Each stage is also compared with the fewest measurements any locator could need, from the same truth-side Fisher
 information: ``I* = max g^2 / sigma^2`` per step. Focus ends at the precision ``eps`` where eta stays >= ``1 - delta``
-(half-width of that region around the best point), so its bound is ``1 / (eps^2 I*)``; refine ends at the stop target
+(half-width of that region around the best point), so its bound is ``(eps^-2 - J0) / I*`` with ``J0`` the
+information the prior (the window) already holds -- a window is a prior, not free; refine ends at the stop target
 ``tau``, so its bound is ``(tau^-2 - eps^-2) / I*`` (refine starts at precision ``eps``). Both fall as 1 / SNR^2.
 The efficiency (bound / steps spent) and the axes (true / prior FWHM, window) are stored with the stage metrics; see
 :func:`compute_stage_metrics` and ``docs/evaluation_metrics.md``.
@@ -128,6 +129,9 @@ STAGE_METRIC_KEYS: tuple[str, ...] = (
     "stage_prior_fwhm_phys",
     "stage_window_phys",
     "stage_window_fwhm",
+    "stage_prior_info",
+    "stage_true_passage_step",
+    "stage_eta_eff",
     "stage2_oracle_steps",
     "stage2_efficiency",
     "stage2_wasted_share",
@@ -380,8 +384,15 @@ def compute_stage_metrics(run_result: RunResult) -> dict[str, Any]:
     * ``stage_fwhm_true_phys`` (``None`` for drive-controlled models, whose width depends on the drive),
       ``stage_prior_fwhm_phys`` (the prior's mean FWHM), ``stage_window_phys`` (the drive-frequency range) and
       ``stage_window_fwhm`` = window over true FWHM: the axes the stages scale with.
-    * ``stage2_oracle_steps`` = ``1 / (eps^2 I*)``: measurements to reach ``eps`` from scratch at the best point.
-      ``stage2_efficiency`` = that over ``stage2_steps``.
+    * ``stage_prior_info`` = ``J0``: the information (Hz^-2) the prior already holds, ``sigma_0^-2`` with
+      ``sigma_0`` the claimed uncertainty after the first measurement (the prior, to one measurement's accuracy).
+      A window is a prior.
+    * ``stage2_oracle_steps`` = ``max(0, eps^-2 - J0) / I*``: measurements to reach ``eps`` from the prior at the best
+      point. ``stage2_efficiency`` = that over ``stage2_steps``.
+    * ``stage_true_passage_step``: first step from which the true error ``|estimate - truth|`` stays ``<= tau`` for
+      ``BOUNDARY_HOLD_STEPS`` steps (first passage time ``T(tau)``; ``None`` if never). ``stage_eta_eff`` =
+      ``tau sqrt(T)`` (Hz sqrt(steps)), the effective sensitivity at that target; it tends to the refine sensitivity
+      as ``tau -> 0`` and is not a constant of the locator.
     * ``stage3_oracle_steps`` = ``max(0, tau^-2 - eps^-2) / I*``: measurements from precision ``eps`` to ``tau``
       (``None`` for drive-controlled models).
       ``stage3_efficiency`` = that over ``stage3_steps``.
@@ -468,7 +479,7 @@ def compute_stage_metrics(run_result: RunResult) -> dict[str, Any]:
             out[f"stage{k}_sens_eff"] = float(np.sum(w * eta[first : final + 1]) / np.sum(w))
             if k > 1:
                 out[f"stage{k}_wasted_share"] = float(np.mean(eta[first : final + 1] < 1.0 - REFINE_INFO_LOSS))
-    _add_oracle_metrics(run_result, primary, sens, shots, out)
+    _add_oracle_metrics(run_result, primary, sens, shots, np.asarray(err_trace), out)
     return out
 
 
@@ -482,11 +493,17 @@ def _true_fwhm_phys(true_signal: Any) -> float | None:
 
 
 def _add_oracle_metrics(
-    run_result: RunResult, primary: str, sens: _Sensitivity, shots: np.ndarray, out: dict[str, Any]
+    run_result: RunResult,
+    primary: str,
+    sens: _Sensitivity,
+    shots: np.ndarray,
+    err_trace: np.ndarray,
+    out: dict[str, Any],
 ) -> None:
     """Fill the oracle / axis fields of :func:`compute_stage_metrics` (``out`` already holds the stage metrics).
 
-    ``shots``: shape (n_steps,), averaged shots per step.
+    ``shots``: shape (n_steps,), averaged shots per step. ``err_trace``: shape (n_steps,), true error
+    ``|estimate - truth|`` (Hz) of the primary parameter after each measurement.
     """
     from nvision.belief.dip_detection import hwhm_fwhm_prior_hz
     from nvision.metrics.series import effective_convergence_threshold
@@ -506,9 +523,23 @@ def _add_oracle_metrics(
     out["stage_window_phys"] = _finite_or_none(float(x_hi_phys - x_lo_phys))
     out["stage_window_fwhm"] = None if not fwhm_true else _finite_or_none(float(x_hi_phys - x_lo_phys) / fwhm_true)
 
+    # The prior is information: a window is a prior. The claimed sigma after the first measurement stands for it.
+    unc0 = out["stage1_unc_start"]
+    prior_info = 0.0
+    if unc0 is not None and unc0 > 0:
+        prior_info = float(unc0) ** -2
+        out["stage_prior_info"] = _finite_or_none(prior_info)
+
+    # First passage of the true error to the stop target (needs no scaling assumption, covers all three stages).
+    if tau is not None and float(tau) > 0:
+        passed = _first_held(lambda i: err_trace[i] <= float(tau), 0, len(err_trace))
+        if passed is not None:
+            out["stage_true_passage_step"] = passed + 1
+            out["stage_eta_eff"] = _finite_or_none(float(tau) * math.sqrt(passed + 1))
+
     # Lower bounds: measurements at the best point, nuisance parameters known (module docstring).
     if sens.eps_phys is not None:
-        oracle2 = 1.0 / (sens.eps_phys**2 * fisher_star)
+        oracle2 = max(0.0, sens.eps_phys**-2 - prior_info) / fisher_star
         out["stage2_oracle_steps"] = _finite_or_none(oracle2)
         if out["stage2_steps"]:
             out["stage2_efficiency"] = _finite_or_none(oracle2 / out["stage2_steps"])

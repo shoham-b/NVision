@@ -210,6 +210,9 @@ _COMPARE_FIELDS = (
     "stage_prior_fwhm_phys",
     "stage_window_phys",
     "stage_window_fwhm",
+    "stage_prior_info",
+    "stage_true_passage_step",
+    "stage_eta_eff",
     "stage2_oracle_steps",
     "stage2_efficiency",
     "stage2_wasted_share",
@@ -591,20 +594,6 @@ def build_app(cache_dir: Path, run_dir: Path) -> FastAPI:
         """Strategy names of the plain-sweep spacings the current code studies (``SWEEP_SPACING_DIVISORS``).
         The Step size view shows only these: older spacings left in the cache come from older code."""
         return [sweep_strategy_name(k) for k in SWEEP_SPACING_DIVISORS]
-
-    @app.post("/api/fit-segments")
-    def fit_segments(payload: dict) -> dict | None:
-        """Segmented log-log fit (1-3 segments: search, focus, refine tail) of a claimed-uncertainty curve.
-
-        Body: ``{"n": [measurements], "sigma": [claimed uncertainty in Hz]}``, equal lengths. Returns the fit of
-        :func:`nvision.metrics.loglog_fit.fit_segments`, or ``null`` when the curve is too short.
-        """
-        from nvision.metrics.loglog_fit import fit_segments
-
-        try:
-            return fit_segments(payload["n"], payload["sigma"])
-        except (KeyError, ValueError) as exc:
-            raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     @app.get("/api/run-rows")
     def run_rows(strategies: str) -> list[dict]:

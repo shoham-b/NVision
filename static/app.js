@@ -7776,7 +7776,9 @@ function main() {
     // bound for the locator, not a target: it assumes every measurement sits at the Fisher-optimal point.
     function hlFisherAt(p, stage, x, start) {
         const star = _mv(p, 'stage_fisher_star');
-        const u0 = _mv(p, `stage${stage}_unc_start`);
+        // Whole run (stage 0): the reference starts from the prior (the claimed sigma at the run's start) and counts
+        // every measurement, so it is the van Trees line J0 + n I*, not a restart at the focus.
+        const u0 = _mv(p, `stage${stage === 0 ? 1 : stage}_unc_start`);
         if (!(star > 0) || !(u0 > 0)) return null;
         return 1 / Math.sqrt(1 / (u0 * u0) + (x - start + 1) * star);
     }
@@ -7805,10 +7807,9 @@ function main() {
         const traces = [];
         const markers = [];
         const strip = [];
-        const fitCurves = [];
         let slopeRef = null;
         let drewFisher = false;
-        const withFisher = key === 'u' && stage >= 2;
+        const withFisher = key === 'u' && (stage >= 2 || stage === 0);
         for (const { strat, runs } of items) {
             const color = hlStratColor(strategies, strat);
             const label = _shortStratLabel(strat);
@@ -7845,7 +7846,6 @@ function main() {
                 fMed.push(withFisher ? hlMedian(perUnit(at, 'f')) : null);
             }
             if (!xs.length) continue;
-            fitCurves.push({ strat, color, label, xs, med });
             const total = byStrategy.get(strat).length;
             const name = nCases > 1 ? `${label} (${nCases} use cases)`
                 : stage > 0 ? `${label} ${runs.length}/${total}` : `${label} (repeats=${runs.length})`;
@@ -7893,63 +7893,89 @@ function main() {
         layout.margin = { ...layout.margin, b: 50 };
         layout.legend = { ...layout.legend, font: { size: 9 }, tracegroupgap: 2 };
         Plotly.react(div, [...traces, ...markers, ...strip], layout, { displayModeBar: false, responsive: true });
-        if (stage === 0 && key === 'u') overlayLogLogFits(div, fitCurves);
     }
 
-    // Three straight segments on log-log axes describe a claimed-uncertainty curve: flat (search), a steep fall
-    // (focus), then slope -1/2 (refine: sigma ~ 1/sqrt(n) once every measurement adds Fisher information). The fit
-    // itself is nvision/metrics/loglog_fit.py (POST /api/fit-segments, one fit per locator's median curve); this only
-    // draws it: the fitted segments, a marker at each breakpoint, and the theoretical -1/2 line continued from the
-    // fitted start of the tail, so the gap between the tail and the dotted line is the departure from the CRLB.
-    // Skipped silently when the API is unreachable (a static export has no server).
-    const HL_THEORY_SLOPE = -0.5;
-    const fmtSlope = (s) => (s < 0 ? '−' : '+') + Math.abs(s).toFixed(2);
-    function hlFitAt(f, x) {
-        const lx = Math.log(x);
-        const hinge = (c, k) => (c && k != null ? c * Math.max(0, lx - k) : 0);
-        return Math.exp(f.a + f.s1 * lx + hinge(f.c1, f.k1) + hinge(f.c2, f.k2));
-    }
-    async function overlayLogLogFits(div, curves) {
-        if (!curves.length) return;
-        const token = (div._fitToken = (div._fitToken || 0) + 1);
-        const fits = await Promise.all(curves.map(c => fetch(`${window.NVISION_ASSET_PREFIX || ''}api/fit-segments`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ n: c.xs, sigma: c.med }),
-        }).then(r => (r.ok ? r.json() : null)).catch(() => null)));
-        if (div._fitToken !== token || !div.data) return;   // a newer render replaced this chart
-        const add = [];
-        let drewRef = false;
-        curves.forEach((c, i) => {
-            const f = fits[i];
-            if (!f) return;
-            const xEnd = c.xs[c.xs.length - 1];
-            // Only the breakpoints the data support (1-3 segments): a run with no cliff or no tail gets fewer marks.
-            const breaks = f.breaks_n;
-            const pts = [c.xs[0], ...breaks, xEnd];
-            const tail = f.refine ? '' : ' (no −½ tail)';
-            // The slopes go into the locator's own legend entry (an extra row per locator would squash the plot).
-            const at = div.data.findIndex(t => t.meta && t.meta.median === c.strat);
-            if (at >= 0) div.data[at].name = `${c.label}: ${f.slopes.map(fmtSlope).join(' / ')}${tail}`;
-            add.push({ x: pts, y: pts.map(x => hlFitAt(f, x)), mode: 'lines+markers', legendgroup: c.strat, showlegend: false,
-                name: `${c.label} fit`,
-                line: { color: c.color, width: 2, dash: 'dashdot' },
-                marker: { color: c.color, size: pts.map((_, j) => (j === 0 || j === pts.length - 1 ? 0 : 8)), symbol: 'circle-open', line: { width: 2 } },
-                hovertemplate: `${c.label} fit<br>measurement %{x:.3g}<br>%{y:.4g} Hz<extra></extra>` });
-            // The theoretical -1/2 line continues from the start of the last fitted segment (the tail).
-            const tailStart = breaks.length ? breaks[breaks.length - 1] : null;
-            if (tailStart != null && tailStart < xEnd) {
-                const y0 = hlFitAt(f, tailStart);
-                add.push({ x: [tailStart, xEnd], y: [y0, y0 * Math.pow(xEnd / tailStart, HL_THEORY_SLOPE)], mode: 'lines', legendgroup: c.strat,
-                    showlegend: false, line: { color: c.color, width: 1.5, dash: 'dot' }, hoverinfo: 'skip' });
-                drewRef = true;
+    // The runs as one continuous accumulation of information J = 1/sigma^2 (claimed sigma) from the prior J0 = sigma0^-2
+    // (sigma0 = the claimed sigma after the first measurement): no stage boundaries.
+    //   mode 'prior': J0 / J, the prior's share of the information (1 -> 0); dashed = J0 / (J0 + N I*), every measurement at
+    //                 the Fisher-optimal point (I* = stage_fisher_star).
+    //   mode 'rate':  (J(N) - J(N')) / ((N - N') I*) between consecutive grid points: information per measurement as a share
+    //                 of the ceiling (1 = Fisher-optimal; above 1 = the claimed sigma is overconfident).
+    // One value per repeat at each grid point; several use cases: the median of the use cases' own medians; a point needs
+    // at least half of the units still running.
+    function renderHlInfoCurve(div, byStrategy, strategies, mode) {
+        if (!div) return;
+        const items = [];
+        let maxEnd = 1;
+        for (const strat of strategies) {
+            const runs = [];
+            for (const p of byStrategy.get(strat)) {
+                const end = hlRunSteps(p);
+                const star = _mv(p, 'stage_fisher_star');
+                const u0 = p.series && p.series.u ? hlSeriesValueAt(p.series, 'u', 1) : null;
+                if (end == null || !(star > 0) || !(u0 > 0)) continue;
+                runs.push({ p, c: `${p.generator}\u0000${p.noise}`, end, star, j0: 1 / (u0 * u0) });
+                if (end > maxEnd) maxEnd = end;
             }
-        });
-        if (drewRef) {
-            add.push({ x: [null], y: [null], mode: 'lines', name: 'slope −½ from the fitted refine start (dotted)',
-                line: { color: '#94a3b8', width: 1.5, dash: 'dot' }, hoverinfo: 'skip' });
+            if (runs.length) items.push({ strat, runs });
         }
-        // One redraw carries the renamed legend entries and the new traces (restyle/addTraces on a chart that is
-        // being re-rendered or is hidden throws inside Plotly).
-        if (add.length) Plotly.react(div, [...div.data, ...add], div.layout, { displayModeBar: false, responsive: true });
+        if (!items.length) { Plotly.purge(div); return; }
+        const grid = hlStepGrid(maxEnd);
+        const unitMedian = (vals) => {   // vals: [{c, v}]
+            const ok = vals.filter(a => a.v != null && isFinite(a.v));
+            if (new Set(vals.map(a => a.c)).size <= 1) return hlMedian(ok.map(a => a.v));
+            const byCase = new Map();
+            for (const a of ok) {
+                if (!byCase.has(a.c)) byCase.set(a.c, []);
+                byCase.get(a.c).push(a.v);
+            }
+            return hlMedian([...byCase.values()].map(hlMedian));
+        };
+        const traces = [];
+        for (const { strat, runs } of items) {
+            const color = hlStratColor(strategies, strat);
+            const label = _shortStratLabel(strat);
+            const xs = [], ys = [], ref = [];
+            const jAt = (r, x) => { const u = hlSeriesValueAt(r.p.series, 'u', x); return u > 0 ? 1 / (u * u) : null; };
+            for (let i = mode === 'rate' ? 1 : 0; i < grid.length; i++) {
+                const x = grid[i];
+                const alive = runs.filter(r => r.end >= x);
+                if (alive.length < Math.max(1, Math.ceil(runs.length / 2))) continue;
+                let vals;
+                if (mode === 'rate') {
+                    const xp = grid[i - 1];
+                    vals = alive.map(r => {
+                        const j1 = jAt(r, x), j0 = jAt(r, xp);
+                        return { c: r.c, v: j1 != null && j0 != null ? (j1 - j0) / ((x - xp) * r.star) : null };
+                    });
+                } else {
+                    vals = alive.map(r => { const j = jAt(r, x); return { c: r.c, v: j != null ? r.j0 / j : null }; });
+                    ref.push(unitMedian(alive.map(r => ({ c: r.c, v: r.j0 / (r.j0 + x * r.star) }))));
+                }
+                const m = unitMedian(vals);
+                if (m == null || (mode === 'prior' && !(m > 0))) continue;
+                xs.push(x);
+                ys.push(m);
+            }
+            if (!xs.length) continue;
+            traces.push({ x: xs, y: ys, mode: 'lines', name: `${label} (n=${runs.length})`, legendgroup: strat, line: { color, width: 2 },
+                hovertemplate: `step %{x}<br>%{y:.3g}<extra>${label}</extra>` });
+            if (mode === 'prior') {
+                const rx = grid.filter((_, i) => i < ref.length);
+                traces.push({ x: rx, y: ref, mode: 'lines', legendgroup: strat, showlegend: false, line: { color, width: 1.5, dash: 'dash' },
+                    hovertemplate: `bound: ${label}<br>step %{x}<br>%{y:.3g}<extra></extra>` });
+            }
+        }
+        const layout = hlBaseLayout();
+        layout.xaxis = { ...layout.xaxis, title: { text: 'Measurements', font: { size: 11 } }, type: 'log' };
+        if (mode === 'prior') {
+            layout.yaxis = { ...layout.yaxis, title: { text: 'Prior share of the information, J₀ / J', font: { size: 11 } }, type: 'log' };
+        } else {
+            layout.yaxis = { ...layout.yaxis, title: { text: 'Information per measurement / I*', font: { size: 11 } }, rangemode: 'tozero' };
+            layout.shapes = [{ type: 'line', xref: 'paper', x0: 0, x1: 1, yref: 'y', y0: 1, y1: 1, line: { color: '#475569', width: 1, dash: 'dot' } }];
+        }
+        layout.legend = { ...layout.legend, font: { size: 9 } };
+        Plotly.react(div, traces, layout, { displayModeBar: false, responsive: true });
     }
 
     // One Stages block (a use case, or the median over the selection); `sfx` is the id suffix of its copy of the
@@ -7975,6 +8001,10 @@ function main() {
             Plotly.purge(stepsDiv);
             Plotly.purge(uncDiv);
             Plotly.purge(errCurveDiv);
+            for (const id of ['hl-info-prior', 'hl-info-rate']) {
+                const el = document.getElementById(`${id}${sfx}`);
+                if (el) Plotly.purge(el);
+            }
             return;
         }
 
@@ -8001,6 +8031,8 @@ function main() {
 
         renderHlStageCurve(uncDiv, byStrategy, strategies, 'u', 'Median claimed uncertainty (Hz)');
         renderHlStageCurve(errCurveDiv, byStrategy, strategies, 'e', 'Median true |error| (Hz)');
+        renderHlInfoCurve(document.getElementById(`hl-info-prior${sfx}`), byStrategy, strategies, 'prior');
+        renderHlInfoCurve(document.getElementById(`hl-info-rate${sfx}`), byStrategy, strategies, 'rate');
         for (const st of HL_STAGES) {
             const unc = document.getElementById(`hl-stage-unc-${st.n}${sfx}`);
             const err = document.getElementById(`hl-stage-err-${st.n}${sfx}`);
