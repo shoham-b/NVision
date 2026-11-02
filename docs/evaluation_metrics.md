@@ -84,6 +84,23 @@ remaining tail had mean η ≥ 0.9. In those rows the true error was already ≤
 and refine was reached in about 15% of runs. The boundaries above replace both; the old `max_info_step` column is now
 `refine_start_step`, so older rows show a dash and need a re-run.)
 
+## The segmented fit (log-log)
+
+A claimed-σ curve against measurements is, when everything goes right, three straight lines on log-log axes: flat (search),
+a steep fall (focus), then slope **−1/2** (refine), because σ ∝ 1/√n once every measurement adds Fisher information (CRLB).
+`nvision/metrics/loglog_fit.py` (`fit_segments`) fits continuous hinges with 0, 1 or 2 breakpoints (closed-form least squares
+over breakpoint sets on a log-spaced grid) and keeps the simplest the data support: an extra breakpoint must lower the BIC
+and change the slope by at least 0.15. So a run that never found the dip is one flat segment, one that stopped on the cliff
+has no tail, and a single straight −1/2 line is *not* a refine stage. The last segment's slope is left free (its distance from
+−1/2 is the diagnostic); `refine` needs it in [−0.8, −0.25] over at least 0.3 decades. The Stages view overlays the fit on the
+Whole-run claimed-uncertainty chart (`POST /api/fit-segments`, one fit per locator's median curve): dash-dotted segments,
+circles at the breakpoints that exist, the slopes in the legend, and a dotted −1/2 line continued from the last breakpoint.
+A flat tail (a plain sweep) fits slope ≈ 0 and is flagged "no −½ tail": that means no refine stage, not a slow one.
+
+The fit uses the whole curve, so it is **not causal** and does not set the stage boundaries (those stay causal, see
+`nvision/metrics/stages.py`). On the 2026-11-02 check (3 use cases, SNR 5, 50 repeats each), the existing `refine_start_step`
+sat on the cliff, not on a −1/2 tail, in 72 of 149 Smart-SBED and 113 of 149 Smart-Sweep runs.
+
 ## Rules
 
 1. **Never use the accuracy at the end of a run or stage as a quality metric.** Every run stops once its claimed σ

@@ -7805,6 +7805,7 @@ function main() {
         const traces = [];
         const markers = [];
         const strip = [];
+        const fitCurves = [];
         let slopeRef = null;
         let drewFisher = false;
         const withFisher = key === 'u' && stage >= 2;
@@ -7844,13 +7845,14 @@ function main() {
                 fMed.push(withFisher ? hlMedian(perUnit(at, 'f')) : null);
             }
             if (!xs.length) continue;
+            fitCurves.push({ strat, color, label, xs, med });
             const total = byStrategy.get(strat).length;
             const name = nCases > 1 ? `${label} (${nCases} use cases)`
                 : stage > 0 ? `${label} ${runs.length}/${total}` : `${label} (repeats=${runs.length})`;
             traces.push({ x: xs, y: qHi, mode: 'lines', line: { width: 0 }, hoverinfo: 'skip', showlegend: false, legendgroup: strat });
             traces.push({ x: xs, y: qLo, mode: 'lines', line: { width: 0 }, fill: 'tonexty', fillcolor: hlHexToRgba(color, 0.13),
                 hoverinfo: 'skip', showlegend: false, legendgroup: strat });
-            traces.push({ x: xs, y: med, mode: 'lines', legendgroup: strat, name,
+            traces.push({ x: xs, y: med, mode: 'lines', legendgroup: strat, name, meta: { median: strat },
                 line: { color, width: 2 }, customdata: nLeft, hovertemplate: `step %{x}<br>median %{y:.4g} Hz<br>%{customdata} left<extra>${label}</extra>` });
             if (withFisher && fMed.some(v => v != null)) {
                 drewFisher = true;
@@ -7891,6 +7893,63 @@ function main() {
         layout.margin = { ...layout.margin, b: 50 };
         layout.legend = { ...layout.legend, font: { size: 9 }, tracegroupgap: 2 };
         Plotly.react(div, [...traces, ...markers, ...strip], layout, { displayModeBar: false, responsive: true });
+        if (stage === 0 && key === 'u') overlayLogLogFits(div, fitCurves);
+    }
+
+    // Three straight segments on log-log axes describe a claimed-uncertainty curve: flat (search), a steep fall
+    // (focus), then slope -1/2 (refine: sigma ~ 1/sqrt(n) once every measurement adds Fisher information). The fit
+    // itself is nvision/metrics/loglog_fit.py (POST /api/fit-segments, one fit per locator's median curve); this only
+    // draws it: the fitted segments, a marker at each breakpoint, and the theoretical -1/2 line continued from the
+    // fitted start of the tail, so the gap between the tail and the dotted line is the departure from the CRLB.
+    // Skipped silently when the API is unreachable (a static export has no server).
+    const HL_THEORY_SLOPE = -0.5;
+    const fmtSlope = (s) => (s < 0 ? '−' : '+') + Math.abs(s).toFixed(2);
+    function hlFitAt(f, x) {
+        const lx = Math.log(x);
+        const hinge = (c, k) => (c && k != null ? c * Math.max(0, lx - k) : 0);
+        return Math.exp(f.a + f.s1 * lx + hinge(f.c1, f.k1) + hinge(f.c2, f.k2));
+    }
+    async function overlayLogLogFits(div, curves) {
+        if (!curves.length) return;
+        const token = (div._fitToken = (div._fitToken || 0) + 1);
+        const fits = await Promise.all(curves.map(c => fetch(`${window.NVISION_ASSET_PREFIX || ''}api/fit-segments`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ n: c.xs, sigma: c.med }),
+        }).then(r => (r.ok ? r.json() : null)).catch(() => null)));
+        if (div._fitToken !== token || !div.data) return;   // a newer render replaced this chart
+        const add = [];
+        let drewRef = false;
+        curves.forEach((c, i) => {
+            const f = fits[i];
+            if (!f) return;
+            const xEnd = c.xs[c.xs.length - 1];
+            // Only the breakpoints the data support (1-3 segments): a run with no cliff or no tail gets fewer marks.
+            const breaks = f.breaks_n;
+            const pts = [c.xs[0], ...breaks, xEnd];
+            const tail = f.refine ? '' : ' (no −½ tail)';
+            // The slopes go into the locator's own legend entry (an extra row per locator would squash the plot).
+            const at = div.data.findIndex(t => t.meta && t.meta.median === c.strat);
+            if (at >= 0) div.data[at].name = `${c.label}: ${f.slopes.map(fmtSlope).join(' / ')}${tail}`;
+            add.push({ x: pts, y: pts.map(x => hlFitAt(f, x)), mode: 'lines+markers', legendgroup: c.strat, showlegend: false,
+                name: `${c.label} fit`,
+                line: { color: c.color, width: 2, dash: 'dashdot' },
+                marker: { color: c.color, size: pts.map((_, j) => (j === 0 || j === pts.length - 1 ? 0 : 8)), symbol: 'circle-open', line: { width: 2 } },
+                hovertemplate: `${c.label} fit<br>measurement %{x:.3g}<br>%{y:.4g} Hz<extra></extra>` });
+            // The theoretical -1/2 line continues from the start of the last fitted segment (the tail).
+            const tailStart = breaks.length ? breaks[breaks.length - 1] : null;
+            if (tailStart != null && tailStart < xEnd) {
+                const y0 = hlFitAt(f, tailStart);
+                add.push({ x: [tailStart, xEnd], y: [y0, y0 * Math.pow(xEnd / tailStart, HL_THEORY_SLOPE)], mode: 'lines', legendgroup: c.strat,
+                    showlegend: false, line: { color: c.color, width: 1.5, dash: 'dot' }, hoverinfo: 'skip' });
+                drewRef = true;
+            }
+        });
+        if (drewRef) {
+            add.push({ x: [null], y: [null], mode: 'lines', name: 'slope −½ from the fitted refine start (dotted)',
+                line: { color: '#94a3b8', width: 1.5, dash: 'dot' }, hoverinfo: 'skip' });
+        }
+        // One redraw carries the renamed legend entries and the new traces (restyle/addTraces on a chart that is
+        // being re-rendered or is hidden throws inside Plotly).
+        if (add.length) Plotly.react(div, [...div.data, ...add], div.layout, { displayModeBar: false, responsive: true });
     }
 
     // One Stages block (a use case, or the median over the selection); `sfx` is the id suffix of its copy of the
