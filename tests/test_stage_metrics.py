@@ -367,6 +367,26 @@ def test_oracle_steps_and_efficiency(monkeypatch):
     assert m["stage_window_fwhm"] == pytest.approx(50e6)
 
 
+def test_focus_oracle_discounts_the_prior_information(monkeypatch):
+    # I* = 1, eps = 0.1 -> eps^-2 = 100. A prior with sigma_0 = 0.2 already holds J0 = 25, so (100 - 25) / 1 = 75 steps.
+    _with_eta(monkeypatch, [0.0] * 6 + [1.0] * 4, eps_est=500e3)
+    uncs = [0.2] + [0.19] * 1 + [0.1] * 8  # focus_idx at 2 needs <= 0.7 * 0.2 = 0.14
+    m = compute_stage_metrics(_run(uncs, dip_from=1))
+    assert m["stage_prior_info"] == pytest.approx(25.0)
+    assert m["stage2_oracle_steps"] == pytest.approx(75.0)
+
+
+def test_true_error_first_passage_and_effective_sensitivity(monkeypatch):
+    _with_eta(monkeypatch, [1.0] * 10, eps_est=500e3)
+    monkeypatch.setattr("nvision.metrics.series.effective_convergence_threshold", lambda run, param: 0.5)
+    run = _run([2.0] * 10, dip_from=1)
+    for snap, err in zip(run.snapshots, [4.0] * 3 + [0.4] * 7, strict=True):  # truth is 1.0
+        snap.belief._estimate = 1.0 + err
+    m = compute_stage_metrics(run)
+    assert m["stage_true_passage_step"] == 4  # error <= tau = 0.5 from the 4th measurement on
+    assert m["stage_eta_eff"] == pytest.approx(0.5 * 2.0)
+
+
 def test_refine_oracle_is_the_fisher_steps_from_eps_to_tau(monkeypatch):
     _with_eta(monkeypatch, [0.0, 0.0, 1.0, 1.0, 1.0, 1.0], eps_est=20.0, eps_true=2.0)
     monkeypatch.setattr("nvision.metrics.series.effective_convergence_threshold", lambda run, param: 0.5)

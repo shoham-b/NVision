@@ -7776,7 +7776,9 @@ function main() {
     // bound for the locator, not a target: it assumes every measurement sits at the Fisher-optimal point.
     function hlFisherAt(p, stage, x, start) {
         const star = _mv(p, 'stage_fisher_star');
-        const u0 = _mv(p, `stage${stage}_unc_start`);
+        // Whole run (stage 0): the reference starts from the prior (the claimed sigma at the run's start) and counts
+        // every measurement, so it is the van Trees line J0 + n I*, not a restart at the focus.
+        const u0 = _mv(p, `stage${stage === 0 ? 1 : stage}_unc_start`);
         if (!(star > 0) || !(u0 > 0)) return null;
         return 1 / Math.sqrt(1 / (u0 * u0) + (x - start + 1) * star);
     }
@@ -7808,7 +7810,7 @@ function main() {
         const fitCurves = [];
         let slopeRef = null;
         let drewFisher = false;
-        const withFisher = key === 'u' && stage >= 2;
+        const withFisher = key === 'u' && (stage >= 2 || stage === 0);
         for (const { strat, runs } of items) {
             const color = hlStratColor(strategies, strat);
             const label = _shortStratLabel(strat);

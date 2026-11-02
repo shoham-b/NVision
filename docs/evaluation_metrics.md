@@ -55,8 +55,9 @@ N ≈ 1/(ε² I\*): **they fall as 1/SNR²**. `stage_fisher_star` stores I\* (Hz
 
 * **Focus ends at ε**, the half-width of the region around the best point where g² ≥ 0.9 max g² (η ≥ 1 − δ with
   δ = 0.1). For a Lorentzian η ≈ 1 − 4.5 (ε/γ)², so ε = √(0.1/4.5) γ ≈ 0.15 γ; the code finds it numerically from the
-  true curve (`stage_eps_target_phys`), so it holds for any line shape. Oracle: `stage2_oracle_steps` = 1/(ε² I\*), about
-  100/SNR² for a Lorentzian (the constant depends on the SNR and width definitions; the exponent is the point).
+  true curve (`stage_eps_target_phys`), so it holds for any line shape. Oracle: `stage2_oracle_steps` = (ε⁻² − J₀)/I\*,
+  about 100/SNR² for a Lorentzian when J₀ is small (the constant depends on the SNR and width definitions; the exponent is
+  the point). J₀ is the prior, see below.
   Not defined for drive-controlled models (the best point is a drive setting; pulse fringes can be narrower than the grid).
 * **Refine starts when the claimed σ has stayed ≤ ε** for a few steps (`refine_start_step`; ε taken on the line as the run
   estimated it, so the boundary needs no true parameter and applies to an experiment). **It ends at the stop target τ**
@@ -83,6 +84,33 @@ With the focus stage's mean η only 0.3-0.5, the stage length looks set by explo
 remaining tail had mean η ≥ 0.9. In those rows the true error was already ≤ ε at "dip found" in about a third of SBED runs,
 and refine was reached in about 15% of runs. The boundaries above replace both; the old `max_info_step` column is now
 `refine_start_step`, so older rows show a dash and need a re-run.)
+
+## The prior is information
+
+A search window is a prior: a uniform window of width W says "the dip is inside, nowhere in particular", with variance
+W²/12, so it already holds information J₀ = σ₀⁻² before any shot (for a uniform window σ₀ = W/√12 is a variance-matched
+convention, not the prior's true Fisher information, which is infinite at the edges). The Cramér-Rao line
+σ = 1/√(n I\*) is therefore not the reference for a Bayesian posterior; the reference is the van Trees form
+
+$$\sigma(n) \ge \big(J_0 + n\,I^*\big)^{-1/2},$$
+
+flat while the prior dominates, then bending onto the −1/2 line from *below*. A claimed σ below the plain CRLB at small n
+is expected and says nothing wrong; only a true error (averaged over repeats) below the van Trees line would. Consequences:
+
+* Window widths are not comparable without J₀: a narrower window starts lower for free. `stage_prior_info` stores J₀ (σ
+  after the first measurement, the prior to one measurement's accuracy). A focus window built from the search posterior
+  was paid for with shots; a window placed with the truth (e.g. the Zeeman edge pad) is information the locator did not earn.
+* The focus oracle is `(ε⁻² − J₀)/I*`, not "from scratch". Refine already started from ε⁻². Together:
+  `(τ⁻² − J₀)/I*` for the whole run.
+* The Stages view's Whole run chart draws this reference (J₀ from the run's own start, every measurement counted); the
+  focus and refine charts keep restarting from the stage's own claimed σ.
+* **Sensitivity and bandwidth are asymptotic.** η = δB √T is a constant only when σ ∝ T^(−1/2) exactly (refine). The
+  operational quantity is the first passage time of the true error to a target, `stage_true_passage_step` = T(τ); the
+  bandwidth is 1/T and `stage_eta_eff` = τ √T (Hz √steps) is the effective sensitivity *at that target*. It tends to the
+  refine sensitivity as τ → 0 and is not a constant of the locator. Convert to B with the gyromagnetic ratio for display;
+  per-step time is not in the data yet, so T is in steps.
+
+Stored only for runs recorded after these columns were added; re-run to get them (the cache has no belief snapshots).
 
 ## The segmented fit (log-log)
 
