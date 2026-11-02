@@ -22,8 +22,8 @@ window.NVISION_GRID_AXIS_ORDER = ['drive_mode', 'window', 'gaussian_share', 'wid
 window.NVISION_GRID_AXIS_INFO = {
     // Derived from grid_variant ("cw_drive"/"pulsed_drive"), not a recorded grid_* field.
     drive_mode: { label: 'Drive', short: 'drive', metricsKey: 'grid_drive_mode', scaleToMHz: false },
-    // Drive-frequency window as a multiple of the signal's total FWHM (the SNR x window study grid).
-    window: { label: 'Window (FWHM)', short: 'window', metricsKey: 'grid_window_fwhm', scaleToMHz: false },
+    // Share of the drive-frequency window one dip group covers, hyperfine lines included (the SNR x window study grid).
+    window: { label: 'Signal occupancy', short: 'occupancy', metricsKey: 'grid_signal_occupancy', scaleToMHz: false },
     // Gaussian part of the total FWHM at a fixed total FWHM (the SNR x window study); 0 = pure Lorentzian.
     gaussian_share: { label: 'Gaussian share of FWHM', short: 'gauss share', metricsKey: 'grid_gaussian_share', scaleToMHz: false },
     width: { label: 'HWHM (MHz)', short: 'hwhm', metricsKey: 'grid_hwhm', scaleToMHz: true },
@@ -62,7 +62,7 @@ window.nvisionGeneratorAxes = function (rawGridInfo) {
     const axes = [];
     // The SNR study fixes the contrast and the total FWHM and varies the line shape by its Gaussian share; a run is
     // picked by SNR, window and share, so the contrast, HWHM and sigma_inhom (which only restate the share) are no axes.
-    const studyFixed = gridInfo.grid_window_fwhm != null ? new Set(['width', 'contrast', 'sigma_inhom']) : new Set();
+    const studyFixed = gridInfo.grid_signal_occupancy != null ? new Set(['width', 'contrast', 'sigma_inhom']) : new Set();
     for (const key of window.NVISION_GRID_AXIS_ORDER) {
         if (studyFixed.has(key)) continue;
         const info = window.NVISION_GRID_AXIS_INFO[key];

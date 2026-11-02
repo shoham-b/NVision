@@ -14,9 +14,7 @@
 <div id="run-status-banner"></div>
 <p class="last-run" id="last-run-time"></p>
 <div class="header-actions">
-    <a download href="locator_results.parquet" class="link-button">Download locator_results.parquet</a>
-    <button type="button" id="recalc-btn" class="link-button" title="Keyboard shortcut: 'r'">Recalculate results</button>
-</div>
+    <a download href="locator_results.parquet" class="link-button">Download locator_results.parquet</a></div>
 <details id="stories-view" class="section" open style="display:none;">    <summary style="cursor:pointer; font-size:1.3em; font-weight:700; color:#0f172a;">Stories — what stands out in the data <span tabindex="0" class="help-icon-visible" title="Found by scanning every use case of the selected study: where the locators differ the most. Independent of the Parameters selection below.">?</span></summary>    <div id="stories-body"></div></details>
 <div class="tab-bar" role="tablist"></div>
 <div aria-labelledby="tab-scan" class="section tab-panel" id="scan-section" role="tabpanel">
@@ -76,10 +74,6 @@
                     <select aria-label="Scan repeat" class="control-select" id="scan-repeat"></select>
                     <button aria-label="Next repeat" class="control-button" id="scan-repeat-next" type="button">Next</button>
                 </div>
-                <label class="control-row" style="margin-left: 1.5em; display: inline-flex; align-items: center; gap: 0.4em;" title="Split into two stacked subplots, one per Zeeman group, with the lower-frequency group mirrored so both read in the same orientation -- to visually check Zeeman/hyperfine symmetry and see which measurements landed in each group. Falls back to a single center-fold when the signal has no Zeeman splitting.">
-                    <input type="checkbox" id="scan-flip-view-toggle">
-                    <span>Flip view (fold by Zeeman group)</span>
-                </label>
             </div>
         </div>
         <!-- Global timeline: lives with the repeat picker so both stay on screen while scrolling the scan plot (which it drives) and the Bayesian plots. -->
@@ -320,19 +314,16 @@
                     <div id="hl-stage-err-3" style="height:420px; width:100%;"></div>
                 </div>
             </div>
-            <div style="display:flex; flex-wrap:wrap; gap:1.5em; margin-top:1em;">
-                <div style="flex:1 1 46%; min-width:420px; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px;">
-                    <h3 style="margin-left:10px;">Measurements in the refine stage <span tabindex="0" class="help-icon-visible" title="Median measurements this stage took, over the repeats that reached it; whiskers are the interquartile range (over use cases when several are selected).">?</span></h3>
-                    <div id="hl-stages-steps-3" style="height:320px; width:100%;"></div>
-                </div>
-                <div style="flex:1 1 46%; min-width:420px; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px;">
-                    <h3 style="margin-left:10px;">Claimed uncertainty vs Fisher <span tabindex="0" class="help-icon-visible" title="Stage 3 aligned to its start. Solid: the locator's claimed primary-parameter uncertainty (median, IQR over runs still going), relative to its value when refine began. Dashed: the Fisher reference, the start uncertainty improved only by the true Fisher information of the measurements since (sensitivity of the true signal, shots and noise). Solid below dashed = the belief claims more precision than the data carry. Applies to every locator that reaches the stage.">?</span></h3>
-                    <div id="hl-refine-unc" style="height:320px; width:100%;"></div>
-                </div>
-                <div style="flex:1 1 46%; min-width:420px; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px;">
-                    <h3 style="margin-left:10px;">True error vs Fisher <span tabindex="0" class="help-icon-visible" title="Same alignment as the left plot, but the solid line is the actual |estimate - truth| relative to the claimed uncertainty at refine start. The dashed Fisher reference is the same one, so true error above it means the locator is not improving as fast as Fisher information allows.">?</span></h3>
-                    <div id="hl-refine-err" style="height:320px; width:100%;"></div>
-                </div>
+            <div style="margin-top:1em; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px;">
+                <h3 style="margin-left:10px;">Measurements in the refine stage <span tabindex="0" class="help-icon-visible" title="Median measurements this stage took, over the repeats that reached it; whiskers are the interquartile range (over use cases when several are selected).">?</span></h3>
+                <div id="hl-stages-steps-3" style="height:320px; width:100%;"></div>
+            </div>
+            <div style="margin-top:1em; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px;">
+                <h3 style="margin-left:10px; display:flex; align-items:center; gap:1em; flex-wrap:wrap;">
+                    <span>Claimed uncertainty and true error vs Fisher <span tabindex="0" class="help-icon-visible" title="Stage 3 aligned to its start, everything relative to the claimed uncertainty when refine began. Solid: the locator's claimed primary-parameter uncertainty (median, IQR over runs still going). Dotted: the actual |estimate - truth|. Dashed: the Fisher reference, the start uncertainty improved only by the true Fisher information of the measurements since. Solid below dashed = the belief claims more precision than the data carry; dotted above dashed = the locator is not improving as fast as Fisher information allows. Applies to every locator that reaches the stage.">?</span></span>
+                    <label style="font-size:0.8em; font-weight:400; color:#334155; display:inline-flex; align-items:center; gap:0.4em;"><input type="checkbox" id="hl-refine-locators" checked> Show locators</label>
+                </h3>
+                <div id="hl-refine-unc" style="height:360px; width:100%;"></div>
             </div>
             <div style="margin-top:1em; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px;">
                 <h3 style="margin-left:10px;">Paired difference per repeat <span tabindex="0" class="help-icon-visible" title="Repeat i has the same true signal for every locator, so the refine steps of a locator minus Bayesian-SBED's on the same repeat cancels the signal-to-signal spread. Right of zero = SBED needed fewer. Shown for a single use case (Each use case).">?</span></h3>

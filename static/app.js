@@ -3057,9 +3057,10 @@ function main() {
                     scanGeneratorFamily.appendChild(option);
                 }
                 const candidateKey = forcedFamilyKey ?? prevFamilyKey;
+                // First load defaults to the Lorentzian / Voigt study.
                 selectedFamilyKey = candidateKey && familyOptions.some((o) => o.key === candidateKey)
                     ? candidateKey
-                    : familyOptions[0].key;
+                    : (familyOptions.find((o) => o.key === 'voigt') || familyOptions[0]).key;
                 scanGeneratorFamily.value = selectedFamilyKey;
                 scanGeneratorFamily.onchange = () => {
                     updateScanSignalControls(scanGeneratorFamily.value);
@@ -6854,6 +6855,15 @@ function main() {
         return row.grid_gaussian_share == null ? null : Math.round(row.grid_gaussian_share * 1e6) / 1e6;
     }
 
+    // Signal occupancy of a study row: the share of the drive window one dip group covers (hyperfine lines included),
+    // rounded so the same grid value compares equal across generators. The window axis of the SNR x window study.
+    function ssOcc(row) {
+        return row.grid_signal_occupancy == null ? null : Math.round(row.grid_signal_occupancy * 1e6) / 1e6;
+    }
+    function ssOccLabel(occ) {
+        return `${Number((occ * 100).toPrecision(3))}%`;
+    }
+
     // Total FWHM (Hz) of a study row: Lorentzian 2 x hwhm_lorentz + Gaussian 2.355 x sigma_inhom.
     function ssTotalFwhm(row) {
         if (row.grid_hwhm == null || row.grid_sigma_inhom == null) return null;
@@ -7057,18 +7067,18 @@ function main() {
     function ssUseCaseLabel(row) {
         const snr = ssSnr(row);
         const snrText = snr == null ? row.noise : `SNR ${snr === Infinity ? '∞' : Number(snr.toPrecision(3))}`;
-        if (row.grid_window_fwhm == null || ssShareKey(row) == null) {
+        if (ssOcc(row) == null || ssShareKey(row) == null) {
             return snr == null ? `${row.generator} · ${row.noise}` : `${row.generator} · ${snrText}`;
         }
         const fwhm = ssTotalFwhm(row);
-        const mhz = fwhm == null ? '' : ` (${((row.grid_window_fwhm * fwhm) / 1e6).toFixed(0)} MHz)`;
-        return `window ${row.grid_window_fwhm} × FWHM${mhz} · ${ssShapeLabel(ssShareKey(row))} · ${snrText}`;
+        const mhz = fwhm == null || row.grid_window_fwhm == null ? '' : ` (${((row.grid_window_fwhm * fwhm) / 1e6).toFixed(0)} MHz window)`;
+        return `occupancy ${ssOccLabel(ssOcc(row))}${mhz} · ${ssShapeLabel(ssShareKey(row))} · ${snrText}`;
     }
 
-    // Use cases in reading order: window, line shape, then SNR ascending (older caches: by name).
+    // Use cases in reading order: window (occupancy descending = narrowest window first), line shape, then SNR ascending (older caches: by name).
     function ssUseCaseCompare(a, b) {
         const num = (x, y) => (x === y ? 0 : x == null ? 1 : y == null ? -1 : x - y);
-        return num(a.grid_window_fwhm, b.grid_window_fwhm) || num(ssShareKey(a), ssShareKey(b))
+        return num(ssOcc(b), ssOcc(a)) || num(ssShareKey(a), ssShareKey(b))
             || num(ssSnr(a), ssSnr(b)) || a.generator.localeCompare(b.generator) || a.noise.localeCompare(b.noise);
     }
 
@@ -7082,10 +7092,10 @@ function main() {
         const usableAll = rows.filter(ssUsable);
         // The SNR x window study: runs that carry both a window and a Gaussian share. Without them (older caches)
         // there is one panel and no shape controls.
-        const windows = [...new Set(usableAll.map((r) => r.grid_window_fwhm).filter((v) => v != null))].sort((a, b) => a - b);
+        const windows = [...new Set(usableAll.map(ssOcc).filter((v) => v != null))].sort((a, b) => b - a);   // occupancies, narrowest window first
         const shares = [...new Set(usableAll.map(ssShareKey).filter((v) => v != null))].sort((a, b) => a - b);
         const study = windows.length > 0 && shares.length > 0;
-        const usable = study ? usableAll.filter((r) => r.grid_window_fwhm != null && ssShareKey(r) != null) : usableAll;
+        const usable = study ? usableAll.filter((r) => ssOcc(r) != null && ssShareKey(r) != null) : usableAll;
         // The charts show one line shape: the one picked here, else the selected use case's, else the middle one.
         const selected = usable.filter(isSelected);
         const selShares = [...new Set(selected.map(ssShareKey).filter((v) => v != null))];
@@ -7102,8 +7112,9 @@ function main() {
                 + (fwhm != null ? `, total FWHM ${(fwhm / 1e6).toFixed(2)} MHz` : '');
         };
         const windowMHz = (n) => {
-            const fwhm = ssTotalFwhm(usable.find((r) => r.grid_window_fwhm === n));
-            return fwhm == null ? null : (n * fwhm) / 1e6;
+            const r = usable.find((row) => ssOcc(row) === n);
+            const fwhm = r && ssTotalFwhm(r);
+            return fwhm == null || r.grid_window_fwhm == null ? null : (r.grid_window_fwhm * fwhm) / 1e6;
         };
         ssRenderShapeControls(study && offered.length > 1, offered.map((s) => ({ share: s, tip: shapeTip(s) })), shareSel, strategies, cmpLoc);
 
@@ -7247,13 +7258,13 @@ function main() {
                 container.appendChild(div);
                 const traces = [];
                 const mhz = sv == null ? null : windowMHz(sv);
-                const windowTip = sv == null ? '' : `<br>window ${sv} × FWHM${mhz != null ? ` = ${mhz.toFixed(1)} MHz` : ''}`;
+                const windowTip = sv == null ? '' : `<br>occupancy ${ssOccLabel(sv)}${mhz != null ? ` (window ${mhz.toFixed(1)} MHz)` : ''}`;
                 for (const s of series) {
                     for (const spec of lineSpecs) {
                         const st = spec.st;
                         const bySnr = new Map();
                         for (const r of byAll.get(st)) {
-                            if (sv != null && r.grid_window_fwhm !== sv) continue;
+                            if (sv != null && ssOcc(r) !== sv) continue;
                             if (spec.share != null && ssShareKey(r) !== spec.share) continue;
                             if (s.filter && !s.filter(r)) continue;
                             const snr = ssSnr(r);
@@ -7278,11 +7289,11 @@ function main() {
                 }
                 // The selected use case: a dotted vertical line at its SNR (in the shape shown, unless comparing shapes).
                 const markSnrs = new Set(selected
-                    .filter((r) => (sv == null || r.grid_window_fwhm === sv) && (!study || ssCompare || ssShareKey(r) === shareSel))
+                    .filter((r) => (sv == null || ssOcc(r) === sv) && (!study || ssCompare || ssShareKey(r) === shareSel))
                     .map(ssSnr).filter((v) => v != null));
                 const selectedMarks = [...markSnrs].map((v) => ({ type: 'line', xref: 'x', yref: 'paper', x0: snrX(v), x1: snrX(v), y0: 0, y1: 1, line: { color: '#2563eb', width: 1, dash: 'dot' } }));
                 Plotly.react(div, traces, {
-                    title: sv == null ? undefined : { text: `window ${sv} × FWHM`, font: { size: 12 } },
+                    title: sv == null ? undefined : { text: `occupancy ${ssOccLabel(sv)}`, font: { size: 12 } },
                     margin: { l: 60, r: 10, t: sv == null ? 10 : 30, b: 50 },
                     xaxis, yaxis,
                     shapes: selectedMarks.concat(refLines.map((ref) => ({ type: 'line', xref: 'paper', x0: 0, x1: 1, y0: ref.y, y1: ref.y, line: { color: '#94a3b8', width: 1, dash: 'dash' } }))),
@@ -7315,7 +7326,7 @@ function main() {
         const named = /^SNR\(([^)]+)\)$/.exec(p.noise || '');
         return {
             generator: p.generator, noise: p.noise,
-            grid_window_fwhm: get('grid_window_fwhm'), grid_gaussian_share: get('grid_gaussian_share'),
+            grid_window_fwhm: get('grid_window_fwhm'), grid_signal_occupancy: get('grid_signal_occupancy'), grid_gaussian_share: get('grid_gaussian_share'),
             grid_hwhm: get('grid_hwhm'), grid_sigma_inhom: get('grid_sigma_inhom'),
             grid_contrast_total: get('grid_contrast_total'), noise_sigma: get('noise_sigma'),
             snr: get('snr') != null ? get('snr') : (named && isFinite(Number(named[1])) ? Number(named[1]) : null),
@@ -7344,10 +7355,10 @@ function main() {
     function ucScopeLabel(cases) {
         const uniq = (f) => [...new Set(cases.map((c) => f(c.row)).filter((v) => v != null))].sort((a, b) => a - b);
         const parts = [`Median over ${cases.length} use cases`];
-        const windows = uniq((r) => r.grid_window_fwhm);
+        const windows = uniq(ssOcc).reverse();
         const shares = uniq(ssShareKey);
         const snrs = uniq(ssSnr);
-        if (windows.length) parts.push(`window ${windows.join(', ')} × FWHM`);
+        if (windows.length) parts.push(`occupancy ${windows.map(ssOccLabel).join(', ')}`);
         if (shares.length) parts.push(shares.map(ssShapeLabel).join(', '));
         if (snrs.length) parts.push(`SNR ${snrs.map((v) => (v === Infinity ? '∞' : Number(v.toPrecision(3)))).join(', ')}`);
         return parts.join(' · ');
@@ -7592,8 +7603,8 @@ function main() {
                 row.extraMed = hlMedian(hlCaseShares(runs, p => _mv(p, 'focus_found_step') != null));
                 row.extraHtml = HL_CMP_FMT.pct(row.extraMed);
                 const perW = hlUnits(runs, p => {
-                    const s = _mv(p, 'stage1_steps'), w = _mv(p, 'stage_window_fwhm');
-                    return s != null && w > 0 ? s / w : null;
+                    const s = _mv(p, 'stage1_steps'), occ = _mv(p, 'grid_signal_occupancy');
+                    return s != null && occ > 0 ? s * occ : null;
                 });
                 row.cols = [iqr(perW)];
             } else {
@@ -7615,7 +7626,7 @@ function main() {
         const bestEff = Math.max(...rows.map(r => r.effMed).filter(v => v != null));
         rows.sort((a, b) => (a.stepsMed ?? Infinity) - (b.stepsMed ?? Infinity));
         const moreHeads = n === 1
-            ? [{ head: 'Steps per (window / FWHM)', tip: 'Measurements in the search stage divided by the window in units of the true dip FWHM: a blind search must cover that many dip-widths, so this is roughly flat in the window.' }]
+            ? [{ head: 'Steps × occupancy', tip: 'Measurements in the search stage times the signal occupancy (the share of the window the signal covers, i.e. steps per window ÷ signal width): a blind search must cover that many signal-widths, so this is roughly flat in the window.' }]
             : [
                 { head: 'Fisher bound (steps)', tip: n === 2 ? 'Measurements to reach the near-optimal precision eps (the region where the sensitivity stays ≥ 90% of its maximum) taking every shot at the best point: 1 / (eps² I*). A lower bound, not a target.' : 'Measurements to take the claimed σ from its value at refine start to the stop target τ, every shot at the best point: (τ⁻² − σ₀⁻²) / I*. A lower bound, not a target.' },
                 { head: 'Efficiency (bound ÷ steps)', tip: 'Fisher bound over the steps actually spent: 1 = Fisher-limited, small = most measurements did not carry information about the primary parameter.' },
@@ -7931,18 +7942,32 @@ function main() {
     // measurements since; see nvision/metrics/series.py extract_refine_series). Same for every locator that
     // reaches the stage.
     const HL_REFINE_MIN_RUNS = 3;
+    let hlRefineShowLocators = true;   // the single show/hide switch for all locator curves of the refine plot
     function renderHlRefineCurves(byStrategy, strategies, sfx) {
-        const uncDiv = document.getElementById(`hl-refine-unc${sfx}`);
-        const errDiv = document.getElementById(`hl-refine-err${sfx}`);
-        if (!uncDiv || !errDiv) return;
-        const uncTraces = [], errTraces = [];
+        const div = document.getElementById(`hl-refine-unc${sfx}`);
+        if (!div) return;
+        const traces = [];
+        const toggle = document.getElementById(`hl-refine-locators${sfx}`);
+        if (toggle) {
+            toggle.checked = hlRefineShowLocators;
+            toggle.onchange = () => {
+                hlRefineShowLocators = toggle.checked;
+                // One switch for every copy of the plot (one per use case): show or hide all locator curves at once.
+                document.querySelectorAll('[id^="hl-refine-unc"]').forEach((el) => {
+                    if (!el.data) return;
+                    const idx = el.data.map((t, i) => (t.meta === 'locator' ? i : -1)).filter(i => i >= 0);
+                    if (idx.length) Plotly.restyle(el, { visible: hlRefineShowLocators }, idx);
+                });
+                document.querySelectorAll('input[id^="hl-refine-locators"]').forEach((el) => { el.checked = hlRefineShowLocators; });
+            };
+        }
         for (const strat of strategies) {
             const runs = byStrategy.get(strat).map(p => p.series && p.series.r).filter(r => r && r.u && r.u[0] > 0);
             if (runs.length < HL_REFINE_MIN_RUNS) continue;
             const color = hlStratColor(strategies, strat);
             const label = _shortStratLabel(strat);
             const maxK = Math.max(...runs.map(r => r.u.length - 1));
-            const add = (traces, key, name, dash, band) => {
+            const add = (key, name, dash, band, isLocator) => {
                 const xs = [], med = [], lo = [], hi = [], n = [];
                 for (let k = 0; k <= maxK; k++) {
                     const vals = hlSorted(runs.filter(r => r[key].length > k && r[key][k] != null).map(r => r[key][k] / r.u[0]));
@@ -7952,36 +7977,34 @@ function main() {
                 }
                 if (!xs.length) return;
                 if (band) {
-                    traces.push({ x: xs, y: hi, mode: 'lines', line: { width: 0 }, hoverinfo: 'skip', showlegend: false, legendgroup: strat });
-                    traces.push({ x: xs, y: lo, mode: 'lines', line: { width: 0 }, fill: 'tonexty', fillcolor: hlHexToRgba(color, 0.13), hoverinfo: 'skip', showlegend: false, legendgroup: strat });
+                    const vis = isLocator ? hlRefineShowLocators : true;
+                    traces.push({ x: xs, y: hi, mode: 'lines', line: { width: 0 }, hoverinfo: 'skip', showlegend: false, legendgroup: strat, meta: 'locator', visible: vis });
+                    traces.push({ x: xs, y: lo, mode: 'lines', line: { width: 0 }, fill: 'tonexty', fillcolor: hlHexToRgba(color, 0.13), hoverinfo: 'skip', showlegend: false, legendgroup: strat, meta: 'locator', visible: vis });
                 }
                 traces.push({
                     x: xs, y: med, mode: 'lines', legendgroup: strat, name: `${label} ${name}`, customdata: n,
                     line: { color, width: 2, dash },
+                    meta: isLocator ? 'locator' : 'fisher', visible: isLocator ? hlRefineShowLocators : true,
                     hovertemplate: `${label} ${name}<br>%{x} refine steps<br>%{y:.3g} × start σ (%{customdata} runs)<extra></extra>`,
                 });
             };
-            add(uncTraces, 'u', `claimed σ (repeats=${runs.length})`, undefined, true);
-            add(uncTraces, 'f', 'Fisher reference', 'dash', false);
-            add(errTraces, 'e', `true error (repeats=${runs.length})`, undefined, true);
-            add(errTraces, 'f', 'Fisher reference', 'dash', false);
+            // Claimed σ (solid, with its IQR band), true error (dotted) and the Fisher reference (dashed, the same
+            // for both) share one plot, all relative to the claimed σ at refine start.
+            add('u', `claimed σ (repeats=${runs.length})`, undefined, true, true);
+            add('e', `true error (repeats=${runs.length})`, 'dot', false, true);
+            add('f', 'Fisher reference', 'dash', false, false);
         }
-        for (const [div, traces, title] of [
-            [uncDiv, uncTraces, 'Claimed σ / claimed σ at refine start'],
-            [errDiv, errTraces, '|True error| / claimed σ at refine start'],
-        ]) {
-            if (!traces.length) {
-                Plotly.purge(div);
-                div.innerHTML = '<p style="color:#94a3b8;padding:1em;font-size:0.9em;">No run reached the refine stage (or these runs predate the refine export).</p>';
-                continue;
-            }
-            const layout = hlBaseLayout();
-            layout.legend = { orientation: 'h', yanchor: 'top', y: -0.22, xanchor: 'left', x: 0, font: { size: 10 } };
-            layout.margin = { ...layout.margin, b: 110 };
-            layout.xaxis = { ...layout.xaxis, title: { text: 'Measurements since refine start', font: { size: 11 } } };
-            layout.yaxis = { ...layout.yaxis, title: { text: title, font: { size: 11 } }, type: 'log' };
-            Plotly.react(div, traces, layout, { displayModeBar: false, responsive: true });
+        if (!traces.length) {
+            Plotly.purge(div);
+            div.innerHTML = '<p style="color:#94a3b8;padding:1em;font-size:0.9em;">No run reached the refine stage (or these runs predate the refine export).</p>';
+            return;
         }
+        const layout = hlBaseLayout();
+        layout.legend = { orientation: 'h', yanchor: 'top', y: -0.22, xanchor: 'left', x: 0, font: { size: 10 } };
+        layout.margin = { ...layout.margin, b: 110 };
+        layout.xaxis = { ...layout.xaxis, title: { text: 'Measurements since refine start', font: { size: 11 } } };
+        layout.yaxis = { ...layout.yaxis, title: { text: 'Claimed σ and |true error| / claimed σ at refine start', font: { size: 11 } }, type: 'log' };
+        Plotly.react(div, traces, layout, { displayModeBar: false, responsive: true });
     }
 
     // ── Scaling tab ──────────────────────────────────────────────────────────
@@ -8017,8 +8040,9 @@ function main() {
             return v.length ? { med: hlQuantileSorted(v, 0.5), lo: hlQuantileSorted(v, 0.25), hi: hlQuantileSorted(v, 0.75), n: v.length } : null;
         };
         return {
-            // The declared grid window (what the Window chips select); the measured one only when the study has none.
-            window: row.grid_window_fwhm ?? _mv(first, 'stage_window_fwhm'),
+            // Window in units of the signal's width = 1 / signal occupancy (what the Occupancy chips select); the
+            // measured window / true FWHM only when the study has no occupancy.
+            window: ssOcc(row) > 0 ? Math.round(1e6 / ssOcc(row)) / 1e6 : _mv(first, 'stage_window_fwhm'),
             snr: snr != null && isFinite(snr) ? snr : null,
             share: ssShareKey(row),
             driver: fwhm > 0 && tau > 0 && snr > 0 && isFinite(snr) ? Math.pow(fwhm / (snr * tau), 2) : null,
@@ -8180,11 +8204,11 @@ function main() {
             if (snrs.length > 1) toggles.push(toggle('snr', 'SNR', scalingSplit.snr));
             const bySnr = snrs.length ? snrs : [null];
             const windowFacets = (yField, boundField, yTitle, slope, refName) => splitSnr
-                ? bySnr.map(snr => ({ label: snr == null ? '' : snrLabel(snr), lines: linesFor(p => p.window, yField, boundField, p => snr == null || p.snr === snr), opts: { xTitle: 'Window (× true FWHM)', yTitle: `${yTitle} (median)`, xLog: true, ref: { slope }, refName } }))
-                : [{ label: snrs.length > 1 ? `${snrs.length} SNR levels combined` : (snrs.length ? snrLabel(snrs[0]) : ''), lines: combinedLines(p => p.window, p => p.snr, yField, boundField, 'SNR'), opts: { xTitle: 'Window (× true FWHM)', yTitle: `${yTitle} ÷ at smallest window`, xLog: true, ref: { slope }, refName } }];
-            addPanel('Search steps vs window', 'Measurements in the search stage against the window in units of the true dip FWHM. A blind search must cover about window / FWHM dip-widths, so the dotted line (proportional to the window) is the prediction for the slope; SNR only shifts the level (the passes needed to see the dip). Combined: each SNR is divided by its own value at the smallest window and the SNRs are averaged (geometric mean, bar = min..max), so the chart tests the slope. Split: raw steps, one chart per SNR. Locators should be roughly alike here.',
+                ? bySnr.map(snr => ({ label: snr == null ? '' : snrLabel(snr), lines: linesFor(p => p.window, yField, boundField, p => snr == null || p.snr === snr), opts: { xTitle: 'Window ÷ signal width (1 / occupancy)', yTitle: `${yTitle} (median)`, xLog: true, ref: { slope }, refName } }))
+                : [{ label: snrs.length > 1 ? `${snrs.length} SNR levels combined` : (snrs.length ? snrLabel(snrs[0]) : ''), lines: combinedLines(p => p.window, p => p.snr, yField, boundField, 'SNR'), opts: { xTitle: 'Window ÷ signal width (1 / occupancy)', yTitle: `${yTitle} ÷ at smallest window`, xLog: true, ref: { slope }, refName } }];
+            addPanel('Search steps vs signal occupancy', 'Measurements in the search stage against the window ÷ signal width (1 / signal occupancy; occupancy is the share of the window the signal covers, hyperfine lines included). A blind search must cover about window ÷ signal width dip-widths, so the dotted line (proportional to the window) is the prediction for the slope; SNR only shifts the level (the passes needed to see the dip). Combined: each SNR is divided by its own value at the smallest window and the SNRs are averaged (geometric mean, bar = min..max), so the chart tests the slope. Split: raw steps, one chart per SNR. Locators should be roughly alike here.',
                 windowFacets('search', null, 'Search steps', 1, '∝ window'));
-            addPanel('Focus steps vs window', 'Measurements in the focus stage against the window. Focus starts once the dip is seen and aims at a precision set by the line width, so the prediction (dotted) is flat in the window. A slope means search is leaking into focus or the locator keeps searching. Combined: each SNR is divided by its own value at the smallest window and the SNRs are averaged (geometric mean, bar = min..max). Split: raw steps, one chart per SNR.',
+            addPanel('Focus steps vs signal occupancy', 'Measurements in the focus stage against the window. Focus starts once the dip is seen and aims at a precision set by the line width, so the prediction (dotted) is flat in the window. A slope means search is leaking into focus or the locator keeps searching. Combined: each SNR is divided by its own value at the smallest window and the SNRs are averaged (geometric mean, bar = min..max). Split: raw steps, one chart per SNR.',
                 windowFacets('focus', 'focusBound', 'Focus steps', 0, 'flat'));
         } else {
             notes.push('Select two or more windows (Parameters: Window) to see search and focus against the window.');
@@ -8197,8 +8221,8 @@ function main() {
             const snrOpts = { xTitle: 'SNR (contrast / noise σ)', xLog: true, ref: { slope: -2 }, refName: 'slope −2 (1/SNR²)' };
             addPanel('Focus steps vs SNR', 'Measurements in the focus stage against SNR = contrast / noise σ. The information per measurement grows as SNR², so the steps needed for a given precision fall as 1/SNR²: the dotted line has slope −2, and the dashed line is the Fisher bound (every measurement at the best point). Steps flatten at high SNR where a few probing measurements dominate. Split: one chart per window. Combined: each window is divided by its own value at the lowest SNR and the windows are averaged (geometric mean, bar = min..max).',
                 splitWin
-                    ? byWindow.map(w => ({ label: w == null ? '' : `window ${w} × FWHM`, lines: linesFor(p => p.snr, 'focus', 'focusBound', p => w == null || p.window === w), opts: { ...snrOpts, yTitle: 'Focus steps (median)' } }))
-                    : [{ label: windows.length > 1 ? `${windows.length} windows combined` : (windows.length ? `window ${windows[0]} × FWHM` : ''), lines: combinedLines(p => p.snr, p => p.window, 'focus', 'focusBound', 'window'), opts: { ...snrOpts, yTitle: 'Focus steps ÷ at lowest SNR' } }]);
+                    ? byWindow.map(w => ({ label: w == null ? '' : `occupancy ${ssOccLabel(1 / w)}`, lines: linesFor(p => p.snr, 'focus', 'focusBound', p => w == null || p.window === w), opts: { ...snrOpts, yTitle: 'Focus steps (median)' } }))
+                    : [{ label: windows.length > 1 ? `${windows.length} windows combined` : (windows.length ? `occupancy ${ssOccLabel(1 / windows[0])}` : ''), lines: combinedLines(p => p.snr, p => p.window, 'focus', 'focusBound', 'window'), opts: { ...snrOpts, yTitle: 'Focus steps ÷ at lowest SNR' } }]);
         } else {
             notes.push('Select two or more SNR levels to see focus against SNR.');
         }
@@ -8282,7 +8306,7 @@ function main() {
                 if (!useCases.has(key)) {
                     const iso = /hf(unresolved|n14|n15)/.exec(rs[0].generator);
                     const parts = [];
-                    if (pt.window != null) parts.push(`window ${pt.window} × FWHM`);
+                    if (pt.window != null) parts.push(`occupancy ${ssOccLabel(1 / pt.window)}`);
                     if (pt.snr != null) parts.push(`SNR ${Number(pt.snr.toPrecision(3))}`);
                     if (pt.share != null) parts.push(ssShapeLabel(pt.share));
                     if (iso) parts.push(`isotope ${iso[1]}`);
@@ -9265,16 +9289,6 @@ function main() {
         });
     }
 
-    const scanFlipViewToggle = document.getElementById('scan-flip-view-toggle');
-    if (scanFlipViewToggle) {
-        scanFlipViewToggle.addEventListener('change', () => {
-            scanFlipViewEnabled = scanFlipViewToggle.checked;
-            const scanPlotDiv = document.getElementById('scan-plot-div');
-            if (scanPlotDiv && scanPlotDiv._lastJsonPath) {
-                renderPlotFromJson(scanPlotDiv, scanPlotDiv._lastJsonPath);
-            }
-        });
-    }
 
     if (scanDefault) {
         scanGenerator.dataset.value = scanDefault.generator ?? '';
