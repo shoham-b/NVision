@@ -238,6 +238,18 @@
                     <div id="hl-stages-errcurve" style="height:420px; width:100%;"></div>
                 </div>
             </div>
+            <h3 style="margin:1em 0 0.2em; font-size:1em; color:#0f172a;">Information, without stages</h3>
+            <p style="margin:0 0 0.6em; font-size:0.85em; color:#475569;">The same runs as one continuous accumulation of information J = 1/σ² (claimed σ), starting from the prior J₀ = σ₀⁻² (σ₀ = the claimed σ after the first measurement). Search, focus and refine are regimes of this curve, not separate phases. Search (detecting the dip) is not a Fisher regime, so read the first steps with care.</p>
+            <div style="display:flex; flex-wrap:wrap; gap:1.5em;">
+                <div style="flex:1 1 46%; min-width:420px; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px;">
+                    <h3 style="margin-left:10px;">Prior share of the information <span tabindex="0" class="help-icon-visible" title="J₀ / J = (σ / σ₀)², the share of the information that still comes from the prior (the window), against measurements; 1 → 0 as data take over. Median over repeats (over use cases when several are selected). Dashed = the bound J₀ / (J₀ + N I*) with every measurement at the Fisher-optimal point: a curve under the dashed line has gained information faster than the best possible, which only an overconfident claimed σ can do.">?</span></h3>
+                    <div id="hl-info-prior" style="height:380px; width:100%;"></div>
+                </div>
+                <div style="flex:1 1 46%; min-width:420px; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px;">
+                    <h3 style="margin-left:10px;">Information rate vs the Fisher ceiling <span tabindex="0" class="help-icon-visible" title="(J(N) − J(N′)) / ((N − N′) I*) between consecutive points of the measurement grid: the information gained per measurement as a share of the best possible I*. 1 = every measurement at the Fisher-optimal point; above 1 = the claimed σ fell faster than any measurements could justify (overconfidence). Median over repeats still running.">?</span></h3>
+                    <div id="hl-info-rate" style="height:380px; width:100%;"></div>
+                </div>
+            </div>
             <div id="hl-whole-table" style="margin:1em 0; overflow-x:auto;"></div>
             <div style="display:flex; flex-wrap:wrap; gap:1.5em; margin-top:1em;">
                 <div style="flex:1 1 46%; min-width:420px; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px;">

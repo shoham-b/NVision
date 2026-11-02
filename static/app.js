@@ -7895,6 +7895,89 @@ function main() {
         Plotly.react(div, [...traces, ...markers, ...strip], layout, { displayModeBar: false, responsive: true });
     }
 
+    // The runs as one continuous accumulation of information J = 1/sigma^2 (claimed sigma) from the prior J0 = sigma0^-2
+    // (sigma0 = the claimed sigma after the first measurement): no stage boundaries.
+    //   mode 'prior': J0 / J, the prior's share of the information (1 -> 0); dashed = J0 / (J0 + N I*), every measurement at
+    //                 the Fisher-optimal point (I* = stage_fisher_star).
+    //   mode 'rate':  (J(N) - J(N')) / ((N - N') I*) between consecutive grid points: information per measurement as a share
+    //                 of the ceiling (1 = Fisher-optimal; above 1 = the claimed sigma is overconfident).
+    // One value per repeat at each grid point; several use cases: the median of the use cases' own medians; a point needs
+    // at least half of the units still running.
+    function renderHlInfoCurve(div, byStrategy, strategies, mode) {
+        if (!div) return;
+        const items = [];
+        let maxEnd = 1;
+        for (const strat of strategies) {
+            const runs = [];
+            for (const p of byStrategy.get(strat)) {
+                const end = hlRunSteps(p);
+                const star = _mv(p, 'stage_fisher_star');
+                const u0 = p.series && p.series.u ? hlSeriesValueAt(p.series, 'u', 1) : null;
+                if (end == null || !(star > 0) || !(u0 > 0)) continue;
+                runs.push({ p, c: `${p.generator}\u0000${p.noise}`, end, star, j0: 1 / (u0 * u0) });
+                if (end > maxEnd) maxEnd = end;
+            }
+            if (runs.length) items.push({ strat, runs });
+        }
+        if (!items.length) { Plotly.purge(div); return; }
+        const grid = hlStepGrid(maxEnd);
+        const unitMedian = (vals) => {   // vals: [{c, v}]
+            const ok = vals.filter(a => a.v != null && isFinite(a.v));
+            if (new Set(vals.map(a => a.c)).size <= 1) return hlMedian(ok.map(a => a.v));
+            const byCase = new Map();
+            for (const a of ok) {
+                if (!byCase.has(a.c)) byCase.set(a.c, []);
+                byCase.get(a.c).push(a.v);
+            }
+            return hlMedian([...byCase.values()].map(hlMedian));
+        };
+        const traces = [];
+        for (const { strat, runs } of items) {
+            const color = hlStratColor(strategies, strat);
+            const label = _shortStratLabel(strat);
+            const xs = [], ys = [], ref = [];
+            const jAt = (r, x) => { const u = hlSeriesValueAt(r.p.series, 'u', x); return u > 0 ? 1 / (u * u) : null; };
+            for (let i = mode === 'rate' ? 1 : 0; i < grid.length; i++) {
+                const x = grid[i];
+                const alive = runs.filter(r => r.end >= x);
+                if (alive.length < Math.max(1, Math.ceil(runs.length / 2))) continue;
+                let vals;
+                if (mode === 'rate') {
+                    const xp = grid[i - 1];
+                    vals = alive.map(r => {
+                        const j1 = jAt(r, x), j0 = jAt(r, xp);
+                        return { c: r.c, v: j1 != null && j0 != null ? (j1 - j0) / ((x - xp) * r.star) : null };
+                    });
+                } else {
+                    vals = alive.map(r => { const j = jAt(r, x); return { c: r.c, v: j != null ? r.j0 / j : null }; });
+                    ref.push(unitMedian(alive.map(r => ({ c: r.c, v: r.j0 / (r.j0 + x * r.star) }))));
+                }
+                const m = unitMedian(vals);
+                if (m == null || (mode === 'prior' && !(m > 0))) continue;
+                xs.push(x);
+                ys.push(m);
+            }
+            if (!xs.length) continue;
+            traces.push({ x: xs, y: ys, mode: 'lines', name: `${label} (n=${runs.length})`, legendgroup: strat, line: { color, width: 2 },
+                hovertemplate: `step %{x}<br>%{y:.3g}<extra>${label}</extra>` });
+            if (mode === 'prior') {
+                const rx = grid.filter((_, i) => i < ref.length);
+                traces.push({ x: rx, y: ref, mode: 'lines', legendgroup: strat, showlegend: false, line: { color, width: 1.5, dash: 'dash' },
+                    hovertemplate: `bound: ${label}<br>step %{x}<br>%{y:.3g}<extra></extra>` });
+            }
+        }
+        const layout = hlBaseLayout();
+        layout.xaxis = { ...layout.xaxis, title: { text: 'Measurements', font: { size: 11 } }, type: 'log' };
+        if (mode === 'prior') {
+            layout.yaxis = { ...layout.yaxis, title: { text: 'Prior share of the information, J₀ / J', font: { size: 11 } }, type: 'log' };
+        } else {
+            layout.yaxis = { ...layout.yaxis, title: { text: 'Information per measurement / I*', font: { size: 11 } }, rangemode: 'tozero' };
+            layout.shapes = [{ type: 'line', xref: 'paper', x0: 0, x1: 1, yref: 'y', y0: 1, y1: 1, line: { color: '#475569', width: 1, dash: 'dot' } }];
+        }
+        layout.legend = { ...layout.legend, font: { size: 9 } };
+        Plotly.react(div, traces, layout, { displayModeBar: false, responsive: true });
+    }
+
     // One Stages block (a use case, or the median over the selection); `sfx` is the id suffix of its copy of the
     // markup (see ucRenderBlocks).
     function renderHlStages(generator, noises, sfx) {
@@ -7918,6 +8001,10 @@ function main() {
             Plotly.purge(stepsDiv);
             Plotly.purge(uncDiv);
             Plotly.purge(errCurveDiv);
+            for (const id of ['hl-info-prior', 'hl-info-rate']) {
+                const el = document.getElementById(`${id}${sfx}`);
+                if (el) Plotly.purge(el);
+            }
             return;
         }
 
@@ -7944,6 +8031,8 @@ function main() {
 
         renderHlStageCurve(uncDiv, byStrategy, strategies, 'u', 'Median claimed uncertainty (Hz)');
         renderHlStageCurve(errCurveDiv, byStrategy, strategies, 'e', 'Median true |error| (Hz)');
+        renderHlInfoCurve(document.getElementById(`hl-info-prior${sfx}`), byStrategy, strategies, 'prior');
+        renderHlInfoCurve(document.getElementById(`hl-info-rate${sfx}`), byStrategy, strategies, 'rate');
         for (const st of HL_STAGES) {
             const unc = document.getElementById(`hl-stage-unc-${st.n}${sfx}`);
             const err = document.getElementById(`hl-stage-err-${st.n}${sfx}`);

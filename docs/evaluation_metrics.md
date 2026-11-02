@@ -139,6 +139,14 @@ The Stages view's Whole run chart draws it from the run's own start (J₀ from t
 every measurement counted); the focus and refine charts restart from each stage's own claimed σ. Not yet done: starting the
 whole-run curve exactly at W/√12.
 
+The stages are regimes of one continuous accumulation of information, J = 1/σ² from J₀. The Whole run scope therefore
+also shows two stage-free charts (`renderHlInfoCurve`), both from the claimed σ: the **prior share** J₀/J (1 → 0, dashed =
+J₀/(J₀ + N I\*)) and the **information rate** (J(N) − J(N′))/((N − N′) I\*), where 1 is every measurement at the
+Fisher-optimal point and a value above 1 means the claimed σ fell faster than any measurements could justify
+(overconfidence). Both are computed from the claimed σ, so they inherit its overconfidence; they say nothing about whether
+the dip was found, and search (detection) is not a Fisher regime, so the first steps need care. The stage boundaries and
+columns remain for the per-stage views.
+
 A fit of three straight log-log segments to the claimed σ is not used: the bound above is the reference. On the
 2026-11-02 check (3 use cases, SNR 5, 50 repeats each), the existing `refine_start_step` sat on the cliff, not on a −1/2
 tail, in 72 of 149 Smart-SBED and 113 of 149 Smart-Sweep runs.
