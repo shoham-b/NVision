@@ -7239,7 +7239,11 @@ function main() {
         };
         // One panel per window (the SNR x window study; one panel otherwise). The lines are the shown locators at the
         // selected shape, or with "Compare shapes" one locator at every shape.
-        const panelValues = study ? windows : [null];
+        // "Median over selection" folds the windows into one panel: per SNR, the median over the selected occupancies of
+        // each occupancy's own aggregate; "Each use case" keeps one panel per window.
+        const splitWindows = study && (ucScope === 'each' || selected.length === 0);
+        const panelValues = splitWindows ? windows : [null];
+        const medianOccs = study && !splitWindows ? new Set(selected.map(ssOcc).filter((v) => v != null)) : null;
         const shapeColors = new Map(shares.map((sh, i) => [sh, HL_COLORS[i % HL_COLORS.length]]));
         const lineSpecs = study && ssCompare && offered.length > 1
             ? offered.map((sh) => ({ st: cmpLoc, name: ssShapeLabel(sh), color: shapeColors.get(sh), group: `shape-${sh}`, share: sh, extra: shapeTip(sh) }))
@@ -7263,8 +7267,11 @@ function main() {
                     for (const spec of lineSpecs) {
                         const st = spec.st;
                         const bySnr = new Map();
+                        // Folded windows: values per SNR then per occupancy, so the line is the median of per-occupancy aggregates.
+                        const byOcc = new Map();
                         for (const r of byAll.get(st)) {
                             if (sv != null && ssOcc(r) !== sv) continue;
+                            if (medianOccs && !medianOccs.has(ssOcc(r))) continue;
                             if (spec.share != null && ssShareKey(r) !== spec.share) continue;
                             if (s.filter && !s.filter(r)) continue;
                             const snr = ssSnr(r);
@@ -7272,15 +7279,23 @@ function main() {
                             if (snr == null || v == null) continue;
                             if (!bySnr.has(snr)) bySnr.set(snr, []);
                             bySnr.get(snr).push(v);
+                            if (medianOccs) {
+                                if (!byOcc.has(snr)) byOcc.set(snr, new Map());
+                                const occs = byOcc.get(snr);
+                                if (!occs.has(ssOcc(r))) occs.set(ssOcc(r), []);
+                                occs.get(ssOcc(r)).push(v);
+                            }
                         }
                         const xs = [...bySnr.keys()].sort((a, b) => a - b);
+                        const aggOf = (vals) => (s.agg === 'mean' ? vals.reduce((a, b) => a + b, 0) / vals.length : hlMedian(vals));
+                        const yAt = (x) => (medianOccs ? hlMedian([...byOcc.get(x).values()].map(aggOf)) : aggOf(bySnr.get(x)));
                         const name = series.length > 1 ? `${spec.name} ${s.key}` : spec.name;
                         const compareTip = study && ssCompare ? `<br>${ssLabel(st)}` : '';
                         const shapeHover = spec.extra ? `<br>${spec.extra.replace(/; /g, '<br>')}` : '';
                         traces.push({
                             type: 'scatter', mode: 'lines+markers', name: spec.name, legendgroup: spec.group,
                             showlegend: sv === panelValues[0] && s === series[0],
-                            x: xs.map(snrX), y: xs.map((x) => (s.agg === 'mean' ? bySnr.get(x).reduce((a, b) => a + b, 0) / bySnr.get(x).length : hlMedian(bySnr.get(x)))),
+                            x: xs.map(snrX), y: xs.map(yAt),
                             line: { color: spec.color, width: 2, dash: s.dash || 'solid' }, marker: { size: s.dash ? 4 : 6 },
                             customdata: xs.map((x) => bySnr.get(x).length),
                             hovertemplate: `${name}${compareTip}<br>SNR %{x:.3g}<br>${s.agg === 'mean' ? 'share' : 'median'} %{y:.3g}<br>n = %{customdata}${windowTip}${shapeHover}<extra></extra>`,
@@ -7293,8 +7308,9 @@ function main() {
                     .map(ssSnr).filter((v) => v != null));
                 const selectedMarks = [...markSnrs].map((v) => ({ type: 'line', xref: 'x', yref: 'paper', x0: snrX(v), x1: snrX(v), y0: 0, y1: 1, line: { color: '#2563eb', width: 1, dash: 'dot' } }));
                 Plotly.react(div, traces, {
-                    title: sv == null ? undefined : { text: `occupancy ${ssOccLabel(sv)}`, font: { size: 12 } },
-                    margin: { l: 60, r: 10, t: sv == null ? 10 : 30, b: 50 },
+                    title: sv != null ? { text: `occupancy ${ssOccLabel(sv)}`, font: { size: 12 } }
+                        : medianOccs ? { text: `median over occupancy ${[...medianOccs].sort((a, b) => b - a).map(ssOccLabel).join(', ')}`, font: { size: 12 } } : undefined,
+                    margin: { l: 60, r: 10, t: sv == null && !medianOccs ? 10 : 30, b: 50 },
                     xaxis, yaxis,
                     shapes: selectedMarks.concat(refLines.map((ref) => ({ type: 'line', xref: 'paper', x0: 0, x1: 1, y0: ref.y, y1: ref.y, line: { color: '#94a3b8', width: 1, dash: 'dash' } }))),
                     annotations: refLines.map((ref) => ({ xref: 'paper', x: 1, xanchor: 'right', y: ref.y, yanchor: 'bottom', text: ref.label, showarrow: false, font: { size: 10, color: '#94a3b8' } })),
