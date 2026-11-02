@@ -43,7 +43,7 @@ _STATIC_ASSET_NAMES = (
     "run-status.js",
     "reload.js",
     "styles.css",
-    "lab.html",
+    "lab-view.js",
 )
 
 log = logging.getLogger("nvision.api_server")

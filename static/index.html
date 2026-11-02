@@ -8,14 +8,14 @@
     <script src="format-utils.js"></script>
     <script src="plotly-utils.js"></script>
     <script src="run-status.js"></script>
+    <script src="lab-view.js"></script>
 </head>
 <body>
 <h1>NVision results <span id="out-dir-display"></span></h1>
 <div id="run-status-banner"></div>
 <p class="last-run" id="last-run-time"></p>
 <div class="header-actions">
-    <a download href="locator_results.parquet" class="link-button">Download locator_results.parquet</a>
-    <a href="lab.html" class="link-button">Lab study</a></div>
+    <a download href="locator_results.parquet" class="link-button">Download locator_results.parquet</a></div>
 <details id="stories-view" class="section" open style="display:none;">    <summary style="cursor:pointer; font-size:1.3em; font-weight:700; color:#0f172a;">Stories — what stands out in the data <span tabindex="0" class="help-icon-visible" title="Found by scanning every use case of the selected study: where the locators differ the most. Independent of the Parameters selection below.">?</span></summary>    <div id="stories-body"></div></details>
 <div class="tab-bar" role="tablist"></div>
 <div aria-labelledby="tab-scan" class="section tab-panel" id="scan-section" role="tabpanel">
@@ -63,6 +63,7 @@
             <button type="button" role="radio" aria-checked="true" data-value="single" class="is-active" tabindex="0" id="scan-view-single-btn">Run</button>
             <button type="button" role="radio" aria-checked="false" data-value="stages" tabindex="-1">Stages</button>
             <button type="button" role="radio" aria-checked="false" data-value="scaling" tabindex="-1">Scaling</button>
+            <button type="button" role="radio" aria-checked="false" data-value="lab" tabindex="-1">Lab</button>
             <button type="button" role="radio" aria-checked="false" data-value="sanity" tabindex="-1" id="scan-view-sanity-btn">Sanity</button>
         </div>
     </div>
@@ -343,6 +344,12 @@
             <div id="scaling-pick" style="display:flex; flex-wrap:wrap; gap:0.4em;"></div>
         </div>
         <div id="scaling-body"></div>
+    </div>
+
+    <!-- ── Lab tab: calibration of the lab's own MATLAB runs (needs nv serve --lab-dir) ─────────── -->
+    <div id="lab-view" style="display:none; margin-top:1em; padding-top:1em; border-top:1px solid #eee;">
+        <h2 style="margin:0 0 0.4em;">Lab data — does the claimed σ match the error? <span tabindex="0" class="help-icon-visible" title="The lab's own Bayesian ESR runs (MATLAB), repeated per drive_freq window. Each run reports a posterior σ; the runs' final estimates scatter by the across-run std. If the claimed σ is right, the two agree.">?</span></h2>
+        <div id="lab-body"></div>
     </div>
 
     <!-- ── Sanity tab: is the claimed σ right, is the stop reliable, did every run converge ─────────── -->

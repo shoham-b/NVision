@@ -8942,6 +8942,7 @@ function main() {
         const accuracyView = document.getElementById('accuracy-view');
         const stagesView = document.getElementById('stages-view');
         const scalingView = document.getElementById('scaling-view');
+        const labView = document.getElementById('lab-view');
         const stoppingRow = document.getElementById('stopping-criteria-row');
         const gen = compareGeneratorsArg();
         const noises = compareNoisesArg();
@@ -8957,6 +8958,7 @@ function main() {
         if (accuracyView) accuracyView.style.display = 'none';
         if (stagesView) stagesView.style.display = 'none';
         if (scalingView) scalingView.style.display = 'none';
+        if (labView) labView.style.display = 'none';
 
         const compareSweepRow = document.getElementById('scan-compare-sweep-row') || document.getElementById('scan-compare-sweep-container');
         if (compareSweepRow) {
@@ -8990,6 +8992,12 @@ function main() {
             if (scalingView) {
                 scalingView.style.display = 'block';
                 renderScalingTab(gen, noises);
+            }
+        } else if (mode === 'lab') {
+            if (stoppingRow) stoppingRow.style.display = 'none';
+            if (labView) {
+                labView.style.display = 'block';
+                renderLabStudy(labView);
             }
         }
         renderStoriesTab(gen);

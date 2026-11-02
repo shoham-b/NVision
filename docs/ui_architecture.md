@@ -233,6 +233,6 @@ Both formats are decoded by `_decodePlotlyFigure` in `plotly-utils.js`.
 After every change to `static/`, mirror to `artifacts/`:
 
 ```powershell
-@("bootstrap.js","run-status.js","format-utils.js","plotly-utils.js","app.js","reload.js","index.html","styles.css") |
+@("bootstrap.js","run-status.js","lab-view.js","format-utils.js","plotly-utils.js","app.js","reload.js","index.html","styles.css") |
     ForEach-Object { Copy-Item "static\$_" "artifacts\$_" -Force }
 ```
