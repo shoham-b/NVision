@@ -458,7 +458,7 @@ every locator (`nvision/metrics/milestones.py`, `nvision/metrics/stages.py`).
 |---|---|
 | `zero_field_freq` | Zero-field splitting D ≈ 2.87 GHz between the ms=0 and ms=±1 levels |
 | `zeeman_shift` | External B-field along the NV axis (γ_NV ≈ 28 MHz/mT) splits ms=+1 from ms=−1 |
-| `hyperfine_shift` | ¹⁴N (nuclear spin I=1) hyperfine coupling, A∥ ≈ 2.16 MHz (`NV_N14_HYPERFINE_SPLIT_HZ`, `nv_center.py:49`) — splits each Zeeman line into a triplet (mI = −1, 0, +1). A ¹⁵N (I=½) sample would give a doublet instead. |
+| `hyperfine_shift` | ¹⁴N (nuclear spin I=1) hyperfine coupling, |A∥| = 2.147 MHz (Felton et al., PRB 79, 075203 (2009); `NV_N14_HYPERFINE_SPLIT_HZ` in `nv_center.py`) — splits each Zeeman line into a triplet (mI = −1, 0, +1). A ¹⁵N (I=½) sample would give a doublet instead. |
 | `k_np` | Nuclear-spin-polarization asymmetry: population/depth ratio between the mI=−1 and mI=+1 hyperfine lines (`k_np=1` ⇒ unpolarized) |
 | `hwhm_lorentz`, `sigma_inhom` (plain Voigt) or `saturation`, `sigma_inhom` (Saturation-Voigt) | Combined homogeneous + inhomogeneous hwhm, reparametrized to the kernel-native `fwhm_total`/`lorentz_frac` — see §7.2 |
 | `contrast_total` | ODMR contrast, set by microwave/optical saturation — population-normalized, shared by Lorentzian, Voigt, and Saturation-Voigt (see [`contrast_reparametrization.md`](../contrast_reparametrization.md)) |

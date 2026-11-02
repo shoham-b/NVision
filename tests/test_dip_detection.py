@@ -131,9 +131,9 @@ def test_find_dips_reports_one_tight_dip_however_strong(snr):
 
 
 def test_find_dips_keeps_a_hyperfine_triplet_as_one_dip():
-    # N-14 triplet: three 1 MHz-wide lines 2.16 MHz apart, each narrower than their spread.
+    # N-14 triplet: three 1 MHz-wide lines 2.147 MHz apart, each narrower than their spread.
     xs = np.arange(2.80e9, 2.95e9 + 1, 0.5e6)
-    centers = [2.875e9 - 2.16e6, 2.875e9, 2.875e9 + 2.16e6]
+    centers = [2.875e9 - 2.147e6, 2.875e9, 2.875e9 + 2.147e6]
     ys = sum(_lorentzian_scan(xs, [c], depth=0.1, fwhm=1e6) for c in centers) - 2.0
     ys += 0.01 * np.random.default_rng(2).standard_normal(xs.size)
     dips = find_dips(xs, ys, 0.01, _KNOWN_SIGMA, 1.2e6, 0.3e6, 1e6, 1.6e6)

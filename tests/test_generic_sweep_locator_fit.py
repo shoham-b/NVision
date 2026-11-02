@@ -312,7 +312,7 @@ def test_sweep_fit_zeeman_only_narrow_hwhm_resolves_fixed_hyperfine():
     Regression guard for a production bug: ``expected_dip_count()`` reports 2
     dips whenever hyperfine isn't a free parameter, assuming the fixed triplet
     always merges into one dip per Zeeman group. That's only true when
-    hwhm >> ~2.16 MHz. At a narrow hwhm (500 kHz here) the triplet
+    hwhm >> ~2.15 MHz. At a narrow hwhm (500 kHz here) the triplet
     resolves into 3 separate dips per group (6 total), but the old peak cap
     (bounded by the model's declared count of 2) kept only the 2 most
     prominent detected peaks — often two hyperfine sub-lines from the *same*

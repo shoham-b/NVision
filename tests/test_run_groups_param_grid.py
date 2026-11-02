@@ -423,8 +423,8 @@ def test_signal_occupancy_is_the_union_of_the_hyperfine_lines_fwhm_intervals():
         g.hyperfine: g.drive_freq_max_phys - g.drive_freq_min_phys for n, g in by_name.items() if "-span2-gs0-" in n
     }
     assert at_occ["unresolved"] == pytest.approx(2 * fwhm)
-    assert at_occ["n15"] == pytest.approx(4 * fwhm)  # lines 3.03 MHz apart > FWHM: no overlap, 2 FWHM covered
-    assert at_occ["n14"] == pytest.approx(6 * fwhm)  # lines 2.16 MHz apart > FWHM: no overlap, 3 FWHM covered
+    assert at_occ["n15"] == pytest.approx(4 * fwhm)  # lines 3.033 MHz apart > FWHM: no overlap, 2 FWHM covered
+    assert at_occ["n14"] == pytest.approx(6 * fwhm)  # lines 2.147 MHz apart > FWHM: no overlap, 3 FWHM covered
     assert NVCenterCoreGenerator(variant="voigt").signal_occupancy is None
 
 
