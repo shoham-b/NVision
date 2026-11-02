@@ -54,8 +54,10 @@ MAX_ZEEMAN_SHIFT: float = 60e6  # 60 MHz → ~2.1 mT
 # isotope. Which one applies is a property of the *sample*, and whether it is
 # visible at all is a property of the *measurement*, so this is model
 # configuration (`hyperfine=`) rather than something a locator infers.
-NV_N14_HYPERFINE_SPLIT_HZ: float = 2.16e6  # ~2.16 MHz -- ¹⁴N, I=1
-NV_N15_HYPERFINE_SPLIT_HZ: float = 3.03e6  # ~3.03 MHz -- ¹⁵N, I=1/2
+# Values: Felton et al., Phys. Rev. B 79, 075203 (2009), doi:10.1103/PhysRevB.79.075203, Table II (ground-state NV⁻).
+# The paper's A_par is signed (¹⁴N: -2.147 MHz, ¹⁵N: +3.033 MHz); only the magnitude sets the line offsets used here.
+NV_N14_HYPERFINE_SPLIT_HZ: float = 2.147e6  # |A_par| = 2.147 MHz -- ¹⁴N, I=1
+NV_N15_HYPERFINE_SPLIT_HZ: float = 3.033e6  # |A_par| = 3.033 MHz -- ¹⁵N, I=1/2
 
 # How much hyperfine structure the *measurement* actually resolves.
 #
