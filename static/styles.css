@@ -394,6 +394,12 @@ body {
         }
 
         /* ---- Narrowed parameter bounds panel ---- */
+        /* display:flex/grid below would otherwise override the `hidden` attribute and leave an empty bar. */
+        .narrowed-bounds-panel[hidden],
+        .sweep-metrics-panel[hidden] {
+            display: none;
+        }
+
         .narrowed-bounds-panel {
             display: flex;
             flex-wrap: wrap;

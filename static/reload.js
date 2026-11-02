@@ -67,11 +67,6 @@ document.addEventListener('keydown', async (e) => {
     }
 });
 
-const recalcBtn = document.getElementById('recalc-btn');
-if (recalcBtn) {
-    recalcBtn.addEventListener('click', triggerReload);
-}
-
 const init = () => {
     const lastRunEl = document.getElementById('last-run-time');
     if (lastRunEl) {
