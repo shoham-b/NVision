@@ -1,16 +1,23 @@
 // Lab view: calibration of the lab's own MATLAB Bayesian ESR runs, from /api/lab-study
 // (served only when `nv serve --lab-dir` was given). Called by app.js showScanViewPanels('lab').
 // Needs ensurePlotly from plotly-utils.js.
-async function renderLabStudy(container) {
+// Names of the labs the server found (empty without `nv serve --lab-dir`); app.js lists them as Studies.
+window.NVISION_LABS = [];
+window.labsReady = fetch(`${window.NVISION_ASSET_PREFIX || ''}api/lab-studies`, { cache: 'no-store' })
+    .then((r) => (r.ok ? r.json() : []))
+    .then((names) => { window.NVISION_LABS = names; })
+    .catch(() => {});
+
+async function renderLabStudy(container, name) {
     const fmt = (x, d = 2) => (x == null || Number.isNaN(x) ? '–' : Number(x).toFixed(d));
     const body = container.querySelector('#lab-body');
     let data;
     try {
-        const resp = await fetch(`${window.NVISION_ASSET_PREFIX || ''}api/lab-study`, { cache: 'no-store' });
+        const resp = await fetch(`${window.NVISION_ASSET_PREFIX || ''}api/lab-study?name=${encodeURIComponent(name)}`, { cache: 'no-store' });
         if (!resp.ok) throw new Error((await resp.json()).detail || `HTTP ${resp.status}`);
         data = await resp.json();
     } catch (err) {
-        body.innerHTML = `<p style="color:#64748b;">No lab study: ${err.message}. Start the server with <code>nv serve --lab-dir &lt;convergence_statistics&gt;</code>.</p>`;
+        body.innerHTML = `<p style="color:#64748b;">Lab "${name}" failed to load: ${err.message}.</p>`;
         return;
     }
     const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -28,7 +35,7 @@ async function renderLabStudy(container) {
     ];
     const cell = 'border:1px solid #e2e8f0; padding:0.35em 0.6em; text-align:right;';
     body.innerHTML = `
-        <p style="margin:0 0 0.5em; color:#475569; font-size:0.85em;">Reference resonance ${fmt(data.reference_mhz, 2)} MHz (median of the converged runs' final means).</p>
+        <p style="margin:0 0 0.5em; color:#475569; font-size:0.85em;">Lab: <b>${name}</b> · reference resonance ${fmt(data.reference_mhz, 2)} MHz (median of the converged runs' final means).</p>
         <table style="border-collapse:collapse; width:100%; font-size:0.9em; background:#fff;">
             <thead><tr>${cols.map((c) => `<th style="${cell} background:#f8fafc; color:#475569;">${c[0]}</th>`).join('')}</tr></thead>
             <tbody>${data.windows.map((r) => `<tr>${cols.map((c) => `<td style="${cell} font-family:ui-monospace,monospace;">${c[1](r)}</td>`).join('')}</tr>`).join('')}</tbody>

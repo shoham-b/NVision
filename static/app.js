@@ -3007,7 +3007,23 @@ function main() {
     // value must win over the family re-derived from the (not-yet-updated) previously
     // selected generator -- otherwise this same function's own re-render, triggered by
     // its onchange handler, would immediately revert the dropdown to the old family.
+    // Lab study (real data) is a "Study" of its own, an alternative to the signal parameters, not a view of them.
+    const LAB_KEY_PREFIX = '__lab__:';
+    let labModeActive = false;
+    let lastLabKey = null;   // the selected lab's family key while a lab Study is active
+    function setLabMode(familyKey) {
+        const on = familyKey.startsWith(LAB_KEY_PREFIX);
+        labModeActive = on;
+        document.getElementById('scan-section').classList.toggle('lab-mode', on);
+        document.body.classList.toggle('lab-mode', on);
+        const labView = document.getElementById('lab-view');
+        labView.style.display = on ? 'block' : 'none';
+        if (on) renderLabStudy(labView, familyKey.slice(LAB_KEY_PREFIX.length));
+    }
+
     function updateScanSignalControls(forcedFamilyKey = null) {
+        if (forcedFamilyKey !== null) labModeActive = forcedFamilyKey.startsWith(LAB_KEY_PREFIX);
+        if (forcedFamilyKey !== null) lastLabKey = labModeActive ? forcedFamilyKey : null;
         // window.NVISION_ALL_GENERATORS (set by bootstrap.js from the cheap /api/combos
         // index) covers every generator in the cache, even ones whose data isn't loaded
         // into `plots` yet — bootstrap.js only fetches the initially-selected generator's
@@ -3034,6 +3050,7 @@ function main() {
             const familyOptions = [
                 ...familyKeys.map((key) => ({ key, label: families.get(key).label })),
                 ...(matlab.length > 0 ? [{ key: '__matlab__', label: 'MATLAB (real data)' }] : []),
+                ...(window.NVISION_LABS || []).map((n) => ({ key: LAB_KEY_PREFIX + n, label: `Lab: ${n}` })),
                 ...(ungrouped.length > 0 ? [{ key: '__ungrouped__', label: 'Default (ungrouped)' }] : []),
             ];
             const needsFamilyPicker = familyOptions.length > 1;
@@ -3056,7 +3073,7 @@ function main() {
                     option.textContent = opt.label;
                     scanGeneratorFamily.appendChild(option);
                 }
-                const candidateKey = forcedFamilyKey ?? prevFamilyKey;
+                const candidateKey = lastLabKey ? lastLabKey : (forcedFamilyKey ?? prevFamilyKey);
                 // First load defaults to the Lorentzian / Voigt study.
                 selectedFamilyKey = candidateKey && familyOptions.some((o) => o.key === candidateKey)
                     ? candidateKey
@@ -3064,6 +3081,7 @@ function main() {
                 scanGeneratorFamily.value = selectedFamilyKey;
                 scanGeneratorFamily.onchange = () => {
                     updateScanSignalControls(scanGeneratorFamily.value);
+                    if (labModeActive) return;
                     updateScanStrategyControl();
                     updateScanRepeatControl();
                     findAndDisplayPlot();
@@ -3071,6 +3089,10 @@ function main() {
             } else {
                 selectedFamilyKey = familyOptions[0].key;
             }
+
+            setLabMode(selectedFamilyKey);
+            if (selectedFamilyKey.startsWith(LAB_KEY_PREFIX)) { lastLabKey = selectedFamilyKey; return; }
+            lastLabKey = null;
 
             if (selectedFamilyKey === '__ungrouped__') {
                 scanGeneratorFacetsRow.style.display = 'none';
@@ -8942,7 +8964,6 @@ function main() {
         const accuracyView = document.getElementById('accuracy-view');
         const stagesView = document.getElementById('stages-view');
         const scalingView = document.getElementById('scaling-view');
-        const labView = document.getElementById('lab-view');
         const stoppingRow = document.getElementById('stopping-criteria-row');
         const gen = compareGeneratorsArg();
         const noises = compareNoisesArg();
@@ -8958,7 +8979,6 @@ function main() {
         if (accuracyView) accuracyView.style.display = 'none';
         if (stagesView) stagesView.style.display = 'none';
         if (scalingView) scalingView.style.display = 'none';
-        if (labView) labView.style.display = 'none';
 
         const compareSweepRow = document.getElementById('scan-compare-sweep-row') || document.getElementById('scan-compare-sweep-container');
         if (compareSweepRow) {
@@ -8992,12 +9012,6 @@ function main() {
             if (scalingView) {
                 scalingView.style.display = 'block';
                 renderScalingTab(gen, noises);
-            }
-        } else if (mode === 'lab') {
-            if (stoppingRow) stoppingRow.style.display = 'none';
-            if (labView) {
-                labView.style.display = 'block';
-                renderLabStudy(labView);
             }
         }
         renderStoriesTab(gen);

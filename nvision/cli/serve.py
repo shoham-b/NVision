@@ -114,8 +114,8 @@ def serve(
         typer.Option("--host", help="Interface to bind (use 0.0.0.0 to serve outside localhost, e.g. in a container)"),
     ] = "127.0.0.1",
     lab_dir: Annotated[
-        Path | None,
-        typer.Option("--lab-dir", help="Lab 'convergence_statistics' folder to show on the /lab.html study page"),
+        list[Path] | None,
+        typer.Option("--lab-dir", help="Folder searched for processed lab runs (repeatable); each becomes a Study"),
     ] = None,
 ) -> None:
     """Start a local API server for viewing NVision results, live from the cache.
@@ -168,7 +168,7 @@ def serve(
         webbrowser.open(url)
 
     fastapi_app = build_app(
-        cache_dir=directory / "cache", run_dir=directory, lab_dir=lab_dir.resolve() if lab_dir else None
+        cache_dir=directory / "cache", run_dir=directory, lab_dirs=[p.resolve() for p in lab_dir or []]
     )
     config = uvicorn.Config(fastapi_app, host=host, port=port, log_level="warning")
     server = uvicorn.Server(config)

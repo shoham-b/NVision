@@ -90,3 +90,21 @@ def lab_study_payload(root: Path) -> dict:
             "prior_sigma_mhz": w / float(np.sqrt(12.0)),
         }
     return {"reference_mhz": ref, "windows": rows, "curves": curves}
+
+
+def discover_labs(roots: list[Path]) -> dict[str, Path]:
+    """Map lab name -> processed statistics folder, found under each of *roots*.
+
+    A folder is a lab when it holds ``window*MHz_statistics_perRun.csv`` files; each *root* is
+    searched recursively (and may itself be one). The name is the folder's own name, or its
+    parent's when it is called ``convergence_statistics``; repeats get a ``-2``, ``-3`` suffix.
+    """
+    labs: dict[str, Path] = {}
+    for root in roots:
+        for stats in sorted({p.parent for p in root.rglob("window*MHz_statistics_perRun.csv")}):
+            base = stats.parent.name if stats.name == "convergence_statistics" else stats.name
+            name, n = base, 2
+            while name in labs and labs[name] != stats:
+                name, n = f"{base}-{n}", n + 1
+            labs[name] = stats
+    return labs
