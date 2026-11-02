@@ -114,6 +114,7 @@ next to simulated runs, so they show up in `nv serve` — see
 - `matlab_file`: path to the `.mat` file (or a bare filename resolved via `data/matlab/`). Omit when using `--all`.
 - `--all`: run every `.mat` file in `data/matlab/` (or `--dir`) in turn, continuing past any single file's failure so one bad recording doesn't abort the rest.
 - `--dir`: directory to scan for `.mat` files with `--all` (default: `data/matlab/`).
+- `--bayesian-runs`: treat `--dir` as the lab's own Bayesian ESR runs (`myStruct.BayesianESR`, not raw sweeps). No SBED is run: writes `convergence_statistics/` CSVs next to the runs (a run that stopped on precision keeps its stop; a full-budget run has its stop replayed from its history), to be shown with `nv serve --lab-dir`. Refuses to overwrite a folder written by the lab's own `Gather_and_Process_data.m`.
 - `--noise-std`: override the auto-estimated measurement noise std instead of deriving it from the file's own shot spread.
 - `--max-steps`: maximum SBED measurement steps (default: 300).
 - `--infer-center-freq` / `--no-infer-center-freq`: fit the NV zero-field-splitting center instead of fixing it to 2.87 GHz (default: infer — real samples run 1-2 MHz off the textbook value from strain/temperature).
@@ -131,6 +132,10 @@ uv run nv matlab-run --all --dir data/matlab --out artifacts/matlab_summaries
 
 # View results in their own small, fast-to-reload cache
 uv run nv serve --dir artifacts/matlab
+
+# Lab Bayesian ESR runs: process, then view each folder as a Study
+uv run nv matlab-run --bayesian-runs --dir path/to/runs_full_budget
+uv run nv serve --lab-dir path/to/runs_full_budget
 ```
 
 ### `nv cache`

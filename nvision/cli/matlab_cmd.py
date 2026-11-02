@@ -200,9 +200,19 @@ def matlab_run(
         Path | None,
         typer.Option(
             "--dir",
-            help="Directory to scan for .mat files with --all (default: data/matlab/).",
+            help="Directory to scan for .mat files with --all or --bayesian-runs (default: data/matlab/).",
         ),
     ] = None,
+    bayesian_runs: Annotated[
+        bool,
+        typer.Option(
+            "--bayesian-runs",
+            help=(
+                "Treat --dir as the lab's own Bayesian ESR runs (myStruct.BayesianESR, not raw sweeps): write "
+                "convergence_statistics CSVs next to them for `nv serve --lab-dir` instead of running SBED."
+            ),
+        ),
+    ] = False,
     noise_std: Annotated[
         float | None,
         typer.Option("--noise-std", help="Override the auto-estimated measurement noise std."),
@@ -255,6 +265,20 @@ def matlab_run(
     ``data/matlab/`` (or ``--dir``) in turn, continuing past any single file's
     failure so one bad recording doesn't abort the rest of the batch.
     """
+    if bayesian_runs:
+        from nvision.metrics.lab_process import process_bayesian_runs
+        from nvision.tools.matlab_loader import _MATLAB_DATA_DIR
+
+        runs_dir = matlab_dir if matlab_dir is not None else _MATLAB_DATA_DIR
+        try:
+            stats_dir = process_bayesian_runs(runs_dir)
+        except ValueError as exc:
+            typer.echo(f"Error: {exc}")
+            raise typer.Exit(code=1) from exc
+        typer.echo(f"Wrote lab statistics to {stats_dir}")
+        typer.echo(f'View: uv run nv serve --lab-dir "{runs_dir}"')
+        return
+
     if all_files:
         from nvision.tools.matlab_loader import _MATLAB_DATA_DIR
 

@@ -29,10 +29,21 @@ def _load_run(path: Path) -> dict | None:
     cfg, state = esr.config, esr.state
     history = np.asarray(state.history, dtype=float)
     lo, hi = np.asarray(cfg.scanRangeMHz, dtype=float)
+    stopped_on_precision = not bool(esr.noConvergenceStop)
     return {
         "window": round(float(hi - lo)),
         "mean": history[:, 0],
         "std": history[:, 1],
+        # Runs that really stopped on precision keep their own stop; full-budget runs are replayed.
+        "real_stop": None
+        if not stopped_on_precision
+        else {
+            "steps": int(state.stepCount),
+            "converged": str(state.stopReason) == "precision",
+            "mean": float(state.meanMHz),
+            "std": float(state.stdMHz),
+            "ci": [float(x) for x in np.asarray(state.credibleIntervalMHz, dtype=float)],
+        },
         "target_std": float(cfg.targetStdMHz),
         "min_stop_steps": int(cfg.minimumStopSteps),
     }
@@ -46,6 +57,8 @@ def process_bayesian_runs(folder: Path, out_dir: Path | None = None) -> Path:
     mean). The credible interval of a replayed stop is mean +/- 1.96 std (the runs save only the final one).
     """
     out_dir = out_dir or folder / "convergence_statistics"
+    if (out_dir / "window_summary.csv").exists():
+        raise ValueError(f"{out_dir} was written by the lab's own script; not overwriting it")
     runs = [r for p in sorted(folder.glob("*.mat")) if (r := _load_run(p)) is not None]
     if not runs:
         raise ValueError(f"No Bayesian ESR runs in {folder}")
@@ -54,6 +67,20 @@ def process_bayesian_runs(folder: Path, out_dir: Path | None = None) -> Path:
         group = [r for r in runs if r["window"] == window]
         rows = []
         for i, r in enumerate(group, start=1):
+            if r["real_stop"] is not None:
+                s = r["real_stop"]
+                rows.append(
+                    {
+                        "runNumber": i,
+                        "converged": int(s["converged"]),
+                        "stepsToConvergence": s["steps"],
+                        "finalMeanMHz": s["mean"],
+                        "finalStdMHz": s["std"],
+                        "credibleIntervalMHz_1": s["ci"][0],
+                        "credibleIntervalMHz_2": s["ci"][1],
+                    }
+                )
+                continue
             ok = np.flatnonzero((r["std"] <= r["target_std"]) & (np.arange(len(r["std"])) + 1 >= r["min_stop_steps"]))
             k = int(ok[0]) if ok.size else len(r["std"]) - 1
             rows.append(
