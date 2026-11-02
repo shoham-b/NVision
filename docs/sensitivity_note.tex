@@ -1,0 +1,128 @@
+\documentclass[11pt]{article}
+\usepackage[margin=2.4cm]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0.55em}
+
+\newcommand{\dd}{\mathrm{d}}
+\newcommand{\Istar}{I^{\ast}}
+\newcommand{\eps}{\varepsilon}
+
+\title{Information, CRLB, sensitivity and bandwidth\\for the NV resonance-search experiment}
+\author{NVision}
+\date{}
+
+\begin{document}
+\maketitle
+
+\section{The experiment}
+A microwave drive of frequency $x$ is applied and the NV fluorescence is read out. The signal has a dip centred on an
+unknown parameter $\theta$ (the \texttt{zeeman\_shift}, in Hz) whose value is set by the magnetic field $B$. Each
+\emph{step} is one measurement at a chosen $x_t$, with $k_t$ averaged shots and Gaussian noise of standard deviation
+$\sigma$ per shot (dimensionless, like the signal). The goal is a small uncertainty $\delta\theta$, hence $\delta B$,
+in as little measurement time as possible. Throughout, the signal is the photoluminescence (PL) and
+$g(x)=\partial\,\mathrm{PL}(x;\theta)/\partial\theta$ [Hz$^{-1}$] is its slope with respect to $\theta$.
+
+\section{Fisher information of one measurement}
+For Gaussian noise a measurement at $x$ carries
+\begin{equation}
+  I(x)=\frac{k\,g(x)^2}{\sigma^2}\qquad[\mathrm{Hz}^{-2}].
+\end{equation}
+It is largest where the signal changes fastest with $\theta$, the steepest flank of the dip, and zero at the dip
+centre and far in the wings. For a Lorentzian dip of FWHM $\Gamma$ ($\Gamma=2\,$HWHM) and depth $C$ the maximum is at
+$|x-\theta|=\Gamma/(2\sqrt3)$ with $|g_{\max}|=\tfrac{3\sqrt3}{4}\,C/\Gamma\approx1.3\,C/\Gamma$, so, with
+$\mathrm{SNR}=C/\sigma$,
+\begin{equation}
+  \Istar=\frac{k\,g_{\max}^2}{\sigma^2}\approx1.7\,k\,\frac{\mathrm{SNR}^2}{\Gamma^2}.
+\end{equation}
+The per-step \emph{efficiency} $\eta_t=g(x_t)^2/g_{\max}^2\in[0,1]$ is the share of the best possible information a
+measurement collects.
+
+\section{The Cram\'er--Rao bound}
+Independent measurements add information, so $n$ measurements give $J_n=\sum_t I(x_t)\le n\,\Istar$, and for an
+unbiased estimator
+\begin{equation}
+  \delta\theta\;\ge\;\frac{1}{\sqrt{J_n}}\;\ge\;\frac{1}{\sqrt{n\,\Istar}}.
+\end{equation}
+The right-hand side is the bound used in NVision: the oracle that always measures at the best point of the true
+signal. It is a floor for any locator, including adaptive ones (the information of an adaptive design is still capped
+by $\Istar$ per step). On log--log axes it is a straight line of slope $-1/2$. A locator is judged by its
+\emph{Fisher efficiency} (bound steps over steps spent), which is $1$ only if every measurement sits at the best point.
+
+\section{The prior is information}
+The bound above is for the likelihood alone. A Bayesian posterior also starts from a prior, and a search window is a
+prior: a uniform window of width $W$ has variance $W^2/12$. The right bound is the van Trees form
+\begin{equation}
+  \delta\theta(n)\;\ge\;\big(J_0+n\,\Istar\big)^{-1/2},\qquad J_0=\sigma_0^{-2},
+\end{equation}
+with $\sigma_0^2=\int u^2/W\,\dd u=W^2/12$ the variance of a uniform window (so $J_0=12/W^2$; the inverse variance is a
+convention, since a uniform prior has no finite Fisher information at its edges). It is flat while the prior dominates and approaches the $-1/2$ line from
+\emph{below}. So a claimed $\delta\theta$ under $1/\sqrt{n\Istar}$ at small $n$ is expected, and a narrower window
+starts lower for free. Only the true error averaged over repeats falling below the van Trees line would indicate a
+defect. A focus window built from the search stage is a prior that the search paid for; the cumulative clock and
+information must therefore include the search shots.
+
+\section{Stages}
+Three regimes follow from this. \textbf{Search}: nothing is known about where the dip is, and the Fisher bound does not
+apply. \textbf{Focus}: the information per shot rises towards $\Istar$ as the posterior narrows, so $\delta\theta$ falls
+\emph{faster} than $n^{-1/2}$ while still above the bound. \textbf{Refine}: every measurement is near the best point,
+$J_n\approx J_0+n\Istar$, and $\delta\theta\propto n^{-1/2}$. The oracle step counts, with $\eps$ the half-width around
+the best point where $\eta\ge0.9$ and $\tau$ the stop target, are
+\begin{equation}
+  N_{\mathrm{focus}}\ge\frac{\eps^{-2}-J_0}{\Istar},\qquad
+  N_{\mathrm{refine}}\ge\frac{\tau^{-2}-\eps^{-2}}{\Istar},\qquad
+  N_{\mathrm{total}}\ge\frac{\tau^{-2}-J_0}{\Istar}.
+\end{equation}
+
+\section{Sensitivity}
+Let $t_s$ be the time per step including overhead, so $T=n\,t_s$. In the asymptotic regime
+$\delta\theta=1/\sqrt{n\Istar}=\sqrt{t_s/(\Istar T)}$, so
+\begin{equation}
+  \eta_\theta\;=\;\delta\theta\,\sqrt{T}\;=\;\sqrt{\frac{t_s}{\Istar}}\qquad[\mathrm{Hz}\,\sqrt{\mathrm{s}}].
+\end{equation}
+The magnetic sensitivity is $\eta_B=\eta_\theta/\gamma_e$ in $\mathrm{T}/\sqrt{\mathrm{Hz}}$, where
+$\theta=\gamma_e B$ along the NV axis with the gyromagnetic ratio $\gamma_e\approx28$\,GHz/T, so $\sigma_B=\sigma_\theta/\gamma_e$.
+$\eta$ is a constant of the locator only when $\delta\theta\propto T^{-1/2}$ holds
+exactly, that is, in refine. Before that, $\delta\theta\sqrt T$ is not constant, and its instantaneous form
+\begin{equation}
+  \eta_{\mathrm{inst}}(t)=\Big(\frac{\dd J}{\dd t}\Big)^{-1/2},\qquad J=\delta\theta^{-2},
+\end{equation}
+falls during focus towards $\eta_\theta$. The ratio $\eta_\theta^2/\eta_{\mathrm{inst}}^2\le1$ is the Fisher efficiency.
+
+\section{Bandwidth}
+Bandwidth is the rate at which the field can be re-measured to a required precision $\delta B^{\ast}$. The operational
+definition is the first-passage time $T(\delta B^{\ast})$ at which the \emph{true} error first stays below the target,
+and
+\begin{equation}
+  f_{\mathrm{BW}}=\frac{1}{T(\delta B^{\ast})}.
+\end{equation}
+It needs no assumption about the scaling and covers search, focus and refine together. In refine, with constant
+$\eta_B$, it reduces to
+\begin{equation}
+  T(\delta B^{\ast})=\Big(\frac{\eta_B}{\delta B^{\ast}}\Big)^{2},\qquad f_{\mathrm{BW}}=\Big(\frac{\delta B^{\ast}}{\eta_B}\Big)^{2}.
+\end{equation}
+A convention (for example $1/(2T)$) can be chosen later, but should be stated with every number. The effective
+sensitivity at a target, $\eta_{\mathrm{eff}}(\delta B^{\ast})=\delta B^{\ast}\sqrt{T(\delta B^{\ast})}$, tends to
+$\eta_B$ as $\delta B^{\ast}\to0$ and is not a constant otherwise. NVision stores $T(\tau)$ in steps
+(\texttt{stage\_true\_passage\_step}) and $\tau\sqrt{T}$ (\texttt{stage\_eta\_eff}).
+
+\section{Summary}
+\begin{center}
+\small
+\begin{tabular}{@{}lll@{}}
+\toprule
+Quantity & Definition & Holds when\\
+\midrule
+Information per step & $I=k\,g^2/\sigma^2$, best $\Istar$ & always\\
+CRLB (oracle) & $\delta\theta\ge(n\Istar)^{-1/2}$ & likelihood only, unbiased\\
+Van Trees & $\delta\theta\ge(J_0+n\Istar)^{-1/2}$ & Bayesian posterior with a prior\\
+Sensitivity & $\eta_\theta=\sqrt{t_s/\Istar}$ & refine ($J$ linear in $t$)\\
+Instantaneous sensitivity & $\eta_{\mathrm{inst}}=(\dd J/\dd t)^{-1/2}$ & any stage\\
+Bandwidth & $1/T(\delta B^{\ast})$, first passage of true error & any stage\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\end{document}
