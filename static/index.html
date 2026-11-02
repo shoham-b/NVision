@@ -61,7 +61,7 @@
         <span class="control-label" style="margin-right: 0.5em;" id="scan-view-label">View:</span>
         <div class="segmented-control" id="scan-view-mode" role="radiogroup" aria-labelledby="scan-view-label">
             <button type="button" role="radio" aria-checked="true" data-value="single" class="is-active" tabindex="0" id="scan-view-single-btn">Run</button>
-            <button type="button" role="radio" aria-checked="false" data-value="stages" tabindex="-1">Stages</button>
+            <button type="button" role="radio" aria-checked="false" data-value="stages" tabindex="-1">Information</button>
             <button type="button" role="radio" aria-checked="false" data-value="scaling" tabindex="-1">Scaling</button>
             <button type="button" role="radio" aria-checked="false" data-value="sanity" tabindex="-1" id="scan-view-sanity-btn">Sanity</button>
         </div>
@@ -193,9 +193,9 @@
         <div id="ss-notice" style="margin:0 0 0.6em;"></div>
     </div>
 
-    <!-- ── Stages tab: locators compared stage by stage ───────────────────── -->
+    <!-- ── Information tab (id "stages"): how fast each locator approaches the van Trees bound ───────── -->
     <div id="stages-view" style="display:none; margin-top:1em; padding-top:1em; border-top:1px solid #eee;">
-        <h2 style="margin:0 0 0.4em;">Stages — search, focus, refine <span tabindex="0" class="help-icon-visible" title="Every run is cut into three stages by the same detector. 1. Search: until the measurements first show a dip. 2. Focus: until the measurements are near the steepest point of the dip (maximum information per measurement). 3. Refine: the rest. A stage a run never reached is left out of that stage's median; Reached says how many did (a plain sweep never refines).">?</span></h2>
+        <h2 style="margin:0 0 0.4em;">Information — how fast each locator approaches the bound <span tabindex="0" class="help-icon-visible" title="Every run is one accumulation of information J = 1/σ² from the prior J₀ = σ₀⁻² of the primary parameter (σ₀ = the claimed σ after the first measurement, one value per use case). No run can beat σ(n) = (J₀ + n·I*)^(-1/2) (van Trees), where I* is the information of one measurement at the steepest point of the dip. Whole run judges each locator by its distance to that line; Search is the one stage kept, because finding the dip is detection, not a Fisher regime.">?</span></h2>
         <div class="sticky-selectors below-ss" style="display:flex; align-items:center; gap:0.5em; margin:0 0 0.6em;">
             <div class="segmented-control" id="uc-scope-stages" role="radiogroup" aria-label="Selection scope">
                 <button type="button" role="radio" aria-checked="true" data-value="median" class="is-active" tabindex="0">Median over selection</button>
@@ -204,9 +204,7 @@
             <span class="control-label" style="font-size:0.85em; font-weight:600; color:#334155; margin-left:1em;">Show:</span>
             <div class="segmented-control" id="hl-stages-from" role="radiogroup">
                 <button type="button" role="radio" aria-checked="true" data-value="0" class="is-active" tabindex="0">Whole run</button>
-                <button type="button" role="radio" aria-checked="false" data-value="1" tabindex="-1">1. Search</button>
-                <button type="button" role="radio" aria-checked="false" data-value="2" tabindex="-1">2. Focus</button>
-                <button type="button" role="radio" aria-checked="false" data-value="3" tabindex="-1">3. Refine</button>
+                <button type="button" role="radio" aria-checked="false" data-value="1" tabindex="-1">Search</button>
             </div>
         </div>
         <!-- ── Cost & search: every locator's total cost and search metrics, side by side. Shown only under "Whole run"
@@ -228,34 +226,32 @@
         <div id="stages-body">
         <section data-stage="0">
             <h3 style="margin:0 0 0.2em; font-size:1.1em; color:#0f172a;">Whole run</h3>
-            <p style="margin:0 0 0.6em; font-size:0.85em; color:#475569;">Every locator over the run, with the markers where the focus was found (diamond) and where measuring reached the steepest point (star). The stages below break the cost down.</p>
+            <p style="margin:0 0 0.6em; font-size:0.85em; color:#475569;">One bound for every locator: σ(n) ≥ (J₀ + n·I*)<sup>−½</sup>, J₀ = σ₀⁻² the prior's information. A locator is good to the extent its information tracks that line from the first measurement. Two numbers summarise the gap: the <b>lag n₀</b> (measurements spent before information grows at a steady rate) and the <b>efficiency e</b> (that rate as a share of the best possible I*).</p>
             <div style="display:flex; flex-wrap:wrap; gap:1.5em;">
                 <div style="flex:1 1 46%; min-width:420px; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px;">
-                    <h3 style="margin-left:10px;">Claimed uncertainty vs measurements <span tabindex="0" class="help-icon-visible" title="Median claimed uncertainty of the primary parameter after each measurement, with the interquartile band over repeats. Diamonds mark the median step where the focus was found, stars where measuring reached the steepest point (start of refine). Dash-dotted = three straight segments fitted in log-log (flat search, steep focus, refine tail; slopes in the legend), circles = the two breakpoints, dotted = theoretical slope −½ continued from the fitted refine start: a tail on that line is Fisher-efficient. Lower and further left = converges faster.">?</span></h3>
-                    <div id="hl-stages-unc" style="height:420px; width:100%;"></div>
+                    <h3 style="margin-left:10px;">Information vs the bound <span tabindex="0" class="help-icon-visible" title="R(n) compares the squared error with the bound's variance 1/(J₀ + n·I*): R = 1 is the van Trees bound, a locator that wastes measurements sits below it. Solid = the mean square of the true error over the runs, the quantity the bound is on (a few failed runs dominate it, which is the point); dotted = the same from the claimed σ, so dotted above solid means the belief claims more precision than it has (overconfidence). J₀ = σ₀⁻², the prior of the primary parameter (the median over the use case's runs, the same for every locator). A run that has stopped keeps its final error; the tail is the runs still going (at least half). Median over use cases when several are selected.">?</span></h3>
+                    <div id="hl-info-ratio" style="height:420px; width:100%;"></div>
                 </div>
                 <div style="flex:1 1 46%; min-width:420px; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px;">
-                    <h3 style="margin-left:10px;">True error vs measurements <span tabindex="0" class="help-icon-visible" title="Median true |estimate - truth| of the primary parameter after each measurement, with the interquartile band over repeats. Same markers as the uncertainty chart.">?</span></h3>
-                    <div id="hl-stages-errcurve" style="height:420px; width:100%;"></div>
-                </div>
-            </div>
-            <h3 style="margin:1em 0 0.2em; font-size:1em; color:#0f172a;">Information, without stages</h3>
-            <p style="margin:0 0 0.6em; font-size:0.85em; color:#475569;">The same runs as one continuous accumulation of information J = 1/σ² (claimed σ), starting from the prior J₀ = σ₀⁻² (σ₀ = the claimed σ after the first measurement). Search, focus and refine are regimes of this curve, not separate phases. Search (detecting the dip) is not a Fisher regime, so read the first steps with care.</p>
-            <div style="display:flex; flex-wrap:wrap; gap:1.5em;">
-                <div style="flex:1 1 46%; min-width:420px; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px;">
-                    <h3 style="margin-left:10px;">Prior share of the information <span tabindex="0" class="help-icon-visible" title="J₀ / J = (σ / σ₀)², the share of the information that still comes from the prior (the window), against measurements; 1 → 0 as data take over. Median over repeats (over use cases when several are selected). Dashed = the bound J₀ / (J₀ + N I*) with every measurement at the Fisher-optimal point: a curve under the dashed line has gained information faster than the best possible, which only an overconfident claimed σ can do.">?</span></h3>
-                    <div id="hl-info-prior" style="height:380px; width:100%;"></div>
-                </div>
-                <div style="flex:1 1 46%; min-width:420px; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px;">
-                    <h3 style="margin-left:10px;">Information rate vs the Fisher ceiling <span tabindex="0" class="help-icon-visible" title="(J(N) − J(N′)) / ((N − N′) I*) between consecutive points of the measurement grid: the information gained per measurement as a share of the best possible I*. 1 = every measurement at the Fisher-optimal point; above 1 = the claimed σ fell faster than any measurements could justify (overconfidence). Median over repeats still running.">?</span></h3>
-                    <div id="hl-info-rate" style="height:380px; width:100%;"></div>
+                    <h3 style="margin-left:10px;">Cost to reach a precision <span tabindex="0" class="help-icon-visible" title="Measurements until the true error first stays below τ (median over the runs that got there; the share that did is in the hover), against the precision gain over the prior, σ₀ / τ. Dashed = the bound's cost (τ⁻² − J₀) / I*. A constant gap is a fixed overhead (the lag n₀); a gap that grows is a rate below I* (efficiency e). A point needs at least half the runs to have reached it, so a locator's curve ends where most of its runs stop short.">?</span></h3>
+                    <div id="hl-info-cost" style="height:420px; width:100%;"></div>
                 </div>
             </div>
             <div id="hl-whole-table" style="margin:1em 0; overflow-x:auto;"></div>
             <div style="display:flex; flex-wrap:wrap; gap:1.5em; margin-top:1em;">
                 <div style="flex:1 1 46%; min-width:420px; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px;">
-                    <h3 style="margin-left:10px;">Where the measurements go <span tabindex="0" class="help-icon-visible" title="Median measurements in each stage, stacked, one bar per locator (over the runs that reached the stage). The stack decomposes a typical run; the median total is in the table above.">?</span></h3>
-                    <div id="hl-stages-steps" style="height:320px; width:100%;"></div>
+                    <h3 style="margin-left:10px;">Claimed uncertainty vs measurements <span tabindex="0" class="help-icon-visible" title="Median claimed uncertainty of the primary parameter after each measurement, with the interquartile band over repeats. Dashed = the bound (J₀ + n·I*)^(-1/2) from the run's own start. Lower and further left = converges faster.">?</span></h3>
+                    <div id="hl-stages-unc" style="height:420px; width:100%;"></div>
+                </div>
+                <div style="flex:1 1 46%; min-width:420px; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px;">
+                    <h3 style="margin-left:10px;">True error vs measurements <span tabindex="0" class="help-icon-visible" title="Median true |estimate - truth| of the primary parameter after each measurement, with the interquartile band over repeats.">?</span></h3>
+                    <div id="hl-stages-errcurve" style="height:420px; width:100%;"></div>
+                </div>
+            </div>
+            <div style="display:flex; flex-wrap:wrap; gap:1.5em; margin-top:1em;">
+                <div style="flex:1 1 46%; min-width:420px; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px;">
+                    <h3 style="margin-left:10px;">Information rate vs the Fisher ceiling <span tabindex="0" class="help-icon-visible" title="(J(N) − J(N′)) / ((N − N′) I*) between consecutive points of the measurement grid: the information gained per measurement as a share of the best possible I*. 1 = every measurement at the Fisher-optimal point; above 1 = the claimed σ fell faster than any measurements could justify (overconfidence). Median over repeats still running.">?</span></h3>
+                    <div id="hl-info-rate" style="height:380px; width:100%;"></div>
                 </div>
             </div>
             <div style="margin-top:1em; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px;">
@@ -264,7 +260,7 @@
             </div>
         </section>
         <section data-stage="1" style="margin:1em 0 0;">
-            <h3 style="margin:0 0 0.2em; font-size:1.1em; color:#0f172a;">1. Search</h3>
+            <h3 style="margin:0 0 0.2em; font-size:1.1em; color:#0f172a;">Search</h3>
             <p style="margin:0 0 0.6em; font-size:0.85em; color:#475569;"><b>Driven by:</b> whether the grid puts enough points inside the true dip (grid points per true FWHM) and how deep each point sees it (SNR = contrast / noise σ). <b>Metric:</b> measurements until a dip is seen, and the share of runs that ever saw one. A blind stage: expect a tie.</p>
             <div id="hl-stage-compare-1" style="margin:0.5em 0 1em; overflow-x:auto;"></div>
             <div style="display:flex; flex-wrap:wrap; gap:1.5em;">
@@ -288,62 +284,7 @@
                 <div id="hl-paired-1" style="height:320px; width:100%;"></div>
             </div>
         </section>
-        <section data-stage="2" style="margin:1em 0 0;">
-            <h3 style="margin:0 0 0.2em; font-size:1.1em; color:#0f172a;">2. Focus</h3>
-            <p style="margin:0 0 0.6em; font-size:0.85em; color:#475569;"><b>Driven by:</b> the information per measurement, which grows as SNR² (so the cost of a given precision falls as 1/SNR²). Going from “dip seen” to “located near the steepest slope”, i.e. to a precision eps where the sensitivity is still ≥ 90% of its best. <b>Metric:</b> measurements in the focus stage against the Fisher bound (efficiency = bound ÷ steps); the dashed line in the claimed-uncertainty chart is the best any measurements could do from the same start. Whether focus depends on the window or the locator is in the Scaling view.</p>
-            <div id="hl-stage-compare-2" style="margin:0.5em 0 1em; overflow-x:auto;"></div>
-            <div style="display:flex; flex-wrap:wrap; gap:1.5em;">
-                <div style="flex:1 1 46%; min-width:420px; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px;">
-                    <h3 style="margin-left:10px;">Claimed uncertainty in the focus stage <span tabindex="0" class="help-icon-visible" title="Median claimed uncertainty of the primary parameter, only over the focus stage: each run is drawn at its own measurement numbers, from the start of the stage to its end; runs that never reached it are left out (legend: reached / all runs). Band = interquartile range. Dashed = Fisher bound, dotted = slope −½.">?</span></h3>
-                    <div id="hl-stage-unc-2" style="height:420px; width:100%;"></div>
-                </div>
-                <div style="flex:1 1 46%; min-width:420px; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px;">
-                    <h3 style="margin-left:10px;">True error in the focus stage <span tabindex="0" class="help-icon-visible" title="Median true |estimate - truth| of the primary parameter, over the focus stage only (same alignment as the uncertainty chart).">?</span></h3>
-                    <div id="hl-stage-err-2" style="height:420px; width:100%;"></div>
-                </div>
-            </div>
-            <div style="display:flex; flex-wrap:wrap; gap:1.5em; margin-top:1em;">
-                <div style="flex:1 1 46%; min-width:420px; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px;">
-                    <h3 style="margin-left:10px;">Measurements in the focus stage <span tabindex="0" class="help-icon-visible" title="Median measurements this stage took, over the repeats that reached it; whiskers are the interquartile range (over use cases when several are selected).">?</span></h3>
-                    <div id="hl-stages-steps-2" style="height:320px; width:100%;"></div>
-                </div>
-            </div>
-            <div style="margin-top:1em; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px;">
-                <h3 style="margin-left:10px;">Paired difference per repeat <span tabindex="0" class="help-icon-visible" title="Repeat i has the same true signal for every locator, so the focus steps of a locator minus Bayesian-SBED's on the same repeat cancels the signal-to-signal spread. Right of zero = SBED needed fewer. Shown for a single use case (Each use case).">?</span></h3>
-                <div id="hl-paired-2" style="height:320px; width:100%;"></div>
-            </div>
-        </section>
-        <section data-stage="3" style="margin:1em 0 0;">
-            <h3 style="margin:0 0 0.2em; font-size:1.1em; color:#0f172a;">3. Refine</h3>
-            <p style="margin:0 0 0.6em; font-size:0.85em; color:#475569;"><b>Driven by:</b> Fisher-limited precision: an oracle needs about (FWHM_true / (SNR · τ))² measurements to reach σ = τ. <b>Metric:</b> Fisher efficiency η (1 = measuring at the Fisher-optimal points), and cost relative to the Fisher-limited cost. A plain sweep never refines.</p>
-            <div id="hl-stage-compare-3" style="margin:0.5em 0 1em; overflow-x:auto;"></div>
-            <div style="display:flex; flex-wrap:wrap; gap:1.5em;">
-                <div style="flex:1 1 46%; min-width:420px; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px;">
-                    <h3 style="margin-left:10px;">Claimed uncertainty in the refine stage <span tabindex="0" class="help-icon-visible" title="Median claimed uncertainty of the primary parameter, only over the refine stage: each run is drawn at its own measurement numbers, from the start of the stage to its end; runs that never reached it are left out (legend: reached / all runs). Band = interquartile range. Dashed = Fisher bound, dotted = slope −½.">?</span></h3>
-                    <div id="hl-stage-unc-3" style="height:420px; width:100%;"></div>
-                </div>
-                <div style="flex:1 1 46%; min-width:420px; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px;">
-                    <h3 style="margin-left:10px;">True error in the refine stage <span tabindex="0" class="help-icon-visible" title="Median true |estimate - truth| of the primary parameter, over the refine stage only (same alignment as the uncertainty chart).">?</span></h3>
-                    <div id="hl-stage-err-3" style="height:420px; width:100%;"></div>
-                </div>
-            </div>
-            <div style="margin-top:1em; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px;">
-                <h3 style="margin-left:10px;">Measurements in the refine stage <span tabindex="0" class="help-icon-visible" title="Median measurements this stage took, over the repeats that reached it; whiskers are the interquartile range (over use cases when several are selected).">?</span></h3>
-                <div id="hl-stages-steps-3" style="height:320px; width:100%;"></div>
-            </div>
-            <div style="margin-top:1em; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px;">
-                <h3 style="margin-left:10px; display:flex; align-items:center; gap:1em; flex-wrap:wrap;">
-                    <span>Claimed uncertainty and true error vs Fisher <span tabindex="0" class="help-icon-visible" title="Stage 3 aligned to its start, everything relative to the claimed uncertainty when refine began. Solid: the locator's claimed primary-parameter uncertainty (median, IQR over runs still going). Dotted: the actual |estimate - truth|. Dashed: the Fisher reference, the start uncertainty improved only by the true Fisher information of the measurements since. Solid below dashed = the belief claims more precision than the data carry; dotted above dashed = the locator is not improving as fast as Fisher information allows. Applies to every locator that reaches the stage.">?</span></span>
-                    <label style="font-size:0.8em; font-weight:400; color:#334155; display:inline-flex; align-items:center; gap:0.4em;"><input type="checkbox" id="hl-refine-locators" checked> Show locators</label>
-                </h3>
-                <div id="hl-refine-unc" style="height:360px; width:100%;"></div>
-            </div>
-            <div style="margin-top:1em; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px;">
-                <h3 style="margin-left:10px;">Paired difference per repeat <span tabindex="0" class="help-icon-visible" title="Repeat i has the same true signal for every locator, so the refine steps of a locator minus Bayesian-SBED's on the same repeat cancels the signal-to-signal spread. Right of zero = SBED needed fewer. Shown for a single use case (Each use case).">?</span></h3>
-                <div id="hl-paired-3" style="height:320px; width:100%;"></div>
-            </div>
-        </section>
-        <p style="margin:1em 0 0; font-size:0.8em; color:#94a3b8;">How each stage scales with the window, SNR and line width is in the Scaling view. Whether the claimed σ is right, and which runs failed, is in the Sanity view. Fisher bounds and efficiencies need runs recorded after the oracle columns were added; older runs show a dash.</p>
+        <p style="margin:1em 0 0; font-size:0.8em; color:#94a3b8;">How search cost scales with the window, SNR and line width is in the Scaling view. Whether the claimed σ is right, and which runs failed, is in the Sanity view. The bound needs runs recorded with the Fisher columns (stage_fisher_star, stage_prior_info); older runs show a dash.</p>
         </div>
     </div>
 
