@@ -104,7 +104,7 @@ async function renderLabStudy(container, name) {
         </table>
         <p style="color:#475569; font-size:0.85em;">No ground truth exists for real data: error is measured against the reference, so the across-run std also contains any real drift of the resonance between runs. Read "Spread ÷ claimed σ" as an upper bound on miscalibration: the runs disagree with each other by that many times the σ each one claims.</p>
         <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(420px, 1fr)); gap:1em;">
-            <div><h3 style="margin:0 0 0.3em; font-size:1em;">Claimed σ vs across-run spread <span tabindex="0" class="help-icon-visible" title="Solid: median self-reported posterior std (band: quartiles). Dashed: how far the runs' posterior means scatter from each other at that step (std across runs; not an error against a known truth). Dashed above solid means the runs disagree more than they claim. Both include only runs still measuring at that step.">?</span> <label style="font-weight:normal; font-size:0.85em; margin-left:0.8em;"><input type="checkbox" id="lab-show-spread" checked> show spread (dashed)</label> <label style="font-weight:normal; font-size:0.85em; margin-left:0.8em;"><input type="checkbox" id="lab-show-guide" checked> −1/2 slope guide (dotted)</label></h3><div id="lab-sigma" style="height:420px"></div></div>
+            <div><h3 style="margin:0 0 0.3em; font-size:1em;">Claimed σ vs across-run spread <span tabindex="0" class="help-icon-visible" title="Solid: median self-reported posterior std (band: quartiles). Dashed: how far the runs' posterior means scatter from each other at that step (std across runs; not an error against a known truth). Dashed above solid means the runs disagree more than they claim. Both include only runs still measuring at that step.">?</span> <label style="font-weight:normal; font-size:0.85em; margin-left:0.8em;"><input type="checkbox" id="lab-show-spread" checked> show spread (dashed)</label> <label style="font-weight:normal; font-size:0.85em; margin-left:0.8em;"><input type="checkbox" id="lab-show-guide" checked> −1/2 fit where reached (dotted)</label></h3><div id="lab-sigma" style="height:420px"></div></div>
             <div><h3 style="margin:0 0 0.3em; font-size:1em;">Steps to convergence <span tabindex="0" class="help-icon-visible" title="Median number of measurements until the run's own stop rule fired, with the interquartile range, per drive_freq window.">?</span></h3><div id="lab-steps" style="height:420px"></div></div>
         </div>`;
     await ensurePlotly();
@@ -115,15 +115,29 @@ async function renderLabStudy(container, name) {
         const name = `${r.window_mhz} MHz`;
         traces.push({ x: c.step, y: c.claimed_q75, mode: 'lines', line: { width: 0 }, hoverinfo: 'skip', showlegend: false, legendgroup: name });
         traces.push({ x: c.step, y: c.claimed_q25, mode: 'lines', line: { width: 0 }, fill: 'tonexty', fillcolor: color + '22', hoverinfo: 'skip', showlegend: false, legendgroup: name });
-        // Log-log slope of the claimed median over the last decade of steps (expected -1/2 once the posterior is asymptotic).
+        // Log-log fit of the claimed median over a step range [lo, last]; slope is -1/2 once the posterior is asymptotic.
         const last = c.step[c.step.length - 1];
-        const tail = c.step.map((s, k) => k).filter((k) => c.step[k] >= last / 10 && c.claimed_median[k] > 0);
-        const lx = tail.map((k) => Math.log(c.step[k])), ly = tail.map((k) => Math.log(c.claimed_median[k]));
-        const mx = lx.reduce((a, b) => a + b, 0) / lx.length, my = ly.reduce((a, b) => a + b, 0) / ly.length;
-        const slope = lx.reduce((a, v, k) => a + (v - mx) * (ly[k] - my), 0) / lx.reduce((a, v) => a + (v - mx) ** 2, 0);
-        traces.push({ x: c.step, y: c.claimed_median, mode: 'lines', line: { color, width: 2 }, name: `${name} claimed (slope ${slope.toFixed(2)})`, legendgroup: name });
-        const yEnd = c.claimed_median[c.claimed_median.length - 1];
-        traces.push({ x: [last / 10, last], y: [yEnd * Math.sqrt(10), yEnd], mode: 'lines', line: { color, width: 1.5, dash: 'dot' }, hoverinfo: 'skip', showlegend: false, legendgroup: name, meta: 'guide' });
+        const fit = (lo) => {
+            const ks = c.step.map((s, k) => k).filter((k) => c.step[k] >= lo && c.claimed_median[k] > 0);
+            const lx = ks.map((k) => Math.log(c.step[k])), ly = ks.map((k) => Math.log(c.claimed_median[k]));
+            const mx = lx.reduce((s, v) => s + v, 0) / lx.length, my = ly.reduce((s, v) => s + v, 0) / ly.length;
+            const slope = lx.reduce((s, v, k) => s + (v - mx) * (ly[k] - my), 0) / lx.reduce((s, v) => s + (v - mx) ** 2, 0);
+            return { slope, a: Math.exp(ly.reduce((s, v, k) => s + v + 0.5 * lx[k], 0) / lx.length) };  // a: sigma = a / sqrt(step)
+        };
+        // Longest end-anchored range (at least a factor 2.5 in steps) whose free slope is within 0.1 of -1/2.
+        let lo = null;
+        for (let k = 0; k < c.step.length; k++) {
+            if (c.step[k] * 2.5 > last) break;
+            // The second half of the range must also sit near -1/2, so a curve that has flattened again is not accepted.
+            if (Math.abs(fit(c.step[k]).slope + 0.5) < 0.1 && Math.abs(fit(Math.sqrt(c.step[k] * last)).slope + 0.5) < 0.15) { lo = c.step[k]; break; }
+        }
+        const tailFit = fit(last / 10);
+        const label = lo === null ? `slope ${tailFit.slope.toFixed(2)}, not at -1/2 yet` : `slope ${fit(lo).slope.toFixed(2)} from step ${lo}`;
+        traces.push({ x: c.step, y: c.claimed_median, mode: 'lines', line: { color, width: 2 }, name: `${name} claimed (${label})`, legendgroup: name });
+        if (lo !== null) {
+            const f = fit(lo), xs = [lo, last];
+            traces.push({ x: xs, y: xs.map((s) => f.a / Math.sqrt(s)), mode: 'lines', line: { color, width: 3, dash: 'dot' }, hoverinfo: 'skip', showlegend: false, legendgroup: name, meta: 'guide' });
+        }
         traces.push({ x: c.actual_step, y: c.across_run_std, mode: 'lines', line: { color, width: 2, dash: 'dash' }, name: `${name} spread`, legendgroup: name, meta: 'spread' });
     });
     Plotly.newPlot('lab-sigma', traces, {
