@@ -207,7 +207,7 @@ def _matlab_loop(
 # ---------------------------------------------------------------------------
 
 
-# Sweep settings of `nv matlab` and of the background `nv matlab-sync` (which takes no options, so a sync
+# Sweep settings of `nv matlab` and of its no-SOURCE re-sync (which takes no options, so a sync
 # reproduces what the first `nv matlab` of a source did with its defaults).
 _DEFAULT_MAX_STEPS = 300
 _DEFAULT_PARTICLES = 10000
@@ -225,9 +225,14 @@ _SYNC_SWEEP_OPTIONS: dict[str, Any] = dict(
 @app.command("matlab")
 def matlab(
     source: Annotated[
-        str,
-        typer.Argument(help="A Google Drive folder link (or id), a local folder, or a single .mat file."),
-    ],
+        str | None,
+        typer.Argument(
+            help=(
+                "A Google Drive folder link (or id), a local folder, or a single .mat file. "
+                "Omit to re-sync every source added before."
+            )
+        ),
+    ] = None,
     directory: Annotated[
         Path,
         typer.Option("--dir", help="Artifacts directory results are stored under (the one given to `nv serve`)."),
@@ -280,9 +285,10 @@ def matlab(
 ) -> None:
     """Add the lab's MATLAB data (a Drive link or a local path) and show it in ``nv serve``.
 
-    Run it once per SOURCE: the source is remembered under ``<dir>/labs/sources.json`` and from then on
-    ``nv serve --dir <dir>`` re-syncs every remembered source in the background on start (and on the lab page's
-    Sync button), processing only new or changed files. A Drive link is fetched read-only with rclone. Every
+    Run it once per SOURCE: it syncs now (a Drive link is fetched read-only with rclone, downloading only the
+    files that are missing or changed, and only new or changed files are processed). The source is remembered
+    under ``<dir>/labs/sources.json``; run ``nv matlab`` with no SOURCE (or press the lab page's Sync button)
+    to pick up later changes. ``nv serve`` never syncs by itself. Every
     ``.mat`` file below SOURCE is handled by what it holds:
 
     - the lab's Bayesian ESR runs (``myStruct.BayesianESR``): one lab study per folder (calibration,
@@ -293,12 +299,15 @@ def matlab(
     """
     from nvision.tools.lab_sources import add_source
 
+    if source is None:
+        _sync_all(directory)
+        return
     try:
         entry = add_source(directory, source)
     except ValueError as exc:
         typer.echo(f"Error: {exc}")
         raise typer.Exit(code=1) from exc
-    typer.echo(f"Source '{entry['label']}' saved in {directory}; `nv serve --dir \"{directory}\"` keeps it in sync.\n")
+    typer.echo(f"Source '{entry['label']}' saved in {directory}; sync it again later with `nv matlab`.\n")
     options = dict(
         noise_std=noise_std,
         max_steps=max_steps,
@@ -327,14 +336,8 @@ def matlab(
         raise typer.Exit(code=1)
 
 
-@app.command("matlab-sync")
-def matlab_sync(
-    directory: Annotated[
-        Path,
-        typer.Option("--dir", help="Artifacts directory whose remembered lab sources are synced."),
-    ] = ARTIFACTS_ROOT,
-) -> None:
-    """Re-sync every source added with ``nv matlab`` (what ``nv serve`` runs in the background).
+def _sync_all(directory: Path) -> None:
+    """Re-sync every remembered source (``nv matlab`` with no SOURCE; also the lab page's Sync button).
 
     Only new or changed files are processed. Progress and per-source failures go to
     ``<dir>/labs/sync_status.json``, which the lab page shows.

@@ -25,7 +25,7 @@ async function renderLabSync(bar) {
         return;
     }
     if (!state.sources.length) {
-        bar.innerHTML = '<p style="margin:0 0 0.8em; color:#475569; font-size:0.85em;">No lab source added yet: run <code>nv matlab &lt;Drive folder link&gt;</code> once, then <code>nv serve</code> keeps it in sync.</p>';
+        bar.innerHTML = '<p style="margin:0 0 0.8em; color:#475569; font-size:0.85em;">No lab source added yet: run <code>nv matlab &lt;Drive folder link&gt;</code> to add and sync it; run <code>nv matlab</code> again for later changes.</p>';
         return;
     }
     const st = state.status;
