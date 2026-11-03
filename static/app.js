@@ -3048,10 +3048,10 @@ function main() {
             selectedScanGenerator = renderSegmentedControl(scanGenerator, scanGeneratorItems, previousGenerator);
         } else {
             const familyOptions = [
-                ...familyKeys.map((key) => ({ key, label: families.get(key).label })),
-                ...(matlab.length > 0 ? [{ key: '__matlab__', label: 'MATLAB (real data)' }] : []),
-                ...(window.NVISION_LABS || []).map((n) => ({ key: LAB_KEY_PREFIX + n, label: `Lab: ${n}` })),
-                ...(ungrouped.length > 0 ? [{ key: '__ungrouped__', label: 'Default (ungrouped)' }] : []),
+                ...familyKeys.map((key) => ({ key, label: families.get(key).label, group: 'Simulated runs' })),
+                ...(matlab.length > 0 ? [{ key: '__matlab__', label: 'MATLAB (real data)', group: 'Real-data runs (nv matlab-run)' }] : []),
+                ...(window.NVISION_LABS || []).map((n) => ({ key: LAB_KEY_PREFIX + n, label: n, group: 'Lab data' })),
+                ...(ungrouped.length > 0 ? [{ key: '__ungrouped__', label: 'Default (ungrouped)', group: 'Simulated runs' }] : []),
             ];
             const needsFamilyPicker = familyOptions.length > 1;
 
@@ -3067,12 +3067,20 @@ function main() {
                         ? '__matlab__'
                         : (ungrouped.includes(previousGenerator) ? '__ungrouped__' : null);
                 scanGeneratorFamily.innerHTML = '';
+                // Simulated runs, real-data runs and lab data are different things: one <optgroup> each.
+                const optgroups = new Map();
                 for (const opt of familyOptions) {
                     const option = document.createElement('option');
                     option.value = opt.key;
                     option.textContent = opt.label;
-                    scanGeneratorFamily.appendChild(option);
+                    if (!optgroups.has(opt.group)) {
+                        const g = document.createElement('optgroup');
+                        g.label = opt.group;
+                        optgroups.set(opt.group, g);
+                    }
+                    optgroups.get(opt.group).appendChild(option);
                 }
+                for (const g of optgroups.values()) scanGeneratorFamily.appendChild(g);
                 const candidateKey = lastLabKey ? lastLabKey : (forcedFamilyKey ?? prevFamilyKey);
                 // First load defaults to the Lorentzian / Voigt study.
                 selectedFamilyKey = candidateKey && familyOptions.some((o) => o.key === candidateKey)
