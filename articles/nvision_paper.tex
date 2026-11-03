@@ -690,15 +690,61 @@ $\sigma$.}
 \label{sec:discussion}
 % =====================================================================
 
-\tbd{Limits: the claimed $\sigma$ is overconfident; the simulated prior is miscalibrated; Gaussian noise only;
-$I^*$ assumes known nuisances; low-SNR detection model.}
+\subsection{Relation to earlier work}
+
+Adaptive choice of the drive frequency in ODMR was demonstrated with sequential Monte Carlo (SMC) particle posteriors
+\cite{dushenko2020sbed,mcmichael2021optbayesexpt}; the SBED of this work is the same family, not a grid-based
+alternative to it. What we add is the yardstick, the van Trees bound, Eq.~\eqref{eq:vantrees}, against which the claimed
+uncertainty of every strategy is read, and the split of a run into search, focus and refine. Whether this
+explains the growth of the speedup with the window reported in Ref.~\cite{dushenko2020sbed} is to be checked
+against our simulations \tbd{agree with the Theory subsection on the speedup}. We compare against drive-frequency
+sweeps only; the learned design rules of the introduction are not compared.
+
+\subsection{Limitations}
+
+\paragraph{Claimed uncertainty.} The particle filter's $\hat\sigma_N$, Eq.~\eqref{eq:sigma-hat}, is a moment of an
+approximate posterior. In earlier runs of the same code its coverage of the true error was below nominal, i.e.\ the
+filter was overconfident \tbd{replace by the coverage measured in Sec.~\ref{sec:sim-results}(d)}. The stop rule and the
+reading of a run against the bound both use $\hat\sigma_N$, so an overconfident filter stops early and looks closer to the bound than its
+true error is. We therefore report the true error beside $\hat\sigma_N$ and do not take $\hat\sigma_N$ alone as evidence of accuracy.
+
+\paragraph{Reaching the refine stage.} The $-\tfrac12$ slope of the unbiased Cram\'er--Rao bound is reached only in
+the refine stage. In earlier runs SBED reached it in a minority of the runs \tbd{fraction per use case from
+Sec.~\ref{sec:sim-results}}, and runs that exhaust the budget are censored. Costs are therefore reported as the cost to
+reach a target $\tau$, with censored runs counted at the budget, which is a lower bound.
+
+\paragraph{Baselines.} The sweep spacing $\Gamma_0/p$ is relative to the FWHM of the prior-mean line, not the true
+one, so a sweep's cost depends on how well the prior matches the line. The ladder $p=2,3,4$ and Smart-Sweep are
+tuned by us, and a different tuning may change the comparison. The sweeps share the particle filter with SBED, so
+their $\hat\sigma_N$ is the same quantity; the accuracy of their point estimate is not claimed here
+\tbd{status of the sweep point estimate}.
+
+\paragraph{Model assumptions.} The noise is Gaussian in the model (only its level is learned), the line shape is
+known, and $I^*$ assumes known nuisance parameters ($\Gamma_L$, $\Gamma_G$, $C$). The prior of the simulations
+need not equal the prior assumed in the bound \tbd{state after the prior fix of Sec.~\ref{sec:prior}}, in which case the bound is a
+reference, not a strict limit, for those runs. The low-SNR detection model is an approximation \tbd{state its range
+of validity from Sec.~\ref{sec:theory}}. The experiment is \tbd{status of Sec.~\ref{sec:lab-results}}.
+
+\subsection{Outlook}
+
+The same budget view applies to strategies we did not evaluate: SBED that also chooses the microwave amplitude,
+the Smart-SBED variant, learned policies, and other line shapes such as hyperfine-resolved spectra. Per-shot time is not yet in
+the simulated data, so sensitivity and bandwidth are not reported \tbd{when the time per shot is added}.
 
 % =====================================================================
 \section{Conclusion}
 \label{sec:conclusion}
 % =====================================================================
 
-\tbd{Conclusion.}
+We read the search for a magnetic resonance in ODMR against an information budget: the prior information of the
+search window plus the information of the measurements, bounded through the van Trees inequality. This gives a
+reference for any strategy that chooses the drive frequency, and splits a run into search, focus and refine. Sequential
+Bayesian experiment design chooses each drive frequency to maximise the expected information, and we compare it with
+sweeps on the same particle filter and the same budget.
+\tbd{Main findings (cost vs window and SNR, closeness to the bound, calibration of the claimed $\sigma$) once
+Secs.~\ref{sec:sim-results} and~\ref{sec:lab-results} are filled.}
+The limits are the calibration of the claimed uncertainty, the fraction of runs that reach the refine stage, and the
+assumptions of Gaussian noise and known nuisances.
 
 \bibliographystyle{apsrev4-2}
 \bibliography{nvision_paper}
