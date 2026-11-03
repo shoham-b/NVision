@@ -1,8 +1,10 @@
 """Print why primary_sensitivity_sq_phys is non-positive at the end of a run."""
 
 import sys
+
 import numpy as np
-import nvision.metrics.stages as st
+
+from nvision.__main__ import main
 from nvision.belief.smc_marginal import SMCMarginalDistribution as B
 
 orig = B.primary_sensitivity_sq_phys
@@ -50,7 +52,6 @@ def wrap(self, primary, x):
 
 
 B.primary_sensitivity_sq_phys = wrap
-from nvision.__main__ import main
 
-sys.argv = ["nv"] + sys.argv[1:]
+sys.argv = ["nv", *sys.argv[1:]]
 main()
