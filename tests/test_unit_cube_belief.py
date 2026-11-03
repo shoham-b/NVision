@@ -164,3 +164,28 @@ def test_unit_cube_fast_and_exact_outputs_are_close():
 
     assert out_exact.shape == out_fast.shape
     np.testing.assert_allclose(out_fast, out_exact, rtol=1e-4, atol=1e-6)
+
+
+def test_unit_cube_resolves_hz_scale_changes_at_gigahertz_drive_frequencies():
+    """A ~20 Hz change of the dip position must show in the prediction at 2.87 GHz.
+
+    The drive-frequency window starts near 2.87 GHz, where a float32 absolute frequency resolves only 256 Hz. The
+    wrapper hands the inner kernel window-relative values, so the response stays linear down to small steps.
+    """
+    wrapped, _ = _make_unit_cube_nv_model()
+    phys_bounds = wrapped.param_bounds_phys
+    names = wrapped.parameter_names()
+    # Narrow line (hwhm 1e4 Hz) so a 20 Hz shift of the centre is a clear signal change.
+    wrapped.param_bounds_phys = {**phys_bounds, "hwhm": (1e4, 1.1e4)}
+    base = {"zero_field_freq": 0.5, "hwhm": 0.5, "hyperfine_shift": 0.5, "k_np": 0.5, "contrast_total": 0.5}
+    f0_lo, f0_hi = phys_bounds["zero_field_freq"]
+    x_unit = np.array([0.5 + 1e4 / (f0_hi - f0_lo)], dtype=np.float32)  # on the flank of the line
+
+    def predict(du: float) -> float:
+        arrays = [np.array([base[n] + (du if n == "zero_field_freq" else 0.0)], dtype=np.float32) for n in names]
+        return float(wrapped.compute_vectorized_many(x_unit, arrays)[0, 0])
+
+    small = predict(1e-6) - predict(0.0)  # 20 Hz
+    large = predict(1e-4) - predict(0.0)  # 2 kHz
+    assert small != 0.0
+    assert small / large == pytest.approx(1e-2, rel=0.1)
