@@ -44,15 +44,19 @@ def test_matlab_command_fetches_a_drive_link_and_serve_finds_the_lab(tmp_path, m
         _save_run(dest / "runs" / "a.mat", no_stop=1, std=[2.0, 0.5], stop_reason="budget", step_count=2)
         return dest
 
-    monkeypatch.setattr("nvision.tools.drive_fetch.fetch_drive_folder", fake_fetch)
+    monkeypatch.setattr("nvision.tools.lab_sources.fetch_drive_folder", fake_fetch)
     result = CliRunner().invoke(
         app, ["matlab", f"https://drive.google.com/drive/folders/{_ID}", "--dir", str(tmp_path)]
     )
     assert result.exit_code == 0, result.output
     assert list(discover_labs([labs_dir(tmp_path)])) == ["runs"]
+    # Remembered, so `nv serve` / `nv matlab-sync` re-sync it without the link.
+    from nvision.tools.lab_sources import load_sources
+
+    assert [(e["kind"], e["source"]) for e in load_sources(tmp_path)] == [("drive", _ID)]
 
 
-def test_matlab_command_loads_a_local_folder_and_skips_sweeps_by_default(tmp_path):
+def test_matlab_command_loads_a_local_folder_and_skips_sweeps_on_request(tmp_path):
     import scipy.io as sio
     from typer.testing import CliRunner
 
@@ -63,7 +67,7 @@ def test_matlab_command_loads_a_local_folder_and_skips_sweeps_by_default(tmp_pat
     src.mkdir()
     _save_run(src / "a.mat", no_stop=1, std=[2.0, 0.5], stop_reason="budget", step_count=2)
     sio.savemat(src / "sweep.mat", {"myStruct": {"ESR": {"x": 1}}})
-    result = CliRunner().invoke(app, ["matlab", str(src), "--dir", str(tmp_path / "art")])
+    result = CliRunner().invoke(app, ["matlab", str(src), "--dir", str(tmp_path / "art"), "--no-sweeps"])
     assert result.exit_code == 0, result.output
-    assert "Skipped 1 file(s)" in result.output
+    assert "Skipped 1 raw sweep file(s)" in result.output
     assert (tmp_path / "art" / "labs" / "src" / "convergence_statistics").is_dir()

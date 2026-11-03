@@ -298,9 +298,9 @@
         <div id="scaling-body"></div>
     </div>
 
-    <!-- ── Lab tab: calibration of the lab's own MATLAB runs (needs nv serve --lab-dir) ─────────── -->
+    <!-- ── Lab tab: calibration on real lab data (sources added with `nv matlab`, synced by nv serve) ── -->
     <div id="lab-view" style="display:none; margin-top:1em; padding-top:1em; border-top:1px solid #eee;">
-        <h2 style="margin:0 0 0.4em;">Lab data — does the claimed σ match the error? <span tabindex="0" class="help-icon-visible" title="The lab's own Bayesian ESR runs (MATLAB), repeated per drive_freq window. Each run reports a posterior σ; the runs' final estimates scatter by the across-run std. If the claimed σ is right, the two agree.">?</span></h2>
+        <h2 style="margin:0 0 0.4em;">Lab data — does the claimed σ match the error? <span tabindex="0" class="help-icon-visible" title="Lab: one folder of the lab's own Bayesian ESR runs (MATLAB), repeated per drive_freq window: each run's claimed posterior σ against how far the runs' estimates scatter. Lab: raw sweeps (SBED): every raw ESR recording run through SBED, with its claimed σ checked against a fit of sweeps it never saw. If the claimed σ is right, the two agree.">?</span></h2>
         <div id="lab-body"></div>
     </div>
 

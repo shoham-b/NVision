@@ -370,14 +370,23 @@ def _warm_combo_memo(memo: dict, bridge: CacheBridge, combos: list[dict]) -> Non
         bridge.close()
 
 
-def _add_lab_study_route(app: FastAPI, lab_dirs: list[Path]) -> None:
-    """``/api/lab-studies`` (names of the labs found under ``nv serve --lab-dir``) and
-    ``/api/lab-study?name=`` (one lab's :func:`nvision.metrics.lab_study.lab_study_payload`)."""
+def _add_lab_study_route(app: FastAPI, lab_dirs: list[Path], run_dir: Path) -> None:
+    """``/api/lab-studies`` (names of the labs found under ``nv serve --lab-dir``, plus
+    :data:`~nvision.metrics.lab_reference.SWEEPS_LAB_NAME` once raw sweeps were processed),
+    ``/api/lab-study?name=`` (one lab's :func:`nvision.metrics.lab_study.lab_study_payload`) and
+    ``/api/lab-sweeps`` (:func:`nvision.metrics.lab_reference.lab_sweeps_payload` over *run_dir*'s sources)."""
+    from nvision.metrics.lab_reference import SWEEPS_LAB_NAME, lab_sweeps_payload
     from nvision.metrics.lab_study import discover_labs, lab_study_payload
+    from nvision.tools.lab_sources import load_sweep_records
 
     @app.get("/api/lab-studies")
     def lab_studies() -> list[str]:
-        return list(discover_labs(lab_dirs))
+        names = list(discover_labs(lab_dirs))
+        return [SWEEPS_LAB_NAME, *names] if load_sweep_records(run_dir) else names
+
+    @app.get("/api/lab-sweeps")
+    def lab_sweeps() -> dict:
+        return lab_sweeps_payload(load_sweep_records(run_dir))
 
     @app.get("/api/lab-study")
     def lab_study(name: str) -> dict:
@@ -618,7 +627,7 @@ def build_app(cache_dir: Path, run_dir: Path, lab_dirs: list[Path] | None = None
         The Step size view shows only these: older spacings left in the cache come from older code."""
         return [sweep_strategy_name(k) for k in SWEEP_SPACING_DIVISORS]
 
-    _add_lab_study_route(app, lab_dirs or [])
+    _add_lab_study_route(app, lab_dirs or [], run_dir)
 
     @app.get("/api/run-rows")
     def run_rows(strategies: str) -> list[dict]:
@@ -671,6 +680,27 @@ def build_app(cache_dir: Path, run_dir: Path, lab_dirs: list[Path] | None = None
         finally:
             bridge.close()
 
+    def _clear_caches() -> None:
+        with lock:
+            cache["manifest"] = None
+            cache["combos"] = None
+            cache["generator_grid_info"] = None
+            cache["combo_memo"] = {}
+
+    # The lab data sync (`nv matlab-sync`) runs as a subprocess; when it exits, new MATLAB runs are in the cache.
+    from nvision.tools.lab_sources import BackgroundSync
+
+    lab_sync = BackgroundSync(run_dir, on_done=_clear_caches)
+    app.state.lab_sync = lab_sync
+
+    @app.get("/api/lab-sync")
+    def lab_sync_state() -> dict:
+        return lab_sync.state()
+
+    @app.post("/api/lab-sync")
+    def lab_sync_start() -> dict:
+        return {"started": lab_sync.start(), **lab_sync.state()}
+
     @app.post("/api/reload")
     def reload_endpoint() -> dict:
         if reload_state.running:
@@ -680,11 +710,7 @@ def build_app(cache_dir: Path, run_dir: Path, lab_dirs: list[Path] | None = None
 
         def _run():
             try:
-                with lock:
-                    cache["manifest"] = None
-                    cache["combos"] = None
-                    cache["generator_grid_info"] = None
-                    cache["combo_memo"] = {}
+                _clear_caches()
                 # Force a rebuild now so the next /api/manifest hit is warm, and to
                 # surface any errors in last_output immediately rather than lazily.
                 _get_manifest()

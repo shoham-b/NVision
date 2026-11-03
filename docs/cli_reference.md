@@ -14,7 +14,8 @@ The NVision CLI (`uv run nv`) is a Typer-driven command-line interface for runni
 | `render` | Render reports and graphs from cache without running simulations. |
 | `serve` | Start a local HTTP server for viewing NVision results. |
 | `cache` | Manage simulation cache (list, clean, recalc). |
-| `matlab` | Load the lab's MATLAB data (Drive link, folder or `.mat`): Bayesian-run lab studies and SBED on raw sweeps. |
+| `matlab` | Add the lab's MATLAB data once (Drive link, folder or `.mat`); `nv serve` then keeps it in sync: Bayesian-run lab studies and SBED on raw sweeps. |
+| `matlab-sync` | Re-sync every source added with `nv matlab` (what `nv serve` runs in the background). |
 
 ## Usage and Examples
 
@@ -104,43 +105,60 @@ uv run nv serve
 ```
 
 ### `nv matlab`
-The one command for the lab's MATLAB data. `SOURCE` is a Google Drive folder link (or id), a local folder, or a single
-`.mat` file; every `.mat` file below it is handled by what it holds:
+Add the lab's MATLAB data once; from then on `nv serve` keeps it up to date. `SOURCE` is a Google Drive folder
+link (or id), a local folder, or a single `.mat` file. It is remembered in `<dir>/labs/sources.json`, and every
+`nv serve --dir <dir>` re-syncs each remembered source in the background on start (`nv matlab-sync` in a
+subprocess, log in `<dir>/labs/sync.log`), as does the **Sync now** button on any lab page. A sync processes only
+new or changed files: a file's kind is remembered by size and mtime, and a raw sweep is redone only when its file
+changes, when the processing version (`PROCESSING_VERSION` in `nvision/tools/lab_sources.py`) is bumped, or when it
+failed last time. Failures (an expired rclone login, an unreadable file, a sweep that crashed) are listed on the
+lab page.
+
+Every `.mat` file below `SOURCE` is handled by what it holds:
 
 - **The lab's Bayesian ESR runs** (`myStruct.BayesianESR`): processed into one lab study per folder (claimed σ vs the
   scatter between runs, steps to convergence) and listed as "Lab: …" in the UI's Study dropdown. A run that stopped on
   precision keeps its own stop; a full-budget run has its stop replayed from its history. A folder the lab's own
   `Gather_and_Process_data.m` already summarised keeps those statistics.
-- **Raw ESR sweeps** (`myStruct.ESR`): run through the Bayesian SBED locator instead of a simulated generator. Results
-  land in the artifact store next to simulated runs — see [`ui_architecture.md`](ui_architecture.md) for the
-  "MATLAB (real data)" study bucket. Runs only when `SOURCE` is a single file, or with `--sweeps` (a folder can hold
-  many sweeps and each SBED run takes minutes).
+- **Raw ESR sweeps** (`myStruct.ESR`): run through SBED twice, a few seconds each, seeded from the file's path so a
+  re-sync reproduces them:
+  - on all the data (noise `real`);
+  - on the even sweeps only (noise `real-holdout`), with the odd sweeps fitted by the same model and bounds as an
+    independent reference: z = (estimate − ref) / √(σ² + σ_ref²) for `zeeman_shift` and `zero_field_freq`, plus the
+    fit's χ²/dof (above 2 the model does not describe the data, so z is too optimistic). See
+    `nvision/metrics/lab_reference.py`.
 
-A Drive link is downloaded first with `rclone` (read-only `gdrive` remote; `.png`/`.fig` skipped) into
+  Both appear per run under "MATLAB (real data)" (generator `MATLAB:<source>/<path>`), and every file is a row of
+  **"Lab: raw sweeps (SBED)"**: per folder (one experiment), the estimates, the reference, z, χ²/dof, `shot_reuse` and
+  the share of files with |z| ≤ 1 / ≤ 2 against 68% / 95%. One file is one independent z, so the shares are over the
+  files of a folder, never pooled across folders or taken over seeds. `shot_reuse` is draws per distinct recorded
+  shot: SBED draws with replacement and counts each draw as new evidence, so a value well above 1 (a file with few
+  sweeps) shrinks its claimed σ.
+
+A Drive link is downloaded with `rclone` (read-only `gdrive` remote; `.png`/`.fig` skipped) into
 `<dir>/downloads/<folder id>`; if the login expired run `rclone config reconnect gdrive:`. Everything is stored under
-`--dir`, and `nv serve --dir` shows it with no other flags. Run it again on the same `SOURCE` to pick up new files.
+`--dir` (results in `<dir>/cache` and `<dir>/matlab/cache`, per-file records in `<dir>/labs/<source>/sweeps/`).
 
 **Common Options:**
 - `source`: Drive folder link/id, local folder, or `.mat` file.
 - `--dir`: artifacts directory results are stored under (default: `artifacts/`; give `nv serve` the same one).
-- `--sweeps` / `--no-sweeps`: run SBED on raw sweeps (default: only for a single `.mat` file).
-- `--noise-std`, `--max-steps` (default 300), `--valid-shots`, `--particles` (default 10000), `--out`, `--no-ui`,
-  `--no-progress`, `--infer-center-freq` / `--no-infer-center-freq`: options of the sweep (SBED) runs.
+- `--no-sweeps`: skip the raw sweeps this time (they are still picked up by the next sync).
+- `--noise-std`, `--max-steps` (default 300), `--valid-shots`, `--particles` (default 10000), `--out` (also copy each
+  file's record there), `--no-ui`, `--no-progress`, `--infer-center-freq` / `--no-infer-center-freq`: options of
+  this run's sweeps. The background sync always uses the defaults.
+
+`nv matlab-sync [--dir <dir>]` runs the same sync by hand.
 
 **Example Use Cases:**
 ```bash
-# The lab's shared Drive folder: download, process the Bayesian runs, then view every lab
+# Once: the lab's shared Drive folder
 uv run nv matlab "https://drive.google.com/drive/folders/<id>"
+
+# From then on: open the UI; new files on the Drive are processed in the background
 uv run nv serve
 
 # One raw sweep recording through SBED
 uv run nv matlab data/matlab/sample.mat
-
-# Every raw sweep in a folder, writing per-file JSON summaries
-uv run nv matlab data/matlab --sweeps --out artifacts/matlab_summaries
-
-# View sweep results in their own small, fast-to-reload cache
-uv run nv serve --dir artifacts/matlab
 ```
 
 ### `nv cache`

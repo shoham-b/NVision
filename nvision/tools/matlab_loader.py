@@ -96,6 +96,8 @@ class MatlabDataFile:
 
     def __post_init__(self) -> None:
         self._visit_counts = np.zeros(len(np.atleast_1d(self.drive_freq_phys)), dtype=np.int64)
+        # Draws per recorded shot, shape (n_drive_freq, n_shots); see shot_reuse.
+        self._shot_draws = None if self.shot_ratios is None else np.zeros(self.shot_ratios.shape, dtype=np.int64)
 
     @property
     def visited_mask(self) -> np.ndarray:
@@ -108,6 +110,68 @@ class MatlabDataFile:
         presence of raw data.
         """
         return self._visit_counts > 0
+
+    @property
+    def shot_reuse(self) -> float:
+        """Draws per distinct recorded shot so far (1.0 = no shot drawn twice).
+
+        ``measure()`` draws with replacement, so a run longer than the recording reuses shots, and the
+        locator counts every reuse as new evidence: its claimed sigma shrinks faster than the data allow.
+        """
+        if self._shot_draws is None:
+            raise ValueError("shot_reuse needs per-shot data (shot_ratios)")
+        distinct = int(np.count_nonzero(self._shot_draws))
+        if distinct == 0:
+            raise ValueError("No shots drawn yet")
+        return float(self._shot_draws.sum()) / distinct
+
+    def split_sweeps(self, noise_std: float | None = None) -> tuple[MatlabDataFile, MatlabDataFile]:
+        """Split the recording into two independent halves by sweep: ``(locator_half, reference_half)``.
+
+        Shot column *j* is sweep *j* for every bin, so the even sweeps go to the locator and
+        the odd ones are held out for the reference fit. Interleaving (rather than first half /
+        second half) spreads any instrument drift evenly over both halves, so drift cannot
+        show up as an offset between the locator's answer and the reference.
+
+        Each half keeps the full ``shot_ratios`` shape (n_drive_freq, n_shots) with the other
+        half's columns set to NaN, so ``Observation.sweep_index`` stays the raw column index.
+        ``noise_std`` is estimated per half from its own shots unless given.
+        """
+        if self.shot_ratios is None:
+            raise ValueError("split_sweeps needs per-shot data (shot_ratios)")
+        n_cols = self.shot_ratios.shape[1]
+        if n_cols < 4:
+            raise ValueError(f"Need at least 4 recorded sweeps to hold half of them out, got {n_cols}")
+        cols = np.arange(n_cols)
+        return self._sweep_subset(cols % 2 == 0, noise_std), self._sweep_subset(cols % 2 == 1, noise_std)
+
+    def _sweep_subset(self, keep_cols: np.ndarray, noise_std: float | None) -> MatlabDataFile:
+        """A copy restricted to the shot columns in ``keep_cols`` (bool, shape (n_shots,))."""
+        ratios = np.where(keep_cols[None, :], self.shot_ratios, np.nan)
+        if np.all(np.isnan(ratios)):
+            raise ValueError("Sweep subset holds no valid shots")
+        with np.errstate(all="ignore"):
+            mean = np.nanmean(ratios, axis=1)
+            std = np.nanstd(ratios, axis=1)
+            lo = np.nanmin(ratios, axis=1)
+            hi = np.nanmax(ratios, axis=1)
+        if noise_std is None:
+            # Same per-shot rule as load(); see the comment there.
+            noise_std = float(np.nanmedian(std))
+            if not (1e-6 < noise_std < 1.0):
+                raise ValueError(f"Noise std {noise_std:.4g} estimated from a sweep subset is implausible")
+        return MatlabDataFile(
+            drive_freq_phys=self.drive_freq_phys,
+            signal=_fill_nan_nearest(mean),
+            noise_std=float(noise_std),
+            n_valid_shots=int(keep_cols.sum()),
+            shot_ratios=ratios,
+            signal_mean=mean,
+            signal_std=std,
+            signal_min=lo,
+            signal_max=hi,
+            rng=self.rng,
+        )
 
     @classmethod
     def load(
@@ -298,6 +362,7 @@ class MatlabDataFile:
         if valid_cols.size == 0:
             return float(self.signal[idx]), None
         col = int(self.rng.choice(valid_cols))
+        self._shot_draws[idx, col] += 1
         return float(row[col]), col
 
 
