@@ -207,19 +207,9 @@ def _matlab_loop(
 # ---------------------------------------------------------------------------
 
 
-# Sweep settings of `nv matlab` and of its no-SOURCE re-sync (which takes no options, so a sync
-# reproduces what the first `nv matlab` of a source did with its defaults).
+# Sweep settings of `nv matlab`; the same options apply with or without a SOURCE.
 _DEFAULT_MAX_STEPS = 300
 _DEFAULT_PARTICLES = 10000
-_SYNC_SWEEP_OPTIONS: dict[str, Any] = dict(
-    noise_std=None,
-    max_steps=_DEFAULT_MAX_STEPS,
-    valid_shots=None,
-    no_progress=True,
-    no_ui=False,
-    particles=_DEFAULT_PARTICLES,
-    infer_zero_field_freq=True,
-)
 
 
 @app.command("matlab")
@@ -229,7 +219,7 @@ def matlab(
         typer.Argument(
             help=(
                 "A Google Drive folder link (or id), a local folder, or a single .mat file. "
-                "Omit to re-sync every source added before."
+                "Omit to re-sync every source added before (same options apply)."
             )
         ),
     ] = None,
@@ -297,17 +287,21 @@ def matlab(
       sweeps only, checked against a fit of the odd ones (noise ``real-holdout``, see
       :mod:`nvision.metrics.lab_reference`) -- listed under "Lab: raw sweeps (SBED)" and "MATLAB (real data)".
     """
-    from nvision.tools.lab_sources import add_source
+    from nvision.tools.lab_sources import add_source, load_sources
 
     if source is None:
-        _sync_all(directory)
-        return
-    try:
-        entry = add_source(directory, source)
-    except ValueError as exc:
-        typer.echo(f"Error: {exc}")
-        raise typer.Exit(code=1) from exc
-    typer.echo(f"Source '{entry['label']}' saved in {directory}; sync it again later with `nv matlab`.\n")
+        entries = load_sources(directory)
+        if not entries:
+            typer.echo(f"No lab sources in {directory}; add one with `nv matlab <Drive link or folder>`.")
+            return
+    else:
+        try:
+            entry = add_source(directory, source)
+        except ValueError as exc:
+            typer.echo(f"Error: {exc}")
+            raise typer.Exit(code=1) from exc
+        typer.echo(f"Source '{entry['label']}' saved in {directory}; sync it again later with `nv matlab`.\n")
+        entries = [entry]
     options = dict(
         noise_std=noise_std,
         max_steps=max_steps,
@@ -317,58 +311,47 @@ def matlab(
         particles=particles,
         infer_zero_field_freq=infer_zero_field_freq,
     )
-    from nvision.tools.lab_sources import SyncLock
-
-    with SyncLock(directory) as lock:
-        if not lock.acquired:
-            typer.echo(
-                "Another lab sync is running for this directory (e.g. the one `nv serve` started); the source is "
-                "saved and its files are processed by the next sync (the lab page's Sync now button)."
-            )
-            return
-        try:
-            failures = sync_source(entry, directory, sweeps=sweeps, out=out, **options)
-        except (ValueError, RuntimeError) as exc:
-            typer.echo(f"Error: {exc}")
-            raise typer.Exit(code=1) from exc
-    typer.echo(f'\nView: uv run nv serve --dir "{directory}"')
-    if failures:
+    ok = _sync_entries(entries, directory, sweeps=sweeps, out=out, **options)
+    if source is not None:
+        typer.echo(f'\nView: uv run nv serve --dir "{directory}"')
+    if not ok:
         raise typer.Exit(code=1)
 
 
-def _sync_all(directory: Path) -> None:
-    """Re-sync every remembered source (``nv matlab`` with no SOURCE; also the lab page's Sync button).
+def _sync_entries(entries: list[dict[str, Any]], directory: Path, **options: Any) -> bool:
+    """Sync *entries* (one just-added source, or every remembered one) the same way; True if all succeeded.
 
     Only new or changed files are processed. Progress and per-source failures go to
     ``<dir>/labs/sync_status.json``, which the lab page shows.
     """
-    from nvision.tools.lab_sources import SyncLock, load_sources, write_sync_status
+    from nvision.tools.lab_sources import SyncLock, write_sync_status
 
-    sources = load_sources(directory)
-    if not sources:
-        typer.echo(f"No lab sources in {directory}; add one with `nv matlab <Drive link or folder>`.")
-        return
     with SyncLock(directory) as lock:
         if not lock.acquired:
-            typer.echo("Another lab sync is already running for this directory.")
-            return
+            typer.echo(
+                "Another lab sync is already running for this directory (e.g. the lab page's Sync button); "
+                "the source list is saved and its files are processed by the next sync."
+            )
+            return True
         status: dict[str, Any] = {"state": "running", "started": datetime.now(UTC).isoformat(), "sources": []}
         write_sync_status(directory, status)
         try:
-            for entry in sources:
+            for entry in entries:
                 item: dict[str, Any] = {"label": entry["label"], "failures": [], "error": None}
                 status["sources"].append(item)
                 try:
-                    item["failures"] = sync_source(entry, directory, **_SYNC_SWEEP_OPTIONS)
+                    item["failures"] = sync_source(entry, directory, **options)
                 except Exception as exc:  # reported on the lab page; the other sources still sync
                     log.exception("lab sync failed for %s", entry["label"])
+                    typer.echo(f"Error: {exc}")
                     item["error"] = f"{type(exc).__name__}: {exc}"
                 write_sync_status(directory, status)
         finally:
             failed = any(s["error"] or s["failures"] for s in status["sources"])
-            status["state"] = "failed" if failed or len(status["sources"]) < len(sources) else "done"
+            status["state"] = "failed" if failed or len(status["sources"]) < len(entries) else "done"
             status["finished"] = datetime.now(UTC).isoformat()
             write_sync_status(directory, status)
+    return not failed
 
 
 def sync_source(
