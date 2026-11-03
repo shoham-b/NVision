@@ -125,8 +125,8 @@ async function renderLabStudy(container, name) {
             return { slope, a: Math.exp(ly.reduce((s, v, k) => s + v + 0.5 * lx[k], 0) / lx.length) };  // a: sigma = a / sqrt(step)
         };
         // Longest end-anchored range (at least a factor 2.5 in steps) whose free slope is within 0.1 of -1/2.
-        let lo = null;
-        for (let k = 0; k < c.step.length; k++) {
+        let lo = Math.abs(fit(last / 10).slope + 0.5) < 0.1 ? c.step.find((s) => s >= last / 10) : null;  // the last decade first
+        for (let k = 0; lo === null && k < c.step.length; k++) {
             if (c.step[k] * 2.5 > last) break;
             // The second half of the range must also sit near -1/2, so a curve that has flattened again is not accepted.
             if (Math.abs(fit(c.step[k]).slope + 0.5) < 0.1 && Math.abs(fit(Math.sqrt(c.step[k] * last)).slope + 0.5) < 0.15) { lo = c.step[k]; break; }
