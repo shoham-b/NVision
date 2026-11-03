@@ -400,7 +400,9 @@ def sync_source(
     for folder, folder_files in by_folder.items():
         rel = folder.relative_to(base)
         stats_dir = label_dir / rel / "convergence_statistics"
-        if not index.folder_changed(folder_files, base) and stats_dir.exists():
+        # A folder processed before window_focus.csv existed is redone (the lab's own summaries never get one).
+        has_focus = (stats_dir / "window_focus.csv").exists() or (stats_dir / "window_summary.csv").exists()
+        if not index.folder_changed(folder_files, base) and stats_dir.exists() and has_focus:
             continue
         own = folder / "convergence_statistics"
         try:

@@ -132,6 +132,28 @@ async function renderLabStudy(container, name) {
         ['95% interval hit', (r) => fmt(r.ci95_hit)],
     ];
     const cell = 'border:1px solid #e2e8f0; padding:0.35em 0.6em; text-align:right;';
+    // Focus-window check (from the runs' recorded focus candidates): found, covering the resonance, how early.
+    const pct = (x) => `${Math.round(100 * x)}%`;
+    const step = (x) => (x === null ? '–' : Math.round(x));
+    const focusCols = [
+        ['Window (MHz)', (r) => r.window_mhz],
+        ['Runs', (r) => r.n_runs],
+        ['Window found', (r) => pct(r.found_rate)],
+        ['Found at step', (r) => step(r.found_step)],
+        ['Covers resonance', (r) => pct(r.cover_rate)],
+        ['… from step', (r) => step(r.cover_step)],
+        ['Covers to the end', (r) => pct(r.stable_rate)],
+        ['… from step', (r) => step(r.stable_step)],
+        ['Median steps to converge', (r) => step(data.windows.find((w) => w.window_mhz === r.window_mhz)?.steps_median ?? null)],
+        ['Final window locked', (r) => pct(r.locked_rate)],
+        ['Final window width (MHz)', (r) => fmt(r.final_width_mhz, 1)],
+    ];
+    const focusTable = data.focus && data.focus.length ? `
+        <h3 style="margin:1em 0 0.3em; font-size:1em;">Focus window <span tabindex="0" class="help-icon-visible" title="From the focus candidates the runs recorded at every step. 'Found': at least one candidate window exists (not before the minimum focus steps). 'Covers resonance': some candidate contains the reference resonance; 'to the end': it does at every later step too. Compare these steps with the median steps to converge: a window found after the run has converged was no help. 'Locked': the run narrowed to a single final window; otherwise the final window is the whole scan range.">?</span></h3>
+        <table style="border-collapse:collapse; width:100%; font-size:0.9em; background:#fff; margin-bottom:1em;">
+            <thead><tr>${focusCols.map((c) => `<th style="${cell} background:#f8fafc; color:#475569;">${c[0]}</th>`).join('')}</tr></thead>
+            <tbody>${data.focus.map((r) => `<tr>${focusCols.map((c) => `<td style="${cell} font-family:ui-monospace,monospace;">${c[1](r)}</td>`).join('')}</tr>`).join('')}</tbody>
+        </table>` : '';
     body.innerHTML = `
         <p style="margin:0 0 0.5em; color:#475569; font-size:0.85em;">Lab: <b>${name}</b> · reference resonance ${fmt(data.reference_mhz, 2)} MHz (median of the converged runs' final means).</p>
         <table style="border-collapse:collapse; width:100%; font-size:0.9em; background:#fff;">
@@ -139,6 +161,7 @@ async function renderLabStudy(container, name) {
             <tbody>${data.windows.map((r) => `<tr>${cols.map((c) => `<td style="${cell} font-family:ui-monospace,monospace;">${c[1](r)}</td>`).join('')}</tr>`).join('')}</tbody>
         </table>
         <p style="color:#475569; font-size:0.85em;">No ground truth exists for real data: error is measured against the reference, so the across-run std also contains any real drift of the resonance between runs. Read "Spread ÷ claimed σ" as an upper bound on miscalibration: the runs disagree with each other by that many times the σ each one claims.</p>
+        ${focusTable}
         <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(420px, 1fr)); gap:1em;">
             <div><h3 style="margin:0 0 0.3em; font-size:1em;">Claimed σ vs across-run spread <span tabindex="0" class="help-icon-visible" title="Solid: median self-reported posterior std (band: quartiles). Dashed: how far the runs' posterior means scatter from each other at that step (std across runs; not an error against a known truth). Dashed above solid means the runs disagree more than they claim. Both include only runs still measuring at that step.">?</span> <label style="font-weight:normal; font-size:0.85em; margin-left:0.8em;"><input type="checkbox" id="lab-show-spread" checked> show spread (dashed)</label> <label style="font-weight:normal; font-size:0.85em; margin-left:0.8em;"><input type="checkbox" id="lab-show-guide" checked> fit σ = 1/√(J0 + I·(n − n0)) (dotted)</label></h3><div id="lab-sigma" style="height:420px"></div></div>
             <div><h3 style="margin:0 0 0.3em; font-size:1em;">Steps to convergence <span tabindex="0" class="help-icon-visible" title="Median number of measurements until the run's own stop rule fired, with the interquartile range, per drive_freq window.">?</span></h3><div id="lab-steps" style="height:420px"></div></div>
