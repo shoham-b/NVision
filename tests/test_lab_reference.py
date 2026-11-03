@@ -115,32 +115,39 @@ def test_pooled_noise_is_unbiased_with_few_sweeps():
 
 
 def test_holdout_run_writes_its_own_columns_and_noise_name(tmp_path, monkeypatch):
-    """The default (UI) path of ``nv matlab --holdout``, written under a temporary artifacts root."""
+    """The default (UI) path of a holdout run, written under its --dir (here tmp_path), never artifacts/."""
     import polars as pl
 
-    import nvision.tools.paths as paths
     from nvision.cli import matlab_cmd
 
-    monkeypatch.setattr(paths, "ARTIFACTS_ROOT", tmp_path)
     monkeypatch.setattr(MatlabDataFile, "load", classmethod(lambda cls, *a, **k: _recording(n_shots=8)))
-    summary = matlab_cmd._matlab_run_one(
+    kwargs = dict(
         matlab_file=tmp_path / "synthetic.mat",
+        run_name="src/synthetic.mat",
+        directory=tmp_path,
         noise_std=None,
         max_steps=30,
         valid_shots=None,
-        out=None,
         no_progress=True,
         no_ui=False,
         particles=500,
         infer_zero_field_freq=True,
         holdout=True,
     )
-    row = pl.read_parquet(tmp_path / "matlab_synthetic" / "locator_results.parquet").row(0, named=True)
+    summary = matlab_cmd._matlab_run_one(**kwargs)
+    bundle = tmp_path / "matlab" / "runs" / "matlab_src_synthetic.mat_real-holdout"
+    row = pl.read_parquet(bundle / "locator_results.parquet").row(0, named=True)
+    assert row["generator"] == "MATLAB:src/synthetic.mat"
     assert row["noise"] == "real-holdout"
     assert row["holdout_z_zeeman_shift"] == pytest.approx(summary.holdout_z["zeeman_shift"])
     assert row["ref_chi2_dof"] > 0
     assert row["shot_reuse"] >= 1.0
     assert row["primary_converged_step"] == summary.primary_converged_step
+    assert (tmp_path / "cache").is_dir()
+    assert (tmp_path / "matlab" / "cache").is_dir()
+    # Seeded from the run name: re-processing the file reproduces the run.
+    again = matlab_cmd._matlab_run_one(**{**kwargs, "no_ui": True})
+    assert again.record["estimates"] == summary.record["estimates"]
 
 
 def test_shot_reuse_counts_draws_per_distinct_shot():

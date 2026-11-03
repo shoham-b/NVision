@@ -560,8 +560,9 @@ def test_matlab_run_all_prints_convergence_breakdown(tmp_path, monkeypatch):
     import nvision.cli.matlab_cmd as matlab_cmd
     from nvision.cli.app_instance import app
 
+    (tmp_path / "src").mkdir()
     for name in ("a", "b"):
-        (tmp_path / f"{name}.mat").write_bytes(b"")
+        (tmp_path / "src" / f"{name}.mat").write_bytes(b"")
 
     summaries = {
         "a.mat": matlab_cmd._MatlabRunSummary(
@@ -572,13 +573,14 @@ def test_matlab_run_all_prints_convergence_breakdown(tmp_path, monkeypatch):
         ),
     }
 
-    def fake_run_one(*, matlab_file, **kwargs):
+    def fake_run_one(*, matlab_file, **kwargs):  # called twice per file: all data, then the holdout
         return summaries[Path(matlab_file).name]
 
     monkeypatch.setattr(matlab_cmd, "_matlab_run_one", fake_run_one)
+    monkeypatch.setattr("nvision.tools.lab_sources.classify_mat", lambda _path: "sweep")
 
     runner = CliRunner()
-    result = runner.invoke(app, ["matlab", str(tmp_path), "--sweeps"])
+    result = runner.invoke(app, ["matlab", str(tmp_path / "src"), "--dir", str(tmp_path / "art")])
 
     assert result.exit_code == 0, result.output
     assert "Done: 2/2 succeeded." in result.output
@@ -594,8 +596,9 @@ def test_matlab_run_all_failure_still_reports_breakdown_for_successes(tmp_path, 
     import nvision.cli.matlab_cmd as matlab_cmd
     from nvision.cli.app_instance import app
 
+    (tmp_path / "src").mkdir()
     for name in ("a", "b"):
-        (tmp_path / f"{name}.mat").write_bytes(b"")
+        (tmp_path / "src" / f"{name}.mat").write_bytes(b"")
 
     def fake_run_one(*, matlab_file, **kwargs):
         if Path(matlab_file).name == "b.mat":
@@ -605,6 +608,7 @@ def test_matlab_run_all_failure_still_reports_breakdown_for_successes(tmp_path, 
         )
 
     monkeypatch.setattr(matlab_cmd, "_matlab_run_one", fake_run_one)
+    monkeypatch.setattr("nvision.tools.lab_sources.classify_mat", lambda _path: "sweep")
 
     # matlab_cmd's per-file failure path calls log.exception(), which is fine on
     # its own -- but under pytest's --log-cli-level (as CI runs with), emitting a
@@ -619,7 +623,7 @@ def test_matlab_run_all_failure_still_reports_breakdown_for_successes(tmp_path, 
     caplog.set_level(logging.CRITICAL, logger="nvision.cli.matlab_cmd")
 
     runner = CliRunner()
-    result = runner.invoke(app, ["matlab", str(tmp_path), "--sweeps"])
+    result = runner.invoke(app, ["matlab", str(tmp_path / "src"), "--dir", str(tmp_path / "art")])
 
     assert result.exit_code == 1
     assert "FAILED: b.mat" in result.output

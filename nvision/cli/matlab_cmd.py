@@ -6,8 +6,10 @@ import contextlib
 import json
 import logging
 import os
+import re
 import shutil
 import time
+import zlib
 from collections.abc import Generator
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -21,13 +23,14 @@ import typer
 from nvision.cli.app_instance import app
 from nvision.models.locator import Locator
 from nvision.tools.paths import ARTIFACTS_ROOT
+from nvision.tools.utils import NVISION_RNG_SEED
 
 log = logging.getLogger(__name__)
 
-# Artifacts subdirectory holding a MATLAB-only *copy* of the results cache, served with
-# `nv serve --dir artifacts/matlab` for a fast, dedicated view. Every run is also written
-# into the shared artifacts/cache/ (see _write_artifacts) so it shows up in the main
-# `nv serve` (no --dir) too. Distinct from the per-file bundles in artifacts/matlab_<stem>/.
+# Subdirectory of --dir holding a MATLAB-only *copy* of the results cache (<dir>/matlab/cache, served
+# with `nv serve --dir <dir>/matlab` for a fast, dedicated view) and the per-run standalone bundles
+# (<dir>/matlab/runs/). Every run is also written into <dir>/cache (see _write_artifacts), so it shows
+# up in the main `nv serve --dir <dir>` too.
 MATLAB_UI_DIRNAME = "matlab"
 
 
@@ -39,8 +42,10 @@ class _MatlabRunSummary:
     primary_converged_step: int | None
     all_converged_step: int | None
     total_steps: int
-    # Signed holdout z per parameter (see nvision.metrics.lab_reference); None without --holdout.
+    # Signed holdout z per parameter (see nvision.metrics.lab_reference); None for a run on all the data.
     holdout_z: dict[str, float] | None = None
+    # The run's result record (what the lab page and --out show).
+    record: dict[str, Any] | None = None
 
 
 def _echo_convergence_breakdown(summaries: list[_MatlabRunSummary]) -> None:
@@ -202,6 +207,21 @@ def _matlab_loop(
 # ---------------------------------------------------------------------------
 
 
+# Sweep settings of `nv matlab` and of the background `nv matlab-sync` (which takes no options, so a sync
+# reproduces what the first `nv matlab` of a source did with its defaults).
+_DEFAULT_MAX_STEPS = 300
+_DEFAULT_PARTICLES = 10000
+_SYNC_SWEEP_OPTIONS: dict[str, Any] = dict(
+    noise_std=None,
+    max_steps=_DEFAULT_MAX_STEPS,
+    valid_shots=None,
+    no_progress=True,
+    no_ui=False,
+    particles=_DEFAULT_PARTICLES,
+    infer_zero_field_freq=True,
+)
+
+
 @app.command("matlab")
 def matlab(
     source: Annotated[
@@ -213,15 +233,9 @@ def matlab(
         typer.Option("--dir", help="Artifacts directory results are stored under (the one given to `nv serve`)."),
     ] = ARTIFACTS_ROOT,
     sweeps: Annotated[
-        bool | None,
-        typer.Option(
-            "--sweeps/--no-sweeps",
-            help=(
-                "Run SBED on raw ESR sweep files. Default: only when SOURCE is a single .mat file, since a folder "
-                "can hold many sweeps and each SBED run takes minutes."
-            ),
-        ),
-    ] = None,
+        bool,
+        typer.Option("--sweeps/--no-sweeps", help="Run SBED on the raw ESR sweep files (a few seconds per file)."),
+    ] = True,
     noise_std: Annotated[
         float | None,
         typer.Option("--noise-std", help="Sweeps: override the auto-estimated measurement noise std."),
@@ -229,14 +243,14 @@ def matlab(
     max_steps: Annotated[
         int,
         typer.Option("--max-steps", help="Sweeps: maximum SBED measurement steps."),
-    ] = 300,
+    ] = _DEFAULT_MAX_STEPS,
     valid_shots: Annotated[
         int | None,
         typer.Option("--valid-shots", help="Sweeps: number of shot columns to use (default: esr.currIter)."),
     ] = None,
     out: Annotated[
         Path | None,
-        typer.Option("--out", help="Sweeps: write JSON result summary to this file (a folder with several sweeps)."),
+        typer.Option("--out", help="Sweeps: also write each file's result record (JSON) into this folder."),
     ] = None,
     no_progress: Annotated[
         bool,
@@ -244,12 +258,12 @@ def matlab(
     ] = False,
     no_ui: Annotated[
         bool,
-        typer.Option("--no-ui", help="Sweeps: skip artifact writing (no web UI integration)."),
+        typer.Option("--no-ui", help="Sweeps: write only the result records, not the per-run plots and cache entries."),
     ] = False,
     particles: Annotated[
         int,
         typer.Option("--particles", help="Sweeps: SMC particle count (default 10x the simulation default)."),
-    ] = 10000,
+    ] = _DEFAULT_PARTICLES,
     infer_zero_field_freq: Annotated[
         bool,
         typer.Option(
@@ -263,74 +277,29 @@ def matlab(
             ),
         ),
     ] = True,
-    holdout: Annotated[
-        bool,
-        typer.Option(
-            "--holdout",
-            help=(
-                "Sweeps: give SBED only the even sweeps and fit the odd ones as an independent reference, "
-                "then report z = (estimate - ref) / combined sigma. Stored under noise 'real-holdout'."
-            ),
-        ),
-    ] = False,
 ) -> None:
-    """Load the lab's MATLAB data from a Drive link or a local path, and show it in ``nv serve``.
+    """Add the lab's MATLAB data (a Drive link or a local path) and show it in ``nv serve``.
 
-    SOURCE is fetched first when it is a Drive link (read-only, with rclone). Every ``.mat`` file below it is
-    then handled by what it holds:
+    Run it once per SOURCE: the source is remembered under ``<dir>/labs/sources.json`` and from then on
+    ``nv serve --dir <dir>`` re-syncs every remembered source in the background on start (and on the lab page's
+    Sync button), processing only new or changed files. A Drive link is fetched read-only with rclone. Every
+    ``.mat`` file below SOURCE is handled by what it holds:
 
-    - the lab's Bayesian ESR runs (``myStruct.BayesianESR``): turned into a lab study per folder (calibration,
+    - the lab's Bayesian ESR runs (``myStruct.BayesianESR``): one lab study per folder (calibration,
       steps to convergence), listed under "Lab: ..." in the UI's Study dropdown;
-    - raw ESR sweeps (``myStruct.ESR``): run through the Bayesian SBED locator, as a simulated generator would be
-      (see ``--sweeps``), appearing under "MATLAB (real data)".
-
-    Run it again on the same SOURCE to pick up new files.
+    - raw ESR sweeps (``myStruct.ESR``): run through SBED twice -- on all the data (noise ``real``) and on the even
+      sweeps only, checked against a fit of the odd ones (noise ``real-holdout``, see
+      :mod:`nvision.metrics.lab_reference`) -- listed under "Lab: raw sweeps (SBED)" and "MATLAB (real data)".
     """
-    from nvision.metrics.lab_process import load_bayesian_runs, write_statistics
-    from nvision.metrics.lab_study import labs_dir
-    from nvision.tools.drive_fetch import fetch_drive_folder, looks_like_drive_folder, parse_drive_folder_id
+    from nvision.tools.lab_sources import add_source
 
     try:
-        if looks_like_drive_folder(source):
-            folder_id = parse_drive_folder_id(source)
-            root = fetch_drive_folder(source, directory / "downloads" / folder_id)
-            label = folder_id
-        else:
-            root = Path(source)
-            if not root.exists():
-                raise ValueError(f"{source} is neither a Drive folder link nor an existing path")
-            label = root.stem if root.is_file() else root.name
-    except (ValueError, RuntimeError) as exc:
+        entry = add_source(directory, source)
+    except ValueError as exc:
         typer.echo(f"Error: {exc}")
         raise typer.Exit(code=1) from exc
-
-    files = [root] if root.is_file() else sorted(root.rglob("*.mat"))
-    if not files:
-        typer.echo(f"No .mat files found in {root}")
-        raise typer.Exit(code=1)
-    base = root.parent if root.is_file() else root
-    typer.echo(f"Found {len(files)} .mat file(s) in {root}\n")
-
-    runs_by_folder, others = load_bayesian_runs(files)
-    for folder, runs in runs_by_folder.items():
-        rel = folder.relative_to(base)
-        stats_dir = labs_dir(directory) / label / rel / "convergence_statistics"
-        own = folder / "convergence_statistics"
-        if (own / "window_summary.csv").exists():
-            shutil.copytree(own, stats_dir, dirs_exist_ok=True)  # the lab's own script already summarised these
-            typer.echo(f"Lab study {rel}: kept the lab's own statistics ({len(runs)} runs)")
-        else:
-            write_statistics(runs, stats_dir)
-            typer.echo(f"Lab study {rel}: processed {len(runs)} runs")
-
-    run_sweeps = sweeps if sweeps is not None else root.is_file()
-    if others and not run_sweeps:
-        typer.echo(
-            f"\nSkipped {len(others)} file(s) that are not Bayesian runs; add --sweeps to run SBED on raw sweeps."
-        )
-    failures = _run_sweeps(
-        others if run_sweeps else [],
-        out=out,
+    typer.echo(f"Source '{entry['label']}' saved in {directory}; `nv serve --dir \"{directory}\"` keeps it in sync.\n")
+    options = dict(
         noise_std=noise_std,
         max_steps=max_steps,
         valid_shots=valid_shots,
@@ -338,39 +307,153 @@ def matlab(
         no_ui=no_ui,
         particles=particles,
         infer_zero_field_freq=infer_zero_field_freq,
-        holdout=holdout,
     )
-    if not runs_by_folder and not (others and run_sweeps):
-        typer.echo("Error: nothing to load from this source.")
-        raise typer.Exit(code=1)
-    if runs_by_folder:
-        typer.echo(f'\nView: uv run nv serve --dir "{directory}"')
+    try:
+        failures = sync_source(entry, directory, sweeps=sweeps, out=out, **options)
+    except (ValueError, RuntimeError) as exc:
+        typer.echo(f"Error: {exc}")
+        raise typer.Exit(code=1) from exc
+    typer.echo(f'\nView: uv run nv serve --dir "{directory}"')
     if failures:
         raise typer.Exit(code=1)
 
 
-def _run_sweeps(files: list[Path], *, out: Path | None, **options: Any) -> list[str]:
-    """Run SBED on each raw sweep file, continuing past a failing file; returns the failed file names."""
-    if not files:
+@app.command("matlab-sync")
+def matlab_sync(
+    directory: Annotated[
+        Path,
+        typer.Option("--dir", help="Artifacts directory whose remembered lab sources are synced."),
+    ] = ARTIFACTS_ROOT,
+) -> None:
+    """Re-sync every source added with ``nv matlab`` (what ``nv serve`` runs in the background).
+
+    Only new or changed files are processed. Progress and per-source failures go to
+    ``<dir>/labs/sync_status.json``, which the lab page shows.
+    """
+    from nvision.tools.lab_sources import SyncLock, load_sources, write_sync_status
+
+    sources = load_sources(directory)
+    if not sources:
+        typer.echo(f"No lab sources in {directory}; add one with `nv matlab <Drive link or folder>`.")
+        return
+    with SyncLock(directory) as lock:
+        if not lock.acquired:
+            typer.echo("Another lab sync is already running for this directory.")
+            return
+        status: dict[str, Any] = {"state": "running", "started": datetime.now(UTC).isoformat(), "sources": []}
+        write_sync_status(directory, status)
+        for entry in sources:
+            item: dict[str, Any] = {"label": entry["label"], "failures": [], "error": None}
+            status["sources"].append(item)
+            try:
+                item["failures"] = sync_source(entry, directory, **_SYNC_SWEEP_OPTIONS)
+            except (ValueError, RuntimeError) as exc:
+                log.exception("lab sync failed for %s", entry["label"])
+                item["error"] = str(exc)
+            write_sync_status(directory, status)
+        status["state"] = "failed" if any(s["error"] or s["failures"] for s in status["sources"]) else "done"
+        status["finished"] = datetime.now(UTC).isoformat()
+        write_sync_status(directory, status)
+
+
+def sync_source(
+    entry: dict[str, Any], directory: Path, *, sweeps: bool = True, out: Path | None = None, **options: Any
+) -> list[str]:
+    """Fetch one remembered source and process its new or changed files; return the files that failed.
+
+    Bayesian runs are re-summarised per folder when any of its runs changed. Each raw sweep gets a result
+    record under ``<dir>/labs/<label>/sweeps/<path>.json`` (both SBED runs, or the error); a record whose
+    source size/mtime and :data:`~nvision.tools.lab_sources.PROCESSING_VERSION` still match is not redone.
+    """
+    from nvision.metrics.lab_process import load_bayesian_runs, write_statistics
+    from nvision.metrics.lab_study import labs_dir
+    from nvision.tools.lab_sources import FileIndex, resolve_source, sweep_record_is_current, sweep_record_path
+
+    root, base = resolve_source(entry, directory)
+    files = [root] if root.is_file() else sorted(root.rglob("*.mat"))
+    typer.echo(f"Source '{entry['label']}': {len(files)} .mat file(s) in {root}")
+    label_dir = labs_dir(directory) / entry["label"]
+    index = FileIndex(label_dir)
+    kinds = index.classify(files, base)
+    typer.echo("  " + ", ".join(f"{n} {kind}" for kind, n in sorted(index.counts().items())))
+    for f, kind in kinds.items():
+        if kind == "unreadable":
+            typer.echo(f"  Skipped (not a readable MATLAB file): {f.relative_to(base).as_posix()}")
+
+    by_folder: dict[Path, list[Path]] = {}
+    for f in files:
+        if kinds[f] == "bayesian":
+            by_folder.setdefault(f.parent, []).append(f)
+    for folder, folder_files in by_folder.items():
+        rel = folder.relative_to(base)
+        stats_dir = label_dir / rel / "convergence_statistics"
+        if not index.folder_changed(folder_files, base) and stats_dir.exists():
+            continue
+        own = folder / "convergence_statistics"
+        if (own / "window_summary.csv").exists():
+            shutil.copytree(own, stats_dir, dirs_exist_ok=True)  # the lab's own script already summarised these
+            typer.echo(f"Lab study {rel}: kept the lab's own statistics ({len(folder_files)} runs)")
+        else:
+            runs_by_folder, _ = load_bayesian_runs(folder_files)
+            write_statistics(runs_by_folder[folder], stats_dir)
+            typer.echo(f"Lab study {rel}: processed {len(folder_files)} runs")
+    index.save()
+
+    sweep_files = [f for f in files if kinds[f] == "sweep"]
+    todo = [f for f in sweep_files if not sweep_record_is_current(sweep_record_path(label_dir, f, base), f)]
+    if sweep_files and not sweeps:
+        typer.echo(f"Skipped {len(sweep_files)} raw sweep file(s) (--no-sweeps).")
         return []
+    typer.echo(f"Raw sweeps: {len(sweep_files)}, {len(todo)} new or changed.")
     failures: list[str] = []
     summaries: list[_MatlabRunSummary] = []
-    for i, f in enumerate(files, 1):
-        typer.echo(f"=== [{i}/{len(files)}] {f.name} ===")
-        file_out = out if len(files) == 1 or out is None else out / f"{f.stem}.json"
+    for i, f in enumerate(todo, 1):
+        rel = f.relative_to(base).as_posix()
+        typer.echo(f"=== [{i}/{len(todo)}] {rel} ===")
+        record_path = sweep_record_path(label_dir, f, base)
         try:
-            summaries.append(_matlab_run_one(matlab_file=f, out=file_out, **options))
+            record, summary = _process_sweep(f, run_name=f"{entry['label']}/{rel}", directory=directory, **options)
+            summaries.append(summary)
         except Exception as exc:
             log.exception("matlab failed for %s", f)
-            typer.echo(f"FAILED: {f.name}: {exc}")
-            failures.append(f.name)
+            typer.echo(f"FAILED: {rel}: {exc}")
+            failures.append(rel)
+            record = {"error": f"{type(exc).__name__}: {exc}"}
+        _write_sweep_record(record_path, f, base, record)
+        if out is not None:
+            _write_sweep_record(out / f"{Path(rel).with_suffix('')}.json", f, base, record)
         typer.echo("")
-    typer.echo(f"Done: {len(files) - len(failures)}/{len(files)} succeeded.")
+    if todo:
+        typer.echo(f"Done: {len(todo) - len(failures)}/{len(todo)} succeeded.")
     if failures:
         typer.echo(f"Failed: {', '.join(failures)}")
     if summaries:
         _echo_convergence_breakdown(summaries)
     return failures
+
+
+def _process_sweep(matlab_file: Path, *, run_name: str, directory: Path, **options: Any):
+    """Both SBED runs of one sweep file: on all of it, and on the even sweeps against the odd ones."""
+    full = _matlab_run_one(matlab_file=matlab_file, run_name=run_name, directory=directory, holdout=False, **options)
+    held = _matlab_run_one(matlab_file=matlab_file, run_name=run_name, directory=directory, holdout=True, **options)
+    return {"full": full.record, "holdout": held.record}, held
+
+
+def _write_sweep_record(path: Path, matlab_file: Path, base: Path, record: dict[str, Any]) -> None:
+    from nvision.tools.lab_sources import PROCESSING_VERSION
+
+    stat = matlab_file.stat()
+    rel = matlab_file.relative_to(base)
+    payload = {
+        "file": rel.as_posix(),
+        "folder": rel.parent.as_posix(),
+        "source_size": stat.st_size,
+        "source_mtime": stat.st_mtime,
+        "version": PROCESSING_VERSION,
+        **record,
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2))
 
 
 # contrast_total prior for real data. The positive-only sign is the simulated grid's (the ratio
@@ -420,17 +503,21 @@ def _real_data_contrast_total_threshold() -> Generator[None]:
 def _matlab_run_one(
     *,
     matlab_file: Path,
+    run_name: str,
+    directory: Path,
     noise_std: float | None,
     max_steps: int,
     valid_shots: int | None,
-    out: Path | None,
     no_progress: bool,
     no_ui: bool,
     particles: int,
     infer_zero_field_freq: bool,
     holdout: bool,
 ) -> _MatlabRunSummary:
-    """Run the SBED locator on a single ESR .mat file (the body of ``matlab-run``)."""
+    """Run the SBED locator on a single ESR .mat file; *run_name* (source label / path) names it in the cache.
+
+    Seeded from *run_name*, so re-processing the same file reproduces the same run.
+    """
     from nvision.noises.over_frequency.gaussian_noise import OverFrequencyGaussianNoise
     from nvision.sim.locs.bayesian.belief_builders import nv_center_smc_belief
     from nvision.sim.locs.bayesian.sbed_locator import SequentialBayesianExperimentDesignLocator
@@ -439,6 +526,8 @@ def _matlab_run_one(
     # --- Load data ---
     typer.echo(f"Loading: {matlab_file}")
     data = MatlabDataFile.load(matlab_file, valid_shots=valid_shots, noise_std_override=noise_std)
+    seed = (NVISION_RNG_SEED + zlib.crc32(run_name.encode())) % 2**32
+    data.rng = np.random.default_rng(seed)
     ref_data = None
     if holdout:
         data, ref_data = data.split_sweeps(noise_std)
@@ -506,6 +595,7 @@ def _matlab_run_one(
         with_fixed_zero_field_freq=not infer_zero_field_freq,
         num_particles=particles,
         min_exploration_frac=0.05,
+        seed=seed,
     )
 
     typer.echo(f"SBED locator ready (max_steps={max_steps}). Starting adaptive scan...\n")
@@ -562,13 +652,35 @@ def _matlab_run_one(
             if f"holdout_z_{name}" in holdout_cols:
                 typer.echo(f"  {name:20s}: z = {holdout_cols[f'holdout_z_{name}']:+.2f}")
 
-    # --- Write artifacts ---
+    noise_name = "real-holdout" if holdout else "real"
+    record: dict[str, Any] = {
+        "run_name": run_name,
+        "noise": noise_name,
+        "n_drive_freq_points": n_drive_freq_points,
+        "drive_freq_min_mhz": drive_freq_min_phys / 1e6,
+        "drive_freq_max_mhz": drive_freq_max_phys / 1e6,
+        "n_valid_shots": data.n_valid_shots,
+        "noise_std": data.noise_std,
+        "max_steps": max_steps,
+        "total_steps": locator.step_count,
+        "primary_converged_step": primary_converged_step,
+        "all_converged_step": all_converged_step,
+        "elapsed_s": round(elapsed, 2),
+        "shot_reuse": shot_reuse,
+        "estimates": {k: float(v) for k, v in final_est.items()},
+        "uncertainties": {k: float(v) for k, v in final_unc.items()},
+    }
+    if holdout_cols:
+        record["holdout"] = holdout_cols
+
     if not no_ui:
-        out_dir = _write_artifacts(
+        gen_name = f"MATLAB:{run_name}"
+        _write_artifacts(
             locator=locator,
             run_result=run_result,
             data=data,
-            matlab_file=matlab_file,
+            directory=directory,
+            gen_name=gen_name,
             drive_freq_min_phys=drive_freq_min_phys,
             drive_freq_max_phys=drive_freq_max_phys,
             max_steps=max_steps,
@@ -576,45 +688,13 @@ def _matlab_run_one(
             ts_str=ts_str,
             primary_converged_step=primary_converged_step,
             all_converged_step=all_converged_step,
-            noise_name="real-holdout" if holdout else "real",
+            noise_name=noise_name,
             extra_metrics={"shot_reuse": shot_reuse, **holdout_cols},
         )
-        typer.echo(f"\nArtifacts written to: {out_dir}")
-        typer.echo(
-            f"View it quickly:  uv run nv serve --dir artifacts/{MATLAB_UI_DIRNAME}\n"
-            "  -> http://localhost:18083 (its own small cache -- fast, no matter how big the main one gets)\n"
-            f"  -> Study: 'MATLAB (real data)', generator 'MATLAB:{Path(matlab_file).name}'\n"
-            "  -> Press 'r' there to pick up later runs.\n"
-            "It's also in the main artifacts UI (localhost:18080) alongside everything else --\n"
-            "that manifest is large and slow to rebuild, so a reload there can take a while."
-        )
-
-    # --- Optional JSON output ---
-    if out is not None:
-        result = {
-            "file": str(matlab_file),
-            "n_drive_freq_points": n_drive_freq_points,
-            "drive_freq_min_mhz": drive_freq_min_phys / 1e6,
-            "drive_freq_max_mhz": drive_freq_max_phys / 1e6,
-            "n_valid_shots": data.n_valid_shots,
-            "noise_std": data.noise_std,
-            "max_steps": max_steps,
-            "total_steps": locator.step_count,
-            "primary_converged_step": primary_converged_step,
-            "all_converged_step": all_converged_step,
-            "elapsed_s": round(elapsed, 2),
-            "shot_reuse": shot_reuse,
-            "estimates": {k: float(v) for k, v in final_est.items()},
-            "uncertainties": {k: float(v) for k, v in final_unc.items()},
-        }
-        if holdout_cols:
-            result["holdout"] = holdout_cols
-        out.parent.mkdir(parents=True, exist_ok=True)
-        out.write_text(json.dumps(result, indent=2))
-        typer.echo(f"\nResults written to: {out}")
+        typer.echo(f"\nIn `nv serve`: Study 'MATLAB (real data)', generator '{gen_name}', noise '{noise_name}'.")
 
     return _MatlabRunSummary(
-        file_name=Path(matlab_file).name,
+        file_name=run_name,
         primary_converged_step=primary_converged_step,
         all_converged_step=all_converged_step,
         total_steps=locator.step_count,
@@ -623,6 +703,7 @@ def _matlab_run_one(
         }
         if ref is not None
         else None,
+        record=record,
     )
 
 
@@ -676,7 +757,8 @@ def _write_artifacts(
     locator: Locator,
     run_result: Any,
     data: Any,
-    matlab_file: Path,
+    directory: Path,
+    gen_name: str,
     drive_freq_min_phys: float,
     drive_freq_max_phys: float,
     max_steps: int,
@@ -687,7 +769,7 @@ def _write_artifacts(
     primary_converged_step: int | None,
     all_converged_step: int | None,
 ) -> Path:
-    """Write locator_results.parquet, plots_manifest.json, and Bayesian plots."""
+    """Write the run's cache entries under *directory* (and its standalone bundle under ``<dir>/matlab/runs``)."""
     from nvision.cache import CacheBridge
     from nvision.gui.report import prepare_static_ui_data
     from nvision.runner.cache import embed_graph_content
@@ -702,20 +784,17 @@ def _write_artifacts(
         write_plots_manifest,
         write_run_status,
     )
-    from nvision.tools.paths import ARTIFACTS_ROOT
     from nvision.viz import Viz
 
-    matlab_ui_root = ARTIFACTS_ROOT / MATLAB_UI_DIRNAME
+    matlab_ui_root = directory / MATLAB_UI_DIRNAME
     (matlab_ui_root / "cache").mkdir(parents=True, exist_ok=True)
 
-    mat_stem = Path(matlab_file).stem
-    slug = f"matlab_{mat_stem}"
-    out_dir = ARTIFACTS_ROOT / slug
+    slug = "matlab_" + re.sub(r"[^A-Za-z0-9._-]+", "_", f"{gen_name.removeprefix('MATLAB:')}_{noise_name}")
+    out_dir = matlab_ui_root / "runs" / slug
     tree = prepare_artifact_tree(out_dir)
 
     write_run_status(out_dir, "running", total_tasks=1, completed_tasks=0, pid=os.getpid())
 
-    gen_name = f"MATLAB:{Path(matlab_file).name}"
     strat_name = "Bayesian-SBED"
     repeat_id = 0
 
@@ -821,7 +900,7 @@ def _write_artifacts(
         timeout_s=0,
         repeat_offset=0,
     )
-    for cache_dir in (matlab_ui_root / "cache", ARTIFACTS_ROOT / "cache"):
+    for cache_dir in (matlab_ui_root / "cache", directory / "cache"):
         try:
             cache_dir.mkdir(parents=True, exist_ok=True)
             bridge = CacheBridge(cache_dir)

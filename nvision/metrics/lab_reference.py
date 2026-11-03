@@ -205,3 +205,64 @@ def holdout_metrics(
         combined = math.hypot(float(uncertainties_phys[name]), sigma_ref)
         out[f"holdout_z_{name}"] = (float(estimates_phys[name]) - ref.values_phys[name]) / combined
     return out
+
+
+# The lab-study name under which the UI lists every processed raw sweep (see lab_sweeps_payload).
+SWEEPS_LAB_NAME = "raw sweeps (SBED)"
+
+
+def _mhz(value: float | None) -> float | None:
+    return None if value is None else value / _MHZ
+
+
+def lab_sweeps_payload(records: list[dict]) -> dict:
+    """The UI's raw-sweeps lab page: one group per (source, folder), coverage within each group.
+
+    *records*: :func:`nvision.tools.lab_sources.load_sweep_records`. Frequencies in the rows are MHz. A folder is
+    one experiment (same sample, averaging and window), so |z| coverage is never pooled across folders; ``n`` is
+    the number of files it is over. Failed files are listed under ``failed``.
+    """
+    groups: dict[tuple[str, str], list[dict]] = {}
+    failed = []
+    for rec in records:
+        if "error" in rec:
+            failed.append({"label": rec["label"], "file": rec["file"], "error": rec["error"]})
+            continue
+        full, held = rec["full"], rec["holdout"]
+        ref = held["holdout"]
+        groups.setdefault((rec["label"], rec["folder"]), []).append(
+            {
+                "file": rec["file"].rsplit("/", 1)[-1],
+                "n_sweeps": full["n_valid_shots"],
+                "window_mhz": full["drive_freq_max_mhz"] - full["drive_freq_min_mhz"],
+                "steps": full["total_steps"],
+                "converged_step": full["primary_converged_step"],
+                "zeeman_mhz": _mhz(full["estimates"]["zeeman_shift"]),
+                "zeeman_sigma_mhz": _mhz(full["uncertainties"]["zeeman_shift"]),
+                "holdout_zeeman_mhz": _mhz(held["estimates"]["zeeman_shift"]),
+                "holdout_zeeman_sigma_mhz": _mhz(held["uncertainties"]["zeeman_shift"]),
+                "ref_zeeman_mhz": _mhz(ref["ref_zeeman_shift"]),
+                "ref_zeeman_sigma_mhz": _mhz(ref["ref_zeeman_shift_sigma"]),
+                "z_zeeman": ref.get("holdout_z_zeeman_shift"),
+                "z_center": ref.get("holdout_z_zero_field_freq"),
+                "ref_chi2_dof": ref["ref_chi2_dof"],
+                "shot_reuse": held["shot_reuse"],
+            }
+        )
+    out = []
+    for (label, folder), rows in sorted(groups.items()):
+        coverage = {}
+        for key in ("z_zeeman", "z_center"):
+            zs = np.array([abs(r[key]) for r in rows if r[key] is not None])
+            coverage[key] = (
+                {
+                    "n": int(zs.size),
+                    "within_1": float(np.mean(zs <= 1)),
+                    "within_2": float(np.mean(zs <= 2)),
+                    "median_abs": float(np.median(zs)),
+                }
+                if zs.size
+                else {"n": 0}
+            )
+        out.append({"label": label, "folder": folder or ".", "rows": rows, "coverage": coverage})
+    return {"groups": out, "failed": failed, "chi2_dof_warn": CHI2_DOF_WARN}

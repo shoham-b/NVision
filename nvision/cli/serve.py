@@ -148,6 +148,12 @@ def serve(
         console.print(f"[bold red]Directory not found:[/bold red] {directory}")
         raise typer.Exit(1)
 
+    from nvision.tools.lab_sources import load_sources
+
+    lab_sources = load_sources(directory)
+    if lab_sources:
+        # Lab data added with `nv matlab`: the background sync fills the cache, so start even before it exists.
+        (directory / "cache").mkdir(exist_ok=True)
     if not (directory / "cache").exists():
         console.print(f"[yellow]Warning: no cache found in {directory}[/yellow]")
         console.print("[dim]Run 'nvision run' or 'nvision demo' first to generate results.[/dim]")
@@ -176,6 +182,12 @@ def serve(
         run_dir=directory,
         lab_dirs=[*(p.resolve() for p in lab_dir or []), labs_dir(directory)],
     )
+    if lab_sources and fastapi_app.state.lab_sync.start():
+        names = ", ".join(e["label"] for e in lab_sources)
+        console.print(
+            f"[dim]Syncing lab data ({names}) in the background; new files appear in the UI when it finishes "
+            f"(log: {fastapi_app.state.lab_sync.log_path}).[/dim]"
+        )
     config = uvicorn.Config(fastapi_app, host=host, port=port, log_level="warning")
     server = uvicorn.Server(config)
     fastapi_app.state.uvicorn_server = server
