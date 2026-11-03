@@ -49,3 +49,24 @@ def test_payload_summarises_converged_runs_only(tmp_path):
 def test_missing_files_raise(tmp_path):
     with pytest.raises(ValueError, match="No window"):
         lab_study_payload(tmp_path)
+
+
+def test_focus_rows_are_rates_over_all_runs(tmp_path):
+    _write_window(tmp_path, 40)
+    pl.DataFrame(
+        {
+            "window": [40, 40],
+            "runNumber": [1, 2],
+            "foundStep": [8, None],
+            "coverStep": [10, None],
+            "stableStep": [12, None],
+            "finalLocked": [1, 0],
+            "finalCovers": [1, 0],
+            "finalWidthMHz": [3.0, 40.0],
+        },
+        schema_overrides={"foundStep": pl.Int64, "coverStep": pl.Int64, "stableStep": pl.Int64},
+    ).write_csv(tmp_path / "window_focus.csv")
+    (row,) = lab_study_payload(tmp_path)["focus"]
+    assert (row["found_rate"], row["found_step"], row["cover_step"], row["stable_step"]) == (0.25, 8.0, 10.0, 12.0)
+    assert row["n_runs"] == 4
+    assert row["locked_rate"] == 0.25

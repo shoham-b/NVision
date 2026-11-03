@@ -46,3 +46,33 @@ def test_lab_script_output_is_not_overwritten(tmp_path):
     _save_run(tmp_path / "a.mat", no_stop=1, std=[1.0, 0.5], stop_reason="budget", step_count=2)
     with pytest.raises(ValueError, match="not overwriting"):
         process_bayesian_runs(tmp_path)
+
+
+def test_window_focus_steps_are_relative_to_the_reference(tmp_path):
+    empty, miss = np.empty((0, 2)), np.array([[90.0, 95.0]])
+    hit = np.array([[90.0, 95.0], [98.0, 102.0]])
+    cands = np.empty(4, dtype=object)
+    cands[:] = [empty, miss, hit, miss]  # found at step 2, covers the reference at 3, lost again at 4
+    state = {
+        "history": np.column_stack([np.full(4, 100.0), [5.0, 3.0, 0.9, 0.5], np.zeros(4)]),
+        "stepCount": 4,
+        "stopReason": "budget",
+        "meanMHz": 100.0,
+        "stdMHz": 0.5,
+        "credibleIntervalMHz": np.array([99.0, 101.0]),
+        "focusCandidatesHistoryMHz": cands,
+        "focusWindowMHz": np.array([98.0, 102.0]),
+        "focusLocked": 1,
+    }
+    config = {"scanRangeMHz": np.array([80, 120]), "targetStdMHz": 1, "minimumStopSteps": 2}
+    sio.savemat(
+        tmp_path / "a.mat", {"myStruct": {"BayesianESR": {"config": config, "state": state, "noConvergenceStop": 1}}}
+    )
+    row = pl.read_csv(process_bayesian_runs(tmp_path) / "window_focus.csv").row(0, named=True)
+    assert (row["foundStep"], row["coverStep"], row["stableStep"]) == (2, 3, None)
+    assert (row["finalLocked"], row["finalCovers"], row["finalWidthMHz"]) == (1, 1, 4.0)
+
+
+def test_window_focus_is_empty_without_recorded_candidates(tmp_path):
+    _save_run(tmp_path / "a.mat", no_stop=1, std=[5.0, 3.0, 0.9, 0.5], stop_reason="budget", step_count=4)
+    assert pl.read_csv(process_bayesian_runs(tmp_path) / "window_focus.csv").height == 0

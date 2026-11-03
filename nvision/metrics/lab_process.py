@@ -31,8 +31,18 @@ def _load_run(path: Path) -> dict | None:
     history = np.asarray(state.history, dtype=float)
     lo, hi = np.asarray(cfg.scanRangeMHz, dtype=float)
     stopped_on_precision = not bool(esr.noConvergenceStop)
+    # Older MATLAB runs did not record the focus candidates; those get no window_focus rows.
+    candidates = None
+    if hasattr(state, "focusCandidatesHistoryMHz"):
+        candidates = [
+            np.asarray(c, dtype=float).reshape(-1, 2) if np.size(c) else np.empty((0, 2))
+            for c in state.focusCandidatesHistoryMHz
+        ]
     return {
         "window": round(float(hi - lo)),
+        "focus_candidates": candidates,  # per step: (n_candidates, 2) rows of [lo, hi] in MHz
+        "focus_window": np.asarray(state.focusWindowMHz, dtype=float) if hasattr(state, "focusWindowMHz") else None,
+        "focus_locked": bool(state.focusLocked) if hasattr(state, "focusLocked") else None,
         "mean": history[:, 0],
         "std": history[:, 1],
         # Runs that really stopped on precision keep their own stop; full-budget runs are replayed.
@@ -60,6 +70,7 @@ def write_statistics(runs: list[dict], out_dir: Path) -> Path:
     if (out_dir / "window_summary.csv").exists():
         raise ValueError(f"{out_dir} was written by the lab's own script; not overwriting it")
     out_dir.mkdir(parents=True, exist_ok=True)
+    converged_means: list[float] = []
     for window in sorted({r["window"] for r in runs}):
         group = [r for r in runs if r["window"] == window]
         rows = []
@@ -92,6 +103,7 @@ def write_statistics(runs: list[dict], out_dir: Path) -> Path:
                 }
             )
         pl.DataFrame(rows).write_csv(out_dir / f"window{window}MHz_statistics_perRun.csv")
+        converged_means += [r["finalMeanMHz"] for r in rows if r["converged"]]
 
         n_steps = min(len(r["std"]) for r in group)
         means = np.stack([r["mean"][:n_steps] for r in group])  # (n_runs, n_steps)
@@ -113,7 +125,52 @@ def write_statistics(runs: list[dict], out_dir: Path) -> Path:
                 "acrossRunStdMHz": np.std(means, axis=0),  # divisor N, as the lab's script
             }
         ).write_csv(out_dir / f"window{window}MHz_resonance_std_vs_step_retained.csv")
+    _write_window_focus(runs, converged_means, out_dir)
     return out_dir
+
+
+def _covers(candidates: np.ndarray, reference_mhz: float) -> bool:
+    """True when one of *candidates* (shape: (n_candidates, 2), rows [lo, hi] in MHz) contains the reference."""
+    return bool(np.any((candidates[:, 0] <= reference_mhz) & (reference_mhz <= candidates[:, 1])))
+
+
+def _write_window_focus(runs: list[dict], converged_means: list[float], out_dir: Path) -> None:
+    """``window_focus.csv``: per run, when the lab's focus candidates appeared and when they covered the resonance.
+
+    The reference resonance is the median of the converged runs' final means, as in the lab study. Steps are
+    1-based; empty means never. ``coverStep``: first step some candidate contains the reference;
+    ``stableStep``: first step from which one does at every later step. ``finalLocked``/``finalCovers``/
+    ``finalWidthMHz`` describe the saved final focus window. Always written (zero rows when the runs carry no
+    candidates) so a processed folder can be told apart from one processed before this file existed.
+    """
+    ref = float(np.median(converged_means)) if converged_means else float("nan")
+    rows = []
+    for window in sorted({r["window"] for r in runs}):
+        for i, r in enumerate((r for r in runs if r["window"] == window), start=1):
+            cands = r["focus_candidates"]
+            if cands is None or not np.isfinite(ref):
+                continue
+            present = np.array([len(c) > 0 for c in cands])
+            covered = np.array([_covers(c, ref) if len(c) else False for c in cands])
+            lost = np.flatnonzero(~covered)
+            fw = r["focus_window"]
+            rows.append(
+                {
+                    "window": window,
+                    "runNumber": i,
+                    "foundStep": int(np.flatnonzero(present)[0]) + 1 if present.any() else None,
+                    "coverStep": int(np.flatnonzero(covered)[0]) + 1 if covered.any() else None,
+                    "stableStep": (int(lost[-1]) + 2 if lost.size else 1) if covered[-1] else None,
+                    "finalLocked": int(r["focus_locked"]),
+                    "finalCovers": int(fw[0] <= ref <= fw[1]),
+                    "finalWidthMHz": float(fw[1] - fw[0]),
+                }
+            )
+    schema = {
+        "window": pl.Int64, "runNumber": pl.Int64, "foundStep": pl.Int64, "coverStep": pl.Int64,
+        "stableStep": pl.Int64, "finalLocked": pl.Int64, "finalCovers": pl.Int64, "finalWidthMHz": pl.Float64,
+    }  # fmt: skip
+    pl.DataFrame(rows, schema=schema).write_csv(out_dir / "window_focus.csv")
 
 
 def load_bayesian_runs(files: list[Path]) -> tuple[dict[Path, list[dict]], list[Path]]:
