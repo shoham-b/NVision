@@ -73,6 +73,8 @@ const init = () => {
         lastRunEl.textContent = 'Last run: ' + new Date().toLocaleString();
     }
     window.NVISION_BOOTSTRAP
+        // main() builds the Study dropdown once; the lab studies (lab-view.js) must be known by then.
+        .then(() => window.labsReady)
         .then(() => {
             main();
         })
