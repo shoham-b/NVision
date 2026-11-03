@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import replace
 
 import numpy as np
 
@@ -18,26 +19,29 @@ _FI = np.finfo(np.dtype(FLOAT_DTYPE))
 # ~sqrt(machine epsilon): a few ULPs around 0 and 1 before clipping unit parameters.
 _UNIT_INTERVAL_SLACK = np.sqrt(np.float32(_FI.eps))
 _ONE_PLUS_SLACK = np.float32(1.0) + _UNIT_INTERVAL_SLACK
+# The one parameter that is an absolute frequency; see UnitCubeSignalModel._inner_frame_arrays.
+_ABSOLUTE_FREQUENCY_PARAM = "zero_field_freq"
 
 
 def _unit_interval_to_physical(u_raw: np.ndarray, lo: float, hi: float, param_name: str) -> np.ndarray:
-    """Map unit-cube samples to ``[lo, hi]``, clipping benign float endpoint error.
+    """Map unit-cube samples to ``[lo, hi]`` in float64, clipping benign float endpoint error.
 
-    Validates via a single min/max pass (instead of boolean-array comparisons)
-    and skips the input clip entirely when all samples already lie in [0, 1] —
-    the overwhelmingly common case on the per-step likelihood path.
+    ``u_raw`` is float32 (the belief dtype); the physical values are float64 because a frequency near 2.87 GHz
+    has a float32 resolution of 256 Hz, which would round away a ~28 Hz change of a splitting. Validates via a
+    single min/max pass (instead of boolean-array comparisons) and skips the input clip entirely when all
+    samples already lie in [0, 1] -- the overwhelmingly common case on the per-step likelihood path.
     """
-    lo32 = np.float32(lo)
-    hi32 = np.float32(hi)
     if u_raw.size == 0:
-        return u_raw * (hi32 - lo32) + lo32
+        return u_raw.astype(np.float64) * (hi - lo) + lo
     mn = float(u_raw.min())
     mx = float(u_raw.max())
     if mn < -_UNIT_INTERVAL_SLACK or mx > _ONE_PLUS_SLACK:
         raise ValueError(f"Parameter {param_name} unit values must lie in [0, 1]; got min {mn}, max {mx}")
-    u = u_raw if (mn >= 0.0 and mx <= 1.0) else np.clip(u_raw, np.float32(0.0), np.float32(1.0))
-    v = lo32 + u * (hi32 - lo32)
-    return np.clip(v, lo32, hi32, out=v)
+    u = u_raw.astype(np.float64)
+    if mn < 0.0 or mx > 1.0:
+        u = np.clip(u, 0.0, 1.0, out=u)
+    v = lo + u * (hi - lo)
+    return np.clip(v, lo, hi, out=v)
 
 
 class UnitCubeSignalModel[ParamsT, SampleParamsT, UncertaintyT](SignalModel[ParamsT, SampleParamsT, UncertaintyT]):
@@ -142,25 +146,12 @@ class UnitCubeSignalModel[ParamsT, SampleParamsT, UncertaintyT](SignalModel[Para
         ``param_arrays`` are passed in :meth:`parameter_names` order (same names as the
         wrapped physical inner model), but the values are in the unit-cube ``[0, 1]`` interval.
         """
-        x_lo, x_hi = self.x_bounds_phys
-        drive_freq_phys = x_lo + float(drive_freq_unit) * (x_hi - x_lo)
-
-        names = self.parameter_names()
         if len(param_arrays) == 1:
             try:  # noqa: SIM105
                 param_arrays = param_arrays[0].arrays_in_order()  # type: ignore[union-attr]
             except AttributeError:
                 pass
-        if len(param_arrays) != len(names):
-            raise ValueError(f"{type(self).__name__}: expected {len(names)} param arrays but got {len(param_arrays)}")
-
-        phys_arrays: list[np.ndarray] = []
-        for name, u_arr in zip(names, param_arrays, strict=True):
-            lo, hi = self.param_bounds_phys[name]
-            u_raw = np.asarray(u_arr, dtype=FLOAT_DTYPE)
-            phys_arrays.append(_unit_interval_to_physical(u_raw, lo, hi, name))
-
-        return self.inner.compute_vectorized(drive_freq_phys, *phys_arrays)
+        return self.compute_vectorized_many(np.array([float(drive_freq_unit)]), param_arrays)[0]
 
     def _get_param_arrays_norm(self, samples_norm: VectorizedManySamplesInput[object]) -> Sequence[np.ndarray]:
         """Convert samples_norm (dataclass, tuple, or list) into a sequence of parameter arrays."""
@@ -172,6 +163,37 @@ class UnitCubeSignalModel[ParamsT, SampleParamsT, UncertaintyT](SignalModel[Para
                 return self.inner.spec.pack_samples(samples_norm)
             return samples_norm  # type: ignore[return-value]
 
+    def _inner_frame_samples(
+        self, drive_freqs_unit: np.ndarray, param_arrays_norm: Sequence[np.ndarray]
+    ) -> tuple[np.ndarray, object]:
+        """Drive frequencies and parameters in the inner model's frame: Hz relative to the window start.
+
+        Returns ``(drive_freqs_rel, typed_samples)``: float64 drive frequencies, shape (n_x,), and the inner
+        model's typed samples, each field shape (n_particles,). Unit values are mapped to physical Hz in float64,
+        then ``x_bounds_phys[0]`` is subtracted from the drive frequencies and from ``zero_field_freq`` (the only
+        absolute frequency), whether it is sampled or a fixed value of the spec. Every inner model depends on
+        ``x - zero_field_freq`` only, so this changes nothing mathematically, but the float32 kernels then see
+        numbers of order the window width (MHz) instead of 2.87 GHz, where float32 resolves only 256 Hz.
+        """
+        names = self.parameter_names()
+        if len(param_arrays_norm) != len(names):
+            raise ValueError(f"Expected {len(names)} parameter arrays, got {len(param_arrays_norm)}")
+        x_lo, x_hi = self.x_bounds_phys
+        phys_arrays: list[np.ndarray] = []
+        for name, u_arr in zip(names, param_arrays_norm, strict=True):
+            lo, hi = self.param_bounds_phys[name]
+            v = _unit_interval_to_physical(np.asarray(u_arr, dtype=FLOAT_DTYPE), lo, hi, name)
+            phys_arrays.append(v - x_lo if name == _ABSOLUTE_FREQUENCY_PARAM else v)
+        samples = self.inner.spec.unpack_samples(tuple(phys_arrays))
+        fixed = getattr(self.inner.spec, "fixed_values", {})
+        if _ABSOLUTE_FREQUENCY_PARAM in fixed:
+            n = len(phys_arrays[0])
+            samples = replace(
+                samples,
+                **{_ABSOLUTE_FREQUENCY_PARAM: np.full(n, fixed[_ABSOLUTE_FREQUENCY_PARAM] - x_lo, dtype=FLOAT_DTYPE)},
+            )
+        return drive_freqs_unit.astype(np.float64) * (x_hi - x_lo), samples
+
     def compute_vectorized_many(
         self,
         x_norm_array: Sequence[float],
@@ -181,20 +203,7 @@ class UnitCubeSignalModel[ParamsT, SampleParamsT, UncertaintyT](SignalModel[Para
         drive_freqs_unit = np.asarray(x_norm_array, dtype=FLOAT_DTYPE)
         param_arrays_norm = self._get_param_arrays_norm(samples_norm)
 
-        names = self.parameter_names()
-        if len(param_arrays_norm) != len(names):
-            raise ValueError(f"Expected {len(names)} parameter arrays, got {len(param_arrays_norm)}")
-
-        phys_arrays: list[np.ndarray] = []
-        for name, u_arr in zip(names, param_arrays_norm, strict=True):
-            lo, hi = self.param_bounds_phys[name]
-            u_raw = np.asarray(u_arr, dtype=FLOAT_DTYPE)
-            phys_arrays.append(_unit_interval_to_physical(u_raw, lo, hi, name))
-
-        x_lo, x_hi = self.x_bounds_phys
-        drive_freqs_phys = x_lo + drive_freqs_unit * (x_hi - x_lo)
-
-        typed_samples_phys = self.inner.spec.unpack_samples(tuple(phys_arrays))
+        drive_freqs_phys, typed_samples_phys = self._inner_frame_samples(drive_freqs_unit, param_arrays_norm)
         return self.inner.compute_vectorized_many(drive_freqs_phys, typed_samples_phys)
 
     def compute_vectorized_many_fast(
@@ -212,20 +221,7 @@ class UnitCubeSignalModel[ParamsT, SampleParamsT, UncertaintyT](SignalModel[Para
         drive_freqs_unit = np.asarray(x_norm_array, dtype=FLOAT_DTYPE)
         param_arrays_norm = self._get_param_arrays_norm(samples_norm)
 
-        names = self.parameter_names()
-        if len(param_arrays_norm) != len(names):
-            raise ValueError(f"Expected {len(names)} parameter arrays, got {len(param_arrays_norm)}")
-
-        phys_arrays: list[np.ndarray] = []
-        for name, u_arr in zip(names, param_arrays_norm, strict=True):
-            lo, hi = self.param_bounds_phys[name]
-            u_raw = np.asarray(u_arr, dtype=FLOAT_DTYPE)
-            phys_arrays.append(_unit_interval_to_physical(u_raw, lo, hi, name))
-
-        x_lo, x_hi = self.x_bounds_phys
-        drive_freqs_phys = x_lo + drive_freqs_unit * (x_hi - x_lo)
-
-        typed_samples_phys = self.inner.spec.unpack_samples(tuple(phys_arrays))
+        drive_freqs_phys, typed_samples_phys = self._inner_frame_samples(drive_freqs_unit, param_arrays_norm)
         return self.inner.compute_vectorized_many_fast(drive_freqs_phys, typed_samples_phys)
 
     @property
