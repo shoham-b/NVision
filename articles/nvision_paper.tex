@@ -2,676 +2,703 @@
 
 \usepackage{amsmath,amssymb}
 \usepackage[hidelinks]{hyperref}
+\usepackage{xcolor}
 \usepackage{tikz}
 \usepackage{pgfplots}
 \pgfplotsset{compat=1.18}
 \usetikzlibrary{arrows.meta,positioning}
 
 \newcommand{\code}[1]{\texttt{#1}}
+% Red placeholder: text, numbers or decisions still missing.
+\newcommand{\tbd}[1]{\textcolor{red}{[#1]}}
+
+% ---------------------------------------------------------------------
+% SKELETON (2026-11-02). Story spine agreed with the authors:
+%   every strategy's uncertainty is read against the information budget
+%   J(N) = J_0 + sum_n I(x_n); the bound has two limits (prior width at
+%   small N, unbiased CRLB at large N); a wide window shows three regimes
+%   because the information per measurement is ~0 until the dip is found
+%   (elimination model, agreed).
+% Scope agreed: Bayesian SBED against the sweep ladder (SimpleSweep k=2,3,4,
+%   Smart-Sweep). Smart-SBED and drive control: outlook at most.
+% Open decisions are marked \tbd{...} in the text.
+% ---------------------------------------------------------------------
 
 \begin{document}
 
-\title{NVision: A Sequential Monte Carlo Framework for Bayesian Experiment Design\\
-in Nitrogen-Vacancy Center Magnetometry}
+\title{Following the Information Bound from a Search-Window Prior with Sequential Bayesian
+Experiment Design in Nitrogen-Vacancy Magnetometry}
 
-\author{NVision Project}
-\affiliation{Simulation framework described herein; physical implementation not performed.}
+\author{\tbd{Authors}}
+\affiliation{\tbd{Affiliation}}
 
 \date{\today}
 
 \begin{abstract}
-Optically detected magnetic resonance (ODMR) of nitrogen-vacancy (N-V$^-$) centers in diamond is a leading
-platform for nanoscale magnetometry, but conventional frequency-swept measurement wastes most of its budget
-sampling far from resonance. Sequential Bayesian experiment design (SBED) instead chooses each measurement
-to maximize expected information gain (EIG) about the resonance parameters \citep{dushenko2020sbed}. This
-paper describes \emph{NVision}, which extends this idea with a Sequential Monte Carlo (SMC) particle belief
-on a dimension-agnostic unit cube, scaling to Zeeman-split, hyperfine-split, and Voigt-broadened lineshapes
-with up to seven parameters. An EIG-maximizing acquisition rule, a closed-form Cram\'er--Rao lower bound
-(CRLB) per lineshape, and a multi-criterion stopping test jointly decide where to measure and when to stop.
-We present the signal models, the inference/acquisition mathematics, the simulation-harness architecture,
-and the evaluation metrics, all cross-checked against the reference implementation.
+\tbd{Written last, once the simulation and lab results are in.}
 \end{abstract}
 
 \maketitle
 
 % =====================================================================
 \section{Introduction}
+\label{sec:intro}
 % =====================================================================
 
-Nitrogen-vacancy (N-V$^-$) centers are diamond point defects with a spin-1 ground state whose $m_s=\pm1$
-sublevels Zeeman-split under an external field (Fig.~\ref{fig:nv-levels}); spin-dependent fluorescence makes
-this splitting optically readable as dips in an ODMR spectrum
-\citep{doherty2013nv,balasubramanian2008,maze2008}. This makes N-V$^-$ magnetometry a widely used nanoscale
-and vector field-sensing tool \citep{schloss2018vector}.
+The negatively charged nitrogen-vacancy (N-V) centre in diamond is a solid-state electron spin that can be initialised
+and read out optically at room temperature, which makes it a magnetic field sensor with nanoscale spatial resolution
+\cite{balasubramanian2008,maze2008,doherty2013nv}. In optically detected magnetic resonance (ODMR) magnetometry the
+field to be measured shifts the spin resonance, and it is read from the position of that resonance, found by
+recording the photoluminescence at a sequence of microwave drive frequencies within a search window.
 
-Conventional ODMR sweeps frequency over a fixed grid, wasting most measurements far from resonance where
-they barely change the fit uncertainty. \citet{dushenko2020sbed} showed that choosing each frequency to
-maximize a posterior-based utility function instead — SBED — cuts the required measurements by more than an
-order of magnitude, using a two-parameter (frequency, linewidth) grid posterior and the \code{OptBayesExpt}
-library.
+Choosing these drive frequencies well is an active field. Non-adaptive undersampling measures only a subset of
+the window and reconstructs the line from it, either by fitting a Lorentzian to randomly chosen drive frequencies
+\cite{luo2023} or by compressed sensing in a sparse spectral basis \cite{haim2025}. Bayesian experiment design
+instead keeps a posterior over the parameters, here as a sequential Monte Carlo (SMC) particle cloud, and chooses
+each next measurement to maximise its expected utility, such as the information it is expected to gain
+\cite{granade2012}. In N-V Ramsey magnetometry, adaptive Bayesian schemes set the readout phase or the precession
+time from the outcomes so far
+\cite{bonato2016,santagati2019,mcmichael2021ramsey}; in ODMR, the same approach chooses the next drive frequency and
+reaches a given precision more than an order of magnitude faster than a sweep
+\cite{dushenko2020sbed,mcmichael2021optbayesexpt}.
 
-NVision generalizes this along three axes absent from that work and from an earlier internal HUJI course
-attempt at the same problem \citep{giat2024projectbook} (Table~\ref{tab:novelty}; bold = new here).
+In recent years, learning the design rule itself has become a particularly active direction. Early work
+learned policies for adaptive phase estimation \cite{hentschel2010,lumino2018}. Reinforcement learning
+has since been used to find the controls that make a quantum sensor most sensitive \cite{xu2019,schuff2020,xiao2022}
+and to estimate several parameters at once in a photonic experiment \cite{cimini2023}. Neural networks trained by an
+evolution strategy or reinforcement learning replace the costly expected-gain optimisation of Bayesian design by a fast learned heuristic
+\cite{fiderer2021}, and model-aware reinforcement learning trains such a policy through a particle-filter posterior,
+with applications to N-V Ramsey magnetometry \cite{belliardo2024quantum,belliardo2024pra}. For a wide field range, a
+Bayesian neural network first narrows the range and a reinforcement-learning agent then refines the estimate
+\cite{guo2026}.
 
-\begin{table}[t]
-\centering
-\caption{What NVision introduces relative to the two prior attempts. Bold = new here; plain = inherited.}
-\label{tab:novelty}
-\small
-\begin{ruledtabular}
-\begin{tabular}{p{2.1cm}p{2.5cm}p{2.9cm}}
-Aspect & Prior attempts & \textbf{This work} \\
-\colrule
-Posterior & \code{OptBayesExpt} grid, $\le2$--3 params & \textbf{$N$-particle SMC, unit cube, up to 7} \\
-Signal models & Bare Lorentzian / one triplet & \textbf{4 lineshape families} (hyperfine, Zeeman, Voigt, saturation) \\
-Stopping rule & Fixed tolerance / iteration count & \textbf{Closed-form per-lineshape CRLB budget} \\
-\end{tabular}
-\end{ruledtabular}
-\end{table}
+What is missing from this research is a reference for the ODMR search itself: a bound on how fast any strategy can
+locate the resonance. Without it, the reported speedups cannot be placed against the best achievable, it is not
+known how many of the measurements are unavoidable, and the observed growth of the speedup as the line occupies less
+of the window \cite{dushenko2020sbed} remains unexplained.
 
-The particle-based unit-cube belief (Section~\ref{sec:smc}) is what makes the richer, multi-parameter
-lineshapes of Section~\ref{sec:physics} tractable in place of the grid both prior attempts share; the
-CRLB-derived stopping rule (Sections~\ref{sec:crlb}--\ref{sec:convergence}) is the paper's most concrete
-methodological contribution, replacing a hand-tuned tolerance with one grounded in the measurement's own
-information content. The EIG-maximization principle itself is \citeauthor{dushenko2020sbed}'s
-\citep{dushenko2020sbed,chaloner1995bayesian}, and unlike that work — validated on real N-V$^-$ hardware —
-NVision is simulation-only (Section~\ref{sec:discussion}).
+Estimation theory provides such references. The Cram\'er--Rao bound limits the variance of an unbiased estimate
+by the Fisher information of the data \cite{cramer1946}, but it ignores what is known before the first
+measurement. The van Trees inequality, a Bayesian form of the Cram\'er--Rao bound, adds the information of the
+prior and holds for any estimator \cite{vantrees1968,gill1995}. A search window is exactly such prior knowledge, so
+this bound is a natural yardstick for an ODMR search, and the information it counts is the same quantity that
+Bayesian experiment design maximises. In this work we use it to analyse sequential Bayesian experiment design (SBED)
+and drive-frequency sweeps for CW and pulsed ODMR.
 
-Section~\ref{sec:physics} covers the physical models and simulation architecture; Sections
-\ref{sec:smc}--\ref{sec:convergence} the inference/acquisition math; Section~\ref{sec:metrics} the evaluation
-metrics; Section~\ref{sec:discussion} scope and limitations.
+Section~\ref{sec:theory} derives the bound from the physical model and the speedup, sensitivity and bandwidth that
+follow from it; Sec.~\ref{sec:methods} describes the particle filter, the measurement strategies and how they are
+evaluated; Sec.~\ref{sec:results} presents the simulations and the experiment; and Sec.~\ref{sec:discussion}
+discusses the limits of the approach.
 
 % =====================================================================
-\section{Physical Model and Experiment Layout}
-\label{sec:physics}
+\section{Theory}
+\label{sec:theory}
 % =====================================================================
 
-\subsection{N-V center structure and Zeeman splitting}
+\subsection{Physical model}
+\label{sec:model}
 
-An external field $B$ along the N-V axis splits $m_s=\pm1$ symmetrically about the zero-field frequency
-$f_B\approx2.87$~GHz by $\gamma_{\rm NV}B$ ($\gamma_{\rm NV}\approx28$~GHz/T), producing two Zeeman dips
-(Fig.~\ref{fig:nv-levels}); each is further split into a $^{14}$N hyperfine triplet ($\approx2.16$~MHz) with
-finite homogeneous and inhomogeneous linewidth. Section~\ref{sec:signal-models}'s lineshapes implement this
-hierarchy as composable, independently toggleable variants.
+% Written from the code as of 2026-11-02: nvision/spectra/nv_center.py and numba_kernels.py
+% (signal), sim/gen/nv_center_generator.py and sim/presets.py (study grid), sim/combinations.py
+% (SNR -> sigma). Code names: zero_field_freq = D, zeeman_shift = Delta_Z, hwhm = gamma,
+% contrast_total = 2C (each Zeeman group carries half of it), noise_sigma = sigma.
 
+The negatively charged N-V centre is described by five levels
+\cite{manson2006,doherty2013nv} (Fig.~\ref{fig:levels}): the spin-triplet ground state $^3A_2$, split into
+$|0\rangle_g$ and $|\pm1\rangle_g$ by the spin projection $m_s$ on the N-V axis; the spin-triplet excited state
+$^3E$, with $|0\rangle_e$ and $|\pm1\rangle_e$; and a metastable spin singlet $|s\rangle$ that stands for the
+singlet manifold. Green light drives the spin-conserving optical transitions $|m_s\rangle_g\to|m_s\rangle_e$, which
+decay back by emitting red photoluminescence (PL). From $|\pm1\rangle_e$, however, the intersystem crossing to the
+singlet is much faster than from $|0\rangle_e$, and the singlet decays preferentially to $|0\rangle_g$.
+% The singlet -> |g,0> branching ratio is still debated: ~50-70 % (Robledo et al. 2011; Tetienne et al. 2012)
+% vs ~90 % (Wirtitsch et al.), as summarised in arXiv:2511.19583. Not needed here: only the net pumping into
+% m_s = 0 enters, through the rate Gamma_p below. Verify the primary sources before quoting a number.
+Two
+consequences follow. Under continuous illumination the spin is pumped into $m_s=0$; and a centre in $m_s=\pm1$
+spends part of its optical cycles in the dark singlet, so it emits less PL than one in $m_s=0$. The spin state can
+therefore be prepared and read out optically.
 \begin{figure}[t]
 \centering
-\resizebox{0.95\linewidth}{!}{%
-\begin{tikzpicture}[>=Latex, thick]
-  \draw (0,0) -- (2,0);
-  \node[left] at (0,0) {$m_s{=}0$};
-  \draw[dashed,gray] (0,2) -- (2,2);
-  \node[left,gray] at (0,2) {\footnotesize $B{=}0$};
-  \draw (3,2.4) -- (5,2.4);
-  \node[right] at (5,2.4) {$m_s{=}{+}1$};
-  \draw (3,1.6) -- (5,1.6);
-  \node[right] at (5,1.6) {$m_s{=}{-}1$};
-  \draw[->] (0.6,0) -- (3,1.6);
-  \draw[->] (1.4,0) -- (3,2.4);
-  \draw[<->] (5.4,1.6) -- (5.4,2.4);
-  \node[right] at (5.45,2.0) {\small $2\Delta f_{\rm Zeeman}$};
-\end{tikzpicture}}
-\caption{NV$^-$ ground-state spin triplet: field $B$ splits $m_s{=}\pm1$ symmetrically about
-$f_B\approx2.87$~GHz by $\gamma_{\rm NV}B$; microwave transitions from $m_s{=}0$ (arrows) give the two
-Zeeman-split ODMR dips.}
-\label{fig:nv-levels}
+\tbd{Level diagram: $^3A_2$ and $^3E$ triplets ($m_s=0,\pm1$), singlet $|s\rangle$; green pumping, red PL,
+spin-selective intersystem crossing; microwave transitions at $D\pm\Delta_Z$.}
+\caption{Five-level model of the N-V centre \cite{manson2006,doherty2013nv}. \tbd{Caption to follow the figure.}}
+\label{fig:levels}
 \end{figure}
 
-\subsection{Signal models}
-\label{sec:signal-models}
+With a static field $B_z$ along the N-V axis, the ground-state spin ($S=1$) Hamiltonian is, in units with
+$h=1$ (energies in frequency units) \cite{doherty2013nv},
+\begin{equation}
+  H=D\,S_z^2+\gamma_e B_z S_z+A_\parallel S_zI_z ,
+  \label{eq:hamiltonian}
+\end{equation}
+with $D\approx2.87$~GHz the zero-field splitting, $\gamma_e\approx28$~GHz/T the electron gyromagnetic ratio, and
+$A_\parallel$ the axial hyperfine coupling to the nitrogen nuclear spin $I$ ($|A_\parallel|=2.15$~MHz for
+$^{14}$N, $I=1$, and $3.03$~MHz for $^{15}$N, $I=1/2$ \cite{felton2009}). The strain splitting $E(S_x^2-S_y^2)$
+is dropped, a small correction when $\gamma_e B_z\gg E$. The eigenstates are the product states
+$|m_s,m_I\rangle$, and the magnetic-dipole transitions $m_s=0\to\pm1$, which conserve $m_I$, lie at
+\begin{equation}
+  f_\pm(m_I)=D\pm\left(\Delta_Z+A_\parallel m_I\right),\qquad \Delta_Z=\gamma_e B_z ,
+  \label{eq:transitions}
+\end{equation}
+where $\Delta_Z$ is the Zeeman shift. Each electron transition therefore splits into $2I+1$ hyperfine lines
+spaced by $|A_\parallel|$: a triplet for $^{14}$N and a doublet for $^{15}$N.
 
-All models are built around a single-Lorentzian-dip kernel
-\begin{equation}
-  L(x; f, \Omega) = \frac{\Omega^2}{\Omega^2 + (x-f)^2},
-  \label{eq:lorentzian-kernel}
-\end{equation}
-unit height at $x=f$, HWHM $\Omega$ (FWHM $=2\Omega$).
+An ODMR measurement sets the microwave drive to a frequency $\nu$ and records the PL,
+normalised to its off-resonant level. When $\nu$ meets $f_+$ or $f_-$, the drive transfers population from $m_s=0$ to
+the darker $m_s=\pm1$ state and the PL dips. $D$ is treated as a known constant, so the position $f_+$ of the
+upper line carries the field, $f_+-D=\Delta_Z$, and an uncertainty in $f_+$ is an uncertainty in $\Delta_Z$.
 
-\paragraph{Lorentzian triplet (\code{NVCenterLorentzianModel}).} With hyperfine splitting on,
-\code{nv\_center\_lorentzian\_eval} uses a population-normalized reparameterization so the three dip weights
-always sum to the total contrast $c$ (Fig.~\ref{fig:triplet-shape}):
-\begin{widetext}
+Near the excited-state level anticrossing the nitrogen nuclear spin is polarised into a single $m_I$, and each
+transition shows a single line \cite{jacques2009}; its fixed offset $A_\parallel m_I$ is absorbed into $f_+$.
+The same single line describes a line whose hyperfine structure is unresolved, $\Gamma\gg|A_\parallel|$.
+The resolved triplet and doublet are treated at the end of this section. A drive near $f_+$ couples only $|0\rangle_g$ and $|+1\rangle_g$,
+and the excited state and the singlet enter only through the rates at which the laser repolarises the spin and
+destroys its coherence \cite{dreau2011}, so the spin is a driven two-level system $\{m_s=0,m_s=+1\}$. The
+laser prepares it in $m_s=0$; a microwave drive of Rabi frequency $\Omega$ (Hz) at detuning $\Delta=\nu-f_+$ then
+transfers it to $m_s=+1$ after a time $t$ with probability
 \begin{equation}
-  p_{\rm sum} = \frac1{k_{\rm np}} + 1 + k_{\rm np}, \qquad
-  p_0 = \frac{c}{p_{\rm sum}}, \quad
-  p_L = \frac{c}{k_{\rm np}\,p_{\rm sum}}, \quad
-  p_R = \frac{c\,k_{\rm np}}{p_{\rm sum}}, \qquad (p_L+p_0+p_R \equiv c),
-  \label{eq:triplet-pop}
+  P(\Delta,t)=\frac{\Omega^2}{\Omega^2+\Delta^2}\,\sin^2\!\Big(\pi t\sqrt{\Omega^2+\Delta^2}\Big),
+  \label{eq:rabi}
 \end{equation}
+and the PL dip is proportional to $P$. The line shape depends on how the drive is applied
+(Fig.~\ref{fig:sequences}).
+\begin{figure}[t]
+\centering
+\tbd{Sequence diagram: CW ODMR (laser and microwaves on together, PL read continuously) and pulsed ODMR
+(laser pulse to polarise, microwave $\pi$-pulse of length $1/(2\Omega)$ with the laser off, laser pulse to read out).}
+\caption{Laser and microwave sequences of CW and pulsed ODMR. \tbd{Caption to follow the figure.}}
+\label{fig:sequences}
+\end{figure}
+
+\emph{CW ODMR.} Laser and microwaves are on together, and the spin is driven for a time $T$ much longer than one
+Rabi period, $T\sqrt{\Omega^2+\Delta^2}\gg1$, while the laser keeps resetting the phase of the oscillation. Only the
+time average of Eq.~\eqref{eq:rabi} is then seen, and since
+$\frac1T\int_0^T\sin^2\!\big(\pi t\sqrt{\Omega^2+\Delta^2}\big)\,dt\to\tfrac12$ in this limit,
 \begin{equation}
-  S(x) = 1 - \Big[p_L\, L(x; f_0 - \Delta f, \Omega) + p_0\, L(x; f_0, \Omega) + p_R\, L(x; f_0 + \Delta f, \Omega)\Big],
-  \label{eq:triplet}
+  \bar P(\Delta)=\frac12\,\frac{\Omega^2}{\Omega^2+\Delta^2},
+  \label{eq:cw-lorentzian}
 \end{equation}
-\end{widetext}
-\noindent $k_{\rm np}\in[1,5]$. Unlike Eq.~(1) of \citet{dushenko2020sbed}, where $k_{\rm np}$ scales two raw
-amplitudes without renormalizing, $k_{\rm np}$ here only redistributes $c$ between dips. With hyperfine
-splitting off, $\Delta f$ is fixed to 2.16~MHz and $k_{\rm np}=1$ (equal-weight triplet): the code calls this
-the ``single dip'' configuration, but Eq.~\eqref{eq:triplet} is still evaluated at nonzero splitting — only
-the number of \emph{inferred} parameters drops (3 vs.\ 5 with hyperfine on), not the underlying triplet
-structure, which visually blends into one dip only once $\Omega\gtrsim\Delta f$. With Zeeman splitting on,
-each dip weight in Eq.~\eqref{eq:triplet-pop} is halved and the triplet duplicated at $f_0\mp\Delta
-f_{\rm Zeeman}$ (up to six free parameters, two dip clusters).
+a Lorentzian in $\Delta$ of half width $\Omega$. This is the microwave contribution to the width, power broadening:
+the stronger the drive, the further off resonance it still flips the spin.
+
+Eq.~\eqref{eq:cw-lorentzian} treats the drive alone. In CW ODMR the laser acts on the spin at the same time, in two
+ways: each optical cycle pumps it back towards $m_s=0$, at a rate $\Gamma_p$, and destroys the phase between $m_s=0$
+and $m_s=+1$, at a rate $\Gamma_c$. These are a longitudinal and a transverse relaxation rate, $1/T_1$ and $1/T_2$ of
+the two-level system. The steady state of the Bloch equations with these rates and a drive of angular Rabi frequency
+$\Omega_R=2\pi\Omega$ is \cite{dreau2011}
+\begin{equation}
+  P_{\rm ss}(\Delta)=\frac12\,\frac{\Omega_R^2\,\Gamma_c/\Gamma_p}{(2\pi\Delta)^2+\Gamma_c^2+\Omega_R^2\,\Gamma_c/\Gamma_p},
+  \label{eq:bloch-ss}
+\end{equation}
+which reduces to Eq.~\eqref{eq:cw-lorentzian} when the two rates are equal. It is still a Lorentzian, now of half width
+\begin{equation}
+  \gamma=\frac{1}{2\pi}\sqrt{\Gamma_c^2+\Omega_R^2\,\frac{\Gamma_c}{\Gamma_p}} .
+  \label{eq:linewidth}
+\end{equation}
+The two terms add in quadrature. The first is the optical broadening: the width that remains at vanishing microwave
+power, set by how fast the laser destroys the spin's coherence. The second is the microwave power broadening of
+Eq.~\eqref{eq:cw-lorentzian}, scaled by $\Gamma_c/\Gamma_p$. Both rates grow with the optical saturation parameter
+$s$ as $\Gamma_{p,c}=\Gamma_{p,c}^\infty\,s/(1+s)$, so the line is set by the laser power at weak microwave drive and
+by the microwave power at strong drive. The depth, the value of Eq.~\eqref{eq:bloch-ss} at $\Delta=0$, depends on both
+powers as well \cite{dreau2011}.
+% Dreau et al. (2011) Eq. 11 quotes the same width as Gamma_c^inf/(2 pi) sqrt((s/(1+s))^2 + Omega_R^2/(Gamma_p^inf
+% Gamma_c^inf)) and calls it the FWHM; with Gamma_{p,c} = Gamma^inf s/(1+s) this is Eq. (linewidth) up to their
+% factor-2 convention for the rates. Check before quoting numbers.
+Whatever its origin, the line is one Lorentzian dip,
+\begin{equation}
+  S(\nu)=1-C\,\frac{\gamma^2}{\gamma^2+(\nu-f_+)^2},
+  \label{eq:signal}
+\end{equation}
+with contrast $C$ (the depth of the dip), half width $\gamma$ of Eq.~\eqref{eq:linewidth} and full width at half
+maximum $\Gamma=2\gamma$. Optical and microwave broadening are not modelled separately: they enter only through the single linewidth $\Gamma$,
+which is inferred with the line. Eq.~\eqref{eq:signal} is the line used in Sec.~\ref{sec:fisher}.
+
+\emph{Pulsed ODMR} is used to eliminate this power broadening \cite{dreau2011}. In CW ODMR, Eq.~\eqref{eq:linewidth},
+the laser that reads the spin out also broadens the line through $\Gamma_c$, and narrowing it means lowering both powers and with them
+the contrast and the PL. Pulsed ODMR separates the two in time: the laser first polarises the spin and is then
+switched off while a single microwave $\pi$-pulse of duration $t_\pi=1/(2\Omega)$ is applied, after which a second
+laser pulse reads the spin out (Fig.~\ref{fig:sequences}). The laser therefore no longer broadens the line, the
+microwave width is set by the pulse length rather than by a steady drive power, and Eq.~\eqref{eq:rabi} is evaluated
+at the one fixed time $t_\pi$ instead of being averaged. With $r=\sqrt{1+\Delta^2/\Omega^2}$,
+\begin{equation}
+  P_\pi(\Delta)=\frac{\sin^2(\pi r/2)}{r^2},
+  \label{eq:pulsed}
+\end{equation}
+which is not a Lorentzian but a sinc$^2$-like line: for $|\Delta|\gg\Omega$, $r\approx|\Delta|/\Omega$ and
+$P_\pi\approx\tfrac{\pi^2}{4}\,\mathrm{sinc}^2(\pi\Delta t_\pi)$, with $\mathrm{sinc}\,u=\sin u/u$: the
+power spectrum of a rectangular pulse of length $t_\pi$. Its features follow from Eq.~\eqref{eq:pulsed}. On resonance
+$r=1$ and the inversion is complete, $P_\pi=1$; the half width is $0.80\,\Omega$, so the line narrows as the pulse
+gets longer, the Fourier limit $\propto1/t_\pi$. The line vanishes wherever $\sin(\pi r/2)=0$, i.e.\ $r=2,4,\dots$,
+at $|\Delta|=\sqrt3\,\Omega,\sqrt{15}\,\Omega,\dots$: there the spin completes a whole number of full Rabi cycles
+and returns to $m_s=0$. Between the zeros lie side lobes that decay as $1/r^2$; the first, near $r=3$ at
+$|\Delta|\approx2.7\,\Omega$, is 12\% of the depth. Side lobes are a hazard for a search: a lobe is a dip where
+there is no resonance.
+
+$T_2^*$ sets how far this narrowing can go. The spin's transition frequency is not sharp but fluctuates from run
+to run (mostly through the $^{13}$C nuclear-spin bath), a Gaussian spread of width
+$\sigma_\delta=1/(\sqrt2\,\pi T_2^*)$, so the measured line is Eq.~\eqref{eq:pulsed} averaged over that spread,
+\begin{equation}
+  \bar P_\pi(\Delta)=\int P_\pi(\Delta-\delta)\,\frac{e^{-\delta^2/2\sigma_\delta^2}}{\sqrt{2\pi}\,\sigma_\delta}\,d\delta .
+  \label{eq:pulsed-t2star}
+\end{equation}
+For $t_\pi\ll T_2^*$ the spread is small against $\Omega$ and the line is the sinc$^2$-like Eq.~\eqref{eq:pulsed}.
+For $t_\pi\gtrsim T_2^*$ the Gaussian dominates: the zeros and side lobes are washed out, the line stops narrowing at
+a width $\sim1/T_2^*$, and the depth falls because the pulse no longer inverts every frequency class
+\cite{dreau2011}. The best pulsed line is therefore reached at $t_\pi\sim T_2^*$, a width set by the spin itself rather than by
+the laser or microwave power. CW ODMR and its Lorentzian line are the main case of this work, and the information
+analysis of Sec.~\ref{sec:fisher} is derived for it; pulsed ODMR is treated as well, with its own line shape,
+Eq.~\eqref{eq:pulsed-t2star}, in place of Eq.~\eqref{eq:signal}. \tbd{Where pulsed goes (a Theory subsection for
+the information of the pulsed line, and its own Results).}
+
+% Code: NVCenterPulsedDriveModel (spectra/nv_center_drive.py) evaluates Eq. (rabi) with the Gaussian T2* average;
+% NVCenterCWDriveModel broadens with MW power only, gamma = gamma_0 sqrt(1 + s_MW), gamma_0 = 150 kHz fixed, i.e.
+% no optical term. The SNR x window study uses a fixed linewidth (no drive), consistent with one Gamma.
+
+The spectrum is mirror symmetric about $D$, so the drive window is
+placed above $D$ and holds the upper transition only. The tail of the lower one, at $D-\Delta_Z$, adds
+$C\gamma^2/[\gamma^2+(\nu-D+\Delta_Z)^2]$ inside the window: at the line centre a fraction
+$\gamma^2/(\gamma^2+4\Delta_Z^2)$ of $C$, i.e.\ 20\% at $\Delta_Z=\gamma$ and below 1\% for $\Delta_Z\gtrsim5\gamma$.
+Equation~\eqref{eq:signal} assumes $\Delta_Z\gg\gamma$. Small Zeeman shifts, where the tails of the two lines
+overlap, are a separate problem and outside the scope of this work.
+
+$f_+$ is the parameter of interest. The width $\Gamma$ and the contrast $C$ are nuisance parameters: they are inferred
+jointly with $f_+$ but only matter through their effect on it. The noise level $\sigma$ (below) is inferred as
+well.
+
+One shot is a PL reading at a fixed drive frequency. A shot that collects $N_{\rm ph}$ photons
+on average has Poisson-distributed counts, so the normalised reading has a standard deviation of at least
+$N_{\rm ph}^{-1/2}$ (to first order in $C$): the photon shot-noise limit, reached when technical noise (laser
+intensity, microwave power, collection drift) is negligible. For $N_{\rm ph}\gg1$ the counts are close to Gaussian,
+and the single-shot reading is
+\begin{equation}
+  y=S(\nu)+\epsilon,\qquad \epsilon\sim\mathcal N(0,\sigma^2),\qquad \sigma\ge N_{\rm ph}^{-1/2}.
+  \label{eq:noise}
+\end{equation}
+A measurement is the mean of $k$ shots at the same $\nu$. Its noise is $\sigma/\sqrt k$, so its Fisher information,
+Eq.~\eqref{eq:fisher}, grows linearly with $k$. At the shot-noise limit it grows with the total number of photons
+$kN_{\rm ph}$ collected at that drive frequency, which no averaging scheme can beat. The signal-to-noise ratio of a
+single shot depends on where it is taken: it is the drop in PL at $\nu$ over the noise,
+\begin{equation}
+  \mathrm{SNR}(\nu)=\frac{1-S(\nu)}{\sigma}=\frac{C}{\sigma}\,\frac{\gamma^2}{\gamma^2+(\nu-f_+)^2}.
+  \label{eq:snr-local}
+\end{equation}
+It is largest on resonance, $\nu=f_+$, where
+\begin{equation}
+  \mathrm{SNR}\equiv\mathrm{SNR}(f_+)=C/\sigma ,
+  \label{eq:snr}
+\end{equation}
+the single number by which a line is labelled. The information of a measurement, however, follows the local slope of
+$S$ rather than its depth, Eq.~\eqref{eq:fisher}: it vanishes on resonance and peaks at $|\nu-f_+|=\gamma/\sqrt3$,
+where the dip is $3/4$ deep, which gives Eq.~\eqref{eq:istar}. Equation~\eqref{eq:snr} also neglects the mirror
+line: its tail raises the on-resonance depth to $C[1+\gamma^2/(\gamma^2+4\Delta_Z^2)]$, so $C/\sigma$ is the
+$\Delta_Z\gg\gamma$ limit of the on-resonance SNR.
+In the simulations each measurement is one Gaussian draw, i.e.\ $k=1$, and $\sigma$ is set from the SNR.
+All SNR values in this paper follow Eq.~\eqref{eq:snr}.
+% Code convention differs: the code's SNR label is contrast_total/sigma with contrast_total = 2C, so a run
+% labelled SNR = x has C/sigma = x/2 here (and I* 4x smaller than the label suggests). Convert every
+% simulated SNR by /2 before quoting it in figures, tables or text.
+
+The prior knowledge of the experimentalist is an interval of width $W$ that holds the
+resonance, $f_+\in[f_{\min},f_{\min}+W]$; $W$ is the prior support of $f_+$ that enters
+Eq.~\eqref{eq:prior}, and the drive frequency is scanned over at least this interval. The ratio $W/\Gamma$, the
+inverse of the fraction of the window the line occupies, sets how hard the search is.
+\tbd{Code fix in progress: the particle filter's prior on $\Delta_Z$ becomes uniform over the range the truth is drawn
+from (it is now an offset Gaussian plus 10\% uniform); the nuisance priors stay offset on purpose. Then state $W$ of
+the simulations here: is it the drive window $W_{\rm d}$ or the $\Delta_Z$ range?}
+
+The code also models a pseudo-Voigt line whose total width is the linear sum
+$\Gamma=\Gamma_L+\Gamma_G$ of its Lorentzian and Gaussian parts (the study varies the Gaussian share at fixed
+$\Gamma$), and the resolved hyperfine lines of Eq.~\eqref{eq:transitions}, a $^{14}$N triplet or a $^{15}$N doublet whose
+lines share the same total contrast; the main text keeps the single Lorentzian of Eq.~\eqref{eq:signal}.
+\tbd{Where the hyperfine-resolved runs are used, and how $f_+$ is defined for them (centre line or $m_I$-averaged).}
+
+\subsection{Fisher information of a single measurement}
+\label{sec:fisher}
+
+From here on, the statistics are written in the common notation of Bayesian experimental design: the design
+$x\equiv\nu$ is the drive frequency, $\theta\equiv f_+$ the parameter of interest, $\phi=(\Gamma,C)$ the nuisance
+parameters, $y$ the outcome of a measurement, and $S(x;\theta,\phi)$ the line of Eq.~\eqref{eq:signal}.
+One measurement at $x$, the mean of $k$ shots with single-shot noise $\sigma$, carries Fisher information about
+$\theta$
+\begin{equation}
+  I(x)=\frac{k\,g(x)^2}{\sigma^2},\qquad g(x)=\frac{\partial S(x;\theta,\phi)}{\partial\theta}.
+  \label{eq:fisher}
+\end{equation}
+For a Lorentzian dip of depth $C$ and full width $\Gamma$, $S=1-C\,\gamma^2/(\gamma^2+u^2)$ with
+$\gamma=\Gamma/2$ and $u=x-\theta$, the slope is steepest at $|u|=\gamma/\sqrt3$, where
+$|g^*|=9C/(4\sqrt3\,\Gamma)\approx1.30\,C/\Gamma$. The best possible information per measurement is therefore
+\begin{equation}
+  I^*=\max_x I(x)=\frac{27}{16}\,k\,\frac{\mathrm{SNR}^2}{\Gamma^2},\qquad \mathrm{SNR}=C/\sigma .
+  \label{eq:istar}
+\end{equation}
+$I^*$ assumes the nuisance parameters (width, contrast) are known; with free nuisances it is an upper bound on the
+usable information. The nuisances are inferred along with $\theta$ but are not the subject of this work.
+
+\subsection{Prior information: the search window}
+\label{sec:prior}
+
+Information about $\theta$ is measured in inverse variance, $J=\sigma_\theta^{-2}$ (Hz$^{-2}$); independent
+measurements add their $I(x)$ to it. The same currency measures what is known \emph{before} the first measurement.
+If the experimentalist knows only that the resonance lies somewhere in a window of width $W$, the state of
+knowledge is a uniform prior $p(\theta)=1/W$, whose variance is
+\begin{equation}
+  \sigma_0^2=\int_{-W/2}^{W/2}\frac{u^2}{W}\,du=\frac{W^2}{12},
+  \qquad
+  J_0\equiv\sigma_0^{-2}=\frac{12}{W^2}.
+  \label{eq:prior}
+\end{equation}
+The search window is therefore a prior: it holds $J_0$ of information that no measurement had to pay for, and a
+narrower window starts with more. (A uniform prior has no finite Fisher information at its edges, so the inverse
+variance is used as the convention.) The unitless gain after the measurements is $\log_2(\sigma_0/\sigma)$ bits.
+% \tbd: confirm J_0 = 12/W^2 (uniform window) rather than 1/sigma_prior^2 of a
+% Gaussian prior; the simulated generators currently draw a Gaussian prior.
+
+\subsection{Van Trees bound}
+\label{sec:budget}
+
+Because the prior carries information, the relevant bound is not the Cram\'er--Rao bound, which holds for
+unbiased estimators and ignores $J_0$, but the van Trees inequality \cite{vantrees1968,gill1995}. It holds for
+any estimator, averaged over the prior: measurements are independent given $\theta$, so their information adds
+to the prior's,
+\begin{equation}
+  \sigma_\theta(N)\ \ge\ \Big(J_0+\sum_{n=1}^{N}I(x_n)\Big)^{-1/2}\ \ge\
+  \sigma_B(N)=\Big(\frac{12}{W^2}+N I^*\Big)^{-1/2}.
+  \label{eq:vantrees}
+\end{equation}
+The search, focus and refine regimes of a run are the limits of this bound and the crossover between them.
+
+\paragraph{Prior limit (search).} For $\sum_n I(x_n)\ll J_0$, $\sigma\to\sigma_0=W/\sqrt{12}$: the knowledge is
+still that of the window. The estimate leans on the prior and is biased towards its mean, which is why it may lie
+below the unbiased Cram\'er--Rao bound.
+
+\paragraph{Data limit (refine).} For $\sum_n I(x_n)\gg J_0$, the prior is washed out and the posterior mean
+becomes asymptotically unbiased and efficient (Bernstein--von Mises \cite{vandervaart1998}): $\sigma_B$ tends to
+the unbiased Cram\'er--Rao bound $(N I^*)^{-1/2}$ \cite{cramer1946}, a slope $-\tfrac12$ reached only by measuring
+at the steepest slope.
+
+\paragraph{Crossover (focus).} With $I^*$ at every step the crossover would come at
+$N_c=J_0/I^*=\tfrac{64}{9}\,(\Gamma/W)^2/(k\,\mathrm{SNR}^2)$, far below one measurement for any realistic window
+($N_c\approx2\times10^{-4}$ for $W=20\,\Gamma$ at $\mathrm{SNR}=10$). It comes much later because $I^*$ is reached
+only once the dip has been found: a measurement on the baseline carries $I(x)\approx0$, so the sum in
+Eq.~\eqref{eq:vantrees} stays near $J_0$ while the strategy searches. What such a measurement contributes instead
+is \emph{elimination}: it shrinks the prior itself.
+
+\paragraph{Elimination model.} Consider a sweep with spacing $\Delta$ (e.g.\ $\Delta=\Gamma/3$) at an SNR high
+enough that one measurement inside the dip reveals it. After $n$ measurements without a dip, the posterior is
+uniform on the part of the window not yet excluded, so
+\begin{equation}
+  \sigma(n)=\frac{W-n\Delta}{\sqrt{12}},\qquad n<n_d,
+  \label{eq:elimination}
+\end{equation}
+where $n_d\le W/\Delta$ is the step that finds the dip (on average $W/(2\Delta)$ over a uniformly placed
+resonance). In information terms $J(n)=12/(W-n\Delta)^2$: the gain per step is not constant but grows as the
+remaining width shrinks. Detection localises the resonance to about one grid step, after which the measurements
+add Fisher information:
+\begin{equation}
+  \sigma(n)=\Big(\frac{12}{\Delta^2}+(n-n_d)\,I^*\Big)^{-1/2},\qquad n\ge n_d .
+  \label{eq:after-detection}
+\end{equation}
+Eqs.~\eqref{eq:elimination}--\eqref{eq:after-detection} reproduce both limits: $\sigma\to\sigma_0$ as $n\to0$ and
+$\sigma\to(nI^*)^{-1/2}$ for $n\gg n_d$, the two limits of Eq.~\eqref{eq:vantrees}. For a wide window the
+three regimes become visible (Fig.~\ref{fig:budget}): the prior limit is a plateau, since
+Eq.~\eqref{eq:elimination} falls linearly and on a log--log axis looks flat until about half the window is excluded,
+for a number of steps that grows with $W/\Delta$; the crossover is a cliff steeper than $-\tfrac12$, where
+detection collapses $\sigma$ from about the window to about $\Delta$ (roughly $\log_2(W/\Delta)$ bits) and which
+ends when the strategy can measure at the steepest slope, $\sigma\approx\varepsilon\approx0.075\,\Gamma$; the data
+limit is the $-\tfrac12$ tail. A narrow window ($W\lesssim3.5\,\Gamma$, $\sigma_0\lesssim\Gamma$) has no plateau.
+Search, focus and refine are therefore not separate mechanisms but the regimes of one bound.
+
+The elimination model only illustrates the shape of the profile. At low SNR one measurement no longer reveals the
+dip and $n_d$ grows, but Eq.~\eqref{eq:vantrees} holds at any SNR and needs no detection model; the runs are read
+against it alone. The false-alarm test of Sec.~\ref{sec:locators} only steers where the strategy measures.
 
 \begin{figure}[t]
 \centering
 \begin{tikzpicture}
-\begin{axis}[
-  width=\linewidth, height=4.2cm,
-  xlabel={$(x-f_0)/\Omega$}, ylabel={$S(x)$},
-  ymin=0, ymax=1.05, xmin=-8, xmax=8,
-  domain=-8:8, samples=300,
-  axis lines=left, tick align=outside,
+\begin{loglogaxis}[
+  width=\linewidth, height=5.6cm,
+  xlabel={measurements $n$}, ylabel={$\sigma/\Gamma$},
+  xmin=1, xmax=1000, ymin=3e-3, ymax=10,
+  legend style={font=\scriptsize, at={(0.98,0.98)}, anchor=north east, draw=none, fill=white},
   label style={font=\small}, tick label style={font=\scriptsize},
 ]
-\addplot[thick] {1 - (1/7)/(1+(x+4)^2) - (2/7)/(1+x^2) - (4/7)/(1+(x-4)^2)};
-\end{axis}
+% Illustrative values: SNR = 10, k = 1, Delta = Gamma/3 -> I* = 168.75 / Gamma^2.
+% Wide window W = 20 Gamma, dip found at n_d = 30 (half the 60-point grid).
+\addplot[thick, domain=1:29.9, samples=60] {(20 - x/3)/sqrt(12)};
+\addlegendentry{model, $W=20\,\Gamma$}
+\addplot[thick, forget plot, domain=30:1000, samples=200] {1/sqrt(108 + 168.75*(x-30))};
+% Narrow window W = 2 Gamma, n_d = 3 (half the 6-point grid).
+\addplot[thick, dashed, domain=1:2.99, samples=20] {(2 - x/3)/sqrt(12)};
+\addlegendentry{model, $W=2\,\Gamma$}
+\addplot[thick, dashed, forget plot, domain=3:1000, samples=200] {1/sqrt(108 + 168.75*(x-3))};
+\addplot[gray, dotted, thick, domain=1:1000, samples=100] {1/sqrt(168.75*x)};
+\addlegendentry{unbiased CRLB $(nI^*)^{-1/2}$}
+\end{loglogaxis}
 \end{tikzpicture}
-\caption{Lorentzian triplet, Eq.~\eqref{eq:triplet}, for $k_{\rm np}=2$, $\Delta f/\Omega=4$: weights
-$p_L{=}c/7,p_0{=}2c/7,p_R{=}4c/7$ ($c{=}1$) sum exactly to $c$.}
-\label{fig:triplet-shape}
+\caption{Elimination model, Eqs.~\eqref{eq:elimination}--\eqref{eq:after-detection}, at illustrative values
+(SNR 10, $k=1$, $\Delta=\Gamma/3$, dip found halfway through the grid). The wide window shows a search plateau,
+a detection cliff and the $-\tfrac12$ refine tail; the narrow window shows no plateau. Both start at the prior
+limit $\sigma_0$ of the van Trees bound and tend to its data limit, the unbiased Cram\'er--Rao bound, at large $n$. \tbd{Schematic or drawn with the study's grid values?}}
+\label{fig:budget}
 \end{figure}
 
-\paragraph{Pseudo-Voigt triplet (\code{NVCenterVoigtModel}).} Each dip is a two-width pseudo-Voigt profile
-(\code{nv\_center\_pseudo\_voigt\_eval}), height-normalized as
-\begin{equation}
-  V(x) = \frac{e_{\rm lf}}{x^2+\gamma_{\rm hom}^2} + e_{\rm gf}\,\exp\!\left(-\frac{x^2}{2\sigma_{\rm inhom}^2}\right),
-  \label{eq:pseudovoigt}
-\end{equation}
-with $\gamma_{\rm hom}=\tfrac12\ell_{\rm frac}\Gamma$, $\sigma_{\rm inhom}=\tfrac12(1-\ell_{\rm frac})\Gamma/\sqrt{2\ln2}$
-splitting total FWHM $\Gamma$ by Lorentzian fraction $\ell_{\rm frac}\in[0,1]$, and $e_{\rm lf},e_{\rm gf}$
-fixed via the Thompson--Cox--Hastings weight $\eta$ so $V(0)=1$ — algebraically the code's on-the-fly
-normalization, pre-factored. This is not a true Voigt profile (no Faddeeva function), and $\eta$ is
-calibrated for a shared FWHM rather than the split widths used here, so the true-Voigt approximation error is
-uncontrolled.
+\subsection{Expected information gain and the bound}
+\label{sec:eig}
 
-Like the Lorentzian family, this triplet is population-normalized, reusing the same $(p_L,p_0,p_R)$ weights
-of Eq.~\eqref{eq:triplet-pop} (unified onto this convention 2026-07-15 — an earlier per-dip \code{dip\_depth}
-convention, not population-normalized, is retained only for the single, non-degenerate zero-field peak,
-\code{NVCenterOnePeakLorentzianSpectrum}):
-\begin{widetext}
-\begin{equation}
-  S(x) = 1 - \Big[p_L\, V(x-f_0+\Delta f) + p_0\, V(x-f_0) + p_R\, V(x-f_0-\Delta f)\Big],
-\end{equation}
-\end{widetext}
-\noindent so total contrast $c$ stays fixed as $k_{\rm np}$ varies, exactly as in Eq.~\eqref{eq:triplet}. The
-saturation-coupled model below reuses this same population kernel ($\Delta f_{\rm Zeeman}{=}0$ when Zeeman
-splitting is off).
-
-\paragraph{Saturation-coupled Voigt (\code{NVCenterSaturationVoigtModel}).} Linewidth and contrast are coupled
-through one drive parameter $s$ (power relative to half-saturation), since both are set by the same
-microwave field:
-\begin{equation}
-  \gamma_{\rm hom}(s) = \gamma_0 \sqrt{1+s}, \qquad
-  C(s) = c_{\max}\frac{s}{1+s},
-  \label{eq:saturation-coupling}
-\end{equation}
-with fixed zero-power HWHM $\gamma_0=150$~kHz and saturated contrast $c_{\max}$. The independent Gaussian
-width $\sigma_{\rm inhom}$ is uncoupled to drive power. $(s,\sigma_{\rm inhom},c_{\max})$ re-parameterizes into
-$(\Gamma,\ell_{\rm frac},c)$ of Eq.~\eqref{eq:pseudovoigt} before evaluation; $\sigma_{\rm inhom}\to0$ recovers
-a pure Lorentzian exactly.
-
-\subsection{Physical parameter ranges}
-
-Table~\ref{tab:bounds} lists the physical bounds shared by the signal generator and the SMC prior, so the two
-cannot drift apart.
-
-\begin{table*}[t]
-\centering
-\caption{Representative physical parameter bounds (Lorentzian/Voigt family).}
-\label{tab:bounds}
-\begin{ruledtabular}
-\begin{tabular}{llr}
-Parameter & Symbol & Range \\
-\colrule
-Center frequency domain & $f_0$ & $2.72$--$3.02$~GHz \\
-Linewidth (HWHM) & $\Omega$ & $200$~kHz--$5.0$~MHz \\
-Hyperfine splitting & $\Delta f$ & $2.0$--$8.5$~MHz \\
-Nuclear-polarization asymmetry & $k_{\rm np}$ & $1.0$--$5.0$ \\
-Zeeman half-separation & $\Delta f_{\rm Zeeman}$ & $0$--$60$~MHz ($\approx$ 0--2.1~mT) \\
-Natural (zero-power) HWHM & $\gamma_0$ & $150$~kHz (fixed) \\
-$^{14}$N hyperfine constant & --- & $2.16$~MHz (fixed, when not inferred) \\
-Saturation parameter & $s$ & $0.02$--$30$ \\
-\end{tabular}
-\end{ruledtabular}
-\end{table*}
-
-\subsection{Simulation harness architecture}
-\label{sec:architecture}
-
-Each simulated experiment is a Generator$\times$Noise$\times$Locator task (Fig.~\ref{fig:architecture}): a
-ground-truth signal (Section~\ref{sec:signal-models}), an additive Gaussian noise floor (this paper's scope;
-Poisson and Rao-Blackwellized inverse-gamma models exist but are not covered), and an acquisition-and-stopping
-strategy (uniform/Sobol baselines or a Bayesian locator). The Runner executes many tasks concurrently over
-independent, seed-deterministic, resumable repeats, streaming results to an on-disk cache for large repeat
-counts, and automatically runs a matched Sobol baseline for every Bayesian strategy under identical noise and
-ground truth. Within a repeat, \code{next()}/\code{observe()}/\code{done()} iterate until the stopping
-criteria of Section~\ref{sec:convergence} fire, recording the metrics of Section~\ref{sec:metrics}.
-
-\begin{figure}[t]
-\centering
-\resizebox{\linewidth}{!}{%
-\begin{tikzpicture}[node distance=5mm, font=\small,
-  box/.style={draw,rounded corners,align=center,minimum height=7mm,inner sep=3pt}]
-  \node[box] (gen) {Generator};
-  \node[box, right=4mm of gen] (noise) {Noise model};
-  \node[box, right=4mm of noise] (loc) {Locator};
-  \node[box, below=7mm of noise, minimum width=6.3cm] (runner) {Runner: repeats $\times$ Sobol baseline};
-  \node[box, below=6mm of runner, minimum width=6.3cm] (loop) {\code{next()}$\to$measure$\to$\code{observe()}$\to$\code{done()}?};
-  \node[box, below=6mm of loop, minimum width=6.3cm] (metrics) {Metrics (Sec.~\ref{sec:metrics})};
-  \draw[->] (gen.south) -- ++(0,-4mm) -| (runner.north);
-  \draw[->] (noise) -- (runner);
-  \draw[->] (loc.south) -- ++(0,-4mm) -| (runner.north);
-  \draw[->] (runner) -- (loop);
-  \draw[->] (loop) -- (metrics);
-\end{tikzpicture}}
-\caption{Simulation harness: a Generator$\times$Noise$\times$Locator task runs under the Runner across
-independent repeats (Sec.~\ref{sec:architecture}), iterating until the stopping criteria of
-Sec.~\ref{sec:convergence} fire.}
-\label{fig:architecture}
-\end{figure}
-
-% =====================================================================
-\section{Sequential Monte Carlo Belief}
-\label{sec:smc}
-% =====================================================================
-
-The posterior over $d$ free parameters $\boldsymbol\theta$ is $N$ weighted particles
-$\{(\boldsymbol\theta_i,w_i)\}_{i=1}^N$, scaling to $d>2$ without the grid's exponential memory blow-up — the
-mechanism enabling Section~\ref{sec:signal-models}'s six-parameter models.
-
-\subsection{Unit-cube / physical coordinate separation}
-\label{sec:unitcube}
-
-All particle arithmetic happens on a dimension-agnostic unit cube $[0,1]^d$; each parameter $j$ maps to its
-physical bound $[l_j,h_j]$ via a fixed affine rescale map,
-\begin{equation}
-  \theta_j^{\rm phys} = l_j + u_j\,(h_j - l_j), \qquad
-  \sigma_j^{\rm phys} = \sigma_j^{u}\,(h_j - l_j),
-  \label{eq:rescale}
-\end{equation}
-owned exclusively by the belief and fixed for a run's lifetime. This is kept strictly separate from the
-\emph{focus window} (Section~\ref{sec:focus-narrowing}) — the physical sub-interval the locator currently
-probes, which narrows over a run but never touches Eq.~\eqref{eq:rescale}: the belief only sees the rescale
-map, acquisition/observation code only sees the focus window, preventing a class of coordinate-transform
-bugs.
-
-\subsection{Weight update}
-
-For observation $(x,y)$ under Gaussian noise $\sigma$, each particle's weight updates multiplicatively,
-\begin{widetext}
-\begin{equation}
-  \tilde w_i \leftarrow w_i\, p(y\mid \boldsymbol\theta_i, x), \qquad
-  w_i \leftarrow \tilde w_i \Big/ \sum_j \tilde w_j, \qquad
-  \log p(y\mid\boldsymbol\theta_i,x) = -\tfrac12\left(\frac{y - S(x,\boldsymbol\theta_i)}{\sigma}\right)^{\!2},
-  \label{eq:weight-update}
-\end{equation}
-\end{widetext}
-\noindent where $S$ is the signal at particle $i$; the $\sigma$-only normalization constant cancels under
-renormalization. A tempering factor $\beta$ rescales $\sigma\to\sigma/\sqrt\beta$; the update runs in
-log-space with a max-shift to avoid underflow.
-
-\subsection{Resampling}
-
-$\mathrm{ESS}=1/\sum_iw_i^2$ triggers systematic resampling when $\mathrm{ESS}<r_{\rm thr}N$
-($r_{\rm thr}=0.20$): a single $U\sim\mathrm{Uniform}(0,1/N)$ gives positions $u_k=(k+U)/N$, mapped to
-particle indices by walking the weight CDF — lower variance than multinomial resampling.
-
-\subsection{Liu--West kernel}
-
-Post-resample particles contract toward the weighted mean $\boldsymbol\mu$ and jitter (Liu--West
-\citep{liuwest2001}, with an exploration floor and rejuvenation):
+The expected information gain of measuring at $x$ is the mutual information between the parameters and the
+outcome, i.e.\ the expected Kullback--Leibler divergence from prior to posterior \cite{lindley1956}:
 \begin{align}
-  \boldsymbol\theta_i &\leftarrow a\,\boldsymbol\theta_i + (1-a)\,\boldsymbol\mu
-  &&\text{(shrinkage)}, \label{eq:shrink}\\
-  \boldsymbol\theta_i &\leftarrow \boldsymbol\theta_i + \boldsymbol\varepsilon_i, \quad
-  \boldsymbol\varepsilon_i \sim \mathcal N\!\big(\mathbf 0,\, (1-a^2)\boldsymbol\Sigma\big)
-  &&\text{(nudge)}, \label{eq:nudge}
+  \mathrm{EIG}(x)&=\mathbb E_{y\mid x}\Big[D_{\rm KL}\big(p(\theta,\phi\mid y,x)\,\|\,p(\theta,\phi)\big)\Big]
+  =I(\theta,\phi;y\mid x)\nonumber\\
+  &=H[y\mid x]-\mathbb E_{\theta,\phi} H[y\mid\theta,\phi,x].
+  \label{eq:eig-kl}
 \end{align}
-with $a=0.98$, $\boldsymbol\Sigma$ the pre-resample covariance. The nudge covariance diagonal is floored,
+The noise is modelled as Gaussian with the same variance $\sigma^2/k$ at every drive frequency
+(Sec.~\ref{sec:model}); this is an assumption of the model, not a limit, since otherwise every drive frequency would
+need its own noise model. Hence, for a known $\sigma$, $H[y\mid\theta,\phi,x]=\tfrac12\ln(2\pi e\,\sigma^2/k)$; the
+particle filter, which learns $\sigma$ (Sec.~\ref{sec:bayes}), uses its posterior mean. For a given variance the Gaussian
+has the largest entropy \cite{cover2006}, so
+$H[y\mid x]\le\tfrac12\ln 2\pi e\,(\sigma^2_{\rm pred}(x)+\sigma^2/k)$, with $\sigma^2_{\rm pred}(x)$ the variance of
+$S(x;\theta,\phi)$ over the posterior. Hence
 \begin{equation}
-  C_{jj} \leftarrow \max\!\Big(C_{jj},\, \big[(h_j-l_j)\, f_{\rm expl}\, e^{-t/25}\big]^2\Big), \qquad
-  f_{\rm expl}=0.01,
+  \mathrm{EIG}(x)\le\tfrac12\ln\!\Big(1+\frac{k\,\sigma^2_{\rm pred}(x)}{\sigma^2}\Big),
+  \label{eq:eig-var}
 \end{equation}
-so exploration decays but never vanishes ($t$ = step count); eigen-regularization (min eigenvalue
-$\max(10^{-11},10^{-6}\lambda_{\max})$) then guarantees a valid Cholesky factor, and a decaying fraction
-$f_{\rm rejuv}=0.05\,e^{-t/25}$ of particles are replaced by fresh prior draws to prevent mode collapse.
+which is what SBED (Sec.~\ref{sec:locators}) evaluates on its particles. Equality holds when the predictive distribution of
+$S(x;\theta,\phi)$ is Gaussian.
+% Code note: smc_marginal.py expected_information_gain uses the single-shot noise
+% variance (no 1/k); the ranking is unchanged at fixed k.
 
-\subsection{Weighted posterior statistics}
+\paragraph{When the variance is a good proxy: the local-linear regime.} The only remaining gap in
+Eq.~\eqref{eq:eig-var} is the shape of the posterior. By the Bernstein--von Mises theorem, the Bayesian central limit
+theorem \cite{vandervaart1998}, the posterior tends with growing data to a normal distribution centred near the
+truth with variance $1/J_n$. A Gaussian's entropy depends on its variance alone,
+$H[\theta]=\tfrac12\ln(2\pi e\,\sigma_\theta^2)$, so the expected KL divergence of one step reduces to a ratio of
+variances, $\tfrac12\ln(\sigma_{\theta,n}^2/\sigma_{\theta,n+1}^2)$. Once the posterior is also narrow compared with
+the line, $S$ is linear over it, the predictive distribution of $S(x;\theta,\phi)$ is Gaussian, Eq.~\eqref{eq:eig-var}
+holds with equality, $\sigma^2_{\rm pred}(x)\approx g(x)^2\sigma_\theta^2$, and Eq.~\eqref{eq:eig-var} becomes
+\begin{equation}
+  \mathrm{EIG}(x)\approx\tfrac12\ln\big(1+I(x)\,\sigma_\theta^2\big)=\tfrac12\ln\frac{J_n+I(x)}{J_n}.
+  \label{eq:eig-fisher}
+\end{equation}
+Greedy EIG then maximises $I(x)$, i.e.\ measures at the steepest slope, and the gains telescope:
+$\sum_n\mathrm{EIG}_n=\tfrac12\ln(J_N/J_0)=\ln(\sigma_0/\sigma_N)$. The acquisition rule and the information budget
+of Sec.~\ref{sec:budget} are the same quantity. The optimal strategy, which would measure every point at the
+steepest slope of the true line, reaches the data limit of Eq.~\eqref{eq:vantrees}; greedy EIG approaches it once
+the posterior is narrow compared with the line, while during the search it is only myopically optimal, which is
+where the strategies of Sec.~\ref{sec:locators} differ.
 
-Estimates and uncertainties are the weighted mean/std,
+\paragraph{When it is not: search.} Before the dip is found, the predictive distribution at $x$ is two-valued: with
+probability $p$ (the posterior mass that would put a dip at $x$) the signal is $1-C$, otherwise 1. Then
+$\sigma^2_{\rm pred}=p(1-p)C^2$, while the true mutual information is at most the binary entropy $H_b(p)$. The
+variance form keeps growing with SNR where the true gain saturates, so it overvalues search candidates relative to
+refine candidates; both peak at $p=\tfrac12$, so they rank search candidates alike.
+\tbd{Mention computing the exact mixture entropy from the particles, or leave out?}
+
+\subsection{Speedup over a frequency sweep}
+\label{sec:speedup}
+
+The same bound predicts the speedup over a conventional sweep. A sweep spreads its measurements uniformly over the
+window, so its information per measurement is the window average of Eq.~\eqref{eq:fisher},
 \begin{equation}
-  \mu_j = \frac{\sum_i w_i \theta_{ij}}{\sum_i w_i}, \qquad
-  \sigma_j = \sqrt{\frac{\sum_i w_i(\theta_{ij}-\mu_j)^2}{\sum_i w_i}},
+  \bar I=\frac{1}{W}\int I(x)\,dx=\frac{k}{\sigma^2W}\int g(x)^2\,dx=\frac{\pi}{4}\,
+  \frac{k\,C^2}{\sigma^2\,\gamma\,W}
+  \label{eq:sweep-info}
 \end{equation}
-and the weighted covariance $\boldsymbol\Sigma$ feeds both the Liu--West kernel and the Gaussian entropy
-approximation
+for a Lorentzian ($\int(\partial_\theta L)^2d
+u=\pi/4\gamma$), valid for $W\gg\Gamma$. The sweep therefore
+accumulates information at the rate $\bar I$ from its first measurement, $\sigma\approx(J_0+N\bar I)^{-1/2}$, with no
+plateau and no cliff, as observed by \citet{dushenko2020sbed}. An adaptive strategy pays the search cost $n_d$ first
+and then gains $I^*$ per measurement. The number of measurements to reach a target $\tau$ is
 \begin{equation}
-  H \approx \tfrac12\ln|\boldsymbol\Sigma| + \tfrac{d}{2}(1+\ln 2\pi),
+  N_{\rm sweep}(\tau)=\frac{\tau^{-2}-J_0}{\bar I},\qquad
+  N_{\rm ad}(\tau)=n_d+\frac{\tau^{-2}-12/\Delta^2}{I^*},
+  \label{eq:n-to-target}
 \end{equation}
-via a ridge-stabilized \code{slogdet}.
+and the speedup is $S(\tau)=N_{\rm sweep}/N_{\rm ad}$. For a precise target the refine terms dominate and
+\begin{equation}
+  S_\infty=\frac{I^*}{\bar I}=\frac{27}{16\pi}\,\frac{W}{\gamma}=\frac{27}{8\pi}\,\frac{W}{\Gamma}
+  \approx1.07\,\frac{W}{\Gamma}.
+  \label{eq:speedup}
+\end{equation}
+The speedup is set by the inverse occupancy $W/\Gamma$ of the window, which \citet{dushenko2020sbed} identified
+qualitatively; Eq.~\eqref{eq:speedup} gives its prefactor. It is independent of the SNR, because both strategies
+gain information $\propto\mathrm{SNR}^2$. For a loose target the search cost $n_d$ dominates $N_{\rm ad}$ and
+$S(\tau)<S_\infty$, so the full dependence on window, linewidth, SNR (through $n_d$ at low SNR) and target is given
+by Eq.~\eqref{eq:n-to-target}. A sweep cannot approach the van Trees bound at any $N$: its rate $\bar I$ is fixed by
+the window, while the bound's data limit requires every measurement at the steepest slope.
+\tbd{Check Eq.~\eqref{eq:speedup} against the speedup reported in Ref.~\cite{dushenko2020sbed} for their window
+and line structure (a resolved triplet, not one Lorentzian).}
+
+\subsection{Sensitivity and bandwidth}
+\label{sec:sensitivity}
+
+Sensitivity and bandwidth follow from the same budget once measurements are converted to time. Let one
+measurement take $t_m=k\,t_s$ ($k$ shots of duration $t_s$), so that $T=N t_m$. With $D$ known, $f_+-D=\Delta_Z=\gamma_e B$ along
+the N-V axis ($\gamma_e\approx28$~GHz/T), so $\sigma_B=\sigma_{f_+}/\gamma_e$.
+
+\paragraph{Sensitivity (refine).} In the refine regime $\sigma_{f_+}=(N I^*)^{-1/2}$, so
+$\sigma_{f_+}\sqrt T$ is a constant of the experiment:
+\begin{equation}
+  \eta=\frac{\sigma_{f_+}\sqrt T}{\gamma_e}=\frac{1}{\gamma_e}\sqrt{\frac{t_m}{I^*}}
+  =\frac{4}{3\sqrt3}\,\frac{\Gamma\sqrt{t_s}}{\gamma_e\,\mathrm{SNR}_1},
+  \label{eq:sensitivity}
+\end{equation}
+with $\mathrm{SNR}_1=C/\sigma$ the single-shot SNR. The prefactor $4/(3\sqrt3)$ is that of the standard CW-ODMR
+sensitivity of a Lorentzian line \cite{dreau2011}: the familiar formula is the refine limit of the budget, reached
+only by a strategy that measures at the steepest slope. A strategy whose refine measurements carry on average a
+fraction $\bar\eta_F$ of $I^*$ reaches $\eta/\sqrt{\bar\eta_F}$.
+
+\paragraph{Bandwidth (whole run).} A field reading is useful once the error reaches a target $\tau$; the time
+needed, $T(\tau)$, sets the bandwidth $1/T(\tau)$. From the elimination model,
+\begin{equation}
+  T(\tau)=t_m\Big[n_d+\frac{\tau^{-2}-12/\Delta^2}{I^*}\Big],\qquad
+  \eta_{\rm eff}(\tau)=\frac{\tau\sqrt{T(\tau)}}{\gamma_e}.
+  \label{eq:bandwidth}
+\end{equation}
+For $\tau\to0$ the refine term dominates and $\eta_{\rm eff}\to\eta$ of Eq.~\eqref{eq:sensitivity}. For a loose
+target the search term dominates: the bandwidth cannot exceed about $1/(n_d t_m)\sim\Delta/(W t_m)$, whatever the
+SNR, and $\eta_{\rm eff}$ is worse than $\eta$. The window, i.e.\ the prior, therefore limits the bandwidth, while
+the line shape and SNR limit the sensitivity. \tbd{Per-shot time is not yet in the simulated data, so results are
+in measurements; take $t_s$ from the lab.}
 
 % =====================================================================
-\section{Sequential Bayesian Experiment Design}
-\label{sec:sbed}
+\section{Methods}
+\label{sec:methods}
 % =====================================================================
 
-\subsection{Expected information gain}
+\subsection{Bayesian inference}
+\label{sec:bayes}
 
-The acquisition rule approximates the EIG of candidate $x$ by the particle cloud's predictive variance,
-\begin{widetext}
+The posterior is a weighted particle cloud $\{(\theta_i,\phi_i),w_i\}_{i=1}^{N_p}$, $N_p=1000$, updated by sequential
+Monte Carlo \cite{doucet2001smc}. Each particle holds the parameter of interest $\theta_i=D+\Delta_{Z,i}$, through its Zeeman shift ($D$ is
+fixed), and the nuisances $\phi_i=(\Gamma_L,\Gamma_G,C)_i$ of Sec.~\ref{sec:model}, in the notation of
+Sec.~\ref{sec:fisher}. Every dimension is scaled to
+$[0,1]$ by its prior bounds, so one resampling kernel serves all of them; reported values are mapped back to Hz.
+The noise level is learned but is not a particle dimension: each particle carries a conjugate inverse-gamma
+posterior on $\sigma^2$, with shape $\alpha$ shared by all particles and scale $\beta_i$ built from that particle's
+residuals, both discounted by $0.99$ per measurement. Integrating $\sigma^2$ out, a measurement $y_n$ (mean of $k$
+shots at $x_n$) reweights the particles by a Student-$t$ predictive,
 \begin{equation}
-  \mathrm{EIG}(x) \;\approx\; \tfrac12 \ln\!\left(1 + \frac{\sigma^2_{\rm pred}(x)}{\sigma^2_{\rm noise}}\right),
-  \qquad
-  \sigma^2_{\rm pred}(x) = \sum_i w_i\, S(x,\boldsymbol\theta_i)^2 - \Big(\sum_i w_i\, S(x,\boldsymbol\theta_i)\Big)^{\!2},
-  \label{eq:eig}
+  w_i\ \propto\ w_i\;t_{2\alpha}\!\Big(y_n;\,S(x_n;\theta_i,\phi_i),\,\frac{\beta_i}{k\alpha}\Big),
+  \label{eq:smc-update}
 \end{equation}
-\end{widetext}
-\noindent with $\sigma^2_{\rm noise} = \max(\sigma^2, 10^{-12})$ — the exact entropy reduction for a Gaussian
-observation $y=S+\eta$, the same utility motivating SBED generally \citep{chaloner1995bayesian,dushenko2020sbed}.
-Eq.~\eqref{eq:eig} is evaluated on a stratified subsample of $\le N_{\rm EIG}=500$ particles; between
-resamples the prediction matrix $M_{ci}=S(x_c,\boldsymbol\theta_i)$ is cached, so only
-$\sigma^2_{\rm pred} = M^{(2)}\mathbf w - (M\mathbf w)^2$ is recomputed as weights change.
-
-Candidates come from a slope-targeted epoch grid (dense windows at each dip's $\pm$HWHM points, plus a coarse
-global grid) rebuilt each resample. EIG scores are chunked (64 candidates); each chunk's arg-max competes via
-a softmax at $\tau=0.01$, avoiding lock-on to a single numerical-noise spike.
-
-\subsection{Exploration / dip-bias / EIG mixture}
-
-Each step, one uniform draw selects among three branches (Table~\ref{tab:branches}), so early search is not
-fully dependent on a possibly-biased posterior.
-
-\begin{table*}[t]
-\centering
-\caption{Acquisition branch selection at step $t$.}
-\label{tab:branches}
-\begin{ruledtabular}
-\begin{tabular}{lll}
-Draw $u$ & Action & Purpose \\
-\colrule
-$u < 0.1\,e^{-t/25}$ & Uniform global sample & Decaying exploration \\
-$u < 0.20$ & Near empirical dip $\pm 5$~MHz & Correct posterior bias \\
-otherwise & Maximize EIG (Eq.~\ref{eq:eig}) & Main information path \\
-\end{tabular}
-\end{ruledtabular}
-\end{table*}
-
-\subsection{Background noise estimation}
-
-The noise std is not assumed known; it is estimated online from \emph{background} measurements
-($|x-\hat f| > k_{\rm bg}|\hat\Omega|$, $k_{\rm bg}=3.0$) via the median absolute deviation,
+so the noise is Gaussian in the model and only its level is unknown.
+When the effective sample size $(\sum_i w_i^2)^{-1}$ falls below $0.2\,N_p$, the cloud is resampled
+systematically \cite{kitagawa1996} and rejuvenated with the Liu--West kernel \cite{liuwest2001},
 \begin{equation}
-  \hat\sigma_{\rm bg} = 1.4826\,\operatorname{median}\big(|y_i^{\rm bg} - \operatorname{median}(y^{\rm bg})|\big),
-  \label{eq:mad}
+  \psi_i'\sim\mathcal N\big(a\psi_i+(1-a)\bar\psi,\ (1-a^2)\Sigma\big),\qquad a=0.98,
+  \label{eq:liuwest}
 \end{equation}
-with $1.4826 = 1/\Phi^{-1}(3/4)$ the consistent-estimator factor. Below 15 background points, forced
-calibration samples the two background regions (weighted by width) until Eq.~\eqref{eq:mad} is estimable.
+with $\psi_i=(\theta_i,\phi_i)$ the whole particle, $\bar\psi$, $\Sigma$ the weighted mean and covariance before resampling, which the kernel preserves.
+Two safeguards depart from it: the diagonal of $\Sigma$ is floored at $(0.01\,e^{-n/25})^2$ of each unit range, so
+early rejuvenations can widen the cloud, and particles leaving the cube are reflected back. Each $\beta_i$ is then
+recomputed from the full history at the particle's new position. The full algorithm is in the Supplemental
+Material \tbd{SM}.
+The initial cloud is drawn from the prior: in the simulations a truncated Gaussian on each dimension
+\tbd{align with Sec.~\ref{sec:prior}}.
 
-\subsection{Theoretical step-budget backstop}
-
-Once $\hat\sigma_{\rm bg}$, $\hat c>0$ are available, a permissive backstop (Section~\ref{sec:crlb-lorentzian})
-bounds runaway,
-\begin{widetext}
+The particle filter reports the posterior mean and the weighted particle standard deviation,
 \begin{equation}
-  n_{\rm theory} = \frac{4\hat\sigma_{\rm bg}^2\,\hat\Omega\,W}{\pi\hat c^2 T^2}, \qquad
-  N_{\rm budget} = \max\!\big(N_{\max},\, K_{\rm theory}\, n_{\rm theory}+1\big),
+  \hat\theta_N=\sum_i w_i \theta_i,\qquad
+  \hat\sigma_N=\Big[\sum_i w_i(\theta_i-\hat\theta_N)^2\Big]^{1/2},
+  \label{eq:sigma-hat}
 \end{equation}
-\end{widetext}
-\noindent with $T=100$~kHz, $W$ the bandwidth, $K_{\rm theory}=20$ — large enough that this fires only when
-EIG acquisition has failed to converge far sooner.
+the claimed uncertainty whose meaning Sec.~\ref{sec:protocol} discusses.
 
-\subsection{Focus-window narrowing}
-\label{sec:focus-narrowing}
+\subsection{Measurement strategies}
+\label{sec:locators}
 
-Each resample narrows the search window to the union of particles' predicted active regions,
-$[f_i - \Delta f_i - k\Omega_i,\; f_i + \Delta f_i + k\Omega_i]$ ($k=3.0$), using the 1st/99th-percentile
-edges to resist outliers; if particles pile against a unit-cube boundary ($>$15\% within 5\%), the window
-expands instead. This never mutates the fixed rescale map (Eq.~\ref{eq:rescale}).
+Every strategy uses the particle filter of Sec.~\ref{sec:bayes}, with the same prior, the same budget of 2500
+measurements and the same stop rule, so $\hat\sigma_N$ is the same quantity for all of them; the strategies differ
+only in how the next drive frequency $x$ is chosen. The run stops when the claimed uncertainty of every parameter
+has been below its ceiling ($100$~kHz for $\theta$, $500$~kHz for the widths, $0.01$ for the contrast) for 8
+consecutive measurements and the dip test below finds a dip.
+
+\paragraph{Dip test.} The test asks where the measurements, not the particles, show a dip. Each measurement gets a
+score $z_n=(b-y_n)/s$ against a baseline $b$ (the 70th percentile of the $y_n$, corrected for noise), with $s$ and
+the Student-$t$ degrees of freedom from the noise posterior of Sec.~\ref{sec:bayes}. Every contiguous stretch of
+measured drive frequencies whose span lies in the prior range of the linewidth gets the boxcar score
+$\sum z_n/\sqrt{n}$; a stretch is significant when its score exceeds the Bonferroni threshold for a family-wise
+false-alarm probability $p_{\rm FA}=0.1$ over all stretches tested, and each connected run of significant
+stretches is one dip.
+
+\paragraph{Sweep ladder.} SimpleSweep measures a uniform grid over the window with spacing $\Gamma_0/p$,
+$p=2,3,4$, where $\Gamma_0$ is the FWHM of the prior-mean line, and repeats whole passes. Smart-Sweep sweeps at
+$\Gamma_0/3$ until the dip test finds a dip, then at $\Gamma_0/10$ inside the focus (below), and then measures only
+at the maxima of $g(x)^2$ at the posterior mean, cycling between them, once the posterior expects each of those
+points to carry at least $90\%$ of the information of the true optimum.
+
+\paragraph{Bayesian SBED.} SBED is the particle filter choosing each $x$ by Eq.~\eqref{eq:eig-var}. After every
+resampling it places 800 candidate drive frequencies at the quantiles of a density with Gaussian kernels on the
+flanks, $\pm$HWHM, of the posterior-mean line, kernels on the dips found and a flat share, thinned to a spacing of
+at least $100$~kHz. Eq.~\eqref{eq:eig-var} is evaluated on a 500-particle subsample, with $\sigma^2$ the posterior
+mean of the noise. The candidates are taken in blocks of 64, and the block maxima compete through a softmax with a
+temperature of $0.01$~nats, so the choice is near-greedy. Candidates are restricted to the focus: one section per
+dip, its extent padded by one posterior-mean HWHM on each side. A new dip widens the focus at once; narrowing
+waits 8 measurements and must shrink it by at least 5\%. The focus is re-decided after every resampling. Because a
+strategy that has piled its measurements onto a suspected dip cannot be contradicted there, SBED sometimes runs a
+falsification probe instead: with probability $0.02+0.08\,g$, where $g$ is the widest unmeasured gap as a fraction
+of the window, it measures the middle of that gap. Smart-SBED is SBED that, until the first dip is found, picks the
+EIG maximiser among the unmeasured points of the $\Gamma_0/3$ grid instead, makes no probe and re-decides the
+focus after every measurement, re-running the dip test every 10 measurements.
+
+\subsection{Simulation setup and evaluation}
+\label{sec:protocol}
+
+\paragraph{What the claimed uncertainty is.} The particle filter reports $\hat\sigma_N$, Eq.~\eqref{eq:sigma-hat}: a moment of the
+posterior, defined at every $N$. The van Trees bound,
+Eq.~\eqref{eq:vantrees}, limits the mean squared error averaged over the prior, and for the posterior mean that error
+equals the expected posterior variance, $\mathbb E[(\hat\theta_N-\theta)^2]=\mathbb E[\hat\sigma_N^2]$, when the
+posterior is correct. Comparing $\hat\sigma_N$ with the bound is therefore valid from the first measurement, as an
+average over runs and provided the posterior is calibrated. What fails before the posterior is Gaussian
+(Sec.~\ref{sec:eig}) is the usual reading of $\hat\sigma_N$: with a uniform window or several live
+candidates it is not a 68\% interval, and the posterior entropy is below $\tfrac12\ln(2\pi e\,\hat\sigma_N^2)$, so
+information in bits, per-step gains as variance ratios, and coverage at Gaussian quantiles are only meaningful in the
+data regime. We therefore (i) compare $\hat\sigma_N$ with the bound as a run average at all $N$, (ii) test coverage,
+the true error against $\hat\sigma_N$, only once the posterior is Gaussian, or with quantiles of the particle
+distribution itself, and (iii) keep this separate from miscalibration of the particle filter, which makes
+$\hat\sigma_N$ too small at any $N$.
+% Code: smc_marginal.py uncertainty() = weighted particle std; entropy() assumes a Gaussian (logdet of the
+% covariance), so it overstates the entropy before the posterior is Gaussian.
+
+\tbd{Read every run against the bound: prior share $J_0/J$ and information rate $(J(N)-J(N'))/((N-N')I^*)$, with
+$J_0=\hat\sigma_0^{-2}$ of the initial cloud; a rate above 1 meaning the claimed $\sigma$ fell faster than the data allow.}
+
+\tbd{Use cases (SNR $\times$ window $\times$ Gaussian share $\times$ isotope), paired repeats, one shared budget
+(2500 measurements), coverage of the claimed $\sigma$, cost to reach $\tau$; numbers per use case.}
 
 % =====================================================================
-\section{Fisher Information and the Cram\'er--Rao Lower Bound}
-\label{sec:crlb}
+\section{Results}
+\label{sec:results}
 % =====================================================================
 
-\subsection{General Gaussian Fisher information}
+\subsection{Simulations}
+\label{sec:sim-results}
 
-For observation $x$ under Gaussian noise, $\mathbf I(\boldsymbol\theta;x)=\sigma^{-2}
-\nabla_{\boldsymbol\theta}S\,\nabla_{\boldsymbol\theta}S^\top$; cumulative
-$\mathbf I_{\rm cum}=\sum_{n=1}^N\mathbf I(\boldsymbol\theta;x_n)$, and
-$\mathrm{CRLB}_j=\sqrt{[(\mathbf I_{\rm cum}+\epsilon\mathbf I)^{+}]_{jj}}$ ($\epsilon=10^{-6}$) via a
-ridge-regularized Moore--Penrose pseudo-inverse \citep{cramer1946}.
+\tbd{(a) Claimed $\sigma$ and true error against Eqs.~\eqref{eq:vantrees}--\eqref{eq:after-detection} for a narrow
+and a wide window. (b) Information rate and prior share. (c) Cost vs SNR and window. (d) Calibration of the claimed
+$\sigma$.}
 
-\subsection{Closed-form CRLB for a uniformly sampled Lorentzian}
-\label{sec:crlb-lorentzian}
+\subsection{Experiment}
+\label{sec:lab-results}
 
-For $S=c\,L(x;f,\Omega)$ sampled at uniform density $\rho=N/W$,
-\begin{equation}
-  \int_{-\infty}^{\infty}\left(\frac{\partial L}{\partial f}\right)^{\!2}\!dx = \frac{\pi}{4\Omega},
-\end{equation}
-so $I(f) = \rho\,c^2\,\pi/(4\sigma^2\Omega)$ and
-\begin{equation}
-  \boxed{\ \mathrm{Var}^{\rm CRLB}(f) = \frac{4\sigma^2\Omega}{\pi c^2 \rho}\ }, \qquad
-  \mathrm{CRLB}_f = \sqrt{\mathrm{Var}^{\rm CRLB}(f)},
-  \label{eq:crlb-lorentzian}
-\end{equation}
-uncertainty growing with $\sigma,\Omega$ and shrinking with $c,\rho$, as expected.
-
-The same approach on the pseudo-Voigt (Eq.~\ref{eq:pseudovoigt}), dropping the Lorentzian--Gaussian
-cross-term (conservative: overestimates $\mathrm{Var}^{\rm CRLB}$ for mixed lineshapes), gives
-\begin{equation}
-  J = e_{\rm lf}^2\,\frac{\pi}{4\gamma_{\rm hom}^5} + e_{\rm gf}^2\,\frac{\sqrt\pi}{2\sigma_{\rm inhom}},
-  \qquad
-  \mathrm{Var}^{\rm CRLB}(f) = \frac{\sigma^2}{\rho\, c_{\rm total}^2\, J},
-  \label{eq:crlb-voigt}
-\end{equation}
-reducing exactly to Eq.~\eqref{eq:crlb-lorentzian} as $\sigma_{\rm inhom}\to0$; both forms were checked
-against direct numerical integration of the coded kernels.
-
-\subsection{Numerical gradients revive the per-parameter FIM}
-\label{sec:numgrad}
-
-None of the N-V$^-$ signal models expose an analytical $\nabla_{\boldsymbol\theta}S$, so
-$\mathrm{CRLB}_j$ (Eq.~\eqref{eq:crlb-lorentzian}'s general form, Section~\ref{sec:crlb}) returned
-$\varnothing$ for every model in practice; the multi-parameter FIM machinery was present in the code
-but never exercised. A central-difference fallback, with step size scaled by each parameter's own
-bound range rather than its value (parameters here span $\sim$7 orders of magnitude, from Hz-scale
-widths to a dimensionless contrast $\approx0.25$) and clamped into bounds, makes $\mathbf I_{\rm cum}$
-non-trivial for these models. Since the SMC belief and the FIM must share one coordinate system, the
-gradient point is taken in whatever coordinates the belief's model actually uses (unit-cube for
-\texttt{UnitCubeSMCMarginalDistribution}), with $\mathrm{CRLB}_j$ rescaled back to physical units by
-each parameter's range afterward.
-
-With the FIM live, non-frequency parameters in \texttt{reported\_uncertainty()} are floored at their
-own marginal CRLB unconditionally (independent of the stopping-rule question addressed next):
-$\sigma^{\rm reported}_j=\max(\sigma^{\rm phys}_j,\mathrm{CRLB}_j)$. Measured over 120 mixed repeats
-(56 deliberately degenerate), this moves median $\mathrm{error}/\sigma^{\rm reported}$ for
-\texttt{zeeman\_split} from 1.21 to 0.90 and the fraction beyond $3\sigma$ from 8.3\% to 2.5\%
-(\texttt{c\_total}: 1.61$\to$0.96, 18.3\%$\to$3.3\%) — the particle spread alone understates
-uncertainty exactly on the near-flat ridge where \texttt{zeeman\_split} trades off against the width
-pair, while the FIM correctly reports a large CRLB there because it is near-singular in that
-direction. No safety factor is applied, since the CRLB is already a hard lower bound; a $4\times$
-factor (matching $K_{\rm safety}$) was measured to over-correct badly (medians drop to 0.09--0.25).
-
-% =====================================================================
-\section{Convergence Criteria}
-\label{sec:convergence}
-% =====================================================================
-
-A run stops when \emph{all} of the following hold for 8 consecutive resamples
-(\code{convergence\_patience\_steps}; any failure resets the streak, so a transient false positive cannot end
-a run early):
-
-\paragraph{Per-parameter thresholds.} Frequency: absolute $\sigma_f<T_f=100$~kHz; others: relative 1\% of
-bound width unless overridden. For saturation-Voigt, raw $(s,\sigma_{\rm inhom},c_{\max})$ are not gated
-directly (inconsistent along the nonlinear saturation axis); instead their uncertainty propagates via the
-local Jacobian onto effective HWHM $\Omega(s,\sigma_{\rm inhom})=\gamma_0\sqrt{1+s}+\sqrt{2\ln2}\,
-\sigma_{\rm inhom}$ and realized contrast $C(s,c_{\max})=c_{\max}s/(1+s)$, gated with ordinary
-linewidth/contrast semantics.
-
-\paragraph{Overall RMS check.} Even if every parameter passes individually,
-\begin{widetext}
-\begin{equation}
-  u_j = \sigma_j/B_j,\qquad
-  B_j = \begin{cases} T_f/\text{threshold} & j=\text{frequency}\\ h_j-l_j & \text{otherwise}\end{cases},
-  \qquad
-  \mathrm{RMS}=\sqrt{\tfrac1d\textstyle\sum_j u_j^2} < \text{threshold},
-\end{equation}
-\end{widetext}
-\noindent must also pass, so one marginal parameter cannot mask the rest.
-
-\paragraph{Dynamic CRLB-derived stopping.} Since $\mathrm{CRLB}_f\propto1/\sqrt t$, steps still needed are
-$n_{\rm req}=t(\mathrm{CRLB}_f/T_f)^2$; budget $N_{\rm dyn}=\min(N_{\max},K_{\rm safety}n_{\rm req}+1)$
-($K_{\rm safety}=4.0$), stopping as infeasible if $n_{\rm req}>N_{\max}K_{\rm safety}$. This closed-form,
-frequency-only rule is unconditionally active. In SBED, the same idea extends to every parameter using
-the numerical-gradient FIM of Section~\ref{sec:numgrad}, rescaled by the online noise estimate,
-$\mathrm{CRLB}_j^{\rm scaled}=\mathrm{CRLB}_j^{\rm FIM}\hat\sigma_{\rm bg}/\sigma_{\rm nominal}$, stopping
-when $\sigma_j<K_{\rm safety}\mathrm{CRLB}_j^{\rm scaled}$ for every target parameter — but, as the next
-paragraph reports, this multi-parameter gate is kept \emph{off} by default.
-
-\paragraph{Why the multi-parameter FIM gate is disabled by default.} Turning it on once
-Section~\ref{sec:numgrad}'s fallback made $\mathrm{CRLB}_j$ non-trivial measurably improves the
-benchmark numbers — median run length 450$\to$24 steps, catastrophic-error rate on known-degenerate
-configurations 67\%$\to$12\% — but we found this to be an artifact of the evaluation harness rather
-than a genuine capability. Near a degenerate point, the marginal CRLB is inflated by a near-singular
-$\mathbf I_{\rm cum}$ (11.8~MHz measured on \texttt{zeeman\_split} where the achieved error was only
-1.3~MHz), so the stopping test passes trivially from the first few steps — exactly where the problem
-is hardest. The apparent accuracy gain traces to the generators' own prior: each repeat's SMC prior
-mean is drawn as $\mathcal N(\theta_{\rm true},\sigma_{\rm prior})$, so stopping early scores well
-because the run reports a truth-centred prior it never had to earn against real measurements. This is
-the same failure class as three earlier snapshot-CRLB early-stop bugs found during development of this
-locator, and we flag it here as a caution against validating simulation-based stopping rules purely
-against simulated-prior-centred accuracy.
-
-\paragraph{Adaptive plateau stopping (default).} In place of the FIM gate, the shipped default stops a
-run once every target parameter's \emph{point estimate} has stopped moving relative to its own current
-uncertainty — measuring diminishing returns directly rather than trusting a derived quantity's claim
-about the information limit. Writing $\hat\theta_j^{(t)}$ for the estimate at check $t$,
-\begin{equation}
-  \text{plateaued}_j \iff \big|\hat\theta_j^{(t)}-\hat\theta_j^{(t-W)}\big| < f_\sigma\,\sigma_j^{(t)},
-\end{equation}
-with window $W=30$ checks and fraction $f_\sigma=0.25$; a run stops once every target parameter
-plateaus for \texttt{convergence\_patience\_steps} consecutive checks. Movement is scaled by each
-parameter's own $\sigma$ (not its bound range), so one threshold applies across parameters spanning
-orders of magnitude. On the N-V Voigt grid (120 repeats), median \texttt{zeeman\_split} error falls
-1.483~MHz (step 10) $\to$0.237 (25) $\to$0.059 (50) $\to$0.022 (100) $\to$0.016 (450) MHz — a knee near
-step 100, after which the remaining 350 of a 450-step budget buy $\sim$1.3$\times$ accuracy for
-4.5$\times$ the measurements. $f_\sigma=0.25$ was calibrated by replaying the rule inside full-budget runs,
-firing on 100\% of both ordinary and degenerate configurations and saving $2.3\times$ and $3.6\times$
-measurements respectively (median step 450$\to$197 ordinary, 450$\to$124 degenerate). A separate live A/B
-(120 configs/arm) confirmed the rule end-to-end rather than by replay, giving a close but distinct
-450$\to$220 ordinary (124 degenerate, unchanged); accuracy on most target parameters stayed within a few
-percent of the full-budget run — well under the $\sqrt2$--$\sqrt{3.6}$ increase a naive $\sqrt n$ scaling
-would predict. The one measured cost, from that same live A/B: on degenerate configurations the
-catastrophic-error rate rises 7.1\%$\to$12.5\% (4$\to$7 of 56 repeats); a more conservative $f_\sigma=0.15$
-keeps most of that margin at a $2.2\times$ rather than $3.6\times$ saving.
-
-Table~\ref{tab:constants} summarizes the defaults above.
-
-\begin{table*}[t]
-\centering
-\caption{Key inference-stack constants and their defaults.}
-\label{tab:constants}
-\begin{ruledtabular}
-\begin{tabular}{llr}
-Symbol & Meaning & Default \\
-\colrule
-$N$ & SMC particle count & 1000 \\
-$r_{\rm thr}$ & ESS resampling threshold (fraction of $N$) & 0.20 \\
-$a$ & Liu--West shrinkage & 0.98 \\
-$N_{\rm EIG}$ & EIG subsample size & 500 \\
-$T_f$ & Frequency convergence threshold & 100~kHz \\
-$K_{\rm safety}$ & CRLB safety factor & 4.0 \\
-$K_{\rm theory}$ & Theory-budget safety factor & 20 \\
-$k_{\rm bg}$ & Background classification span (linewidths) & 3.0 \\
-patience & Consecutive converged resamples required & 8 \\
-threshold & Relative convergence threshold & 1\% \\
-$W$ & Plateau-stop window (checks) & 30 \\
-$f_\sigma$ & Plateau-stop drift fraction & 0.25 \\
-\end{tabular}
-\end{ruledtabular}
-\end{table*}
-
-\emph{Novelty.} The Fisher/Cram\'er--Rao construction is textbook \citep{cramer1946}; new here are (i)
-closed-form CRLBs for this lineshape family (Eqs.~\ref{eq:crlb-lorentzian}--\ref{eq:crlb-voigt}), absent from
-either prior attempt or \citet{dushenko2020sbed}, used as the frequency-only stopping/feasibility mechanism
-in place of fixed-iteration or fixed-tolerance rules — arguably the paper's most concrete methodological
-contribution — and (ii) the negative result that the natural multi-parameter extension of the same idea
-(gate every parameter on its own FIM-derived CRLB) is not safe to use as-is under a benchmark with an
-informative simulated prior, together with the adaptive plateau rule we use instead, which achieves a
-comparable 2--3.6$\times$ measurement reduction without that failure mode.
-
-% =====================================================================
-\section{Evaluation Metrics}
-\label{sec:metrics}
-% =====================================================================
-
-\subsection{Point-estimate error}
-
-For a single peak, $\mathrm{abs\_err\_x} = |\hat f - f_{\rm true}|$; for two peaks (e.g.\ a resolved Zeeman
-doublet), estimates and truths are sorted and paired before computing
-$\mathrm{pair\_rmse} = \sqrt{\tfrac12(\mathrm{abs\_err\_x}_1^2+\mathrm{abs\_err\_x}_2^2)}$.
-
-\subsection{Uniform-sweep baseline}
-\label{sec:sweep-baseline}
-
-To quantify savings, each run is compared against the uniform measurement count needed for the \emph{same}
-ground truth. Nyquist argument: a feature of width $w$ is resolvable at spacing $\delta\le w/2$, giving
-\begin{equation}
-  n_{\rm sweep} = \frac{2W}{w_{\rm eff}},
-  \label{eq:sweep-baseline}
-\end{equation}
-with $w_{\rm eff}$ measured on the true signal (20{,}000-point grid, 20\%-depth threshold, segments merged
-within 2\% of the domain) rather than a worst-case bound. E.g.\ $W=500$~MHz, $\Omega\approx100$~kHz
-($w=4\Omega\approx400$~kHz) gives $n_{\rm sweep}\approx2500$ — scaling as $W/\Omega$, not fixed. Reported
-$\mathrm{sobol\_difference}=n_{\rm sweep}-n_{\rm measured}>0$ whenever SBED used fewer measurements.
-
-\subsection{Failure classification}
-
-Each run gets one failure reason, in priority order: success (frequency converged, or an unconverging
-baseline); \code{infeasible\_crlb} (pre-run gate tripped); \code{timeout}; \code{theory\_budget}
-(Section~\ref{sec:sbed} count exceeded); \code{max\_steps} (budget exhausted otherwise). The
-\code{infeasible\_crlb} gate reuses \code{marginal\_crlbs\_at\_budget}, which — like
-\texttt{crlb\_per\_param()} before Section~\ref{sec:numgrad}'s fallback — requires an analytical
-gradient and was not extended to the numerical fallback; for every N-V$^-$ model in this paper's
-scope it therefore returns no CRLBs and this gate never actually fires, so \code{infeasible\_crlb}
-does not occur among the results reported here.
+\tbd{Placeholder until the lab data are in.}
 
 % =====================================================================
 \section{Discussion}
 \label{sec:discussion}
 % =====================================================================
 
-NVision keeps \citeauthor{dushenko2020sbed}'s central claim — EIG maximization converges in far fewer
-measurements than a fixed sweep — but swaps the two-parameter grid for an $N$-particle SMC belief, trading
-grid intractability for particle noise at small $N$ (mitigated by Section~\ref{sec:smc}'s
-resampling/shrinkage machinery and the CRLB backstop of Sections~\ref{sec:crlb}--\ref{sec:convergence}).
-
-Two approximations bound these claims: the pseudo-Voigt (Eq.~\ref{eq:pseudovoigt}) is not a true Voigt
-profile, with uncontrolled deviation from one; and the Voigt CRLB (Eq.~\ref{eq:crlb-voigt}) drops the
-Lorentzian--Gaussian cross-term, conservative but inexact for strongly mixed lineshapes. Both are checked
-numerically against the coded kernels, not an independent analytic Voigt CRLB. This paper's scope is the
-additive Gaussian noise path; Poisson and Rao-Blackwellized inverse-gamma noise models exist in the code but
-are not covered. Finally, metrics are computed against the true signal's resolvable width rather than a
-worst-case parameter bound, since the same $\Omega$ range (200~kHz--5~MHz) spans an order of magnitude in
-sweep budget.
-
-A further caveat concerns any stopping-rule accuracy claim measured on this harness: because each repeat's
-SMC prior is drawn centred on that repeat's own ground truth (Section~\ref{sec:smc}), a rule that stops as
-soon as some derived quantity looks converged can score well by reporting a prior it never had to earn, not
-by having actually resolved the signal — Section~\ref{sec:convergence}'s FIM-gate finding is one concrete
-instance of this, and it should be treated as a general risk when validating any stopping criterion, CRLB-
-or otherwise, purely against simulated-prior-centred error.
+\tbd{Limits: the claimed $\sigma$ is overconfident; the simulated prior is miscalibrated; Gaussian noise only;
+$I^*$ assumes known nuisances; low-SNR detection model.}
 
 % =====================================================================
 \section{Conclusion}
 \label{sec:conclusion}
 % =====================================================================
 
-NVision generalizes single-dip SBED for N-V$^-$ ODMR \citep{dushenko2020sbed} to hyperfine, Zeeman, Voigt, and
-saturation-coupled lineshapes via a dimension-agnostic SMC belief. An EIG acquisition rule, online noise
-estimation, and per-lineshape closed-form CRLBs jointly decide where to measure and when to stop; the
-accompanying harness runs this at scale against Nyquist-derived uniform-sweep and Sobol baselines on matched
-ground truth, with derivations cross-checked against the reference implementation throughout.
+\tbd{Conclusion.}
 
 \bibliographystyle{apsrev4-2}
 \bibliography{nvision_paper}
