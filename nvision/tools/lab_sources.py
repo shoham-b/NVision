@@ -33,9 +33,11 @@ log = logging.getLogger(__name__)
 
 # Bump when the processing of a raw sweep changes (locator settings, reference fit, record fields): every sweep's
 # record is then redone on the next sync.
-PROCESSING_VERSION = 1
-# A lock older than this is left over from a sync that died; it is taken over.
-_STALE_LOCK_S = 6 * 3600
+PROCESSING_VERSION = 2  # 2: no z when the reference fit sits on a prior bound
+# A held lock is touched every _LOCK_HEARTBEAT_S; one not touched for _STALE_LOCK_S belongs to a sync that died
+# (killed with its console, say) and is taken over.
+_LOCK_HEARTBEAT_S = 20.0
+_STALE_LOCK_S = 120.0
 
 
 def _labs(directory: Path) -> Path:
@@ -175,17 +177,32 @@ def load_sweep_records(directory: Path) -> list[dict[str, Any]]:
     return records
 
 
+def lock_is_held(directory: Path) -> bool:
+    """True while some process holds the sync lock (it is fresh: its heartbeat is still touching it)."""
+    path = _labs(directory) / "sync.lock"
+    try:
+        return time.time() - path.stat().st_mtime <= _STALE_LOCK_S
+    except FileNotFoundError:
+        return False
+
+
 class SyncLock:
-    """``<dir>/labs/sync.lock``, so a manual ``nv matlab-sync`` and ``nv serve``'s never write the caches at once."""
+    """``<dir>/labs/sync.lock``: one writer at a time across ``nv matlab``, ``nv matlab-sync`` and ``nv serve``'s sync.
+
+    While held, a daemon thread touches the file every :data:`_LOCK_HEARTBEAT_S`, so a lock left by a process that
+    was killed goes stale within :data:`_STALE_LOCK_S` and the next sync takes it over.
+    """
 
     def __init__(self, directory: Path) -> None:
+        self._directory = directory
         self._path = _labs(directory) / "sync.lock"
         self.acquired = False
+        self._stop = threading.Event()
 
     def __enter__(self) -> SyncLock:
         self._path.parent.mkdir(parents=True, exist_ok=True)
-        if self._path.exists() and time.time() - self._path.stat().st_mtime > _STALE_LOCK_S:
-            self._path.unlink()
+        if self._path.exists() and not lock_is_held(self._directory):
+            self._path.unlink(missing_ok=True)
         try:
             fd = os.open(self._path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
         except FileExistsError:
@@ -193,10 +210,16 @@ class SyncLock:
         with os.fdopen(fd, "w") as fh:
             fh.write(str(os.getpid()))
         self.acquired = True
+        threading.Thread(target=self._heartbeat, daemon=True).start()
         return self
+
+    def _heartbeat(self) -> None:
+        while not self._stop.wait(_LOCK_HEARTBEAT_S):
+            self._path.touch()
 
     def __exit__(self, *exc: object) -> None:
         if self.acquired:
+            self._stop.set()
             self._path.unlink(missing_ok=True)
 
 
@@ -247,10 +270,16 @@ class BackgroundSync:
         tail: list[str] = []
         if self.log_path.exists():
             tail = self.log_path.read_text(encoding="utf-8", errors="replace").splitlines()[-15:]
+        status = read_sync_status(self._directory)
+        # Another process (a foreground `nv matlab`) may hold the lock; a "running" status that no process holds is
+        # a sync that was killed before it could write its final state.
+        running = self.running or lock_is_held(self._directory)
+        if status is not None and status.get("state") == "running" and not running:
+            status = {**status, "state": "interrupted"}
         return {
             "sources": [e["label"] for e in load_sources(self._directory)],
-            "running": self.running,
-            "status": read_sync_status(self._directory),
+            "running": running,
+            "status": status,
             "log_tail": tail,
         }
 

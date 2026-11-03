@@ -144,3 +144,29 @@ def test_sweeps_payload_groups_by_folder_and_lists_failures(tmp_path):
     assert groups["b"]["coverage"]["z_zeeman"]["n"] == 1
     assert groups["a"]["rows"][0]["zeeman_mhz"] == pytest.approx(1.0)
     assert payload["failed"] == [{"label": "data", "file": "b/bad.mat", "error": "ValueError: x"}]
+
+
+def test_a_stale_lock_is_taken_over(tmp_path):
+    lock_path = tmp_path / "labs" / "sync.lock"
+    lock_path.parent.mkdir(parents=True)
+    lock_path.write_text("12345")  # left by a killed sync: its heartbeat stopped
+    old = lock_path.stat().st_mtime - 3600
+    os.utime(lock_path, (old, old))
+    assert not lab_sources.lock_is_held(tmp_path)
+    with SyncLock(tmp_path) as lock:
+        assert lock.acquired
+        assert lab_sources.lock_is_held(tmp_path)
+
+
+def test_a_running_status_nobody_holds_reads_as_interrupted(tmp_path):
+    (tmp_path / "data").mkdir()
+    add_source(tmp_path, str(tmp_path / "data"))
+    lab_sources.write_sync_status(tmp_path, {"state": "running", "started": "x", "sources": []})
+    sync = lab_sources.BackgroundSync(tmp_path, on_done=lambda: None)
+    state = sync.state()
+    assert not state["running"]
+    assert state["status"]["state"] == "interrupted"
+    with SyncLock(tmp_path):  # e.g. a foreground `nv matlab` holding the lock
+        state = sync.state()
+        assert state["running"]
+        assert state["status"]["state"] == "running"

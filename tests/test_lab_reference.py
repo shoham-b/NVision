@@ -156,3 +156,24 @@ def test_shot_reuse_counts_draws_per_distinct_shot():
     for _ in range(50):
         locator_half.measure(0.5, lo, hi)  # one bin, two even sweeps: at most 2 distinct shots
     assert locator_half.shot_reuse == pytest.approx(25.0)
+
+
+def test_a_reference_on_a_prior_bound_gives_no_z():
+    # A doublet split far below the line width: the fit lands on zeeman_shift = 0, where its sigma means nothing.
+    rng = np.random.default_rng(5)
+    drive_freq_phys = np.linspace(2860e6, 2880e6, 67)
+    truth = dict(_TRUTH, zeeman_shift=0.0, hwhm=1.0e6)
+    shots = _model_signal(drive_freq_phys, truth)[:, None] + rng.normal(0.0, _NOISE, size=(67, 20))
+    data = MatlabDataFile(
+        drive_freq_phys=drive_freq_phys,
+        signal=shots.mean(axis=1),
+        noise_std=_NOISE,
+        n_valid_shots=20,
+        shot_ratios=shots,
+    )
+    _, reference_half = data.split_sweeps()
+    ref = fit_reference(reference_half.drive_freq_phys, reference_half.shot_ratios, _bounds(reference_half))
+    assert "zeeman_shift" in ref.at_bound
+    cols = holdout_metrics(ref.values_phys, {k: 1e5 for k in ref.values_phys}, ref)
+    assert "holdout_z_zeeman_shift" not in cols
+    assert cols["ref_zeeman_shift_at_bound"] == 1

@@ -308,11 +308,20 @@ def matlab(
         particles=particles,
         infer_zero_field_freq=infer_zero_field_freq,
     )
-    try:
-        failures = sync_source(entry, directory, sweeps=sweeps, out=out, **options)
-    except (ValueError, RuntimeError) as exc:
-        typer.echo(f"Error: {exc}")
-        raise typer.Exit(code=1) from exc
+    from nvision.tools.lab_sources import SyncLock
+
+    with SyncLock(directory) as lock:
+        if not lock.acquired:
+            typer.echo(
+                "Another lab sync is running for this directory (e.g. the one `nv serve` started); the source is "
+                "saved and its files are processed by the next sync (the lab page's Sync now button)."
+            )
+            return
+        try:
+            failures = sync_source(entry, directory, sweeps=sweeps, out=out, **options)
+        except (ValueError, RuntimeError) as exc:
+            typer.echo(f"Error: {exc}")
+            raise typer.Exit(code=1) from exc
     typer.echo(f'\nView: uv run nv serve --dir "{directory}"')
     if failures:
         raise typer.Exit(code=1)
@@ -342,18 +351,21 @@ def matlab_sync(
             return
         status: dict[str, Any] = {"state": "running", "started": datetime.now(UTC).isoformat(), "sources": []}
         write_sync_status(directory, status)
-        for entry in sources:
-            item: dict[str, Any] = {"label": entry["label"], "failures": [], "error": None}
-            status["sources"].append(item)
-            try:
-                item["failures"] = sync_source(entry, directory, **_SYNC_SWEEP_OPTIONS)
-            except (ValueError, RuntimeError) as exc:
-                log.exception("lab sync failed for %s", entry["label"])
-                item["error"] = str(exc)
+        try:
+            for entry in sources:
+                item: dict[str, Any] = {"label": entry["label"], "failures": [], "error": None}
+                status["sources"].append(item)
+                try:
+                    item["failures"] = sync_source(entry, directory, **_SYNC_SWEEP_OPTIONS)
+                except Exception as exc:  # reported on the lab page; the other sources still sync
+                    log.exception("lab sync failed for %s", entry["label"])
+                    item["error"] = f"{type(exc).__name__}: {exc}"
+                write_sync_status(directory, status)
+        finally:
+            failed = any(s["error"] or s["failures"] for s in status["sources"])
+            status["state"] = "failed" if failed or len(status["sources"]) < len(sources) else "done"
+            status["finished"] = datetime.now(UTC).isoformat()
             write_sync_status(directory, status)
-        status["state"] = "failed" if any(s["error"] or s["failures"] for s in status["sources"]) else "done"
-        status["finished"] = datetime.now(UTC).isoformat()
-        write_sync_status(directory, status)
 
 
 def sync_source(
@@ -380,6 +392,7 @@ def sync_source(
         if kind == "unreadable":
             typer.echo(f"  Skipped (not a readable MATLAB file): {f.relative_to(base).as_posix()}")
 
+    bayes_failures: list[str] = []
     by_folder: dict[Path, list[Path]] = {}
     for f in files:
         if kinds[f] == "bayesian":
@@ -390,22 +403,29 @@ def sync_source(
         if not index.folder_changed(folder_files, base) and stats_dir.exists():
             continue
         own = folder / "convergence_statistics"
-        if (own / "window_summary.csv").exists():
-            shutil.copytree(own, stats_dir, dirs_exist_ok=True)  # the lab's own script already summarised these
-            typer.echo(f"Lab study {rel}: kept the lab's own statistics ({len(folder_files)} runs)")
-        else:
-            runs_by_folder, _ = load_bayesian_runs(folder_files)
-            write_statistics(runs_by_folder[folder], stats_dir)
-            typer.echo(f"Lab study {rel}: processed {len(folder_files)} runs")
+        try:
+            if (own / "window_summary.csv").exists():
+                shutil.copytree(own, stats_dir, dirs_exist_ok=True)  # the lab's own script already summarised these
+                typer.echo(f"Lab study {rel}: kept the lab's own statistics ({len(folder_files)} runs)")
+            else:
+                runs_by_folder, _ = load_bayesian_runs(folder_files)
+                if folder not in runs_by_folder:
+                    raise ValueError("none of its Bayesian ESR files could be read as a run")
+                write_statistics(runs_by_folder[folder], stats_dir)
+                typer.echo(f"Lab study {rel}: processed {len(folder_files)} runs")
+        except Exception as exc:  # one bad folder must not stop the others or the sweeps; reported as a failure
+            log.exception("lab study failed for %s", folder)
+            typer.echo(f"FAILED: lab study {rel.as_posix()}: {type(exc).__name__}: {exc}")
+            bayes_failures.append(f"{rel.as_posix()}/ (Bayesian runs)")
     index.save()
 
     sweep_files = [f for f in files if kinds[f] == "sweep"]
     todo = [f for f in sweep_files if not sweep_record_is_current(sweep_record_path(label_dir, f, base), f)]
     if sweep_files and not sweeps:
         typer.echo(f"Skipped {len(sweep_files)} raw sweep file(s) (--no-sweeps).")
-        return []
+        return bayes_failures
     typer.echo(f"Raw sweeps: {len(sweep_files)}, {len(todo)} new or changed.")
-    failures: list[str] = []
+    failures: list[str] = list(bayes_failures)
     summaries: list[_MatlabRunSummary] = []
     for i, f in enumerate(todo, 1):
         rel = f.relative_to(base).as_posix()
@@ -424,7 +444,7 @@ def sync_source(
             _write_sweep_record(out / f"{Path(rel).with_suffix('')}.json", f, base, record)
         typer.echo("")
     if todo:
-        typer.echo(f"Done: {len(todo) - len(failures)}/{len(todo)} succeeded.")
+        typer.echo(f"Done: {len(todo) - len(failures) + len(bayes_failures)}/{len(todo)} succeeded.")
     if failures:
         typer.echo(f"Failed: {', '.join(failures)}")
     if summaries:
@@ -651,6 +671,8 @@ def _matlab_run_one(
         for name in ("zeeman_shift", "zero_field_freq"):
             if f"holdout_z_{name}" in holdout_cols:
                 typer.echo(f"  {name:20s}: z = {holdout_cols[f'holdout_z_{name}']:+.2f}")
+            elif f"ref_{name}_at_bound" in holdout_cols:
+                typer.echo(f"  {name:20s}: no z (the reference fit sits on the prior bound: not resolved)")
 
     noise_name = "real-holdout" if holdout else "real"
     record: dict[str, Any] = {

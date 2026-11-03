@@ -44,6 +44,9 @@ class ReferenceFit:
     n_bins: int
     n_shots: int
     noise_std: float  # pooled per-shot std of the held-out shots (ddof per bin)
+    # Free parameters the fit left on a bound of the locator's prior (e.g. zeeman_shift = 0 when the doublet is not
+    # resolved): their sigma is meaningless (the Gaussian covariance does not apply at an edge), so no z is formed.
+    at_bound: tuple[str, ...] = ()
 
 
 def _model_signal(drive_freq_phys: np.ndarray, p: Mapping[str, float]) -> np.ndarray:
@@ -163,6 +166,8 @@ def fit_reference(
 
     values = to_phys(popt)
     sigmas = {name: float(math.sqrt(d)) * scale[name] for name, d in zip(free, diag, strict=True)}
+    edge = 1e-6 * (hi - lo)
+    at_bound = tuple(n for n, v, a, b, e in zip(free, popt, lo, hi, edge, strict=True) if v - a <= e or b - v <= e)
     if fixed_zero_field_freq_phys is not None:
         sigmas["zero_field_freq"] = 0.0
     dof = int(keep.sum()) - len(free)
@@ -179,6 +184,7 @@ def fit_reference(
         n_bins=int(keep.sum()),
         n_shots=int(n_per_bin.sum()),
         noise_std=noise_std,
+        at_bound=at_bound,
     )
 
 
@@ -187,7 +193,8 @@ def holdout_metrics(
 ) -> dict[str, float | int]:
     """Flat ``ref_*`` / ``holdout_z_*`` columns for the result row (physical units).
 
-    ``holdout_z_<p>`` is signed: ``(estimate - ref) / sqrt(sigma^2 + sigma_ref^2)``.
+    ``holdout_z_<p>`` is signed: ``(estimate - ref) / sqrt(sigma^2 + sigma_ref^2)``. A parameter the reference
+    left on a prior bound gets ``ref_<p>_at_bound = 1`` and no z: there is nothing to check it against.
     """
     out: dict[str, float | int] = {
         "ref_chi2_dof": ref.chi2_dof,
@@ -201,6 +208,9 @@ def holdout_metrics(
     for name in HOLDOUT_PARAMS:
         sigma_ref = ref.sigmas_phys[name]
         if sigma_ref == 0.0:  # held fixed: nothing to check
+            continue
+        if name in ref.at_bound:
+            out[f"ref_{name}_at_bound"] = 1
             continue
         combined = math.hypot(float(uncertainties_phys[name]), sigma_ref)
         out[f"holdout_z_{name}"] = (float(estimates_phys[name]) - ref.values_phys[name]) / combined
@@ -245,6 +255,8 @@ def lab_sweeps_payload(records: list[dict]) -> dict:
                 "ref_zeeman_sigma_mhz": _mhz(ref["ref_zeeman_shift_sigma"]),
                 "z_zeeman": ref.get("holdout_z_zeeman_shift"),
                 "z_center": ref.get("holdout_z_zero_field_freq"),
+                "ref_zeeman_at_bound": bool(ref.get("ref_zeeman_shift_at_bound")),
+                "ref_center_at_bound": bool(ref.get("ref_zero_field_freq_at_bound")),
                 "ref_chi2_dof": ref["ref_chi2_dof"],
                 "shot_reuse": held["shot_reuse"],
             }

@@ -37,7 +37,10 @@ async function renderLabSync(bar) {
         line = 'Not synced yet.';
     } else {
         const failed = st.sources.flatMap((s) => [...(s.error ? [`${s.label}: ${s.error}`] : []), ...s.failures.map((f) => `${s.label}/${f}`)]);
-        line = `Last sync ${when(st.finished || st.started)} · ${st.state === 'done' ? 'all files processed' : `<span style="color:#b91c1c;">${failed.length} problem(s)</span>`}`;
+        const outcome = st.state === 'done' ? 'all files processed'
+            : st.state === 'interrupted' ? '<span style="color:#b91c1c;">interrupted before it finished (press Sync now)</span>'
+            : `<span style="color:#b91c1c;">${failed.length} problem(s)</span>`;
+        line = `Last sync ${when(st.finished || st.started)} · ${outcome}`;
         if (failed.length) line += `<ul style="margin:0.3em 0 0; color:#b91c1c;">${failed.map((f) => `<li style="font-family:ui-monospace,monospace;">${f}</li>`).join('')}</ul>`;
     }
     bar.innerHTML = `
@@ -146,7 +149,8 @@ async function renderLabSweeps(body, fmt) {
     const cell = 'border:1px solid #e2e8f0; padding:0.35em 0.6em; text-align:right;';
     const mono = 'font-family:ui-monospace,monospace;';
     const pm = (v, s, d = 3) => (v == null ? '–' : `${fmt(v, d)} ± ${fmt(s, d)}`);
-    const zCell = (z) => (z == null ? '–' : `<span style="${Math.abs(z) > 2 ? 'color:#b91c1c; font-weight:bold;' : ''}">${z >= 0 ? '+' : ''}${fmt(z)}</span>`);
+    const zCell = (z, atBound) => (atBound ? '<span style="color:#b45309;" title="The reference fit sits on the prior bound of this parameter (for zeeman_shift: 0, the doublet is not resolved), so it has no usable σ_ref and no z is formed. Not counted in the shares.">ref on bound</span>'
+        : z == null ? '–' : `<span style="${Math.abs(z) > 2 ? 'color:#b91c1c; font-weight:bold;' : ''}">${z >= 0 ? '+' : ''}${fmt(z)}</span>`);
     const cols = [
         ['File', 'Recording file name.', (r) => `<span style="${mono} text-align:left;">${r.file}</span>`],
         ['Sweeps', 'Complete passes of the instrument over every drive_freq point recorded in the file (shot columns).', (r) => r.n_sweeps],
@@ -155,9 +159,9 @@ async function renderLabSweeps(body, fmt) {
         ['Converged at', 'Step from which the claimed σ of zeeman_shift stayed under the stop ceiling; – if it never did.', (r) => r.converged_step ?? '–'],
         ['zeeman_shift, all data (MHz)', 'SBED on every sweep: estimate ± claimed σ.', (r) => pm(r.zeeman_mhz, r.zeeman_sigma_mhz)],
         ['zeeman_shift, even sweeps (MHz)', 'SBED given only the even sweeps: estimate ± claimed σ. This is the run the z checks.', (r) => pm(r.holdout_zeeman_mhz, r.holdout_zeeman_sigma_mhz)],
-        ['Reference, odd sweeps (MHz)', 'Least-squares fit of the odd sweeps, which SBED never saw, with the same model and bounds: value ± σ_ref.', (r) => pm(r.ref_zeeman_mhz, r.ref_zeeman_sigma_mhz)],
-        ['z zeeman_shift', '(even-sweep estimate − reference) / √(σ² + σ_ref²). Honest σ: |z| ≤ 1 for about 68% of files, ≤ 2 for 95%. Bold red: |z| > 2.', (r) => zCell(r.z_zeeman)],
-        ['z zero_field_freq', 'The same check for the dip centre zero_field_freq.', (r) => zCell(r.z_center)],
+        ['Reference, odd sweeps (MHz)', 'Least-squares fit of the odd sweeps, which SBED never saw, with the same model and bounds: value ± σ_ref.', (r) => (r.ref_zeeman_at_bound ? `${fmt(r.ref_zeeman_mhz, 3)} (on bound)` : pm(r.ref_zeeman_mhz, r.ref_zeeman_sigma_mhz))],
+        ['z zeeman_shift', '(even-sweep estimate − reference) / √(σ² + σ_ref²). Honest σ: |z| ≤ 1 for about 68% of files, ≤ 2 for 95%. Bold red: |z| > 2.', (r) => zCell(r.z_zeeman, r.ref_zeeman_at_bound)],
+        ['z zero_field_freq', 'The same check for the dip centre zero_field_freq.', (r) => zCell(r.z_center, r.ref_center_at_bound)],
         ['Reference χ²/dof', `Goodness of the reference fit. Above ${data.chi2_dof_warn} the Lorentzian model does not describe the data, so σ_ref is too small and |z| too large.`, (r) => `<span style="${r.ref_chi2_dof > data.chi2_dof_warn ? 'color:#b45309; font-weight:bold;' : ''}">${fmt(r.ref_chi2_dof)}</span>`],
         ['Shot reuse', 'Draws per distinct recorded shot in the even-sweep run. SBED draws shots with replacement and counts each draw as new evidence, so well above 1 makes its σ too small.', (r) => fmt(r.shot_reuse, 1)],
     ];
