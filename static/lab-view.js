@@ -64,10 +64,10 @@ async function renderLabSync(bar) {
 
 
 // Fit sigma(n) = 1/sqrt(J0 + n*I) to a curve (steps n >= 1, sigma > 0) by Nelder-Mead on (log J0, log I), minimising
-// sum (log sigma_k + 0.5 log(J0 + n_k I))^2 / n_k. Returns { J0, I }.
+// sum (log sigma_k + 0.5 log(J0 + n_k I))^2 (every step equally weighted; a 1/n weight left the late steps off by up to 5x). Returns { J0, I }.
 function fitInfoCurve(steps, sigma) {
     const pts = steps.map((n, k) => [n, sigma[k]]).filter(([n, s]) => n > 0 && s > 0);
-    const cost = ([lj, li]) => pts.reduce((a, [n, s]) => a + (Math.log(s) + 0.5 * Math.log(Math.exp(lj) + n * Math.exp(li))) ** 2 / n, 0);
+    const cost = ([lj, li]) => pts.reduce((a, [n, s]) => a + (Math.log(s) + 0.5 * Math.log(Math.exp(lj) + n * Math.exp(li))) ** 2, 0);
     const [n0, s0] = pts[0], [n1, s1] = pts[pts.length - 1];
     const I0 = Math.max((1 / (s1 * s1) - 1 / (s0 * s0)) / Math.max(n1 - n0, 1), 1e-12);
     let simplex = [[Math.log(1 / (s0 * s0)), Math.log(I0)], [Math.log(1 / (s0 * s0)) + 1, Math.log(I0)], [Math.log(1 / (s0 * s0)), Math.log(I0) + 1]].map((x) => ({ x, f: cost(x) }));
@@ -144,7 +144,7 @@ async function renderLabStudy(container, name) {
         traces.push({ x: c.step, y: c.claimed_q25, mode: 'lines', line: { width: 0 }, fill: 'tonexty', fillcolor: color + '22', hoverinfo: 'skip', showlegend: false, legendgroup: name });
         // Whole-curve fit of the claimed median to sigma = 1/sqrt(J0 + n*I): J0 = information at the prior, I = information
         // per measurement (1/MHz^2). A scale a in a/sqrt(...) would be degenerate with J0 and I, so a = 1. Least squares in
-        // log sigma with weight 1/n, so every decade of steps counts equally.
+        // log sigma, every step weighted equally so the end of the curve is matched.
         const fit = fitInfoCurve(c.step, c.claimed_median);
         traces.push({ x: c.step, y: c.claimed_median, mode: 'lines', line: { color, width: 2 }, name: `${name} claimed (I=${fit.I.toPrecision(2)}/meas, J0=${fit.J0.toPrecision(2)})`, legendgroup: name });
         traces.push({ x: c.step, y: c.step.map((n) => 1 / Math.sqrt(fit.J0 + n * fit.I)), mode: 'lines', line: { color, width: 3, dash: 'dot' }, hoverinfo: 'skip', showlegend: false, legendgroup: name, meta: 'guide' });
