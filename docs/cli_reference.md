@@ -126,6 +126,15 @@ A Drive link is downloaded first with `rclone` (read-only `gdrive` remote; `.png
 - `--sweeps` / `--no-sweeps`: run SBED on raw sweeps (default: only for a single `.mat` file).
 - `--noise-std`, `--max-steps` (default 300), `--valid-shots`, `--particles` (default 10000), `--out`, `--no-ui`,
   `--no-progress`, `--infer-center-freq` / `--no-infer-center-freq`: options of the sweep (SBED) runs.
+- `--holdout`: check SBED's claimed σ on real data. SBED gets only the even sweeps; the odd ones are fitted with
+  the same model and bounds as an independent reference, and each run reports
+  z = (estimate − ref) / √(σ² + σ_ref²) for `zeeman_shift` and `zero_field_freq`, plus the fit's χ²/dof (above 2 a
+  warning: the model does not describe the data, so z is too optimistic). A folder run ends with the share of files
+  with |z| ≤ 1 / ≤ 2 against 68% / 95%. One file is one independent z, so coverage is across files, never across
+  seeds on one file. Stored as noise `real-holdout` (its own cache entry), columns `ref_*` and `holdout_z_*`. See
+  `nvision/metrics/lab_reference.py`. Every sweep run also records `shot_reuse`, draws per distinct recorded shot:
+  shots are drawn with replacement and each reuse counts as new evidence, so a value well above 1 shrinks the
+  claimed σ (and halving the data with `--holdout` doubles it).
 
 **Example Use Cases:**
 ```bash
@@ -138,6 +147,9 @@ uv run nv matlab data/matlab/sample.mat
 
 # Every raw sweep in a folder, writing per-file JSON summaries
 uv run nv matlab data/matlab --sweeps --out artifacts/matlab_summaries
+
+# Is SBED's claimed sigma honest on real data? (held-out sweeps as the reference)
+uv run nv matlab data/matlab --sweeps --holdout --no-ui
 
 # View sweep results in their own small, fast-to-reload cache
 uv run nv serve --dir artifacts/matlab

@@ -39,6 +39,8 @@ class _MatlabRunSummary:
     primary_converged_step: int | None
     all_converged_step: int | None
     total_steps: int
+    # Signed holdout z per parameter (see nvision.metrics.lab_reference); None without --holdout.
+    holdout_z: dict[str, float] | None = None
 
 
 def _echo_convergence_breakdown(summaries: list[_MatlabRunSummary]) -> None:
@@ -61,6 +63,23 @@ def _echo_convergence_breakdown(summaries: list[_MatlabRunSummary]) -> None:
         for s, step in zip(summaries, steps, strict=True):
             status = f"step {step}" if step is not None else "not converged"
             typer.echo(f"    {s.file_name:40s} {status}")
+    _echo_holdout_coverage([s.holdout_z for s in summaries if s.holdout_z is not None])
+
+
+def _echo_holdout_coverage(zs: list[dict[str, float]]) -> None:
+    """Share of files whose held-out z is within 1 and 2 sigma, against the Gaussian 68% / 95%.
+
+    One file is one independent z per parameter, so this is coverage across files.
+    """
+    if not zs:
+        return
+    typer.echo(f"\nHoldout coverage over {len(zs)} file(s) (nominal 68% / 95%):")
+    for name in sorted({k for z in zs for k in z}):
+        vals = np.array([abs(z[name]) for z in zs if name in z])
+        typer.echo(
+            f"  {name:16s}: |z|<=1 {np.mean(vals <= 1):.0%}  |z|<=2 {np.mean(vals <= 2):.0%}  "
+            f"median |z| {np.median(vals):.2f}  (n={vals.size})"
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -244,6 +263,16 @@ def matlab(
             ),
         ),
     ] = True,
+    holdout: Annotated[
+        bool,
+        typer.Option(
+            "--holdout",
+            help=(
+                "Sweeps: give SBED only the even sweeps and fit the odd ones as an independent reference, "
+                "then report z = (estimate - ref) / combined sigma. Stored under noise 'real-holdout'."
+            ),
+        ),
+    ] = False,
 ) -> None:
     """Load the lab's MATLAB data from a Drive link or a local path, and show it in ``nv serve``.
 
@@ -309,6 +338,7 @@ def matlab(
         no_ui=no_ui,
         particles=particles,
         infer_zero_field_freq=infer_zero_field_freq,
+        holdout=holdout,
     )
     if not runs_by_folder and not (others and run_sweeps):
         typer.echo("Error: nothing to load from this source.")
@@ -398,6 +428,7 @@ def _matlab_run_one(
     no_ui: bool,
     particles: int,
     infer_zero_field_freq: bool,
+    holdout: bool,
 ) -> _MatlabRunSummary:
     """Run the SBED locator on a single ESR .mat file (the body of ``matlab-run``)."""
     from nvision.noises.over_frequency.gaussian_noise import OverFrequencyGaussianNoise
@@ -408,6 +439,13 @@ def _matlab_run_one(
     # --- Load data ---
     typer.echo(f"Loading: {matlab_file}")
     data = MatlabDataFile.load(matlab_file, valid_shots=valid_shots, noise_std_override=noise_std)
+    ref_data = None
+    if holdout:
+        data, ref_data = data.split_sweeps(noise_std)
+        typer.echo(
+            f"Holdout: SBED gets the {data.n_valid_shots} even sweeps, "
+            f"the reference fit the {ref_data.n_valid_shots} odd ones"
+        )
 
     drive_freq_min_phys = float(data.drive_freq_phys.min())
     drive_freq_max_phys = float(data.drive_freq_phys.max())
@@ -447,6 +485,10 @@ def _matlab_run_one(
         "contrast_total": _REAL_DATA_CONTRAST_TOTAL_BOUNDS,
     }
 
+    ref = None
+    if ref_data is not None:
+        ref = _fit_holdout_reference(ref_data, locator_bounds, infer_zero_field_freq)
+
     # The SMC default (1000 particles, 1% exploration) is tuned for a live instrument,
     # where each measurement is expensive and the run must stay cheap. On these
     # 4-parameter real-data posteriors it is too thin to resolve the modes reliably:
@@ -472,27 +514,33 @@ def _matlab_run_one(
     t0 = time.monotonic()
     ts_str = datetime.now(UTC).isoformat()
 
-    if not no_ui:
-        run_result = _run_with_observer(locator, data, drive_freq_min_phys, drive_freq_max_phys, no_progress)
-    else:
-        # Plain loop — no artifact tracking
-        for _ in _matlab_loop(locator, data, drive_freq_min_phys, drive_freq_max_phys, no_progress):
-            pass
-        run_result = None
+    # Always recorded: the convergence milestones are read off the recorded run (as for every
+    # simulated locator, see nvision/metrics/milestones.py), not kept on the locator.
+    run_result = _run_with_observer(locator, data, drive_freq_min_phys, drive_freq_max_phys, no_progress)
 
     elapsed = time.monotonic() - t0
 
+    from nvision.metrics.milestones import detect_all_converged_step, detect_milestone
+
+    primary_idx = detect_milestone(run_result, "zeeman_shift")
+    primary_converged_step = None if primary_idx is None else primary_idx + 1
+    all_converged_step = detect_all_converged_step(run_result)
+
     # --- Final report ---
     typer.echo("")
-    if locator.primary_converged_step is not None:
-        typer.echo(f"Converged at step {locator.primary_converged_step}.")
+    if primary_converged_step is not None:
+        typer.echo(f"Converged at step {primary_converged_step}.")
     else:
         typer.echo("Did not converge within the step budget.")
 
-    if locator.all_converged_step is not None:
-        typer.echo(f"All parameters converged at step {locator.all_converged_step}.")
+    if all_converged_step is not None:
+        typer.echo(f"All parameters converged at step {all_converged_step}.")
 
-    typer.echo(f"Total steps: {locator.step_count}  |  elapsed: {elapsed:.1f}s\n")
+    shot_reuse = data.shot_reuse
+    typer.echo(
+        f"Total steps: {locator.step_count}  |  draws per distinct recorded shot: {shot_reuse:.1f}  |  "
+        f"elapsed: {elapsed:.1f}s\n"
+    )
 
     final_est = locator.belief.estimates()
     final_unc = locator.belief.uncertainty()
@@ -504,8 +552,18 @@ def _matlab_run_one(
         scale = 1e-6 if unit == "MHz" else 1.0
         typer.echo(f"  {param:20s}: {val * scale:.4f} +/- {unc_val * scale:.4f} {unit}".rstrip())
 
+    holdout_cols: dict[str, float | int] = {}
+    if ref is not None:
+        from nvision.metrics.lab_reference import holdout_metrics
+
+        holdout_cols = holdout_metrics(final_est, final_unc, ref)
+        typer.echo("\nHoldout check (z = (estimate - ref) / combined sigma):")
+        for name in ("zeeman_shift", "zero_field_freq"):
+            if f"holdout_z_{name}" in holdout_cols:
+                typer.echo(f"  {name:20s}: z = {holdout_cols[f'holdout_z_{name}']:+.2f}")
+
     # --- Write artifacts ---
-    if run_result is not None:
+    if not no_ui:
         out_dir = _write_artifacts(
             locator=locator,
             run_result=run_result,
@@ -516,6 +574,10 @@ def _matlab_run_one(
             max_steps=max_steps,
             elapsed=elapsed,
             ts_str=ts_str,
+            primary_converged_step=primary_converged_step,
+            all_converged_step=all_converged_step,
+            noise_name="real-holdout" if holdout else "real",
+            extra_metrics={"shot_reuse": shot_reuse, **holdout_cols},
         )
         typer.echo(f"\nArtifacts written to: {out_dir}")
         typer.echo(
@@ -538,22 +600,58 @@ def _matlab_run_one(
             "noise_std": data.noise_std,
             "max_steps": max_steps,
             "total_steps": locator.step_count,
-            "primary_converged_step": locator.primary_converged_step,
-            "all_converged_step": locator.all_converged_step,
+            "primary_converged_step": primary_converged_step,
+            "all_converged_step": all_converged_step,
             "elapsed_s": round(elapsed, 2),
+            "shot_reuse": shot_reuse,
             "estimates": {k: float(v) for k, v in final_est.items()},
             "uncertainties": {k: float(v) for k, v in final_unc.items()},
         }
+        if holdout_cols:
+            result["holdout"] = holdout_cols
         out.parent.mkdir(parents=True, exist_ok=True)
         out.write_text(json.dumps(result, indent=2))
         typer.echo(f"\nResults written to: {out}")
 
     return _MatlabRunSummary(
         file_name=Path(matlab_file).name,
-        primary_converged_step=locator.primary_converged_step,
-        all_converged_step=locator.all_converged_step,
+        primary_converged_step=primary_converged_step,
+        all_converged_step=all_converged_step,
         total_steps=locator.step_count,
+        holdout_z={
+            k.removeprefix("holdout_z_"): float(v) for k, v in holdout_cols.items() if k.startswith("holdout_z_")
+        }
+        if ref is not None
+        else None,
     )
+
+
+def _fit_holdout_reference(ref_data: Any, locator_bounds: dict[str, tuple[float, float]], infer_zero_field_freq: bool):
+    """Fit the held-out sweeps with the locator's model and bounds; echo the result."""
+    from nvision.metrics.lab_reference import CHI2_DOF_WARN, fit_reference
+    from nvision.spectra.nv_center import NV_ZERO_FIELD_SPLITTING_HZ, nv_center_lorentzian_bounds_for_domain
+
+    lo, hi = locator_bounds["zero_field_freq"]
+    # The same merge nv_center_smc_belief does: domain defaults, overridden by the locator's own bounds.
+    bounds = nv_center_lorentzian_bounds_for_domain(lo, hi, hyperfine="unresolved", with_zeeman_splitting=True)
+    bounds.update(locator_bounds)
+    ref = fit_reference(
+        ref_data.drive_freq_phys,
+        ref_data.shot_ratios,
+        bounds,
+        fixed_zero_field_freq_phys=None if infer_zero_field_freq else NV_ZERO_FIELD_SPLITTING_HZ,
+    )
+    typer.echo(
+        f"Reference fit on held-out sweeps ({ref.n_bins} bins, {ref.n_shots} shots, "
+        f"shot std {ref.noise_std:.4f}), chi2/dof {ref.chi2_dof:.2f}:"
+    )
+    for name, value in ref.values_phys.items():
+        scale, unit = (1.0, "") if name == "contrast_total" else (1e-6, " MHz")
+        typer.echo(f"  {name:20s}: {value * scale:.4f} +/- {ref.sigmas_phys[name] * scale:.4f}{unit}")
+    if ref.chi2_dof > CHI2_DOF_WARN:
+        typer.echo("  WARNING: the model does not describe the held-out data; sigma_ref and z are too optimistic.")
+    typer.echo("")
+    return ref
 
 
 def _run_with_observer(
@@ -584,6 +682,10 @@ def _write_artifacts(
     max_steps: int,
     elapsed: float,
     ts_str: str,
+    noise_name: str,
+    extra_metrics: dict[str, float | int],
+    primary_converged_step: int | None,
+    all_converged_step: int | None,
 ) -> Path:
     """Write locator_results.parquet, plots_manifest.json, and Bayesian plots."""
     from nvision.cache import CacheBridge
@@ -614,7 +716,6 @@ def _write_artifacts(
     write_run_status(out_dir, "running", total_tasks=1, completed_tasks=0, pid=os.getpid())
 
     gen_name = f"MATLAB:{Path(matlab_file).name}"
-    noise_name = "real"
     strat_name = "Bayesian-SBED"
     repeat_id = 0
 
@@ -626,13 +727,14 @@ def _write_artifacts(
 
     locator_result = locator.result()
     finalize_record = run_result_to_finalize_record(run_result, locator_result, repeat_id)
-    finalize_record["primary_converged_step"] = locator.primary_converged_step
-    finalize_record["all_converged_step"] = locator.all_converged_step
+    finalize_record["primary_converged_step"] = primary_converged_step
+    finalize_record["all_converged_step"] = all_converged_step
     finalize_record["locator_steps"] = locator.step_count
     finalize_record["duration_ms"] = elapsed * 1000
+    finalize_record["converged"] = primary_converged_step is not None
     finalize_df = pl.DataFrame([finalize_record])
 
-    stop_reason = "converged" if locator.primary_converged_step is not None else "max_steps"
+    stop_reason = "converged" if primary_converged_step is not None else "max_steps"
 
     entry_base, main_result_row, current_history_df = generate_attempt_metrics(
         n_repeats=1,
@@ -649,8 +751,11 @@ def _write_artifacts(
         strat_obj=None,
         max_steps=max_steps,
         seed=None,
-        run_result=run_result,
+        # No run_result: its milestone and stage metrics are measured against the true signal's model and
+        # parameters, which real data does not have. The milestones come from _matlab_run_one instead.
+        run_result=None,
     )
+    main_result_row.update(primary_converged_step=primary_converged_step, all_converged_step=all_converged_step)
 
     # Generate scan + Bayesian plots
     viz = Viz(out_dir=out_dir)
@@ -685,6 +790,8 @@ def _write_artifacts(
             stats_entry["path"] = str(stats_path.relative_to(out_dir))
             stats_entry["_bytes"] = stats_bytes
             plot_manifest.append(stats_entry)
+
+    main_result_row.update(extra_metrics)
 
     # Write locator_results.parquet (merge with existing)
     loc_df = pl.DataFrame([main_result_row])
