@@ -62,6 +62,33 @@ async function renderLabSync(bar) {
     }
 }
 
+
+// Fit sigma(n) = 1/sqrt(J0 + n*I) to a curve (steps n >= 1, sigma > 0) by Nelder-Mead on (log J0, log I), minimising
+// sum (log sigma_k + 0.5 log(J0 + n_k I))^2 / n_k. Returns { J0, I }.
+function fitInfoCurve(steps, sigma) {
+    const pts = steps.map((n, k) => [n, sigma[k]]).filter(([n, s]) => n > 0 && s > 0);
+    const cost = ([lj, li]) => pts.reduce((a, [n, s]) => a + (Math.log(s) + 0.5 * Math.log(Math.exp(lj) + n * Math.exp(li))) ** 2 / n, 0);
+    const [n0, s0] = pts[0], [n1, s1] = pts[pts.length - 1];
+    const I0 = Math.max((1 / (s1 * s1) - 1 / (s0 * s0)) / Math.max(n1 - n0, 1), 1e-12);
+    let simplex = [[Math.log(1 / (s0 * s0)), Math.log(I0)], [Math.log(1 / (s0 * s0)) + 1, Math.log(I0)], [Math.log(1 / (s0 * s0)), Math.log(I0) + 1]].map((x) => ({ x, f: cost(x) }));
+    for (let it = 0; it < 400; it++) {
+        simplex.sort((u, v) => u.f - v.f);
+        const [best, , worst] = simplex;
+        const cen = [0, 1].map((d) => (simplex[0].x[d] + simplex[1].x[d]) / 2);
+        const move = (t) => { const x = cen.map((c, d) => c + t * (worst.x[d] - c)); return { x, f: cost(x) }; };
+        const refl = move(-1);
+        if (refl.f < best.f) { const exp = move(-2); simplex[2] = exp.f < refl.f ? exp : refl; }
+        else if (refl.f < simplex[1].f) simplex[2] = refl;
+        else {
+            const con = move(0.5);
+            if (con.f < worst.f) simplex[2] = con;
+            else simplex = simplex.map((v, k) => (k === 0 ? v : { x: v.x.map((c, d) => best.x[d] + 0.5 * (c - best.x[d])), f: null })).map((v) => ({ x: v.x, f: v.f ?? cost(v.x) }));
+        }
+    }
+    simplex.sort((u, v) => u.f - v.f);
+    return { J0: Math.exp(simplex[0].x[0]), I: Math.exp(simplex[0].x[1]) };
+}
+
 async function renderLabStudy(container, name) {
     const fmt = (x, d = 2) => (x == null || Number.isNaN(x) ? '–' : Number(x).toFixed(d));
     let bar = container.querySelector('#lab-sync');
@@ -104,7 +131,7 @@ async function renderLabStudy(container, name) {
         </table>
         <p style="color:#475569; font-size:0.85em;">No ground truth exists for real data: error is measured against the reference, so the across-run std also contains any real drift of the resonance between runs. Read "Spread ÷ claimed σ" as an upper bound on miscalibration: the runs disagree with each other by that many times the σ each one claims.</p>
         <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(420px, 1fr)); gap:1em;">
-            <div><h3 style="margin:0 0 0.3em; font-size:1em;">Claimed σ vs across-run spread <span tabindex="0" class="help-icon-visible" title="Solid: median self-reported posterior std (band: quartiles). Dashed: how far the runs' posterior means scatter from each other at that step (std across runs; not an error against a known truth). Dashed above solid means the runs disagree more than they claim. Both include only runs still measuring at that step.">?</span> <label style="font-weight:normal; font-size:0.85em; margin-left:0.8em;"><input type="checkbox" id="lab-show-spread" checked> show spread (dashed)</label> <label style="font-weight:normal; font-size:0.85em; margin-left:0.8em;"><input type="checkbox" id="lab-show-guide" checked> −1/2 fit where reached (dotted)</label></h3><div id="lab-sigma" style="height:420px"></div></div>
+            <div><h3 style="margin:0 0 0.3em; font-size:1em;">Claimed σ vs across-run spread <span tabindex="0" class="help-icon-visible" title="Solid: median self-reported posterior std (band: quartiles). Dashed: how far the runs' posterior means scatter from each other at that step (std across runs; not an error against a known truth). Dashed above solid means the runs disagree more than they claim. Both include only runs still measuring at that step.">?</span> <label style="font-weight:normal; font-size:0.85em; margin-left:0.8em;"><input type="checkbox" id="lab-show-spread" checked> show spread (dashed)</label> <label style="font-weight:normal; font-size:0.85em; margin-left:0.8em;"><input type="checkbox" id="lab-show-guide" checked> fit σ = 1/√(J0 + n·I) (dotted)</label></h3><div id="lab-sigma" style="height:420px"></div></div>
             <div><h3 style="margin:0 0 0.3em; font-size:1em;">Steps to convergence <span tabindex="0" class="help-icon-visible" title="Median number of measurements until the run's own stop rule fired, with the interquartile range, per drive_freq window.">?</span></h3><div id="lab-steps" style="height:420px"></div></div>
         </div>`;
     await ensurePlotly();
@@ -115,29 +142,12 @@ async function renderLabStudy(container, name) {
         const name = `${r.window_mhz} MHz`;
         traces.push({ x: c.step, y: c.claimed_q75, mode: 'lines', line: { width: 0 }, hoverinfo: 'skip', showlegend: false, legendgroup: name });
         traces.push({ x: c.step, y: c.claimed_q25, mode: 'lines', line: { width: 0 }, fill: 'tonexty', fillcolor: color + '22', hoverinfo: 'skip', showlegend: false, legendgroup: name });
-        // Log-log fit of the claimed median over a step range [lo, last]; slope is -1/2 once the posterior is asymptotic.
-        const last = c.step[c.step.length - 1];
-        const fit = (lo) => {
-            const ks = c.step.map((s, k) => k).filter((k) => c.step[k] >= lo && c.claimed_median[k] > 0);
-            const lx = ks.map((k) => Math.log(c.step[k])), ly = ks.map((k) => Math.log(c.claimed_median[k]));
-            const mx = lx.reduce((s, v) => s + v, 0) / lx.length, my = ly.reduce((s, v) => s + v, 0) / ly.length;
-            const slope = lx.reduce((s, v, k) => s + (v - mx) * (ly[k] - my), 0) / lx.reduce((s, v) => s + (v - mx) ** 2, 0);
-            return { slope, a: Math.exp(ly.reduce((s, v, k) => s + v + 0.5 * lx[k], 0) / lx.length) };  // a: sigma = a / sqrt(step)
-        };
-        // Longest end-anchored range (at least a factor 2.5 in steps) whose free slope is within 0.1 of -1/2.
-        let lo = Math.abs(fit(last / 10).slope + 0.5) < 0.1 ? c.step.find((s) => s >= last / 10) : null;  // the last decade first
-        for (let k = 0; lo === null && k < c.step.length; k++) {
-            if (c.step[k] * 2.5 > last) break;
-            // The second half of the range must also sit near -1/2, so a curve that has flattened again is not accepted.
-            if (Math.abs(fit(c.step[k]).slope + 0.5) < 0.1 && Math.abs(fit(Math.sqrt(c.step[k] * last)).slope + 0.5) < 0.15) { lo = c.step[k]; break; }
-        }
-        const tailFit = fit(last / 10);
-        const label = lo === null ? `slope ${tailFit.slope.toFixed(2)}, not at -1/2 yet` : `slope ${fit(lo).slope.toFixed(2)} from step ${lo}`;
-        traces.push({ x: c.step, y: c.claimed_median, mode: 'lines', line: { color, width: 2 }, name: `${name} claimed (${label})`, legendgroup: name });
-        if (lo !== null) {
-            const f = fit(lo), xs = [lo, last];
-            traces.push({ x: xs, y: xs.map((s) => f.a / Math.sqrt(s)), mode: 'lines', line: { color, width: 3, dash: 'dot' }, hoverinfo: 'skip', showlegend: false, legendgroup: name, meta: 'guide' });
-        }
+        // Whole-curve fit of the claimed median to sigma = 1/sqrt(J0 + n*I): J0 = information at the prior, I = information
+        // per measurement (1/MHz^2). A scale a in a/sqrt(...) would be degenerate with J0 and I, so a = 1. Least squares in
+        // log sigma with weight 1/n, so every decade of steps counts equally.
+        const fit = fitInfoCurve(c.step, c.claimed_median);
+        traces.push({ x: c.step, y: c.claimed_median, mode: 'lines', line: { color, width: 2 }, name: `${name} claimed (I=${fit.I.toPrecision(2)}/meas, J0=${fit.J0.toPrecision(2)})`, legendgroup: name });
+        traces.push({ x: c.step, y: c.step.map((n) => 1 / Math.sqrt(fit.J0 + n * fit.I)), mode: 'lines', line: { color, width: 3, dash: 'dot' }, hoverinfo: 'skip', showlegend: false, legendgroup: name, meta: 'guide' });
         traces.push({ x: c.actual_step, y: c.across_run_std, mode: 'lines', line: { color, width: 2, dash: 'dash' }, name: `${name} spread`, legendgroup: name, meta: 'spread' });
     });
     Plotly.newPlot('lab-sigma', traces, {
