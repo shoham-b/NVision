@@ -50,7 +50,7 @@ def test_matlab_command_fetches_a_drive_link_and_serve_finds_the_lab(tmp_path, m
     )
     assert result.exit_code == 0, result.output
     assert list(discover_labs([labs_dir(tmp_path)])) == ["runs"]
-    # Remembered, so `nv serve` / `nv matlab-sync` re-sync it without the link.
+    # Remembered, so `nv matlab` with no source re-syncs it without the link.
     from nvision.tools.lab_sources import load_sources
 
     assert [(e["kind"], e["source"]) for e in load_sources(tmp_path)] == [("drive", _ID)]
