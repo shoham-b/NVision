@@ -23,11 +23,11 @@ The noise is Gaussian, Eq.~\eqref{eq:noise}, as it is for the photon numbers of 
 is not known in advance: technical noise adds to the shot noise by an amount that depends on the setup and can drift.
 $\sigma$ is therefore inferred with the line, but not as a particle dimension. Given a particle's line, the Gaussian
 likelihood is conjugate to an inverse-gamma prior on $\sigma^2$, so each particle carries that posterior in closed
-form, updated from its own residuals, and $\sigma^2$ is integrated out exactly: a Rao--Blackwellised particle filter
+form, updated from its own residuals, and $\sigma^2$ is integrated out exactly: a Rao--Blackwellized particle filter
 with per-particle sufficient statistics \cite{storvik2002,carvalho2010pl}. A measurement then reweights each particle
 by a Student-$t$ predictive, the Gaussian likelihood averaged over that particle's noise posterior. Integrating out
 matters: a likelihood with a plug-in estimate of $\sigma$ is largest for a particle whose $\sigma$ happens to equal
-one residual, so resampling would favour such particles and drive $\sigma$ to its lower bound, while the Student-$t$
+one residual, so resampling would favor such particles and drive $\sigma$ to its lower bound, while the Student-$t$
 tails do not reward that. Old residuals are discounted, as in the variance discounting of dynamic linear models
 \cite{westharrison1997}, so the noise posterior can follow a slow drift of $\sigma$.
 
@@ -71,7 +71,7 @@ measures only at the steepest-slope points of the posterior-mean line, once the 
 the optimal information. Its coarse search uses the same grid points, and the same measured values, as the reference
 sweep of that repeat.
 
-\paragraph{Bayesian SBED.} SBED is the particle filter choosing each $x$ by Eq.~\eqref{eq:eig-var}, maximised over
+\paragraph{Bayesian SBED.} SBED is the particle filter choosing each $x$ by Eq.~\eqref{eq:eig-var}, maximized over
 candidate drive frequencies concentrated on the flanks of the posterior-mean line and on the dips found. The
 candidates are restricted to the focus: one section per detected dip, padded by one half width on each side, which
 widens at once when a new dip appears and narrows only after a delay. A strategy that has piled its measurements onto
@@ -100,7 +100,7 @@ $\hat\sigma_N$ too small at any $N$.
 \paragraph{Use cases.} A use case is one simulated signal at one noise level, set by the SNR, the drive window, the
 Gaussian share of the width and the isotope (Appendix~\ref{app:algorithm}). Every metric is computed within one use
 case, over repeats whose true signal is the same for every strategy, so strategies are compared run by run; several
-use cases are summarised by the median over them.
+use cases are summarized by the median over them.
 
 \paragraph{Metrics.} The accuracy at the end of a run is not a quality metric: every run stops once its claimed
 uncertainty is below the ceiling, so its final error mostly reflects the ceiling. We report instead whether the
