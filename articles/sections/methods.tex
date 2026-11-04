@@ -13,8 +13,9 @@ those of Sec.~\ref{sec:fisher}, the parameter of interest $\theta$ and the nuisa
 level $\sigma$, which is treated separately below.
 
 The posterior over $(\theta,\phi)$ is a weighted cloud of particles $\{(\theta_i,\phi_i),w_i\}_{i=1}^{N_p}$, updated
-by sequential Monte Carlo \cite{doucet2001smc}. Each particle is one hypothesis for the line. It holds the Zeeman
-shift $\Delta_{Z,i}$, so $\theta_i=D+\Delta_{Z,i}$ with $D$ fixed, and the nuisances: the linewidth itself, as the
+by sequential Monte Carlo \cite{doucet2001smc}. Each particle is one hypothesis for the line. It holds half the Zeeman
+splitting, $\Delta\nu_{Z,i}/2$, so $\theta_i=D-\Delta\nu_{Z,i}/2$ with $D$ fixed (the simulations measure the mirror
+transition $D+\Delta\nu_{Z,i}/2$, which is equivalent by symmetry), and the nuisances: the linewidth itself, as the
 half width $\gamma=\Gamma/2$ of Eq.~\eqref{eq:signal}, and the contrast $C$. The mechanisms that set the width,
 Eq.~\eqref{eq:linewidth}, are not inferred; only the width they produce is. For the pseudo-Voigt line the width is held
 as its Lorentzian half width and the standard deviation of its Gaussian part.
