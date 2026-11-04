@@ -270,37 +270,27 @@ center of the window,
   J_0\equiv\sigma_0^{-2}=\frac{12}{W^2}.
   \label{eq:prior}
 \end{equation}
-$J_0$ is the information the window holds: it is what a Gaussian estimate with the same variance would be worth. A
-narrower window starts with more, information that no measurement had to pay for.
-
-Strictly, the bound below uses the Fisher information of the prior density itself, $\int p'(\theta)^2/p(\theta)\,
-d\theta$, and for the uniform window this integral diverges because the density jumps at the edges. We use $J_0$ in
-its place, for two reasons. For a Gaussian prior the two are equal, and for any other prior the Fisher information
-is larger than the inverse variance (the Cram\'er--Rao inequality applied to the prior itself \cite{cramer1946}), so
-the substitution can only raise the bound, never lower it. And a strict bound on the same window differs only by a
-constant: the smooth density $(2/W)\cos^2(\pi v/W)$ has the least Fisher information of any density confined to the
-window, $4\pi^2/W^2\approx3.3\,J_0$ \cite{gill1995}, and replacing $J_0$ by it lowers the curve in the prior limit by
-a factor of $\pi/\sqrt3\approx1.8$ and leaves the data limit unchanged.
+$J_0$ is the window's knowledge in the same currency: it is what a Gaussian estimate with the same variance would be
+worth. A narrower window starts with more, knowledge that no measurement had to pay for.
 
 \subsection{Van Trees bound}
 \label{sec:budget}
 
-Because the prior carries information, the relevant bound is not the Cram\'er--Rao bound, which holds for
-unbiased estimators and ignores $J_0$, but the van Trees inequality \cite{vantrees1968,gill1995}. It holds for any
-estimator, biased or not, with the error averaged over the prior, and it adds the information of the prior to that
-of the measurements:
+What we compare the strategies against is a limit on the uncertainty, whatever its source, the window or the
+measurements. Combining the two as independent estimates, by adding their inverse variances, gives
 \begin{equation}
-  \sigma_\theta(n)\ \ge\ \Big(J_0+\sum_{i=1}^{n}I(x_i)\Big)^{-1/2}\ \ge\
+  \sigma_\theta(n)\ \approx\ \Big(J_0+\sum_{i=1}^{n}I(x_i)\Big)^{-1/2}\ \ge\
   \sigma_{\rm vT}(n)=\Big(\frac{12}{W^2}+n I^*\Big)^{-1/2},
   \label{eq:vantrees}
 \end{equation}
-where $\sigma_\theta(n)$ is the root-mean-square error after $n$ measurements and each $I(x_i)$ is the information
-of measurement $i$, both averaged over the prior. The first
-inequality is the van Trees inequality with $J_0$ in place of the prior's Fisher information (Sec.~\ref{sec:prior}),
-and the second uses $I(x)\le I^*$. For the uniform window $\sigma_{\rm vT}$ is therefore a reference curve rather
-than a strict lower bound; for a Gaussian prior it is exact.
+where $\sigma_\theta(n)$ is the root-mean-square error after $n$ measurements, averaged over the prior, and the
+inequality uses $I(x)\le I^*$. Both ends of the curve are exact. With no data the best estimate is the center of the
+window, and its error is $\sigma_0$. With many, the error approaches the Cram\'er--Rao bound $(nI^*)^{-1/2}$ (below).
+In between, Eq.~\eqref{eq:vantrees} is the van Trees inequality \cite{vantrees1968,gill1995} for a Gaussian prior of
+the same width, which holds for any estimator, biased or not; for the uniform window it is a reference curve rather
+than a strict bound, and Appendix~\ref{app:prior} shows how close the strict bounds lie.
 
-The bound constrains the mean squared error averaged over the prior, whatever the shape of the posterior. For the
+The curve refers to the mean squared error averaged over the prior, whatever the shape of the posterior. For the
 posterior mean that error is the expected posterior variance, so the posterior standard deviation can be compared
 with $\sigma_{\rm vT}$ from the first measurement on, as an average over runs, with no assumption on the shape of
 the posterior. The shape matters for two other uses of $\sigma_\theta$. Reading it as a 68\% interval holds only for
@@ -309,7 +299,7 @@ mass much closer to the peak. And the link between the information gain of a mea
 Eq.~\eqref{eq:eig-fisher} below, is exact only for a Gaussian posterior. Appendix~\ref{app:gaussian} gives the
 conditions under which the posterior is close to Gaussian.
 
-The bound has two limits, set by how the information of the measurements compares with that of the prior. While
+The curve has two limits, set by how the information of the measurements compares with that of the prior. While
 $nI^*\ll J_0$, it stays at the prior, $\sigma_{\rm vT}\approx\sigma_0=W/\sqrt{12}$: the measurements have not yet
 added to what the window told. An estimate in this limit leans on the prior and is biased toward its center, which
 is why its error may lie below the unbiased Cram\'er--Rao bound $(nI^*)^{-1/2}$. Once $nI^*\gg J_0$, the prior is
