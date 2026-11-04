@@ -17,16 +17,13 @@ most where many readings are needed, as in tracking a time-varying field or imag
 \tbd{cite}.
 
 The traditional scan is a sweep, which steps through the window at uniform spacing, and several approaches have
-been proposed to improve on it. Non-adaptive
-undersampling measures only a subset of the window and reconstructs the line from it, either by fitting a
-Lorentzian to randomly chosen drive frequencies \cite{luo2023} or by compressed sensing in a sparse spectral basis
-\cite{haim2025}. Sequential Bayesian experiment design (SBED) is adaptive: it maintains a posterior distribution over
-the parameters, here represented by a sequential Monte Carlo (SMC) particle cloud, and computes each measurement
-setting from it by maximising an expected utility, such as the expected information gain \cite{granade2012}. In N-V
-Ramsey magnetometry, adaptive Bayesian schemes set the readout phase or the free-precession time from the preceding
-outcomes \cite{bonato2016,santagati2019,mcmichael2021ramsey}. In ODMR, SBED chooses the next drive frequency and
-reaches a given precision more than an order of magnitude faster than a sweep \cite{dushenko2020sbed}; it is
-available as an open software package \cite{mcmichael2021optbayesexpt}.
+been proposed to improve on it. Non-adaptive approaches measure fewer points and reconstruct the spectrum from
+them, with a low-complexity reconstruction \cite{luo2023} or with compressed sensing, which matches the accuracy of
+a full scan with a small fraction of its points \cite{haim2025}. Sequential Bayesian experiment design (SBED) is
+adaptive: it maintains a posterior distribution over the parameters, here represented by a sequential Monte Carlo
+(SMC) particle cloud, and computes each measurement setting from it by maximising an expected utility, such as the
+expected information gain \cite{granade2012}. In ODMR, SBED chooses the next drive frequency and reaches a given
+precision more than an order of magnitude faster than a sweep \cite{dushenko2020sbed}.
 
 In recent years, machine learning has also been applied to the choice of measurement. Instead of computing each
 setting from the posterior, these methods learn a policy in advance. Early studies learned policies for adaptive
