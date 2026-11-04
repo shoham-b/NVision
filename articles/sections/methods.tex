@@ -13,9 +13,9 @@ those of Sec.~\ref{sec:fisher}, the parameter of interest $\theta$ and the nuisa
 level $\sigma$, which is treated separately below.
 
 The posterior over $(\theta,\phi)$ is a weighted cloud of particles $\{(\theta_i,\phi_i),w_i\}_{i=1}^{N_p}$, updated
-by sequential Monte Carlo \cite{doucet2001smc}. Each particle is one hypothesis for the line. It holds half the Zeeman
-splitting, $\Delta\nu_{Z,i}/2$, so $\theta_i=D-\Delta\nu_{Z,i}/2$ with $D$ fixed (the simulations measure the mirror
-transition $D+\Delta\nu_{Z,i}/2$, which is equivalent by symmetry), and the nuisances: the linewidth itself, as the
+by sequential Monte Carlo \cite{doucet2001smc}. Each particle is one hypothesis for the line. It holds the Zeeman
+shift $\delta_{Z,i}$, so $\theta_i=D-\delta_{Z,i}$ with $D$ fixed (the simulations measure the mirror
+transition $D+\delta_{Z,i}$, which is equivalent by symmetry), and the nuisances: the linewidth itself, as the
 half width $\gamma=\Gamma/2$ of Eq.~\eqref{eq:signal}, and the contrast $C$. The mechanisms that set the width,
 Eq.~\eqref{eq:linewidth}, are not inferred; only the width they produce is. For the pseudo-Voigt line the width is held
 as its Lorentzian half width and the standard deviation of its Gaussian part.
@@ -90,7 +90,7 @@ posterior is correct. Comparing $\hat\sigma_N$ with the bound is therefore valid
 average over runs and provided the posterior is calibrated. What fails before the posterior is Gaussian
 (Sec.~\ref{sec:eig}) is the usual reading of $\hat\sigma_N$: with a uniform window or several live
 candidates it is not a 68\% interval, and the posterior entropy is below $\tfrac12\ln(2\pi e\,\hat\sigma_N^2)$, so
-information in bits, per-step gains as variance ratios, and coverage at Gaussian quantiles are only meaningful in the
+information gains, per-step gains as variance ratios, and coverage at Gaussian quantiles are only meaningful in the
 data regime. We therefore (i) compare $\hat\sigma_N$ with the bound as a run average at all $N$, (ii) test coverage,
 the true error against $\hat\sigma_N$, only once the posterior is Gaussian, or with quantiles of the particle
 distribution itself, and (iii) keep this separate from miscalibration of the particle filter, which makes
@@ -112,3 +112,10 @@ true error stays below a target. Each run is also read against the bound through
 $\hat\sigma_N^{-2}$ per measurement in units of $I^*$, Eq.~\eqref{eq:istar}; a rate above 1 means the claimed
 uncertainty fell faster than the data allow. Measurements to stop are compared only between strategies whose claimed
 uncertainty is equally honest.
+
+\subsection{Experimental setup}
+\label{sec:setup}
+
+We measure the lower transition $f_-$ only: in our setup it needs less microwave power than $f_+$, which keeps the
+heating of the stage low and the amplifier within its linear range.
+\tbd{Sample, optics, microwave delivery, detection and the per-shot integration time $t_s$.}
