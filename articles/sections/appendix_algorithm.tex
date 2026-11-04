@@ -59,7 +59,7 @@ between them, once the posterior expects each of those points to carry at least 
 true optimum.
 
 \paragraph{Bayesian SBED.} After every resampling SBED places 800 candidate drive frequencies at the quantiles of a
-density with Gaussian kernels on the flanks, $\pm$HWHM, of the posterior-mean line, kernels on the dips found and a
+density with Gaussian kernels on the two sides of the posterior-mean dip, $\pm$HWHM from its center, kernels on the dips found and a
 flat share, thinned to a spacing of at least $100$~kHz. Eq.~\eqref{eq:eig-var} is evaluated on a 500-particle
 subsample, with $\sigma^2$ the posterior mean of the noise. The candidates are taken in blocks of 64, and the block
 maxima compete through a softmax with a temperature of $0.01$~nats, so the choice is near-greedy. Each focus section
