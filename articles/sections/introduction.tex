@@ -13,18 +13,16 @@ resonance (ODMR): the photoluminescence of the center is recorded while a microw
 search window, the range of drive frequencies in which the spin resonance can lie, and the field is read from the
 position of the resonance. Every point of this scan takes time, so the number of measurements needed to locate
 the resonance to a given precision sets both the sensitivity and the bandwidth of the magnetometer. It matters most
-where the scan is repeated many times: when a time-varying field is tracked \cite{schloss2018vector,haim2025}, or
-when a field is imaged pixel by pixel \cite{lesage2013,levine2019}. How few measurements suffice, and which
-strategy reaches that number, is therefore a practical question for ODMR magnetometry.
+where the scan is repeated, as when a time-varying field is tracked \cite{schloss2018vector,haim2025} or imaged
+pixel by pixel \cite{lesage2013,levine2019}.
 
-Locating the resonance is a parameter-estimation problem in which the experimenter chooses the setting of each
-measurement, here the microwave drive frequency. In general form this is Hamiltonian learning: the parameters of a
-quantum system's Hamiltonian are inferred from measurements whose settings are chosen adaptively from what has been
-learned so far \cite{granade2012,gebhart2023}. For N-V centers, Hamiltonian learning and adaptive Bayesian estimation
+Locating the resonance is an instance of Hamiltonian learning: the parameters of a quantum system's Hamiltonian are
+inferred from measurements whose settings, here the microwave drive frequency, are chosen adaptively from what has
+been learned so far \cite{granade2012,gebhart2023}. For N-V centers, Hamiltonian learning and adaptive Bayesian estimation
 have been demonstrated mainly in the time domain, with Rabi and Ramsey sequences in which an evolution time is the
 chosen setting
-\cite{bonato2016,wang2017,santagati2019,mcmichael2021ramsey}. In ODMR, the setting is the drive frequency, and
-sequential Bayesian experiment design (SBED) has been applied to it directly \cite{dushenko2020sbed}. SBED maintains
+\cite{bonato2016,wang2017,santagati2019,mcmichael2021ramsey}. In ODMR, sequential Bayesian experiment design (SBED)
+has been applied directly \cite{dushenko2020sbed}. SBED maintains
 a posterior distribution over the parameters, here represented by a sequential Monte Carlo (SMC) particle cloud, and
 chooses each drive frequency by maximizing an expected utility, such as the expected information gain
 \cite{granade2012}; it reaches a given precision more than an order of magnitude faster
@@ -43,12 +41,12 @@ particle-filter posterior has been applied to Ramsey magnetometry \cite{belliard
 for a wide field range a Bayesian neural network that narrows the range has been combined with a
 reinforcement-learning agent that refines the estimate \cite{guo2026}.
 
-These studies establish that adaptive and learned strategies can locate the resonance with far fewer measurements
-than a sweep, and they quantify the gain against the sweep they replace. Information bounds are already used as
+These studies show that adaptive and learned strategies locate the resonance with far fewer measurements than a
+sweep, and measure the gain against that sweep. Information bounds are already used as
 benchmarks in Hamiltonian learning: the Bayesian Cram\'er--Rao bound certifies how close an SMC estimator comes to
 the best precision for the measurements it has chosen \cite{granade2012}. Such a bound has not yet been applied to
-the ODMR search as a whole, starting from nothing more than the search window. Applied in that way, it would give a
-reference independent of any particular strategy, showing how close current strategies come to the best achievable
+the ODMR search as a whole, starting from nothing more than the search window. It would give a strategy-independent
+reference, showing how close current strategies come to the best achievable
 performance and which of their measurements are unavoidable. It would also supply a mechanism for the speedup over a
 sweep, including its observed growth as the line occupies a smaller fraction of the window
 \cite{dushenko2020sbed}.
@@ -56,8 +54,8 @@ sweep, including its observed growth as the line occupies a smaller fraction of 
 Here we derive this limit for the ODMR search and use it to analyze SBED and drive-frequency sweeps for
 continuous-wave (CW) and pulsed ODMR. The limit follows from Bayesian estimation theory with the search window as
 the prior \cite{vantrees1968,gill1995}, and the information it counts is the same quantity that SBED maximizes. It
-accounts for the whole course of a measurement run: its stages, first finding the resonance, then narrowing in on it
-and finally refining the estimate, are limits of a single bound rather than separate mechanisms. The same bound gives
+covers the whole run: finding the resonance, narrowing in on it and refining the estimate are limits of a single
+bound rather than separate mechanisms. The same bound gives
 the speedup over a sweep: for a precise target it is approximately the ratio of the window width to the linewidth,
 independent of the signal-to-noise ratio, which explains its growth with the window. It also recovers the standard
 CW-ODMR sensitivity as the refine limit, reached only by a strategy that measures at the steepest slope of the line,
@@ -65,7 +63,6 @@ and shows that the window limits the bandwidth while the line shape and the sign
 sensitivity. \tbd{Simulation and lab findings: how closely SBED follows the bound, and the speedup measured.}
 
 Section~\ref{sec:theory} derives the bound from the physical model, together with the speedup, sensitivity and
-bandwidth that follow from it. Section~\ref{sec:methods} presents SBED as an example of a strategy that follows the
-bound, and describes its particle filter, the sweeps it is compared with and how both are evaluated against the
-bound. Section~\ref{sec:results} presents the simulations and the experiment, and Sec.~\ref{sec:discussion}
+bandwidth that follow from it. Section~\ref{sec:methods} describes SBED, with its particle filter, as a strategy that
+follows the bound, and the sweeps it is compared with, both evaluated against the bound. Section~\ref{sec:results} presents the simulations and the experiment, and Sec.~\ref{sec:discussion}
 discusses the limits of the approach.
