@@ -3,64 +3,79 @@
 \label{sec:intro}
 % =====================================================================
 
-Measuring magnetic fields on the nanometre scale, such as those of single electron and nuclear spins, of magnetic
-textures in condensed matter or of biological samples, requires a sensor that is itself of atomic size and can be
+Many open questions in condensed-matter physics, chemistry and biology concern magnetic fields that vary on the
+nanometre scale, such as the fields of single electron and nuclear spins, of current flow in two-dimensional
+materials or of magnetic textures. Resolving such fields requires a sensor that is itself of atomic size and can be
 brought within nanometres of the source \tbd{cite a review, e.g.\ Degen, Reinhard and Cappellaro, Rev.\ Mod.\
 Phys.\ (2017); Rondin et al., Rep.\ Prog.\ Phys.\ (2014)}. The negatively charged nitrogen-vacancy (N-V) centre in
-diamond is a prominent candidate: it is a single electron spin, held in a host lattice that can be placed close to
-the sample, whose state can be initialised and read out optically at room temperature
+diamond meets this requirement. It is a single electron spin in a host lattice that can be placed close to the
+sample, and its spin state can be initialised and read out optically at room temperature
 \cite{balasubramanian2008,maze2008,doherty2013nv}.
 
-The N-V magnetometer most commonly used is based on optically detected magnetic resonance (ODMR). The ground state
-of the centre is a spin triplet in which the $m_s=\pm1$ sublevels lie a zero-field splitting $D\approx2.87$~GHz
-above $m_s=0$, and a magnetic field along the N-V axis shifts them by a Zeeman shift $\pm\Delta_Z$ proportional to
-the field. Under green illumination the $m_s=\pm1$ states emit less photoluminescence than $m_s=0$, so a microwave
-drive that is resonant with one of the transitions, at $D\pm\Delta_Z$, appears as a dip in the photoluminescence.
-The field is read from the position of that dip. Since the field is not known in advance, the dip has to be found
-by measuring at a sequence of microwave drive frequencies within a search window, the range of drive frequencies
-in which the dip can lie. Every measurement costs time, so the number of measurements needed sets the sensitivity
-and the bandwidth of the magnetometer.
+The most widely used N-V magnetometry technique is optically detected magnetic resonance (ODMR). The ground state of
+the centre is a spin triplet whose $m_s=\pm1$ sublevels lie a zero-field splitting $D\approx2.87$~GHz above
+$m_s=0$. A magnetic field along the N-V axis shifts these sublevels by $\pm\Delta_Z$, a Zeeman shift proportional to
+the field. Under green illumination the $m_s=\pm1$ states emit less photoluminescence than $m_s=0$, so when a
+microwave drive is resonant with one of the two transitions, at $D\pm\Delta_Z$, the photoluminescence dips. The
+field is read from the position of this dip. Because the field is not known in advance, the dip must first be found
+by measuring at a sequence of microwave drive frequencies within a search window, the range of drive frequencies in
+which the dip can lie. Each measurement takes time, so the number of measurements a strategy needs sets both the
+sensitivity and the bandwidth of the magnetometer. This number matters most where many readings are needed, as in
+tracking a time-varying field or imaging a field pixel by pixel \tbd{cite}.
 
 Locating the resonance is an instance of Hamiltonian learning, the estimation of the parameters of a quantum
-system's Hamiltonian from measurements on it \cite{granade2012}\tbd{cite further Hamiltonian-learning work}: here
-the parameters are $D$ and $\Delta_Z$, and the experimenter's choice is the drive frequency of each next measurement.
-Non-adaptive undersampling measures only a subset of the window and reconstructs the line from it, either by
-fitting a Lorentzian to randomly chosen drive frequencies \cite{luo2023} or by compressed sensing in a sparse
-spectral basis \cite{haim2025}. Bayesian experiment design instead keeps a posterior over the parameters, here as a
-sequential Monte Carlo (SMC) particle cloud, and chooses each next measurement to maximise its expected utility,
-such as the information it is expected to gain \cite{granade2012}. In N-V Ramsey magnetometry, adaptive Bayesian
-schemes set the readout phase or the precession time from the outcomes so far
-\cite{bonato2016,santagati2019,mcmichael2021ramsey}; in ODMR, the same approach chooses the next drive frequency and
-reaches a given precision more than an order of magnitude faster than a sweep \cite{dushenko2020sbed}, and it is
-available as a software package \cite{mcmichael2021optbayesexpt}.
+system's Hamiltonian from measurements on it \cite{granade2012}\tbd{cite further Hamiltonian-learning work}. Here
+the parameters are $D$ and $\Delta_Z$, and the experimenter chooses the drive frequency of each measurement. The
+conventional choice is a sweep, which steps through the window at uniform spacing. Non-adaptive undersampling
+measures only a subset of the window and reconstructs the line from it, either by fitting a Lorentzian to randomly
+chosen drive frequencies \cite{luo2023} or by compressed sensing in a sparse spectral basis \cite{haim2025}.
+Bayesian experiment design is adaptive: it maintains a posterior distribution over the parameters, here represented
+by a sequential Monte Carlo (SMC) particle cloud, and chooses each measurement to maximise an expected utility, such
+as the expected information gain \cite{granade2012}. In N-V Ramsey magnetometry, adaptive Bayesian schemes set the
+readout phase or the free-precession time from the preceding outcomes \cite{bonato2016,santagati2019,mcmichael2021ramsey}.
+In ODMR, the same approach chooses the next drive frequency and reaches a given precision more than an order of
+magnitude faster than a sweep \cite{dushenko2020sbed}; it is available as an open software package
+\cite{mcmichael2021optbayesexpt}.
 
-A more recent direction learns the design rule itself, with the aim of finding the best setting faster or of
-needing fewer measurements overall. Early work learned policies for adaptive phase estimation
-\cite{hentschel2010,lumino2018}. Reinforcement learning has since been used to find the controls that make a
-quantum sensor most sensitive \cite{xu2019,schuff2020,xiao2022} and to estimate several parameters at once in a
-photonic experiment \cite{cimini2023}. Neural networks trained by an evolution strategy or reinforcement learning
-replace the costly expected-gain optimisation of Bayesian design by a fast learned heuristic \cite{fiderer2021},
-and model-aware reinforcement learning trains such a policy through a particle-filter posterior, with applications
-to N-V Ramsey magnetometry \cite{belliardo2024quantum,belliardo2024pra}. For a wide field range, a Bayesian neural
-network first narrows the range and a reinforcement-learning agent then refines the estimate \cite{guo2026}.
+A more recent line of work learns the design rule itself, with the aim of reaching the optimal setting faster or of
+requiring fewer measurements overall. Early studies learned policies for adaptive phase estimation
+\cite{hentschel2010,lumino2018}. Reinforcement learning has since been used to find the controls that maximise the
+sensitivity of a quantum sensor \cite{xu2019,schuff2020,xiao2022} and to estimate several parameters simultaneously in
+a photonic experiment \cite{cimini2023}. Neural networks trained by an evolution strategy or by reinforcement learning
+replace the costly optimisation of the expected gain in Bayesian design with a fast learned heuristic
+\cite{fiderer2021}, and model-aware reinforcement learning trains such a policy on a particle-filter posterior, with
+applications to N-V Ramsey magnetometry \cite{belliardo2024quantum,belliardo2024pra}. For a wide field range, a
+Bayesian neural network first narrows the range and a reinforcement-learning agent then refines the estimate
+\cite{guo2026}.
 
-These strategies are judged by their speedup over a sweep, but not against a limit. The field has advanced without a
-bound on how fast any strategy can locate the resonance, so it is not known how close the reported strategies come
-to the best achievable, nor how many of their measurements are unavoidable. The speedup itself has been reported
-as a factor, without the mechanism behind it; in particular, its growth as the line occupies less of the window
-\cite{dushenko2020sbed} has not been explained.
+These strategies are judged by their speedup over a sweep, not against a fundamental limit. No bound is available
+on how quickly any strategy can locate the resonance, so it is not known how close the reported strategies come to
+the best achievable performance, nor how many of their measurements are unavoidable. The speedup itself has been
+reported only as a factor, without the mechanism behind it; in particular, its growth as the line occupies a
+smaller fraction of the window \cite{dushenko2020sbed} has not been explained.
 
-Estimation theory provides such references. The Cram\'er--Rao bound limits the variance of an unbiased estimate
-by the Fisher information of the data \cite{cramer1946}, but it ignores what is known before the first
-measurement. The van Trees inequality, a Bayesian form of the Cram\'er--Rao bound, adds the information of the
-prior and holds for any estimator \cite{vantrees1968,gill1995}. A search window is exactly such prior knowledge, so
-this bound is a natural yardstick for an ODMR search, and the information it counts is the same quantity that
-Bayesian experiment design maximises. In this work we use it to analyse sequential Bayesian experiment design (SBED)
-and drive-frequency sweeps for CW and pulsed ODMR.
+Estimation theory provides such a limit. The Cram\'er--Rao bound limits the variance of an unbiased estimator by
+the inverse Fisher information of the data \cite{cramer1946}, but it ignores what is known before the first
+measurement. The van Trees inequality, a Bayesian form of the Cram\'er--Rao bound, adds the information contained in
+the prior and holds for any estimator \cite{vantrees1968,gill1995}. A search window is precisely such prior
+knowledge, which makes this bound a natural benchmark for an ODMR search; moreover, the information it counts is
+the same quantity that Bayesian experiment design maximises.
 
-Section~\ref{sec:theory} derives the bound from the physical model, and the speedup, sensitivity and bandwidth that
-follow from it. Section~\ref{sec:methods} presents SBED as a showcase of a strategy that follows the bound,
-describing its particle filter, the sweeps it is compared with and how both are evaluated against the bound.
-Section~\ref{sec:results} presents the simulations and the experiment, and Sec.~\ref{sec:discussion} discusses the
-limits of the approach.
+Here we use the van Trees bound to analyse sequential Bayesian experiment design (SBED) and drive-frequency sweeps
+for continuous-wave (CW) and pulsed ODMR. We show that the course of a measurement run follows the limits of this bound.
+At first the uncertainty is limited by the window; once the dip is found, it falls steeply; and it then decreases
+as the inverse square root of the number of measurements, at a rate set by the most informative drive frequency.
+These search, focus and refine regimes are therefore limits of a single bound rather than separate mechanisms. The
+same bound gives the speedup over a sweep: for a precise target it is approximately the ratio of the window width
+to the linewidth, independent of the signal-to-noise ratio, which explains its growth with the window. It also
+recovers the standard CW-ODMR sensitivity as the refine limit, reached only by a strategy that measures at the
+steepest slope of the line, and shows that the window limits the bandwidth while the line shape and the
+signal-to-noise ratio limit the sensitivity. \tbd{Simulation and lab findings: how closely SBED follows the bound,
+and the speedup measured.}
+
+Section~\ref{sec:theory} derives the bound from the physical model, together with the speedup, sensitivity and
+bandwidth that follow from it. Section~\ref{sec:methods} presents SBED as an example of a strategy that follows the
+bound, and describes its particle filter, the sweeps it is compared with and how both are evaluated against the
+bound. Section~\ref{sec:results} presents the simulations and the experiment, and Sec.~\ref{sec:discussion}
+discusses the limits of the approach.
 
