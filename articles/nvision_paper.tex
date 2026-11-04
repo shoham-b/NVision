@@ -595,9 +595,8 @@ Two safeguards depart from it: the diagonal of $\Sigma$ is floored at $(0.01\,e^
 early rejuvenations can widen the cloud, and particles leaving the cube are reflected back. Each $\beta_i$ is then
 recomputed from the full history at the particle's new position. The full algorithm is in the Supplemental
 Material \tbd{SM}.
-The initial cloud is drawn from the prior: in the simulations, on each dimension with a Gaussian prior, 90\% of the
-particles come from that Gaussian truncated to the prior bounds and 10\% uniformly over the bounds, so a prior mean
-several standard deviations from the truth still leaves particles near it \tbd{align with Sec.~\ref{sec:prior}}.
+The initial cloud is drawn from the prior: in the simulations a truncated Gaussian on each dimension
+\tbd{align with Sec.~\ref{sec:prior}}.
 
 The particle filter reports the posterior mean and the weighted particle standard deviation,
 \begin{equation}
@@ -613,9 +612,8 @@ the claimed uncertainty whose meaning Sec.~\ref{sec:protocol} discusses.
 Every strategy uses the particle filter of Sec.~\ref{sec:bayes}, with the same prior, the same budget of 2500
 measurements and the same stop rule, so $\hat\sigma_N$ is the same quantity for all of them; the strategies differ
 only in how the next drive frequency $x$ is chosen. The run stops when the claimed uncertainty of every parameter
-has been below its ceiling ($100$~kHz for $\theta$, $500$~kHz for the widths, $0.01$ for the contrast, $10^{-3}$
-for the noise level) for 8 consecutive measurements and the dip test below finds a dip. A run that reaches the
-budget without stopping is censored. The dip test is re-run at most every 10 measurements.
+has been below its ceiling ($100$~kHz for $\theta$, $500$~kHz for the widths, $0.01$ for the contrast) for 8
+consecutive measurements and the dip test below finds a dip.
 
 \paragraph{Dip test.} The test asks where the measurements, not the particles, show a dip. Each measurement gets a
 score $z_n=(b-y_n)/s$ against a baseline $b$ (the 70th percentile of the $y_n$, corrected for noise), with $s$ and
@@ -626,8 +624,8 @@ false-alarm probability $p_{\rm FA}=0.1$ over all stretches tested, and each con
 stretches is one dip.
 
 \paragraph{Sweep ladder.} SimpleSweep measures a uniform grid over the window with spacing $\Gamma_0/p$,
-$p=2,3,4$, where $\Gamma_0$ is the FWHM of the prior-mean line, and repeats whole passes (the budget caps the total
-in whole passes). Smart-Sweep sweeps at $\Gamma_0/3$ until the dip test finds a dip, then at $\Gamma_0/10$ inside the focus (below), and then measures only
+$p=2,3,4$, where $\Gamma_0$ is the FWHM of the prior-mean line, and repeats whole passes. Smart-Sweep sweeps at
+$\Gamma_0/3$ until the dip test finds a dip, then at $\Gamma_0/10$ inside the focus (below), and then measures only
 at the maxima of $g(x)^2$ at the posterior mean, cycling between them, once the posterior expects each of those
 points to carry at least $90\%$ of the information of the true optimum.
 
@@ -643,8 +641,7 @@ strategy that has piled its measurements onto a suspected dip cannot be contradi
 falsification probe instead: with probability $0.02+0.08\,g$, where $g$ is the widest unmeasured gap as a fraction
 of the window, it measures the middle of that gap. Smart-SBED is SBED that, until the first dip is found, picks the
 EIG maximiser among the unmeasured points of the $\Gamma_0/3$ grid instead, makes no probe and re-decides the
-focus after every measurement. In both Smart strategies the value at a $\Gamma_0/3$ grid point is that of the
-reference sweep of the same repeat, so they and the sweep see the same data in the search.
+focus after every measurement, re-running the dip test every 10 measurements.
 
 \subsection{Simulation setup and evaluation}
 \label{sec:protocol}
@@ -665,33 +662,11 @@ $\hat\sigma_N$ too small at any $N$.
 % Code: smc_marginal.py uncertainty() = weighted particle std; entropy() assumes a Gaussian (logdet of the
 % covariance), so it overstates the entropy before the posterior is Gaussian.
 
-Each run is also read against the bound through the prior share $J_0/J$ and the information rate
-$(J(N)-J(N'))/((N-N')I^*)$, with $J=\hat\sigma_N^{-2}$ and $J_0$ as below; a rate above 1 means the claimed $\sigma$
-fell faster than the data allow. Both inherit the overconfidence of $\hat\sigma_N$ and say nothing about whether the
-dip was found.
+\tbd{Read every run against the bound: prior share $J_0/J$ and information rate $(J(N)-J(N'))/((N-N')I^*)$, with
+$J_0=\hat\sigma_0^{-2}$ of the initial cloud; a rate above 1 meaning the claimed $\sigma$ fell faster than the data allow.}
 
-\paragraph{Use cases.} A use case is one signal at one noise level. The simulated signals are plain Voigt dips of
-total FWHM 2~MHz and contrast $C=0.25$, on a grid of the SNR $C/\sigma\in\{1,2,5,10,20\}$, the drive window
-(1.6, 2, 3 or 5 times the width one dip group covers), the Gaussian share of the width ($0$, $0.15$, $0.3$) and the
-isotope (hyperfine lines unresolved, $^{14}$N or $^{15}$N; the default study uses unresolved). The window is the
-prior of the search, so it is a property of the use case, not a tuning knob. Every metric below is computed within
-one use case; a selection of several is summarised by the median over its use cases, each counted once, and the tail
-(75th percentile and capped share) is reported next to every median.
-
-\paragraph{Protocol.} Repeat $i$ has the same true signal for every strategy and noise level, so per-repeat
-comparisons between strategies are paired; the measurement noise differs. Every strategy gets the same budget of
-2500 measurements; a run that hits it is censored and counted at the budget, as a lower bound, with the capped share
-shown. We do not use the accuracy at the end of a run as a quality metric: every run stops once its claimed $\sigma$
-is below the ceiling, so the final error mostly reflects the ceiling. Instead we report (i) the coverage of the
-claimed $\sigma$, the share of runs with $|\hat\theta_N-\theta|\le\hat\sigma_N$ and $\le2\hat\sigma_N$ against the
-Gaussian 68\% and 95\%, (ii) the information against the bound, $R(n)=1/\overline{\mathrm{err}^2 (J_0+nI^*)}$, where
-$\mathrm{err}$ is the true error, the average runs over the repeats still running, and $J_0$ is the claimed
-$\hat\sigma_0^{-2}$ after the first measurement, taken as the median over the repeats of the use case; $R=1$ is the
-bound of Eq.~\eqref{eq:vantrees}, and a true-error $R>1$ would be a defect in $J_0$ or $I^*$; and (iii) the cost,
-the first measurement after which the true error stays below a target $\tau$ ($\tau$ in units of the initial
-$\hat\sigma_0$, so that a tight prior does not beat the target for free), over the runs that reach it. Measurements
-to stop are compared only between strategies whose claimed $\sigma$ is equally honest, i.e.\ at matched coverage.
-\tbd{Number of repeats per use case; per-shot time $t_s$ and shots $k$ per measurement.}
+\tbd{Use cases (SNR $\times$ window $\times$ Gaussian share $\times$ isotope), paired repeats, one shared budget
+(2500 measurements), coverage of the claimed $\sigma$, cost to reach $\tau$; numbers per use case.}
 
 % =====================================================================
 \section{Results}
