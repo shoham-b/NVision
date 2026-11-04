@@ -318,11 +318,17 @@ of the measurements:
   \sigma_{\rm vT}(n)=\Big(\frac{12}{W^2}+n I^*\Big)^{-1/2},
   \label{eq:vantrees}
 \end{equation}
-where $\sigma_\theta(n)$ is the root-mean-square error after $n$ measurements, averaged over the prior. The first
+where $\sigma_\theta(n)$ is the root-mean-square error after $n$ measurements and each $I(x_i)$ is the information
+of measurement $i$, both averaged over the prior. The first
 inequality is the van Trees inequality with $J_0$ in place of the prior's Fisher information, and the second uses
 $I(x)\le I^*$. Since the Fisher information of any prior is at least its inverse variance, this substitution can only
 raise the curve: for the uniform window $\sigma_{\rm vT}$ is a reference rather than a strict lower bound, and for a
 Gaussian prior it is exact.
+
+The bound constrains the mean squared error averaged over the prior, whatever the shape of the posterior. For the
+posterior mean that error is the expected posterior variance, so the posterior standard deviation can be compared
+with $\sigma_{\rm vT}$ from the first measurement on, as an average over runs. A Gaussian posterior is needed only to
+read $\sigma_\theta$ as a 68\% interval and for the exact form of the information gain below.
 
 The bound has two limits, set by how the information of the measurements compares with that of the prior. While
 $nI^*\ll J_0$, it stays at the prior, $\sigma_{\rm vT}\approx\sigma_0=W/\sqrt{12}$: the measurements have not yet
@@ -458,13 +464,33 @@ information the acquisition rule maximises and the information budget of Sec.~\r
 quantity. A strategy that measured every point at the steepest slope of the true line would reach the data limit of
 Eq.~\eqref{eq:vantrees}; greedy EIG approaches it once the posterior is narrow compared with the line.
 
-\paragraph{When it is not: search.} Before the dip is found the posterior of $\theta$ is spread over the window, and
+In SBED runs both conditions are met at the end of focus, not at its start. When the dip is first resolved the
+particle posterior is strongly heavy-tailed, with an excess kurtosis of order 10, consistent with leftover prior mass
+far from the dip; its standard deviation overstates the true error about twofold and is still comparable with the
+line width. It becomes close to Gaussian only around the onset of refine. Eq.~\eqref{eq:eig-fisher} therefore
+describes the refine regime, while in focus Eq.~\eqref{eq:eig-var} holds only as a bound. Within refine the posterior
+keeps its Gaussian shape but becomes too narrow: late in refine its two-standard-deviation interval covers the truth
+in about 75\% of runs rather than 95\%. This is a miscalibration of the particle filter, not a failure of the
+Gaussian approximation. \tbd{Numbers from a check of 25--40 SBED runs per configuration (wide Lorentzian windows at
+SNR 5 and 10, Voigt windows of 2 and 5 FWHM); move them to Results and keep only the statement here?}
+
+\paragraph{When it is not: search and focus.} Before the dip is found the posterior of $\theta$ is spread over the window, and
 the predicted signal at $x$ is two-valued: with probability $p$, the posterior mass that would put the dip at $x$, it
 is about $1-C$, otherwise 1. Then $\sigma^2_{\rm pred}=p(1-p)C^2$, while the true mutual information is at most the
 binary entropy $H_b(p)\le\ln2$. The variance form keeps growing with SNR where the true gain saturates, so it
 overvalues search candidates relative to refine candidates; both peak at $p=\tfrac12$, so they rank search
 candidates alike. Here greedy EIG is only myopically optimal, which is where the strategies of
 Sec.~\ref{sec:locators} differ.
+
+The same two-valued picture holds in focus, with a different ranking. Once a peak has formed at the dip, a small
+residual mass $p$ far from it gives a predictive variance $p(1-p)C^2$ at its location, large at high SNR even for
+small $p$, while the information it holds is at most $H_b(p)$, small for small $p$. The variance form therefore keeps
+spending measurements to remove such distant mass. This reduces the posterior variance, which the tail dominates and
+which is the quantity Eq.~\eqref{eq:vantrees} constrains, rather than the posterior entropy: in focus the variance
+rule acts as a design for the mean squared error, while a rule built on the information gain would refine the peak
+sooner and accept the tail. Whether this explains why focus costs SBED far more measurements than the bound is a
+hypothesis we have not tested. \tbd{Test: share of focus measurements placed more than a few FWHM from
+the peak, compared with the residual mass there.}
 
 Bayesian SBED (Sec.~\ref{sec:locators}) evaluates Eq.~\eqref{eq:eig-var} at every candidate drive frequency on the
 particles of the particle filter of Sec.~\ref{sec:bayes}, which learns $\sigma$ and uses its posterior mean.
