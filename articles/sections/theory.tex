@@ -293,11 +293,7 @@ than a strict bound, and Appendix~\ref{app:prior} shows how close the strict bou
 The curve refers to the mean squared error averaged over the prior, whatever the shape of the posterior. For the
 posterior mean that error is the expected posterior variance, so the posterior standard deviation can be compared
 with $\sigma_{\rm vT}$ from the first measurement on, as an average over runs, with no assumption on the shape of
-the posterior. The shape matters for two other uses of $\sigma_\theta$. Reading it as a 68\% interval holds only for
-a Gaussian posterior; a posterior with a narrow peak and wide tails has the same standard deviation but most of its
-mass much closer to the peak. And the link between the information gain of a measurement and its Fisher information,
-Eq.~\eqref{eq:eig-fisher} below, is exact only for a Gaussian posterior. Appendix~\ref{app:gaussian} gives the
-conditions under which the posterior is close to Gaussian.
+the posterior.
 
 The curve has two limits, set by how the information of the measurements compares with that of the prior. While
 $nI^*\ll J_0$, it stays at the prior, $\sigma_{\rm vT}\approx\sigma_0=W/\sqrt{12}$: the measurements have not yet
@@ -453,6 +449,9 @@ shows that the deviations from a Gaussian, and the error of the linearization, a
 $\sigma_\theta/\gamma$, and that leftover mass far from the dip dominates the posterior variance unless it is
 smaller than about $(\sigma_\theta/W)^2$. Both conditions are met in refine and not at the start of focus, so
 Eq.~\eqref{eq:eig-fisher} describes the refine regime, while in focus Eq.~\eqref{eq:eig-var} holds only as a bound.
+The same conditions decide when the posterior standard deviation can be read as a 68\% interval: a posterior with a
+narrow peak and wide tails can have the same standard deviation as a Gaussian, with most of its mass much closer to
+the peak.
 \tbd{Results: when the SBED posterior becomes Gaussian, and its calibration in refine.}
 
 \paragraph{When it is not: search and focus.} Before the dip is found the posterior of $\theta$ is spread over the window, and
