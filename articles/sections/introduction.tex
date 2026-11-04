@@ -42,18 +42,12 @@ reported strategies come to the best achievable performance, nor how many of the
 The speedup itself remains a factor without a mechanism behind it; in particular, its growth as the line occupies a
 smaller fraction of the window \cite{dushenko2020sbed} has not been explained.
 
-Estimation theory provides this limit. The Cram\'er--Rao bound limits the variance of an unbiased estimator by
-the inverse Fisher information of the data \cite{cramer1946}, but it ignores what is known before the first
-measurement. The van Trees inequality, a Bayesian form of the Cram\'er--Rao bound, adds the information contained in
-the prior and holds for any estimator \cite{vantrees1968,gill1995}. A search window is precisely such prior
-knowledge, which makes this bound a natural benchmark for an ODMR search; moreover, the information it counts is
-the same quantity that SBED maximises.
-
-Here we use the van Trees bound to analyse SBED and drive-frequency sweeps
-for continuous-wave (CW) and pulsed ODMR. We show that the course of a measurement run follows the limits of this bound.
-At first the uncertainty is limited by the window; once the dip is found, it falls steeply; and it then decreases
-as the inverse square root of the number of measurements, at a rate set by the most informative drive frequency.
-These search, focus and refine regimes are therefore limits of a single bound rather than separate mechanisms. The
+Here we derive such a limit for the ODMR search and use it to analyse SBED and drive-frequency sweeps for
+continuous-wave (CW) and pulsed ODMR. The limit follows from Bayesian estimation theory with the search window as
+the prior \cite{vantrees1968,gill1995}, and the information it counts is the same quantity that SBED maximises. It
+accounts for the whole course of a measurement run: its stages, first finding the resonance, then narrowing in on
+it and finally refining the estimate, are limits of a
+single bound rather than separate mechanisms. The
 same bound gives the speedup over a sweep: for a precise target it is approximately the ratio of the window width
 to the linewidth, independent of the signal-to-noise ratio, which explains its growth with the window. It also
 recovers the standard CW-ODMR sensitivity as the refine limit, reached only by a strategy that measures at the
