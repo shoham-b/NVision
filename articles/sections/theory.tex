@@ -35,16 +35,15 @@ spin-selective intersystem crossing; microwave transitions at $D\pm\delta_Z$.}
 \label{fig:levels}
 \end{figure}
 
-With a static field $B_z$ along the N-V axis, the ground-state spin ($S=1$) Hamiltonian is, in units with
-$h=1$ (energies in frequency units) \cite{doherty2013nv},
+With a static field $B_z$ along the N-V axis, the ground-state spin ($S=1$) Hamiltonian is \cite{doherty2013nv}
 \begin{equation}
   H=D\,S_z^2+\gamma_e B_z S_z+A_\parallel S_zI_z ,
   \label{eq:hamiltonian}
 \end{equation}
-with $D\approx2.87$~GHz the zero-field splitting, $\gamma_e\approx28$~GHz/T the electron gyromagnetic ratio, and
+written in frequency units ($h=1$), with $D\approx2.87$~GHz the zero-field splitting, $\gamma_e\approx28$~GHz/T the electron gyromagnetic ratio, and
 $A_\parallel$ the axial hyperfine coupling to the nitrogen nuclear spin $I$ ($|A_\parallel|=2.15$~MHz for
-$^{14}$N, $I=1$, and $3.03$~MHz for $^{15}$N, $I=1/2$ \cite{felton2009}). The strain splitting $E(S_x^2-S_y^2)$
-is dropped, a small correction when $\gamma_e B_z\gg E$. The eigenstates are the product states
+$^{14}$N, $I=1$, and $3.03$~MHz for $^{15}$N, $I=1/2$ \cite{felton2009}). The strain term $E(S_x^2-S_y^2)$
+is dropped, since it is a small correction when $\gamma_e B_z\gg E$. The eigenstates are the product states
 $|m_s,m_I\rangle$, and the magnetic-dipole transitions $m_s=0\to\pm1$, which conserve $m_I$, lie at
 \begin{equation}
   f_\pm(m_I)=D\pm\left(\delta_Z+A_\parallel m_I\right),\qquad \delta_Z=\gamma_e B_z ,
@@ -60,15 +59,20 @@ hyperfine structure below.
 
 An ODMR measurement sets the microwave drive frequency $f$ and records the PL, normalized to its off-resonance
 level. When $f$ meets a transition, the drive transfers population from $m_s=0$ to the darker $m_s=\pm1$ state and
-the PL dips. We measure the lower transition $f_-$ only (Sec.~\ref{sec:setup}). With the zero-field splitting $D$
+the PL dips.
+
+The two transitions share the state $|0\rangle_g$ but lie $2\delta_Z$ apart. When this separation is large
+compared with the linewidth, a drive near $f_-$ is far off resonance with $f_+$ and couples only $|0\rangle_g$ and
+$|-1\rangle_g$. The excited state and the singlet then enter only through the rates at which the laser repolarizes
+the spin and destroys its coherence \cite{dreau2011}, so the spin reduces to a driven two-level system
+$\{m_s=0,m_s=-1\}$. It is therefore enough to model one transition, and we take the one measured in our setup,
+$f_-$ (Sec.~\ref{sec:setup}); $f_+$ behaves the same way, mirrored about $D$. With the zero-field splitting $D$
 treated as a known constant, $f_-$ carries the field, $D-f_-=\delta_Z=\gamma_e B_z$, and an uncertainty in $f_-$ is
 the same uncertainty in the Zeeman shift.
 
-A drive near $f_-$ couples only $|0\rangle_g$ and $|-1\rangle_g$, and the excited state and the singlet enter only
-through the rates at which the laser repolarizes the spin and destroys its coherence \cite{dreau2011}, so the spin
-is a driven two-level system $\{m_s=0,m_s=-1\}$. Let the drive have Rabi frequency $\Omega$ (Hz, the rate of the
-population oscillation on resonance) and detuning $\Delta=f-f_-$ from the transition. Off resonance the spin
-oscillates faster but less deeply, at the generalized Rabi frequency
+Let the drive have detuning $\Delta=f-f_-$ from the transition and Rabi frequency $\Omega$, the rate in Hz at which
+the population oscillates on resonance. Off resonance the spin oscillates faster but less deeply, at the
+generalized Rabi frequency
 \begin{equation*}
   \tilde\Omega=\sqrt{\Omega^2+\Delta^2}.
 \end{equation*}
@@ -77,8 +81,9 @@ Starting from $m_s=0$, the probability of finding the spin in $m_s=-1$ after a d
   P_{-1}(\Delta,t)=\frac{\Omega^2}{\tilde\Omega^2}\,\sin^2\!\big(\pi\tilde\Omega t\big),
   \label{eq:rabi}
 \end{equation}
-and $1-P_{-1}$ is the probability of finding it still in $m_s=0$. The prefactor is the depth of the oscillation, the
-sine its time dependence. Since $m_s=-1$ is the darker state, the PL dip is proportional to $P_{-1}$. How the drive is applied sets the line shape (Fig.~\ref{fig:sequences}).
+and $P_0=1-P_{-1}$ is the probability of finding it still in $m_s=0$. The prefactor is the depth of the
+oscillation, the sine its time dependence. Since $m_s=-1$ is the darker state, the PL dip is proportional to
+$P_{-1}$. How the drive is applied sets the line shape.
 \begin{figure}[t]
 \centering
 \tbd{Sequence diagram: CW ODMR (laser and microwaves on together, PL read continuously) and pulsed ODMR
@@ -88,46 +93,61 @@ sine its time dependence. Since $m_s=-1$ is the darker state, the PL dip is prop
 \end{figure}
 
 \emph{CW ODMR.} In continuous-wave ODMR the laser and the microwave drive act on the spin continuously and at the
-same time. The laser keeps pumping the spin back into $m_s=0$ while the drive keeps rotating it away, so every
-optical reset starts a new Rabi oscillation, and the PL, collected over many such cycles, reports
-Eq.~\eqref{eq:rabi} averaged over the time since the last reset. When the drive acts for many Rabi periods between
-resets, $\tilde\Omega t\gg1$, the oscillating factor averages to $\tfrac12$. This only renormalizes the
-amplitude; the line shape is that of the prefactor,
+same time, and the PL is read out while the drive is on (Fig.~\ref{fig:sequences}). The laser keeps pumping the spin
+back into $m_s=0$ while the drive keeps rotating it away, so every optical reset starts a new Rabi oscillation, and
+the PL, collected over many such cycles, reports Eq.~\eqref{eq:rabi} averaged over the time $T$ between resets.
+When the drive acts for many Rabi periods between resets, $\tilde\Omega T\gg1$, the oscillating factor averages to
+$\tfrac12$,
 \begin{equation}
-  \bar P_{-1}(\Delta)=\frac12\,\frac{\Omega^2}{\Omega^2+\Delta^2},
+  \bar P_{-1}(\Delta)=\frac{\Omega^2}{\tilde\Omega^2}\,\frac1T\int_0^T\sin^2\!\big(\pi\tilde\Omega t\big)\,dt
+  \;\longrightarrow\;\frac12\,\frac{\Omega^2}{\Omega^2+\Delta^2}.
   \label{eq:cw-lorentzian}
 \end{equation}
-a Lorentzian in the detuning $\Delta$ of half width $\Omega$. This is the microwave contribution to the width, power broadening:
-the stronger the drive, the further off resonance it still flips the spin.
+The average only renormalizes the amplitude; the line shape is that of the prefactor, a Lorentzian in the detuning
+$\Delta$ of half width $\Omega$. This is the microwave contribution to the width, power broadening: the stronger the
+drive, the further off resonance it still flips the spin.
 
-Eq.~\eqref{eq:cw-lorentzian} treats the laser only as a reset. Its action on the spin is two rates: each optical
-cycle pumps the spin back toward $m_s=0$, at a rate $\Gamma_p$, and destroys the phase between $m_s=0$ and
-$m_s=-1$, at a rate $\Gamma_c$. These are a longitudinal and a transverse relaxation rate, $1/T_1$ and $1/T_2$ of
-the two-level system. The steady state of the Bloch equations with these rates and a drive of angular Rabi frequency
-$\Omega_R=2\pi\Omega$ is \cite{dreau2011}
+Eq.~\eqref{eq:cw-lorentzian} treats the laser only as a reset, which is too crude when the resets are frequent. The
+laser acts on the spin through two rates, both set by how often the center goes through an optical cycle: it pumps
+the spin back toward $m_s=0$, at a rate $\Gamma_p$, and each cycle destroys the phase between $m_s=0$ and $m_s=-1$,
+at a rate $\Gamma_c$. The microwave enters only through its angular Rabi frequency $\Omega_R=2\pi\Omega$. The
+competition between the two is clearest in terms of populations. A drive whose coherence is destroyed at the rate
+$\Gamma_c$ no longer produces Rabi oscillations; it moves population between $m_s=0$ and $m_s=-1$ at the rate
+\begin{equation*}
+  W(\Delta)=\frac{\Omega_R^2}{2}\,\frac{\Gamma_c}{\Gamma_c^2+(2\pi\Delta)^2},
+\end{equation*}
+a Lorentzian of half width $\Gamma_c/2\pi$, in both directions alike, while the laser returns population from
+$m_s=-1$ at the rate $\Gamma_p$. The population of $m_s=-1$ then obeys
+$\dot P_{-1}=W\,(P_0-P_{-1})-\Gamma_pP_{-1}$, whose steady state is $P_{-1}=W/(2W+\Gamma_p)$, or
 \begin{equation}
   P_{-1}^{\rm ss}(\Delta)=\frac12\,\frac{\Omega_R^2\,\Gamma_c/\Gamma_p}{(2\pi\Delta)^2+\Gamma_c^2+\Omega_R^2\,\Gamma_c/\Gamma_p},
   \label{eq:bloch-ss}
 \end{equation}
-which reduces to Eq.~\eqref{eq:cw-lorentzian} when the two rates are equal and small against $\Omega_R$. It is
-still a Lorentzian, now of half width
+the same as the steady state of the full Bloch equations \cite{dreau2011}. It reduces to
+Eq.~\eqref{eq:cw-lorentzian} when the two rates are equal and small against $\Omega_R$, and is still a Lorentzian,
+now of half width
 \begin{equation}
   \gamma=\frac{1}{2\pi}\sqrt{\Gamma_c^2+\Omega_R^2\,\frac{\Gamma_c}{\Gamma_p}} .
   \label{eq:linewidth}
 \end{equation}
-At weak drive the width is set by the laser, through $\Gamma_c$; at strong drive by the microwave power. Both rates
-are set by how often the center completes an optical cycle, and that rate saturates. In terms of the optical
-saturation parameter $s=I_{\rm opt}/I_{\rm sat}$, the laser intensity in units of the intensity that saturates the
-optical transition, the cycling rate grows linearly with $s$ at low power and levels off at high power, where it is
-limited by the lifetime of the excited state rather than by the laser: the center cannot be excited again before it
-has decayed. Both rates follow it, $\Gamma_{p,c}=\Gamma_{p,c}^\infty\,s/(1+s)$ \cite{dreau2011}, with
-$\Gamma_{p,c}^\infty$ their values at full saturation. The depth of the line, Eq.~\eqref{eq:bloch-ss} at
-$\Delta=0$, is
+The first term is the width the laser alone imposes, through the loss of coherence. The second is power broadening
+by the microwave: a strong drive saturates the transfer, $W\gg\Gamma_p$, already on the tails of the line, and the
+line widens until $W$ there has fallen to about the pumping rate. At weak drive the laser sets the width, at strong
+drive the microwave. The depth of the line, Eq.~\eqref{eq:bloch-ss} at $\Delta=0$, is
 \begin{equation*}
   P_{-1}^{\rm ss}(0)=\frac12\,\frac{\Omega_R^2}{\Omega_R^2+\Gamma_p\Gamma_c}:
 \end{equation*}
 it grows with the microwave power, toward $\tfrac12$, and falls with the laser power, which repolarizes the spin
-before the drive can flip it. Raising the laser power therefore both widens and flattens the line.
+before the drive can flip it.
+
+The two laser rates grow with the laser power, but not without limit. The optical transition is itself a two-level
+system: the laser excites the center at a rate proportional to its intensity $I_{\rm opt}$, and the excited state
+decays in its lifetime $\tau_e$. In steady state the excited population is $s/(1+s)$, with the saturation parameter
+$s=I_{\rm opt}/I_{\rm sat}$ the ratio of the excitation rate to the decay rate $1/\tau_e$. At low power it grows
+linearly with $s$; at high power it levels off, because a center cannot be excited again before it has decayed. The
+rate of optical cycles is this population divided by $\tau_e$, and both laser rates follow it,
+$\Gamma_{p,c}=\Gamma_{p,c}^\infty\,s/(1+s)$ \cite{dreau2011}, with $\Gamma_{p,c}^\infty$ their values at full
+saturation. Raising the laser power therefore both widens and flattens the line, up to saturation.
 % Dreau et al. (2011) Eq. 11 quotes the same width as Gamma_c^inf/(2 pi) sqrt((s/(1+s))^2 + Omega_R^2/(Gamma_p^inf
 % Gamma_c^inf)) and calls it the FWHM; with Gamma_{p,c} = Gamma^inf s/(1+s) this is Eq. (linewidth) up to their
 % factor-2 convention for the rates. Check before quoting numbers.
@@ -140,7 +160,7 @@ with contrast $C$, the depth of the dip at $f=f_-$, half width $\gamma$ of Eq.~\
 at half maximum $\Gamma=2\gamma$. Optical and microwave broadening are not modeled separately: they enter only
 through the single linewidth $\Gamma$, which is inferred with the line.
 
-\emph{Pulsed ODMR} removes the laser from the width of the line \cite{dreau2011}. In CW ODMR the laser that reads the
+\emph{Pulsed ODMR} is a technique that removes the laser from the width of the line \cite{dreau2011}. In CW ODMR the laser that reads the
 spin out also broadens the line through $\Gamma_c$, and narrowing it means lowering both powers and with them the
 contrast and the PL. Pulsed ODMR separates the two in time: a laser pulse polarizes the spin into $m_s=0$, the laser
 is switched off while a single microwave $\pi$-pulse of duration $t_\pi=1/(2\Omega)$ is applied, and a second laser
@@ -267,13 +287,12 @@ the inverse of the fraction of the window the line occupies, sets how hard the s
 
 The model above predicts what a measurement records for given parameters. The rest of this section turns the
 question around: given the measurements, how well can $f_-$ be known, how much can each measurement add, and where
-should the next one be taken. These questions are answered first without reference to any particular estimator,
-through the Fisher information and the prior, and then in the Bayesian terms used by the strategies.
+should the next one be taken.
 
 \subsection{Information of a measurement}
 \label{sec:fisher}
 
-Choosing where to measure is a problem of experiment design. We use its standard notation: the design $x\equiv f$ is
+We use the notation of experiment design \cite{chaloner1995bayesian}: the design $x\equiv f$ is
 the drive frequency at which a measurement is taken, the outcome $y$ is the normalized PL it records, the parameter
 of interest $\theta\equiv f_-$ is the transition frequency, and $\phi=(\Gamma,C)$ are the nuisance parameters. The
 expected normalized PL $\mu(x;\theta,\phi)$ of Eq.~\eqref{eq:signal}, now written as a function of the design and the
@@ -335,9 +354,16 @@ center of the window,
   \label{eq:prior}
 \end{equation}
 $J_0$ is the information the window holds: it is what a Gaussian estimate with the same variance would be worth. A
-narrower window starts with more, information that no measurement had to pay for. A uniform prior itself has no
-finite Fisher information, since its density jumps at the edges of the window; taking the inverse variance $J_0$ in
-its place is a convention, exact for a Gaussian prior.
+narrower window starts with more, information that no measurement had to pay for.
+
+Strictly, the bound below uses the Fisher information of the prior density itself, $\int p'(\theta)^2/p(\theta)\,
+d\theta$, and for the uniform window this integral diverges because the density jumps at the edges. We use $J_0$ in
+its place, for two reasons. For a Gaussian prior the two are equal, and for any other prior the Fisher information
+is larger than the inverse variance (the Cram\'er--Rao inequality applied to the prior itself \cite{cramer1946}), so
+the substitution can only raise the bound, never lower it. And a strict bound on the same window differs only by a
+constant: the smooth density $(2/W)\cos^2(\pi v/W)$ has the least Fisher information of any density confined to the
+window, $4\pi^2/W^2\approx3.3\,J_0$ \cite{gill1995}, and replacing $J_0$ by it lowers the curve in the prior limit by
+a factor of $\pi/\sqrt3\approx1.8$ and leaves the data limit unchanged.
 
 \subsection{Van Trees bound}
 \label{sec:budget}
@@ -353,15 +379,18 @@ of the measurements:
 \end{equation}
 where $\sigma_\theta(n)$ is the root-mean-square error after $n$ measurements and each $I(x_i)$ is the information
 of measurement $i$, both averaged over the prior. The first
-inequality is the van Trees inequality with $J_0$ in place of the prior's Fisher information, and the second uses
-$I(x)\le I^*$. Since the Fisher information of any prior is at least its inverse variance, this substitution can only
-raise the curve: for the uniform window $\sigma_{\rm vT}$ is a reference rather than a strict lower bound, and for a
-Gaussian prior it is exact.
+inequality is the van Trees inequality with $J_0$ in place of the prior's Fisher information (Sec.~\ref{sec:prior}),
+and the second uses $I(x)\le I^*$. For the uniform window $\sigma_{\rm vT}$ is therefore a reference curve rather
+than a strict lower bound; for a Gaussian prior it is exact.
 
 The bound constrains the mean squared error averaged over the prior, whatever the shape of the posterior. For the
 posterior mean that error is the expected posterior variance, so the posterior standard deviation can be compared
-with $\sigma_{\rm vT}$ from the first measurement on, as an average over runs. A Gaussian posterior is needed only to
-read $\sigma_\theta$ as a 68\% interval and for the exact form of the information gain below.
+with $\sigma_{\rm vT}$ from the first measurement on, as an average over runs, with no assumption on the shape of
+the posterior. The shape matters for two other uses of $\sigma_\theta$. Reading it as a 68\% interval holds only for
+a Gaussian posterior; a posterior with a narrow peak and wide tails has the same standard deviation but most of its
+mass much closer to the peak. And the link between the information gain of a measurement and its Fisher information,
+Eq.~\eqref{eq:eig-fisher} below, is exact only for a Gaussian posterior. Appendix~\ref{app:gaussian} gives the
+conditions under which the posterior is close to Gaussian.
 
 The bound has two limits, set by how the information of the measurements compares with that of the prior. While
 $nI^*\ll J_0$, it stays at the prior, $\sigma_{\rm vT}\approx\sigma_0=W/\sqrt{12}$: the measurements have not yet
@@ -386,8 +415,7 @@ the dip; \emph{refine} in the data limit, where it measures on the flanks of a d
 in the crossover between them, where it narrows down from the window to the dip.
 
 If every measurement carried $I^*$, the crossover would come after
-$n_c=J_0/I^*=\tfrac{64}{9}\,(\Gamma/W)^2/(k\,\mathrm{SNR}^2)$ measurements, far below one for any realistic window
-($n_c\approx2\times10^{-4}$ for $W=20\,\Gamma$ at $\mathrm{SNR}=10$). It comes much later because $I^*$ is reached
+$n_c=J_0/I^*=\tfrac{64}{9}\,(\Gamma/W)^2/(k\,\mathrm{SNR}^2)$ measurements, far below one for any realistic window. It comes much later because $I^*$ is reached
 only once the dip has been found: a measurement on the baseline carries $I(x)\approx0$, so the sum in
 Eq.~\eqref{eq:vantrees} stays near $J_0$ while the strategy searches. What such a measurement contributes instead
 is \emph{elimination}: it shrinks the prior itself.
@@ -492,8 +520,7 @@ $H[y\mid x]\le\tfrac12\ln 2\pi e\,(\sigma^2_{\rm pred}(x)+\sigma^2/k)$ and
   \mathrm{EIG}(x)\le\tfrac12\ln\!\Big(1+\frac{k\,\sigma^2_{\rm pred}(x)}{\sigma^2}\Big),
   \label{eq:eig-var}
 \end{equation}
-with equality when the predictive distribution of $\mu(x;\theta,\phi)$ is Gaussian. Entropies here are in nats
-(natural logarithms). Whether it is depends on the
+with equality when the predictive distribution of $\mu(x;\theta,\phi)$ is Gaussian. Whether it is depends on the
 posterior of $\theta$, not on the noise: the noise is Gaussian by construction, the posterior only becomes Gaussian
 with enough data.
 
