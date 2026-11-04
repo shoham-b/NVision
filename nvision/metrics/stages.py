@@ -65,8 +65,9 @@ Oracle per stage
 Each stage is also compared with the fewest measurements any locator could need, from the same truth-side Fisher
 information: ``I* = max g^2 / sigma^2`` per step. Focus ends at the precision ``eps`` where eta stays >= ``1 - delta``
 (half-width of that region around the best point), so its bound is ``(eps^-2 - J0) / I*`` with ``J0`` the
-information the prior (the window) already holds -- a window is a prior, not free; refine ends at the stop target
-``tau``, so its bound is ``(tau^-2 - eps^-2) / I*`` (refine starts at precision ``eps``). Both fall as 1 / SNR^2.
+information the primary parameter's prior already holds (its inverse variance) -- a window is a prior, not free;
+refine ends at the stop target ``tau``, so its bound is ``(tau^-2 - eps^-2) / I*`` (refine starts at precision
+``eps``). Both fall as 1 / SNR^2.
 The efficiency (bound / steps spent) and the axes (true / prior FWHM, window) are stored with the stage metrics; see
 :func:`compute_stage_metrics` and ``docs/evaluation_metrics.md``.
 
@@ -384,9 +385,9 @@ def compute_stage_metrics(run_result: RunResult) -> dict[str, Any]:
     * ``stage_fwhm_true_phys`` (``None`` for drive-controlled models, whose width depends on the drive),
       ``stage_prior_fwhm_phys`` (the prior's mean FWHM), ``stage_window_phys`` (the drive-frequency range) and
       ``stage_window_fwhm`` = window over true FWHM: the axes the stages scale with.
-    * ``stage_prior_info`` = ``J0``: the information (Hz^-2) the prior already holds, ``sigma_0^-2`` with
-      ``sigma_0`` the claimed uncertainty after the first measurement (the prior, to one measurement's accuracy).
-      A window is a prior.
+    * ``stage_prior_info`` = ``J0``: the information (Hz^-2) the prior already holds, ``1 / Var(prior)`` of the
+      primary parameter (``12 / W^2`` for a uniform prior of width ``W``), computed exactly from the locator's prior
+      (bounds and distribution, :func:`belief_prior_variance_phys`), not from any measurement. A window is a prior.
     * ``stage2_oracle_steps`` = ``max(0, eps^-2 - J0) / I*``: measurements to reach ``eps`` from the prior at the best
       point. ``stage2_efficiency`` = that over ``stage2_steps``.
     * ``stage_true_passage_step``: first step from which the true error ``|estimate - truth|`` stays ``<= tau`` for
@@ -483,6 +484,97 @@ def compute_stage_metrics(run_result: RunResult) -> dict[str, Any]:
     return out
 
 
+def prior_variance_phys(
+    prior_entry: Any,
+    bounds_phys: tuple[float, float],
+    broad_fraction: float = 0.0,
+) -> float:
+    """Exact variance (Hz^2) of the prior the SMC belief draws one parameter's particles from.
+
+    ``prior_entry`` is that parameter's entry of ``SMCMarginalDistribution.priors`` (unit-cube form), ``bounds_phys``
+    its ``physical_param_bounds`` (lo, hi) in Hz and ``broad_fraction`` the share of particles drawn uniformly over
+    the bounds on top of a Gaussian prior (``n_broad / num_particles``). The three shapes the belief samples are:
+
+    * ``None``: uniform over the bounds, ``W^2 / 12``.
+    * ``(mu_unit, std_unit)``: ``N(mu, std)`` truncated to the unit interval, mixed with ``broad_fraction`` of
+      ``U(0, 1)``; law of total variance, scaled by ``W^2``.
+    * ``("sin^2", k)``: ``p(f) ~ sin^2(k (f - lo))`` over the physical bounds (``k`` in rad/Hz), closed form.
+
+    Anything else, and the truncated-normal cases the sampler does not draw from a truncated normal (``std <= 0`` or
+    the far-tail exponential branch), raise ``ValueError``: there is no approximate fallback.
+    """
+    from nvision.belief.smc_marginal import _TRUNC_NORM_TAIL_SIGMAS
+
+    lo_phys, hi_phys = float(bounds_phys[0]), float(bounds_phys[1])
+    width_phys = hi_phys - lo_phys
+    if not (width_phys > 0 and math.isfinite(width_phys)):
+        raise ValueError(f"Prior bounds must be a finite interval with hi > lo, got {bounds_phys}")
+    if prior_entry is None:
+        return width_phys**2 / 12.0
+    if isinstance(prior_entry, tuple) and len(prior_entry) == 2 and prior_entry[0] == "sin^2":
+        return _sin2_prior_variance_phys(float(prior_entry[1]), width_phys)
+    if isinstance(prior_entry, tuple) and len(prior_entry) == 2:
+        from scipy.stats import truncnorm
+
+        mu_unit, std_unit = float(prior_entry[0]), float(prior_entry[1])
+        if not (std_unit > 0 and math.isfinite(std_unit) and math.isfinite(mu_unit)):
+            raise ValueError(f"Gaussian prior needs a finite std > 0, got {prior_entry}")
+        a, b = (0.0 - mu_unit) / std_unit, (1.0 - mu_unit) / std_unit
+        if a >= _TRUNC_NORM_TAIL_SIGMAS or b <= -_TRUNC_NORM_TAIL_SIGMAS:
+            raise ValueError(f"Gaussian prior {prior_entry} lies in the sampler's far-tail branch; no exact variance")
+        if not 0.0 <= broad_fraction <= 1.0:
+            raise ValueError(f"broad_fraction must be in [0, 1], got {broad_fraction}")
+        mean_g, var_g = (float(v) for v in truncnorm.stats(a, b, loc=mu_unit, scale=std_unit, moments="mv"))
+        mean_u, var_u = 0.5, 1.0 / 12.0
+        f = broad_fraction
+        mean = (1.0 - f) * mean_g + f * mean_u
+        var_unit = (1.0 - f) * (var_g + mean_g**2) + f * (var_u + mean_u**2) - mean**2
+        return var_unit * width_phys**2
+    raise ValueError(f"Unsupported prior entry {prior_entry!r}: cannot compute its variance")
+
+
+def _sin2_prior_variance_phys(k: float, width_phys: float) -> float:
+    """Variance (Hz^2) of ``p(u) ~ sin^2(k u)`` on ``[0, W]``, from the closed-form moments.
+
+    ``sin^2(k u) = (1 - cos(c u)) / 2`` with ``c = 2k``, so ``I_n = W^(n+1) / (2(n+1)) - C_n / 2`` with
+    ``C_n = int_0^W u^n cos(c u) du``.
+    """
+    if not (k > 0 and math.isfinite(k)):
+        raise ValueError(f"sin^2 prior needs a finite k > 0, got {k}")
+    c, w = 2.0 * k, width_phys
+    s, co = math.sin(c * w), math.cos(c * w)
+    c0 = s / c
+    c1 = w * s / c + (co - 1.0) / c**2
+    c2 = w**2 * s / c + 2.0 * w * co / c**2 - 2.0 * s / c**3
+    i0 = w / 2.0 - c0 / 2.0
+    i1 = w**2 / 4.0 - c1 / 2.0
+    i2 = w**3 / 6.0 - c2 / 2.0
+    mean = i1 / i0
+    return i2 / i0 - mean**2
+
+
+def belief_prior_variance_phys(belief: Any, name: str) -> float:
+    """Variance (Hz^2) of the prior ``belief`` started from on parameter ``name`` (see :func:`prior_variance_phys`).
+
+    Read from the belief's configuration (bounds and prior entry), never from its particles, so it is the same for a
+    snapshot taken after any number of measurements. ``SMCMarginalDistribution`` and ``GridMarginalDistribution``
+    (the sweep belief: a flat grid over its bounds, so uniform; the continuous ``W^2 / 12`` is used, the grid being
+    a discretisation of it) are supported; any other belief raises ``TypeError``.
+    """
+    from nvision.belief.grid_marginal import GridMarginalDistribution
+    from nvision.belief.smc_marginal import SMCMarginalDistribution
+
+    if isinstance(belief, SMCMarginalDistribution):
+        entry = (belief.priors or {}).get(name)
+        broad = 0.0
+        if entry is not None and entry[0] != "sin^2":
+            broad = round(belief.prior_broad_fraction * belief.num_particles) / belief.num_particles
+        return prior_variance_phys(entry, belief.physical_param_bounds[name], broad)
+    if isinstance(belief, GridMarginalDistribution):
+        return prior_variance_phys(None, belief.physical_param_bounds[name])
+    raise TypeError(f"Cannot read the prior of a {type(belief).__name__}: J0 needs an SMC or grid belief")
+
+
 def _true_fwhm_phys(true_signal: Any) -> float | None:
     """Effective FWHM (Hz) of the true dip, ``2 * effective_hwhm``; ``None`` when the width depends on the drive."""
     from nvision.spectra.nv_center import effective_hwhm
@@ -523,12 +615,11 @@ def _add_oracle_metrics(
     out["stage_window_phys"] = _finite_or_none(float(x_hi_phys - x_lo_phys))
     out["stage_window_fwhm"] = None if not fwhm_true else _finite_or_none(float(x_hi_phys - x_lo_phys) / fwhm_true)
 
-    # The prior is information: a window is a prior. The claimed sigma after the first measurement stands for it.
-    unc0 = out["stage1_unc_start"]
-    prior_info = 0.0
-    if unc0 is not None and unc0 > 0:
-        prior_info = float(unc0) ** -2
-        out["stage_prior_info"] = _finite_or_none(prior_info)
+    # The prior is information: J0 = 1 / Var(prior of the primary parameter), 12 / W^2 for a uniform prior of width W.
+    # Read from the locator's prior itself, not from the claimed sigma after a measurement (which mixes one
+    # measurement and the filter's own, overconfident, calibration into it).
+    prior_info = 1.0 / belief_prior_variance_phys(belief, primary)
+    out["stage_prior_info"] = _finite_or_none(prior_info)
 
     # First passage of the true error to the stop target (needs no scaling assumption, covers all three stages).
     if tau is not None and float(tau) > 0:
