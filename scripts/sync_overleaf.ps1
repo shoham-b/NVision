@@ -18,7 +18,8 @@ if (-not $env:OVERLEAF_PROJECT_ID) { throw "Set `$env:OVERLEAF_PROJECT_ID first.
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $articles = Join-Path $repoRoot "articles"
-$files = @("nvision_paper.tex", "nvision_paper.bib")
+$files = @("nvision_paper.tex", "nvision_paper.bib") +
+    @(Get-ChildItem (Join-Path $articles "sections") -Filter *.tex | ForEach-Object { "sections/$($_.Name)" })
 $clone = Join-Path $repoRoot "scratch\overleaf_clone"
 $url = "https://git@git.overleaf.com/$($env:OVERLEAF_PROJECT_ID)"
 
@@ -33,6 +34,7 @@ if ($Direction -eq "pull") {
     foreach ($f in $files) { Copy-Item (Join-Path $clone $f) (Join-Path $articles $f) -Force }
     Write-Host "Pulled from Overleaf. Review with: git diff articles/"
 } else {
+    New-Item -ItemType Directory -Force (Join-Path $clone "sections") | Out-Null
     foreach ($f in $files) { Copy-Item (Join-Path $articles $f) (Join-Path $clone $f) -Force }
     git -C $clone add -- $files
     if (git -C $clone status --porcelain) {
