@@ -153,9 +153,29 @@ For $t_\pi\ll T_2^*$ the spread is small against $\Omega$ and the line is that o
 $t_\pi\gtrsim T_2^*$ the Gaussian dominates: the zeros and side lobes are washed out, the line stops narrowing at a
 width $\sim1/T_2^*$, and the depth falls because the pulse no longer inverts every frequency class
 \cite{dreau2011}. The best pulsed line is therefore reached at $t_\pi\sim T_2^*$, a width set by the spin itself
-rather than by the laser or microwave power. The information analysis below is worked out in closed form for the
+rather than by the laser or microwave power.
+
+Both pulses take a finite time, and the spin evolves during each of them. While the microwave pulse is on, the laser
+is off and the spin relaxes only through $T_1$, which is much longer than $t_\pi$, and dephases through the spread
+already included in Eq.~\eqref{eq:pulsed-t2star}. The readout is different: the laser that reads the spin out also
+repolarises it, so the PL difference between $m_s=0$ and $m_s=-1$ lasts only for the repolarisation time $\tau_p$.
+Taking the repolarisation as a single exponential, a spin flipped with probability $P$ emits, a time $t$ into the
+readout pulse, PL at the rate $I_0\,[1-c\,P\,e^{-t/\tau_p}]$, where $Phi_0$ is the rate of $m_s=0$ and $c$ the
+fractional PL drop of $m_s=-1$ at the start of the readout. The recorded PL is this rate integrated over a readout
+window of length $t_r$, normalised to the same integral with no flip,
+\begin{equation}
+  S=1-\frac{1}{t_r}\int_0^{t_r}c\,P\,e^{-t/\tau_p}\,dt
+  =1-c\,\frac{\tau_p}{t_r}\big(1-e^{-t_r/\tau_p}\big)\,\bar P_\pi(\Delta) ,
+  \label{eq:pulsed-readout}
+\end{equation}
+with $P=\bar P_\pi$ of Eq.~\eqref{eq:pulsed-t2star}. The integration leaves the line shape unchanged and sets only
+its depth: the contrast is $C=c\,(\tau_p/t_r)(1-e^{-t_r/\tau_p})$. A longer window collects more photons,
+$N_{\rm ph}\propto t_r$, but dilutes the contrast, so the single-shot signal-to-noise ratio
+$C\sqrt{N_{\rm ph}}\propto(1-e^{-t_r/\tau_p})/\sqrt{t_r/\tau_p}$ is largest at $t_r\approx1.26\,\tau_p$.
+
+The information analysis below is worked out in closed form for the
 Lorentzian line of Eq.~\eqref{eq:signal}; for pulsed ODMR the same quantities follow, numerically, with
-$1-C\bar P_\pi$ in place of Eq.~\eqref{eq:signal}. \tbd{Which ODMR mode the results focus on, once the simulations
+Eq.~\eqref{eq:pulsed-readout} in place of Eq.~\eqref{eq:signal}. \tbd{Which ODMR mode the results focus on, once the simulations
 and the experiment are complete; where pulsed goes (a Theory subsection for the information of the pulsed line, and
 its own Results).}
 
