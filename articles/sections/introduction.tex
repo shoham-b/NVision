@@ -3,25 +3,21 @@
 \label{sec:intro}
 % =====================================================================
 
-Measuring magnetic fields on the nanometre scale requires a sensor that is itself of atomic size and can be
-brought within nanometres of the source \tbd{cite a review, e.g.\ Degen, Reinhard and Cappellaro, Rev.\ Mod.\
-Phys.\ (2017); Rondin et al., Rep.\ Prog.\ Phys.\ (2014)}. The negatively charged nitrogen-vacancy (N-V) centre in
-diamond meets this requirement. It is a single electron spin in a host lattice that can be placed close to the
-sample, and its spin state can be initialised and read out optically at room temperature
-\cite{balasubramanian2008,maze2008,doherty2013nv}.
+Nitrogen-vacancy (N-V) centres in diamond are established sensors of magnetic fields on the nanometre scale
+\cite{balasubramanian2008,maze2008,doherty2013nv}\tbd{cite a review, e.g.\ Degen, Reinhard and Cappellaro, Rev.\
+Mod.\ Phys.\ (2017); Rondin et al., Rep.\ Prog.\ Phys.\ (2014)}. In optically detected magnetic resonance (ODMR)
+magnetometry, the field is a parameter of the spin Hamiltonian of the centre and is inferred from a microwave scan:
+the photoluminescence is recorded at a sequence of microwave drive frequencies within a search window, the range in
+which the resonance can lie, and the
+field is read from the position of the resonance. Inferring a Hamiltonian parameter in this way is an instance of
+Hamiltonian learning \cite{granade2012}\tbd{cite further Hamiltonian-learning work}, in which the experimenter
+chooses the setting of each measurement, here the drive frequency. Each measurement takes time, so the number of
+measurements a strategy needs sets both the sensitivity and the bandwidth of the magnetometer. This number matters
+most where many readings are needed, as in tracking a time-varying field or imaging a field pixel by pixel
+\tbd{cite}.
 
-The most widely used N-V magnetometry technique is optically detected magnetic resonance (ODMR), in which the field
-shifts a spin resonance of the centre and is read from the position of that resonance. The resonance appears as a
-dip in the photoluminescence when the microwave drive frequency matches it. Because the field is not known in
-advance, the dip must first be found by measuring at a sequence of drive frequencies within a search window, the
-range of drive frequencies in which the dip can lie. Each measurement takes time, so the number of measurements a
-strategy needs sets both the sensitivity and the bandwidth of the magnetometer. This number matters most where many
-readings are needed, as in tracking a time-varying field or imaging a field pixel by pixel \tbd{cite}.
-
-Locating the resonance is an instance of Hamiltonian learning, the estimation of the parameters of a quantum
-system's Hamiltonian from measurements on it \cite{granade2012}\tbd{cite further Hamiltonian-learning work}; here
-the experimenter chooses the drive frequency of each measurement. The traditional choice is a sweep, which steps
-through the window at uniform spacing, and several approaches have been proposed to improve on it. Non-adaptive
+The traditional scan is a sweep, which steps through the window at uniform spacing, and several approaches have
+been proposed to improve on it. Non-adaptive
 undersampling measures only a subset of the window and reconstructs the line from it, either by fitting a
 Lorentzian to randomly chosen drive frequencies \cite{luo2023} or by compressed sensing in a sparse spectral basis
 \cite{haim2025}. Sequential Bayesian experiment design (SBED) is adaptive: it maintains a posterior distribution over
