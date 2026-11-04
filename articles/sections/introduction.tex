@@ -3,37 +3,52 @@
 \label{sec:intro}
 % =====================================================================
 
-The negatively charged nitrogen-vacancy (N-V) centre in diamond is a solid-state electron spin that can be initialised
-and read out optically at room temperature, which makes it a magnetic field sensor with nanoscale spatial resolution
-\cite{balasubramanian2008,maze2008,doherty2013nv}. In optically detected magnetic resonance (ODMR) magnetometry the
-field to be measured shifts the spin resonance, and it is read from the position of that resonance, found by
-recording the photoluminescence at a sequence of microwave drive frequencies within a search window.
+Measuring magnetic fields on the nanometre scale, such as those of single electron and nuclear spins, of magnetic
+textures in condensed matter or of biological samples, requires a sensor that is itself of atomic size and can be
+brought within nanometres of the source \tbd{cite a review, e.g.\ Degen, Reinhard and Cappellaro, Rev.\ Mod.\
+Phys.\ (2017); Rondin et al., Rep.\ Prog.\ Phys.\ (2014)}. The negatively charged nitrogen-vacancy (N-V) centre in
+diamond is a prominent candidate: it is a single electron spin, held in a host lattice that can be placed close to
+the sample, whose state can be initialised and read out optically at room temperature
+\cite{balasubramanian2008,maze2008,doherty2013nv}.
 
-Choosing these drive frequencies well is an active field. Non-adaptive undersampling measures only a subset of
-the window and reconstructs the line from it, either by fitting a Lorentzian to randomly chosen drive frequencies
-\cite{luo2023} or by compressed sensing in a sparse spectral basis \cite{haim2025}. Bayesian experiment design
-instead keeps a posterior over the parameters, here as a sequential Monte Carlo (SMC) particle cloud, and chooses
-each next measurement to maximise its expected utility, such as the information it is expected to gain
-\cite{granade2012}. In N-V Ramsey magnetometry, adaptive Bayesian schemes set the readout phase or the precession
-time from the outcomes so far
+The N-V magnetometer most commonly used is based on optically detected magnetic resonance (ODMR). The ground state
+of the centre is a spin triplet in which the $m_s=\pm1$ sublevels lie a zero-field splitting $D\approx2.87$~GHz
+above $m_s=0$, and a magnetic field along the N-V axis shifts them by a Zeeman shift $\pm\Delta_Z$ proportional to
+the field. Under green illumination the $m_s=\pm1$ states emit less photoluminescence than $m_s=0$, so a microwave
+drive that is resonant with one of the transitions, at $D\pm\Delta_Z$, appears as a dip in the photoluminescence.
+The field is read from the position of that dip. Since the field is not known in advance, the dip has to be found
+by measuring at a sequence of microwave drive frequencies within a search window, the range of drive frequencies
+in which the dip can lie. Every measurement costs time, so the number of measurements needed sets the sensitivity
+and the bandwidth of the magnetometer.
+
+Locating the resonance is an instance of Hamiltonian learning, the estimation of the parameters of a quantum
+system's Hamiltonian from measurements on it \cite{granade2012}\tbd{cite further Hamiltonian-learning work}: here
+the parameters are $D$ and $\Delta_Z$, and the experimenter's choice is the drive frequency of each next measurement.
+Non-adaptive undersampling measures only a subset of the window and reconstructs the line from it, either by
+fitting a Lorentzian to randomly chosen drive frequencies \cite{luo2023} or by compressed sensing in a sparse
+spectral basis \cite{haim2025}. Bayesian experiment design instead keeps a posterior over the parameters, here as a
+sequential Monte Carlo (SMC) particle cloud, and chooses each next measurement to maximise its expected utility,
+such as the information it is expected to gain \cite{granade2012}. In N-V Ramsey magnetometry, adaptive Bayesian
+schemes set the readout phase or the precession time from the outcomes so far
 \cite{bonato2016,santagati2019,mcmichael2021ramsey}; in ODMR, the same approach chooses the next drive frequency and
-reaches a given precision more than an order of magnitude faster than a sweep
-\cite{dushenko2020sbed,mcmichael2021optbayesexpt}.
+reaches a given precision more than an order of magnitude faster than a sweep \cite{dushenko2020sbed}, and it is
+available as a software package \cite{mcmichael2021optbayesexpt}.
 
-In recent years, learning the design rule itself has become a particularly active direction. Early work
-learned policies for adaptive phase estimation \cite{hentschel2010,lumino2018}. Reinforcement learning
-has since been used to find the controls that make a quantum sensor most sensitive \cite{xu2019,schuff2020,xiao2022}
-and to estimate several parameters at once in a photonic experiment \cite{cimini2023}. Neural networks trained by an
-evolution strategy or reinforcement learning replace the costly expected-gain optimisation of Bayesian design by a fast learned heuristic
-\cite{fiderer2021}, and model-aware reinforcement learning trains such a policy through a particle-filter posterior,
-with applications to N-V Ramsey magnetometry \cite{belliardo2024quantum,belliardo2024pra}. For a wide field range, a
-Bayesian neural network first narrows the range and a reinforcement-learning agent then refines the estimate
-\cite{guo2026}.
+A more recent direction learns the design rule itself, with the aim of finding the best setting faster or of
+needing fewer measurements overall. Early work learned policies for adaptive phase estimation
+\cite{hentschel2010,lumino2018}. Reinforcement learning has since been used to find the controls that make a
+quantum sensor most sensitive \cite{xu2019,schuff2020,xiao2022} and to estimate several parameters at once in a
+photonic experiment \cite{cimini2023}. Neural networks trained by an evolution strategy or reinforcement learning
+replace the costly expected-gain optimisation of Bayesian design by a fast learned heuristic \cite{fiderer2021},
+and model-aware reinforcement learning trains such a policy through a particle-filter posterior, with applications
+to N-V Ramsey magnetometry \cite{belliardo2024quantum,belliardo2024pra}. For a wide field range, a Bayesian neural
+network first narrows the range and a reinforcement-learning agent then refines the estimate \cite{guo2026}.
 
-What is missing from this research is a reference for the ODMR search itself: a bound on how fast any strategy can
-locate the resonance. Without it, the reported speedups cannot be placed against the best achievable, it is not
-known how many of the measurements are unavoidable, and the observed growth of the speedup as the line occupies less
-of the window \cite{dushenko2020sbed} remains unexplained.
+These strategies are judged by their speedup over a sweep, but not against a limit. The field has advanced without a
+bound on how fast any strategy can locate the resonance, so it is not known how close the reported strategies come
+to the best achievable, nor how many of their measurements are unavoidable. The speedup itself has been reported
+as a factor, without the mechanism behind it; in particular, its growth as the line occupies less of the window
+\cite{dushenko2020sbed} has not been explained.
 
 Estimation theory provides such references. The Cram\'er--Rao bound limits the variance of an unbiased estimate
 by the Fisher information of the data \cite{cramer1946}, but it ignores what is known before the first
@@ -43,8 +58,9 @@ this bound is a natural yardstick for an ODMR search, and the information it cou
 Bayesian experiment design maximises. In this work we use it to analyse sequential Bayesian experiment design (SBED)
 and drive-frequency sweeps for CW and pulsed ODMR.
 
-Section~\ref{sec:theory} derives the bound from the physical model and the speedup, sensitivity and bandwidth that
-follow from it; Sec.~\ref{sec:methods} describes the particle filter, the measurement strategies and how they are
-evaluated; Sec.~\ref{sec:results} presents the simulations and the experiment; and Sec.~\ref{sec:discussion}
-discusses the limits of the approach.
+Section~\ref{sec:theory} derives the bound from the physical model, and the speedup, sensitivity and bandwidth that
+follow from it. Section~\ref{sec:methods} presents SBED as a showcase of a strategy that follows the bound,
+describing its particle filter, the sweeps it is compared with and how both are evaluated against the bound.
+Section~\ref{sec:results} presents the simulations and the experiment, and Sec.~\ref{sec:discussion} discusses the
+limits of the approach.
 
