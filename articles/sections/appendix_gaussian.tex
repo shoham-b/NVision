@@ -1,0 +1,78 @@
+% =====================================================================
+\section{Approach of the posterior to a Gaussian}
+\label{app:gaussian}
+% =====================================================================
+
+Eq.~\eqref{eq:eig-fisher} and the reading of $\sigma_\theta$ as a 68\% interval assume a Gaussian posterior. This
+appendix states when that holds for the line of Eq.~\eqref{eq:signal}. There are two separate questions: whether
+the posterior has a single peak, and whether that peak is Gaussian. We take the nuisances as known; they add
+dimensions but do not change the scaling.
+
+\paragraph{Shape of a single peak.} Let $L(\theta)=\ln p(\theta)+\sum_i\ln p(y_i\mid\theta,x_i)$ be the log
+posterior and $\hat\theta$ its maximum. Inside the window the uniform prior is flat and only the likelihood
+contributes. Expanding about the maximum (Laplace's method \cite{vandervaart1998}),
+\begin{equation}
+  L(\theta)=L(\hat\theta)-\frac{J}{2}(\theta-\hat\theta)^2+\frac{L'''}{6}(\theta-\hat\theta)^3
+  +\frac{L''''}{24}(\theta-\hat\theta)^4+\dots,
+  \label{eq:laplace}
+\end{equation}
+with $J=-L''(\hat\theta)$, whose expectation is the Fisher information $J_n$ of Eq.~\eqref{eq:vantrees}. Keeping only
+the quadratic term gives a Gaussian of variance $\sigma_\theta^2=1/J$. Over the posterior,
+$|\theta-\hat\theta|\sim\sigma_\theta$, so the higher terms change the log density by relative amounts of order
+$L'''\sigma_\theta^3$ and $L''''\sigma_\theta^4$; the first sets the asymmetry of the peak, the second the weight
+of its tails.
+
+For Gaussian noise, $\ln p(y\mid\theta,x)=-k\,[y-\mu(x;\theta)]^2/2\sigma^2$ up to a constant. Averaged over the
+noise, the derivatives are
+\begin{equation*}
+  \mathbb E[L'']=-\sum_i\frac{k\,\mu_i'^2}{\sigma^2}=-J_n,\qquad
+  \mathbb E[L''']=-3\sum_i\frac{k\,\mu_i'\mu_i''}{\sigma^2},
+\end{equation*}
+where primes are derivatives with respect to $\theta$ at $x_i$, so $\mu_i'=g(x_i)$. The line changes on the scale
+of its half width $\gamma$, so each further derivative brings a factor of order $1/\gamma$: $\mu''\sim\mu'/\gamma$,
+hence $|L'''|\lesssim J_n/\gamma$ and $|L''''|\lesssim J_n/\gamma^2$. The corrections in Eq.~\eqref{eq:laplace} are
+then of relative order
+\begin{equation}
+  L'''\sigma_\theta^3\sim\frac{\sigma_\theta}{\gamma},\qquad L''''\sigma_\theta^4\sim\frac{\sigma_\theta^2}{\gamma^2}.
+  \label{eq:gauss-corrections}
+\end{equation}
+A single peak is Gaussian once it is narrow compared with the line, $\sigma_\theta\ll\gamma$. This is an upper
+estimate: at the steepest-slope points $\mu''=0$ (there $|g|$ is at its maximum), so for measurements placed there
+the cubic term vanishes on average and the corrections start at order $\sigma_\theta^2/\gamma^2$.
+
+In the data limit, $J_n\approx nI^*$ with $I^*$ of Eq.~\eqref{eq:istar}, and with $\Gamma=2\gamma$,
+\begin{equation*}
+  \frac{\sigma_\theta}{\gamma}\approx\frac{8}{3\sqrt3}\,\frac{1}{\mathrm{SNR}\sqrt{nk}}
+  \approx\frac{1.5}{\mathrm{SNR}\sqrt{nk}} ,
+\end{equation*}
+so at an SNR of order 10 a few shots on the sides of the dip already make the peak Gaussian.
+
+\paragraph{Linearization of the signal.} The same ratio controls the step from a Gaussian posterior to a Gaussian
+prediction used in Eq.~\eqref{eq:eig-fisher}. Expanding the signal over the posterior,
+$\mu(x;\theta)=\mu(x;\hat\theta)+g(x)(\theta-\hat\theta)+\tfrac12\mu''(x)(\theta-\hat\theta)^2+\dots$, the
+quadratic term relative to the linear one is $\mu''\sigma_\theta/2g\sim\sigma_\theta/\gamma$. Eq.~\eqref{eq:eig-fisher}
+therefore holds up to relative corrections of order $\sigma_\theta/\gamma$, and of order $\sigma_\theta^2/\gamma^2$
+at the steepest slope.
+
+\paragraph{Leftover mass.} The expansion describes one peak. Early in focus the posterior is instead a mixture: a
+peak of weight $1-p$ and width $\sigma_\theta$ at the dip, and a remainder of weight $p$ spread over the part of
+the window not yet excluded, of width up to $W$. The variance of the mixture is
+\begin{equation*}
+  \mathrm{Var}(\theta)\approx(1-p)\,\sigma_\theta^2+p\,s_{\rm r}^2,
+\end{equation*}
+where $s_{\rm r}^2\lesssim W^2/12$ is the mean squared distance of the remainder from the peak. The remainder
+dominates once $p\gtrsim\sigma_\theta^2/s_{\rm r}^2$, i.e.\ roughly $p\gtrsim12(\sigma_\theta/W)^2$, a very small
+weight: for $W=20\,\Gamma$ and $\sigma_\theta=0.1\,\Gamma$ it is $3\times10^{-4}$. Until the remainder has fallen below
+this, the posterior standard deviation reports the remainder, not the error of the peak, and the posterior is
+far from Gaussian: a narrow peak with wide tails. Its entropy, by contrast, is changed by the remainder only by
+about $H_b(p)+p\ln(s_{\rm r}/\sigma_\theta)$, which is small for small $p$. This is the difference between the
+variance and the information gain discussed in Sec.~\ref{sec:eig}.
+
+The remainder is removed only by measuring where it would place the dip. A measurement within about $\gamma$ of such
+a location, when the dip is not there, lowers the log weight of that part of the remainder on average by the
+Kullback--Leibler divergence between the two predicted outcomes, $kC^2/2\sigma^2=k\,\mathrm{SNR}^2/2$. Lowering a
+weight $p$ to below $12(\sigma_\theta/W)^2$ takes, at each location, about
+$2\ln[pW^2/12\sigma_\theta^2]/(k\,\mathrm{SNR}^2)$ measurements, and at least one; a remainder spread over the
+whole window has of order $W/\Gamma$ such locations. At high SNR the posterior therefore becomes Gaussian after
+about one pass over the remaining window, a cost that grows with $W/\Gamma$ like that of the search.
+\tbd{Compare with when the SBED posterior becomes Gaussian in the runs (Results).}

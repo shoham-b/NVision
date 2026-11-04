@@ -24,18 +24,18 @@ for every particle because its update does not depend on the residuals, and scal
 $\alpha_0=10$, $\beta_0=\alpha_0\sigma_{\rm nom}^2$, with $\sigma_{\rm nom}$ the geometric mean of the prior range of
 $\sigma$. Before each measurement both are discounted by $d=0.99$; a measurement $y_n$, the mean of $k$ shots at
 $x_n$, then adds $\tfrac12$ to $\alpha$ and $\tfrac12 k\,r_{n,i}^2$ to $\beta_i$, with residual
-$r_{n,i}=y_n-S(x_n;\theta_i,\phi_i)$, so that after $n$ measurements
+$r_{n,i}=y_n-\mu(x_n;\theta_i,\phi_i)$, so that after $n$ measurements
 $\beta_i=d^n\beta_0+\tfrac12\sum_{t<n}d^{\,n-1-t}k\,r_{t,i}^2$. Old residuals are thus forgotten with a memory of
 about $1/(1-d)=100$ measurements, and $\alpha$ saturates at $0.5/(1-d)=50$, about 100 degrees of freedom. With
 $\sigma^2$ integrated out, the measurement reweights the particles by the Student-$t$ predictive
 \begin{equation}
-  w_i\ \propto\ w_i\;t_{2\alpha}\!\Big(y_n;\,S(x_n;\theta_i,\phi_i),\,\frac{\beta_i}{k\alpha}\Big),
+  w_i\ \propto\ w_i\;t_{2\alpha}\!\Big(y_n;\,\mu(x_n;\theta_i,\phi_i),\,\frac{\beta_i}{k\alpha}\Big),
   \label{eq:smc-update}
 \end{equation}
 taken with $\alpha$, $\beta_i$ before the update. After a rejuvenation each $\beta_i$ is recomputed from the full
 history at the particle's new position.
 
-\paragraph{Initial cloud.} \tbd{The prior on $\Delta\nu_Z$ is being changed to uniform over the range the truth is drawn
+\paragraph{Initial cloud.} \tbd{The prior on the Zeeman shift $\delta_Z$ is being changed to uniform over the range the truth is drawn
 from (now a truncated Gaussian, offset from the truth, plus 10\% of the particles uniform over the bounds); state it
 here once Sec.~\ref{sec:prior} is fixed.}
 
@@ -59,7 +59,7 @@ between them, once the posterior expects each of those points to carry at least 
 true optimum.
 
 \paragraph{Bayesian SBED.} After every resampling SBED places 800 candidate drive frequencies at the quantiles of a
-density with Gaussian kernels on the flanks, $\pm$HWHM, of the posterior-mean line, kernels on the dips found and a
+density with Gaussian kernels on the two sides of the posterior-mean dip, $\pm$HWHM from its center, kernels on the dips found and a
 flat share, thinned to a spacing of at least $100$~kHz. Eq.~\eqref{eq:eig-var} is evaluated on a 500-particle
 subsample, with $\sigma^2$ the posterior mean of the noise. The candidates are taken in blocks of 64, and the block
 maxima compete through a softmax with a temperature of $0.01$~nats, so the choice is near-greedy. Each focus section
