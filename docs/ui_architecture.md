@@ -167,8 +167,10 @@ Key sections inside `main()` (in order of appearance):
      paired per-repeat difference (`hl-paired-0`, `renderHlPaired`, single use case only). *Search*, the one stage kept:
      `hl-stage-compare-1`, `hl-stages-steps-1`, the claimed-σ / true-error curves over that stage and `hl-paired-1`. All
      information metrics are computed in the browser from `series.e` / `series.u`, `stage_fisher_star` and
-     `stage_prior_info` (one J₀ per use case: the median over every locator's runs); nothing new is stored, so `nv render`
-     is enough. The single-repeat panels (`#scan-run-content`) are shown only in the Run view, collapsed the same way elsewhere.
+     `stage_prior_info` (J₀ = 1/Var(prior of the primary parameter), 12/W² for a uniform `zeeman_shift` prior, computed
+     from the locator's prior at run time; one J₀ per use case: the median over every locator's runs, which share the
+     prior); nothing new is stored, so `nv render` is enough for rows recorded since J₀ came from the prior (older rows
+     carry the claimed-σ J₀ and need a re-run). The single-repeat panels (`#scan-run-content`) are shown only in the Run view, collapsed the same way elsewhere.
    * **Scaling** (`renderScalingTab`, `renderScaling`, view `#scaling-view`) — one point per use case (median over its
      repeats) of the stage steps against window, SNR and (FWHM/(SNR τ))², for the locators picked in `#scaling-pick`
      (default SBED). A panel is drawn only when the selection spans at least two values of its x-axis (a window or SNR
