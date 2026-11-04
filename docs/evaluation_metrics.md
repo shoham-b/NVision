@@ -105,8 +105,11 @@ $$\sigma_0^2 = \int_{-W/2}^{W/2} \frac{u^2}{W}\,du = \frac{1}{W}\cdot\frac{2\,(W
 It is W² (Hz²), not W. The prior information scale is J₀ = 12/W² (Hz⁻²). A uniform prior has no finite Fisher
 information at its edges, so the inverse variance is used as the convention: after N measurements 1/σ² = 12/W² + Σ I_j.
 Fisher information is not unitless (Hz⁻²); the unitless quantity is the gain log₂(σ₀/σ) = log₂(W/(√12 σ)) bits.
-`stage_prior_info` stores J₀ as σ₀⁻² with σ₀ the claimed σ after the first measurement (the prior to one measurement's
-accuracy).
+`stage_prior_info` stores J₀ = 1/Var(prior) of the primary parameter, computed exactly from the locator's own prior
+(its bounds and distribution, `belief_prior_variance_phys` in `nvision/metrics/stages.py`): 12/W² for the uniform
+`zeeman_shift` prior of width W. It is not read from any measurement: the claimed σ after the first measurement (used
+before) mixed one measurement and the particle filter's own calibration, which is overconfident, into the prior. A prior
+whose variance cannot be computed exactly raises instead of falling back.
 
 * Window widths are not comparable without J₀: a narrower window starts lower for free. A focus window built from the
   search posterior was paid for with shots; a window placed with the truth (e.g. the Zeeman edge pad) is information the
@@ -164,13 +167,16 @@ Stored only for runs recorded after these columns were added; re-run to get them
 
 The stage boundaries are not used to judge a locator any more. The claim is the single bound σ(n) ≥ (J₀ + n·I\*)^(-1/2),
 and every locator is judged by its distance to it. All of it is computed in the browser from the per-step `series.e` /
-`series.u` and the stored `stage_fisher_star` and `stage_prior_info`, so `nv render` is enough (no re-run).
+`series.u` and the stored `stage_fisher_star` and `stage_prior_info`, so `nv render` is enough (no re-run) once those
+are stored. `stage_prior_info` is written at run time: rows recorded before J₀ was taken from the prior carry the old
+claimed-σ value and need a re-run.
 
 * **J₀ is the prior of the primary parameter, not the drive window.** `stage_window_phys` is the swept drive-frequency
-  range; the primary parameter (e.g. `zeeman_shift`) has its own, much tighter prior (for the span-1.6 voigt study σ₀ ≈ 180 kHz
-  against a 3.2 MHz window, so a window-based J₀ = 12/W² put the "bound" 25× too low and locators appeared to beat it). J₀ =
-  σ₀⁻² with σ₀ the claimed σ after the first measurement (`stage_prior_info`), taken as the median over every run of the
-  use case, so all locators share one ceiling.
+  range; the primary parameter (e.g. `zeeman_shift`) has its own prior, and a window-based J₀ = 12/W² of the drive range
+  put the "bound" far too low, so locators appeared to beat it. J₀ = 1/Var(prior of the primary parameter)
+  (`stage_prior_info`), 12/W² for a uniform prior of width W on `zeeman_shift`, computed from the locator's prior itself
+  (bounds and distribution), not from a claimed σ. Every run of a use case starts from the same prior, so they all store
+  the same J₀; the browser still takes the median over the use case's runs, so all locators share one ceiling.
 * **Information vs the bound**: per repeat and step, z = error² · (J₀ + n·I\*); R(n) = 1 / mean(z) over the repeats still
   running (a run that has stopped keeps its final error; a step needs at least half of a use case's repeats), and the median
   over use cases when several are selected. R = 1 is the bound, below it measurements are wasted. The mean square is the

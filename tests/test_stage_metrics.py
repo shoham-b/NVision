@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 
 from nvision.metrics import stages
-from nvision.metrics.stages import compute_stage_metrics, sensitivity_efficiency_trace
+from nvision.metrics.stages import belief_prior_variance_phys, compute_stage_metrics, sensitivity_efficiency_trace
 from nvision.spectra.drive import DRIVE_AMP_MIN_UNIT, DriveSetting
 from nvision.spectra.nv_center_drive import pi_pulse_duration_s, rabi_transition_probability
 
@@ -46,6 +46,16 @@ def _run(uncs: list[float], dip_from: int | None, shots: list[int] | None = None
         model=SimpleNamespace(controls_drive=False),
     )
     return SimpleNamespace(snapshots=snaps, true_signal=true_signal)
+
+
+@pytest.fixture(autouse=True)
+def _uniform_prior_on_mock_bounds(monkeypatch):
+    """The mock belief is neither an SMC nor a grid belief: give it the uniform prior over its own bounds."""
+    monkeypatch.setattr(
+        stages,
+        "belief_prior_variance_phys",
+        lambda belief, name: stages.prior_variance_phys(None, belief.physical_param_bounds[name]),
+    )
 
 
 def _with_eta(monkeypatch, eta: list[float], eps_est: float = 2e6, eps_true: float = 0.1) -> None:
@@ -368,12 +378,76 @@ def test_oracle_steps_and_efficiency(monkeypatch):
 
 
 def test_focus_oracle_discounts_the_prior_information(monkeypatch):
-    # I* = 1, eps = 0.1 -> eps^-2 = 100. A prior with sigma_0 = 0.2 already holds J0 = 25, so (100 - 25) / 1 = 75 steps.
+    # I* = 1, eps = 0.1 -> eps^-2 = 100. A uniform zeeman_shift prior of width W = 2 holds J0 = 12 / W^2 = 3,
+    # so (100 - 3) / 1 = 97 steps. J0 comes from the prior, not from the claimed sigma (0.2 here would give 25).
     _with_eta(monkeypatch, [0.0] * 6 + [1.0] * 4, eps_est=500e3)
     uncs = [0.2] + [0.19] * 1 + [0.1] * 8  # focus_idx at 2 needs <= 0.7 * 0.2 = 0.14
-    m = compute_stage_metrics(_run(uncs, dip_from=1))
-    assert m["stage_prior_info"] == pytest.approx(25.0)
-    assert m["stage2_oracle_steps"] == pytest.approx(75.0)
+    run = _run(uncs, dip_from=1)
+    for snap in run.snapshots:
+        snap.belief.physical_param_bounds["zeeman_shift"] = (5.0, 7.0)
+    m = compute_stage_metrics(run)
+    assert m["stage_prior_info"] == pytest.approx(3.0)
+    assert m["stage2_oracle_steps"] == pytest.approx(97.0)
+
+
+def test_uniform_prior_variance_is_w2_over_12():
+    assert stages.prior_variance_phys(None, (10.0, 16.0)) == pytest.approx(36.0 / 12.0)
+
+
+def test_gaussian_prior_variance_matches_the_sampler():
+    """Truncated N(mu, std) on the unit cube mixed with a uniform share, scaled to Hz: as the belief draws it."""
+    from nvision.belief.smc_marginal import _sample_truncated_normal
+
+    rng = np.random.default_rng(0)
+    n, broad, lo, hi = 400_000, 0.1, 2.0, 12.0
+    draws = _sample_truncated_normal(0.1, 0.3, 0.0, 1.0, n, rng=rng)
+    idx = rng.choice(n, size=round(broad * n), replace=False)
+    draws[idx] = rng.uniform(0.0, 1.0, idx.size)
+    expected = float(np.var(lo + draws * (hi - lo)))
+    assert stages.prior_variance_phys((0.1, 0.3), (lo, hi), broad) == pytest.approx(expected, rel=1e-2)
+
+
+def test_sin2_prior_variance_matches_quadrature():
+    from scipy.integrate import quad
+
+    lo, hi, k = 100.0, 130.0, np.pi / 7.0
+    norm = quad(lambda f: np.sin(k * (f - lo)) ** 2, lo, hi, limit=200)[0]
+    mean = quad(lambda f: f * np.sin(k * (f - lo)) ** 2, lo, hi, limit=200)[0] / norm
+    var = quad(lambda f: (f - mean) ** 2 * np.sin(k * (f - lo)) ** 2, lo, hi, limit=200)[0] / norm
+    assert stages.prior_variance_phys(("sin^2", k), (lo, hi)) == pytest.approx(var, rel=1e-9)
+
+
+@pytest.mark.parametrize(
+    ("entry", "bounds", "match"),
+    [
+        ((0.5, 0.0), (0.0, 1.0), "std > 0"),  # no spread
+        ((-40.0, 1.0), (0.0, 1.0), "far-tail"),  # sampler's far-tail exponential branch
+        (("beta", 2.0, 3.0), (0.0, 1.0), "Unsupported prior"),  # unknown shape
+        (None, (1.0, 1.0), "hi > lo"),  # empty interval
+    ],
+)
+def test_prior_variance_fails_fast_on_unsupported_priors(entry, bounds, match):
+    with pytest.raises(ValueError, match=match):
+        stages.prior_variance_phys(entry, bounds)
+
+
+def test_smc_belief_prior_is_uniform_on_zeeman_shift():
+    """The real belief: no prior entry on zeeman_shift, so J0 = 12 / W^2 of its bounds, after any measurement."""
+    from nvision.sim.locs.bayesian.belief_builders import nv_center_smc_belief
+    from tests.noise import gaussian_noise
+
+    belief = nv_center_smc_belief(
+        {"zero_field_freq": (2.80e9, 2.94e9), "zeeman_shift": (1e6, 41e6)},
+        num_particles=200,
+        noise_model=gaussian_noise(),
+        seed=0,
+    )
+    assert "zeeman_shift" not in (belief.priors or {})
+    lo, hi = belief.physical_param_bounds["zeeman_shift"]
+    assert (lo, hi) == (1e6, 41e6)
+    assert belief_prior_variance_phys(belief, "zeeman_shift") == pytest.approx((hi - lo) ** 2 / 12.0)
+    with pytest.raises(TypeError):
+        belief_prior_variance_phys(SimpleNamespace(), "zeeman_shift")
 
 
 def test_true_error_first_passage_and_effective_sensitivity(monkeypatch):
