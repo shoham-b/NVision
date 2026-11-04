@@ -107,50 +107,16 @@ The average only renormalizes the amplitude; the line shape is that of the prefa
 $\Delta$ of half width $\Omega$. This is the microwave contribution to the width, power broadening: the stronger the
 drive, the further off resonance it still flips the spin.
 
-Eq.~\eqref{eq:cw-lorentzian} treats the laser only as a reset, which is too crude when the resets are frequent. The
-laser acts on the spin through two rates, both set by how often the center goes through an optical cycle: it pumps
-the spin back toward $m_s=0$, at a rate $\Gamma_p$, and each cycle destroys the phase between $m_s=0$ and $m_s=-1$,
-at a rate $\Gamma_c$. The microwave enters only through its angular Rabi frequency $\Omega_R=2\pi\Omega$. The
-competition between the two is clearest in terms of populations. A drive whose coherence is destroyed at the rate
-$\Gamma_c$ no longer produces Rabi oscillations; it moves population between $m_s=0$ and $m_s=-1$ at the rate
-\begin{equation*}
-  W(\Delta)=\frac{\Omega_R^2}{2}\,\frac{\Gamma_c}{\Gamma_c^2+(2\pi\Delta)^2},
-\end{equation*}
-a Lorentzian of half width $\Gamma_c/2\pi$, in both directions alike, while the laser returns population from
-$m_s=-1$ at the rate $\Gamma_p$. The population of $m_s=-1$ then obeys
-$\dot P_{-1}=W\,(P_0-P_{-1})-\Gamma_pP_{-1}$, whose steady state is $P_{-1}=W/(2W+\Gamma_p)$, or
-\begin{equation}
-  P_{-1}^{\rm ss}(\Delta)=\frac12\,\frac{\Omega_R^2\,\Gamma_c/\Gamma_p}{(2\pi\Delta)^2+\Gamma_c^2+\Omega_R^2\,\Gamma_c/\Gamma_p},
-  \label{eq:bloch-ss}
-\end{equation}
-the same as the steady state of the full Bloch equations \cite{dreau2011}. It reduces to
-Eq.~\eqref{eq:cw-lorentzian} when the two rates are equal and small against $\Omega_R$, and is still a Lorentzian,
-now of half width
+The laser does more than reset the spin. It pumps the spin back toward $m_s=0$ at a rate $\Gamma_p$, and each
+optical cycle destroys the phase between $m_s=0$ and $m_s=-1$, at a rate $\Gamma_c$; both rates grow with the laser
+power and saturate at high power. With these rates, and the angular Rabi frequency $\Omega_R=2\pi\Omega$ of the
+drive, the line is still a Lorentzian (Appendix~\ref{app:odmr}), of half width \cite{dreau2011}
 \begin{equation}
   \gamma=\frac{1}{2\pi}\sqrt{\Gamma_c^2+\Omega_R^2\,\frac{\Gamma_c}{\Gamma_p}} .
   \label{eq:linewidth}
 \end{equation}
-The first term is the width the laser alone imposes, through the loss of coherence. The second is power broadening
-by the microwave: a strong drive saturates the transfer, $W\gg\Gamma_p$, already on the tails of the line, and the
-line widens until $W$ there has fallen to about the pumping rate. At weak drive the laser sets the width, at strong
-drive the microwave. The depth of the line, Eq.~\eqref{eq:bloch-ss} at $\Delta=0$, is
-\begin{equation*}
-  P_{-1}^{\rm ss}(0)=\frac12\,\frac{\Omega_R^2}{\Omega_R^2+\Gamma_p\Gamma_c}:
-\end{equation*}
-it grows with the microwave power, toward $\tfrac12$, and falls with the laser power, which repolarizes the spin
-before the drive can flip it.
-
-The two laser rates grow with the laser power, but not without limit. The optical transition is itself a two-level
-system: the laser excites the center at a rate proportional to its intensity $I_{\rm opt}$, and the excited state
-decays in its lifetime $\tau_e$. In steady state the excited population is $s/(1+s)$, with the saturation parameter
-$s=I_{\rm opt}/I_{\rm sat}$ the ratio of the excitation rate to the decay rate $1/\tau_e$. At low power it grows
-linearly with $s$; at high power it levels off, because a center cannot be excited again before it has decayed. The
-rate of optical cycles is this population divided by $\tau_e$, and both laser rates follow it,
-$\Gamma_{p,c}=\Gamma_{p,c}^\infty\,s/(1+s)$ \cite{dreau2011}, with $\Gamma_{p,c}^\infty$ their values at full
-saturation. Raising the laser power therefore both widens and flattens the line, up to saturation.
-% Dreau et al. (2011) Eq. 11 quotes the same width as Gamma_c^inf/(2 pi) sqrt((s/(1+s))^2 + Omega_R^2/(Gamma_p^inf
-% Gamma_c^inf)) and calls it the FWHM; with Gamma_{p,c} = Gamma^inf s/(1+s) this is Eq. (linewidth) up to their
-% factor-2 convention for the rates. Check before quoting numbers.
+The first term is the width the laser alone imposes, through the loss of coherence; the second is power broadening
+by the microwave, tempered by the pumping. At weak drive the laser sets the width, at strong drive the microwave.
 Whatever its origin, the line is one Lorentzian dip: the normalized PL expected at drive frequency $f$ is
 \begin{equation}
   \mu(f)=1-C\,\frac{\gamma^2}{\gamma^2+(f-f_-)^2},
@@ -160,73 +126,24 @@ with contrast $C$, the depth of the dip at $f=f_-$, half width $\gamma$ of Eq.~\
 at half maximum $\Gamma=2\gamma$. Optical and microwave broadening are not modeled separately: they enter only
 through the single linewidth $\Gamma$, which is inferred with the line.
 
-\emph{Pulsed ODMR} is a technique that removes the laser from the width of the line \cite{dreau2011}. In CW ODMR the laser that reads the
-spin out also broadens the line through $\Gamma_c$, and narrowing it means lowering both powers and with them the
-contrast and the PL. Pulsed ODMR separates the two in time: a laser pulse polarizes the spin into $m_s=0$, the laser
-is switched off while a single microwave $\pi$-pulse of duration $t_\pi=1/(2\Omega)$ is applied, and a second laser
-pulse reads the spin out (Fig.~\ref{fig:sequences}). Eq.~\eqref{eq:rabi} is then evaluated at the one time $t_\pi$
-instead of being averaged. The pulse length is chosen so that on resonance, where the spin oscillates at $\Omega$, it
-is fully inverted: $\pi\Omega t_\pi=\pi/2$. Off resonance it oscillates at $\tilde\Omega$ instead. Measuring
-$\tilde\Omega$ in units of $\Omega$,
-\begin{equation*}
-  r\equiv\frac{\tilde\Omega}{\Omega}=\sqrt{1+\Delta^2/\Omega^2}\ \ge1,
-\end{equation*}
-the argument of the sine in Eq.~\eqref{eq:rabi} at $t=t_\pi$ is $\pi\tilde\Omega t_\pi=\pi r/2$ and the prefactor
-is $\Omega^2/\tilde\Omega^2=1/r^2$, so
+\emph{Pulsed ODMR} is a technique that removes the laser from the width of the line \cite{dreau2011}. In CW ODMR the
+laser that reads the spin out also broadens the line through $\Gamma_c$, and narrowing it means lowering both powers
+and with them the contrast and the PL. Pulsed ODMR separates the two in time: a laser pulse polarizes the spin into
+$m_s=0$, the laser is switched off while a single microwave $\pi$-pulse of duration $t_\pi=1/(2\Omega)$ is applied,
+and a second laser pulse reads the spin out (Fig.~\ref{fig:sequences}). The pulse fully inverts the spin on
+resonance, and Eq.~\eqref{eq:rabi} at $t=t_\pi$ gives, with $r\equiv\tilde\Omega/\Omega=\sqrt{1+\Delta^2/\Omega^2}$
+(Appendix~\ref{app:odmr}),
 \begin{equation}
   P_{-1}^{\pi}(\Delta)=\frac{\sin^2(\pi r/2)}{r^2}.
   \label{eq:pulsed}
 \end{equation}
-On resonance $r=1$ and the inversion is complete, $P_{-1}^{\pi}=1$. Off resonance the line is not a Lorentzian: for
-$|\Delta|\gg\Omega$, $r\approx|\Delta|/\Omega$ and $P_{-1}^{\pi}\approx\sin^2(\pi\Delta t_\pi)/(2\Delta t_\pi)^2$, the
-power spectrum of a rectangular pulse of length $t_\pi$: far from resonance the spin responds to the frequency
-content of the pulse. The half width of Eq.~\eqref{eq:pulsed} is $0.80\,\Omega=0.40/t_\pi$, so the line narrows as
-the pulse gets longer. This is the Fourier (time--bandwidth) limit: a pulse of duration $t_\pi$ contains frequencies
-spread over about $1/t_\pi$, so it cannot address the spin more selectively than that. The line vanishes wherever $\sin(\pi r/2)=0$, i.e.\
-$r=2,4,\dots$, at $|\Delta|=\sqrt3\,\Omega,\sqrt{15}\,\Omega,\dots$: there the spin completes a whole number of full
-Rabi cycles and returns to $m_s=0$. Between the zeros lie side lobes that decay as $1/r^2$; the first, near $r=3$ at
-$|\Delta|\approx2.7\,\Omega$, is 12\% of the depth. Side lobes are a hazard for a search: a lobe is a dip where
-there is no resonance.
-
-The inhomogeneous dephasing time $T_2^*$ sets how far this narrowing can go. The transition frequency of the spin is
-not sharp: slowly fluctuating local fields, mostly from the bath of $^{13}$C nuclear spins, shift it by a random
-offset $\xi$ that is fixed during one pulse but changes from one repetition of the sequence to the next. A
-measurement averages many repetitions, each driven at the detuning $\Delta-\xi$ instead of $\Delta$, so the measured
-line is Eq.~\eqref{eq:pulsed} averaged over the distribution of $\xi$, i.e.\ convolved with it. For a Gaussian
-distribution of standard deviation $\sigma_\xi$,
-\begin{equation}
-  \bar P_{-1}^{\pi}(\Delta)=\int P_{-1}^{\pi}(\Delta-\xi)\,\frac{e^{-\xi^2/2\sigma_\xi^2}}{\sqrt{2\pi}\,\sigma_\xi}\,d\xi .
-  \label{eq:pulsed-t2star}
-\end{equation}
-The width $\sigma_\xi$ is what $T_2^*$ measures. A free spin precessing at the offset $\xi$ picks up the phase
-$2\pi\xi t$, and the average of $e^{2\pi i\xi t}$ over the Gaussian is the coherence envelope
-$e^{-2\pi^2\sigma_\xi^2t^2}$. $T_2^*$ is defined by writing this envelope as $e^{-(t/T_2^*)^2}$, so
-$\sigma_\xi=1/(\sqrt2\,\pi T_2^*)$.
-For $t_\pi\ll T_2^*$ the spread is small against $\Omega$ and the line is that of Eq.~\eqref{eq:pulsed}. For
-$t_\pi\gtrsim T_2^*$ the Gaussian dominates: the zeros and side lobes are washed out, the line stops narrowing at a
-width $\sim1/T_2^*$, and the depth falls because the pulse no longer inverts every frequency class
-\cite{dreau2011}. The best pulsed line is therefore reached at $t_\pi\sim T_2^*$, a width set by the spin itself
-rather than by the laser or microwave power.
-
-Both pulses take a finite time, and the spin evolves during each of them. While the microwave pulse is on, the laser
-is off and the spin relaxes only through $T_1$, which is much longer than $t_\pi$, and dephases through the spread
-already included in Eq.~\eqref{eq:pulsed-t2star}. The readout is different: the laser that reads the spin out also
-repolarizes it, so the PL difference between $m_s=0$ and $m_s=-1$ lasts only for the repolarization time $\tau_p$.
-Taking the repolarization as a single exponential, a spin flipped with probability $P_{-1}$ emits, a time $t$ into the
-readout pulse, PL at the rate $\Phi_0\,[1-c\,P_{-1}\,e^{-t/\tau_p}]$, where $\Phi_0$ is the rate of $m_s=0$ and $c$ the
-fractional PL drop of $m_s=-1$ at the start of the readout. The recorded PL is this rate integrated over a readout
-window of length $t_r$, normalized to the same integral with no flip,
-\begin{equation}
-  \begin{aligned}
-  \mu&=1-\frac{1}{t_r}\int_0^{t_r}c\,P_{-1}\,e^{-t/\tau_p}\,dt\\
-  &=1-c\,\frac{\tau_p}{t_r}\big(1-e^{-t_r/\tau_p}\big)\,\bar P_{-1}^{\pi}(\Delta) ,
-  \end{aligned}
-  \label{eq:pulsed-readout}
-\end{equation}
-with $P_{-1}=\bar P_{-1}^{\pi}$ of Eq.~\eqref{eq:pulsed-t2star}. The integration leaves the line shape unchanged and sets only
-its depth: the contrast is $C=c\,(\tau_p/t_r)(1-e^{-t_r/\tau_p})$. A longer window collects more photons,
-$N_{\rm ph}\propto t_r$, but dilutes the contrast, so the single-shot signal-to-noise ratio
-$C\sqrt{N_{\rm ph}}\propto(1-e^{-t_r/\tau_p})/\sqrt{t_r/\tau_p}$ is largest at $t_r\approx1.26\,\tau_p$.
+This line is not a Lorentzian. Its half width, $0.80\,\Omega=0.40/t_\pi$, is the Fourier (time--bandwidth) limit of
+the pulse: a pulse of duration $t_\pi$ contains frequencies spread over about $1/t_\pi$, so a longer pulse gives a
+narrower line. Its side lobes, the first 12\% of the depth, are a hazard for a search: a lobe is a dip where there is
+no resonance. The narrowing stops at $t_\pi\sim T_2^*$, where the spread of the transition frequency from one
+repetition to the next, of width $\sim1/T_2^*$, washes out the lobes and sets the width, a width fixed by the spin
+itself rather than by the laser or microwave power. The laser readout then sets only the depth of the line, the
+contrast $C$ (Appendix~\ref{app:odmr}).
 
 % Code: NVCenterPulsedDriveModel (spectra/nv_center_drive.py) evaluates Eq. (rabi) at the pulse time with the
 % Gaussian T2* average; NVCenterCWDriveModel broadens with MW power only, gamma = gamma_0 sqrt(1 + s_MW),
