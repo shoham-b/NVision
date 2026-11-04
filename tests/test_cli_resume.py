@@ -150,3 +150,14 @@ def test_run_history_chain_and_lookup(tmp_path: Path) -> None:
     rh.save_runs(store, runs)
     assert [r["id"] for r in rh.load_runs(store)] == ["r1", "r2"]
     store.close()
+
+
+def test_purge_with_resume_is_rejected() -> None:
+    """--purge would delete the cached repeats --resume is about to reuse."""
+    from typer.testing import CliRunner
+
+    from nvision.cli.main import app
+
+    result = CliRunner().invoke(app, ["run", "--resume", "--purge", "--dry-run"])
+    assert result.exit_code != 0
+    assert "--purge cannot be combined" in result.output
