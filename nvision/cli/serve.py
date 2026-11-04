@@ -182,11 +182,11 @@ def serve(
         run_dir=directory,
         lab_dirs=[*(p.resolve() for p in lab_dir or []), labs_dir(directory)],
     )
-    if lab_sources and fastapi_app.state.lab_sync.start():
+    if lab_sources:
         names = ", ".join(e["label"] for e in lab_sources)
         console.print(
-            f"[dim]Syncing lab data ({names}) in the background; new files appear in the UI when it finishes "
-            f"(log: {fastapi_app.state.lab_sync.log_path}).[/dim]"
+            f"[dim]Lab data ({names}) is served as last synced; to pick up new files run `nv matlab` "
+            "(or the lab page's Sync button).[/dim]"
         )
     config = uvicorn.Config(fastapi_app, host=host, port=port, log_level="warning")
     server = uvicorn.Server(config)

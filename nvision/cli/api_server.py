@@ -687,7 +687,7 @@ def build_app(cache_dir: Path, run_dir: Path, lab_dirs: list[Path] | None = None
             cache["generator_grid_info"] = None
             cache["combo_memo"] = {}
 
-    # The lab data sync (`nv matlab-sync`) runs as a subprocess; when it exits, new MATLAB runs are in the cache.
+    # The lab data sync (`nv matlab`, no source) runs as a subprocess; when it exits, new MATLAB runs are in the cache.
     from nvision.tools.lab_sources import BackgroundSync
 
     lab_sync = BackgroundSync(run_dir, on_done=_clear_caches)

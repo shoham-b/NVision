@@ -1,9 +1,10 @@
 """Remembered lab data sources (Drive links / local folders) and their incremental sync.
 
-``nv matlab <source>`` adds a source to ``<dir>/labs/sources.json``; ``nv serve --dir <dir>`` then runs
-``nv matlab-sync`` in a background subprocess (:class:`BackgroundSync`) on start and on the lab page's Sync
-button. The sync is incremental: a per-source :class:`FileIndex` remembers each ``.mat`` file's kind by size and
-mtime, and a raw sweep's result record is redone only when its file or :data:`PROCESSING_VERSION` changes.
+``nv matlab <source>`` adds a source to ``<dir>/labs/sources.json`` and syncs it; later syncs are
+``nv matlab`` with no source, by hand or in a background subprocess (:class:`BackgroundSync`) from the lab
+page's Sync button. ``nv serve`` does not sync on start.
+The sync is incremental: a per-source :class:`FileIndex` remembers each ``.mat`` file's kind by size
+and mtime, and a raw sweep's result record is redone only when its file or :data:`PROCESSING_VERSION` changes.
 
 The sync runs in its own process, not a server thread: processing a sweep rewrites process-global convergence
 thresholds for the duration of the run (``_real_data_contrast_total_threshold``), which must never leak into the
@@ -187,7 +188,7 @@ def lock_is_held(directory: Path) -> bool:
 
 
 class SyncLock:
-    """``<dir>/labs/sync.lock``: one writer at a time across ``nv matlab``, ``nv matlab-sync`` and ``nv serve``'s sync.
+    """``<dir>/labs/sync.lock``: one writer at a time across ``nv matlab`` runs and the lab page's sync.
 
     While held, a daemon thread touches the file every :data:`_LOCK_HEARTBEAT_S`, so a lock left by a process that
     was killed goes stale within :data:`_STALE_LOCK_S` and the next sync takes it over.
@@ -233,7 +234,7 @@ def read_sync_status(directory: Path) -> dict[str, Any] | None:
 
 
 class BackgroundSync:
-    """Runs ``nv matlab-sync --dir <dir>`` as a subprocess and calls *on_done* when it exits."""
+    """Runs ``nv matlab --dir <dir>`` (no SOURCE: re-sync all) as a subprocess and calls *on_done* when it exits."""
 
     def __init__(self, directory: Path, on_done: Callable[[], None]) -> None:
         self._directory = directory
@@ -254,7 +255,7 @@ class BackgroundSync:
             self.log_path.parent.mkdir(parents=True, exist_ok=True)
             log_fh = self.log_path.open("w", encoding="utf-8")
             env = {**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONUTF8": "1"}
-            cmd = [sys.executable, "-m", "nvision", "matlab-sync", "--dir", str(self._directory)]
+            cmd = [sys.executable, "-m", "nvision", "matlab", "--dir", str(self._directory)]
             self._proc = subprocess.Popen(cmd, stdout=log_fh, stderr=subprocess.STDOUT, env=env)
             proc = self._proc
 

@@ -89,7 +89,45 @@ def lab_study_payload(root: Path) -> dict:
             "actual_n_contributing": actual["numContributingRuns"].to_list(),
             "prior_sigma_mhz": w / float(np.sqrt(12.0)),
         }
-    return {"reference_mhz": ref, "windows": rows, "curves": curves}
+    return {"reference_mhz": ref, "windows": rows, "curves": curves, "focus": _focus_rows(root, n_runs)}
+
+
+def _median_or_none(col: pl.Series) -> float | None:
+    vals = col.drop_nulls()
+    return None if vals.is_empty() else float(vals.median())
+
+
+def _focus_rows(root: Path, n_runs: dict[int, int]) -> list[dict]:
+    """Per-window focus-window summary from ``window_focus.csv`` (empty when absent or without candidates).
+
+    Rates are over all of a window's runs. Steps are 1-based medians over the runs that reached the event;
+    ``n_*`` count those runs. ``stable_step`` is when a candidate covers the reference at every later step.
+    """
+    path = root / "window_focus.csv"
+    if not path.exists():
+        return []
+    focus = pl.read_csv(path)
+    out = []
+    for (w,), g in focus.group_by("window", maintain_order=True):
+        n = n_runs[w]
+
+        out.append(
+            {
+                "window_mhz": w,
+                "n_runs": n,
+                "found_rate": g["foundStep"].drop_nulls().len() / n,
+                "found_step": _median_or_none(g["foundStep"]),
+                "cover_rate": g["coverStep"].drop_nulls().len() / n,
+                "cover_step": _median_or_none(g["coverStep"]),
+                "stable_rate": g["stableStep"].drop_nulls().len() / n,
+                "stable_step": _median_or_none(g["stableStep"]),
+                "locked_rate": float(g["finalLocked"].sum()) / n,
+                "final_covers_rate": float(g["finalCovers"].sum()) / n,
+                "final_width_mhz": float(g["finalWidthMHz"].median()),
+            }
+        )
+    out.sort(key=lambda r: r["window_mhz"])
+    return out
 
 
 def discover_labs(roots: list[Path]) -> dict[str, Path]:

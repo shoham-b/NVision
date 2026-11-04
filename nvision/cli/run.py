@@ -1103,6 +1103,13 @@ def run(  # noqa: C901
         or contrast is not None
         or sweep_param is not None
     )
+    if purge and (resume or resume_since is not None or resume_run is not None):
+        # --purge deletes the cached repeats of every selected combination before the tasks start, so combined
+        # with --resume it erases exactly what --resume promised to reuse ("0 loaded from cache").
+        raise typer.BadParameter(
+            "--purge cannot be combined with --resume/--resume-since/--resume-run: the purge deletes the "
+            "cached repeats that resuming would reuse. Drop --purge to resume."
+        )
     if (snr or signal_occupancy) and plain_path_selected and run_group is None:
         raise typer.BadParameter("--snr/--signal-occupancy select points of a run group; drop the plain-path flags.")
     if run_group is None and not plain_path_selected:

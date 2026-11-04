@@ -3049,7 +3049,6 @@ function main() {
         } else {
             const familyOptions = [
                 ...familyKeys.map((key) => ({ key, label: families.get(key).label, group: 'Simulated runs' })),
-                ...(matlab.length > 0 ? [{ key: '__matlab__', label: 'MATLAB (real data)', group: 'Real-data runs (nv matlab-run)' }] : []),
                 ...(window.NVISION_LABS || []).map((n) => ({ key: LAB_KEY_PREFIX + n, label: n, group: 'Lab data' })),
                 ...(ungrouped.length > 0 ? [{ key: '__ungrouped__', label: 'Default (ungrouped)', group: 'Simulated runs' }] : []),
             ];

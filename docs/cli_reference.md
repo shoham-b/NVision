@@ -14,8 +14,7 @@ The NVision CLI (`uv run nv`) is a Typer-driven command-line interface for runni
 | `render` | Render reports and graphs from cache without running simulations. |
 | `serve` | Start a local HTTP server for viewing NVision results. |
 | `cache` | Manage simulation cache (list, clean, recalc). |
-| `matlab` | Add the lab's MATLAB data once (Drive link, folder or `.mat`); `nv serve` then keeps it in sync: Bayesian-run lab studies and SBED on raw sweeps. |
-| `matlab-sync` | Re-sync every source added with `nv matlab` (what `nv serve` runs in the background). |
+| `matlab` | Add the lab's MATLAB data (Drive link, folder or `.mat`) and sync it now: Bayesian-run lab studies and SBED on raw sweeps. |
 
 ## Usage and Examples
 
@@ -105,11 +104,11 @@ uv run nv serve
 ```
 
 ### `nv matlab`
-Add the lab's MATLAB data once; from then on `nv serve` keeps it up to date. `SOURCE` is a Google Drive folder
-link (or id), a local folder, or a single `.mat` file. It is remembered in `<dir>/labs/sources.json`, and every
-`nv serve --dir <dir>` re-syncs each remembered source in the background on start (`nv matlab-sync` in a
-subprocess, log in `<dir>/labs/sync.log`), as does the **Sync now** button on any lab page. A sync processes only
-new or changed files: a file's kind is remembered by size and mtime, and a raw sweep is redone only when its file
+Add the lab's MATLAB data and sync it now. `SOURCE` is a Google Drive folder link (or id), a local folder, or a
+single `.mat` file. It is remembered in `<dir>/labs/sources.json`. `nv serve` never syncs by itself; to pick up
+later changes run `nv matlab --dir <dir>` with no `SOURCE`, or press **Sync now** on any lab page (it runs that in a
+subprocess, log in `<dir>/labs/sync.log`). A sync downloads only the files missing or changed on the Drive
+(`rclone copy`) and processes only new or changed files: a file's kind is remembered by size and mtime, and a raw sweep is redone only when its file
 changes, when the processing version (`PROCESSING_VERSION` in `nvision/tools/lab_sources.py`) is bumped, or when it
 failed last time. Failures (an expired rclone login, an unreadable file, a sweep that crashed) are listed on the
 lab page.
@@ -145,16 +144,17 @@ A Drive link is downloaded with `rclone` (read-only `gdrive` remote; `.png`/`.fi
 - `--no-sweeps`: skip the raw sweeps this time (they are still picked up by the next sync).
 - `--noise-std`, `--max-steps` (default 300), `--valid-shots`, `--particles` (default 10000), `--out` (also copy each
   file's record there), `--no-ui`, `--no-progress`, `--infer-center-freq` / `--no-infer-center-freq`: options of
-  this run's sweeps. The background sync always uses the defaults.
-
-`nv matlab-sync [--dir <dir>]` runs the same sync by hand.
+  this run's sweeps. `nv matlab` with no `SOURCE` and the Sync button always use the defaults.
 
 **Example Use Cases:**
 ```bash
 # Once: the lab's shared Drive folder
 uv run nv matlab "https://drive.google.com/drive/folders/<id>"
 
-# From then on: open the UI; new files on the Drive are processed in the background
+# Later, after new files land on the Drive
+uv run nv matlab
+
+# Open the UI
 uv run nv serve
 
 # One raw sweep recording through SBED
