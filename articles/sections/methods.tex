@@ -83,11 +83,8 @@ unmeasured, SBED instead measures the middle of the widest unmeasured gap, a fal
 \label{sec:protocol}
 
 \paragraph{What the claimed uncertainty is.} The particle filter reports $\hat\sigma_N$, Eq.~\eqref{eq:sigma-hat}: a moment of the
-posterior, defined at every $N$. The van Trees bound,
-Eq.~\eqref{eq:vantrees}, limits the mean squared error averaged over the prior, and for the posterior mean that error
-equals the expected posterior variance, $\mathbb E[(\hat\theta_N-\theta)^2]=\mathbb E[\hat\sigma_N^2]$, when the
-posterior is correct. Comparing $\hat\sigma_N$ with the bound is therefore valid from the first measurement, as an
-average over runs and provided the posterior is calibrated. What fails before the posterior is Gaussian
+posterior, defined at every $N$. Its run average is compared with the bound from the first measurement on
+(Sec.~\ref{sec:budget}). What fails before the posterior is Gaussian
 (Sec.~\ref{sec:eig}) is the usual reading of $\hat\sigma_N$: with a uniform window or several live
 candidates it is not a 68\% interval, and the posterior entropy is below $\tfrac12\ln(2\pi e\,\hat\sigma_N^2)$, so
 information gains, per-step gains as variance ratios, and coverage at Gaussian quantiles are only meaningful in the

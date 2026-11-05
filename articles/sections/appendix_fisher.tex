@@ -1,0 +1,26 @@
+% =====================================================================
+\section{Steepest slope of the Lorentzian line}
+\label{app:fisher}
+% =====================================================================
+
+This appendix derives the best information per measurement, Eq.~\eqref{eq:istar}, for the Lorentzian line of
+Eq.~\eqref{eq:signal}. Written in terms of the detuning $u=x-\theta$ of the measurement from the resonance, the
+line depends on $x$ and $\theta$ only through $u$, so a shift of the resonance acts like the opposite shift of the
+measurement, and the slope of Eq.~\eqref{eq:fisher} is
+\begin{equation*}
+  g(x)=\frac{\partial\mu}{\partial\theta}=-\frac{\partial\mu}{\partial u}=-\frac{2C\gamma^2u}{(\gamma^2+u^2)^2}.
+\end{equation*}
+It vanishes at $u=0$ and as $u\to\pm\infty$. Setting $\partial g/\partial u=0$ gives
+$(\gamma^2+u^2)^2=4u^2(\gamma^2+u^2)$, i.e.\ $u^2=\gamma^2/3$: the slope is steepest at $|u|=\gamma/\sqrt3$, where
+$\gamma^2/(\gamma^2+u^2)=3/4$ and the dip is $3/4$ deep. There
+\begin{equation*}
+  \begin{aligned}
+  g^*\equiv\max_x|g(x)|&=\frac{2C\gamma^2\,(\gamma/\sqrt3)}{(4\gamma^2/3)^2}=\frac{9C}{8\sqrt3\,\gamma}\\
+  &=\frac{9C}{4\sqrt3\,\Gamma}\approx1.30\,\frac{C}{\Gamma},
+  \end{aligned}
+\end{equation*}
+with $\Gamma=2\gamma$. Inserting $g^*$ into Eq.~\eqref{eq:fisher}, with $\mathrm{SNR}=C/\sigma$,
+\begin{equation*}
+  I^*=\frac{k\,g^{*2}}{\sigma^2}=\frac{81}{48}\,\frac{k\,C^2}{\sigma^2\Gamma^2}
+  =\frac{27}{16}\,k\,\frac{\mathrm{SNR}^2}{\Gamma^2}.
+\end{equation*}
