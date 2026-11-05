@@ -428,15 +428,19 @@ the mutual information between the parameters and the outcome, with $p(\theta,\p
 
 The second term is fixed by the noise model: the noise is Gaussian with the same variance $\sigma^2/k$ at every drive
 frequency (Sec.~\ref{sec:model}), so $H[y\mid\theta,\phi,x]=\tfrac12\ln(2\pi e\,\sigma^2/k)$ for every $x$. All the
-dependence on $x$ is in the first term, the entropy of the predictive distribution of $y$, whose spread is the noise
-plus the spread $\sigma^2_{\rm pred}(x)$ of the predicted signal $\mu(x;\theta,\phi)$ over the posterior. For a given
-variance the Gaussian has the largest entropy \cite{cover2006}, so
+dependence on $x$ is in the first term, the entropy of the predictive distribution of $y$. Its spread has two parts:
+the noise, and the spread of the predicted signal over the posterior,
+\begin{equation*}
+  \sigma^2_{\rm pred}(x)=\mathrm{Var}_{\theta,\phi}\big[\underbrace{\mu(x;\theta,\phi)}_{\mathbb E[y\mid x,\theta,\phi]}\big],
+\end{equation*}
+with $\theta,\phi$ drawn from the current posterior. For a given variance the Gaussian has the largest entropy
+\cite{cover2006}, so
 $H[y\mid x]\le\tfrac12\ln 2\pi e\,(\sigma^2_{\rm pred}(x)+\sigma^2/k)$ and
 \begin{equation}
   \mathrm{EIG}(x)\le\tfrac12\ln\!\Big(1+\frac{k\,\sigma^2_{\rm pred}(x)}{\sigma^2}\Big),
   \label{eq:eig-var}
 \end{equation}
-with equality when the predictive distribution of $\mu(x;\theta,\phi)$ is Gaussian. Whether it is depends on the
+with equality when $\mu(x;\theta,\phi)$, with $\theta,\phi$ drawn from the posterior, is Gaussian distributed. Whether it is depends on the
 posterior of $\theta$, not on the noise: the noise is Gaussian by construction, the posterior only becomes Gaussian
 with enough data.
 
