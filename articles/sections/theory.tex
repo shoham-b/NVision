@@ -152,8 +152,7 @@ $A_\parallel m_I$ (Eq.~\eqref{eq:transitions}) and weighted by the population of
 spectrum is a sum of $2I+1$ lines. Two cases reduce it to the single line of Eq.~\eqref{eq:signal}. Near the
 excited-state level anticrossing the nitrogen nuclear spin is polarized into a single $m_I$ \cite{jacques2009}: only
 one line remains, and its fixed offset $A_\parallel m_I$ is absorbed into $f_-$. When the line is much wider than
-the hyperfine spacing, $\Gamma\gg|A_\parallel|$, the lines merge into one. \tbd{Whether the main text keeps the single line or treats the resolved
-hyperfine structure. Where the hyperfine-resolved runs are used, and how $f_-$ is defined for them (center line or $m_I$-averaged).}
+the hyperfine spacing, $\Gamma\gg|A_\parallel|$, the lines merge into one.
 
 \emph{The second transition.} The spectrum is mirror symmetric about $D$, so the drive window is placed below $D$
 and holds the lower transition only. The tail of the upper one, at $f_+=f_-+2\delta_Z$, adds
@@ -197,7 +196,6 @@ $C[1+\gamma^2/(\gamma^2+4\delta_Z^2)]$, so $C/\sigma$ is the $\delta_Z\gg\gamma$
 The prior knowledge of the experimentalist is an interval of width $W$ that holds the resonance,
 $f_-\in[f_{\min},f_{\min}+W]$, and the drive frequency is scanned over at least this interval. The ratio $W/\Gamma$,
 the inverse of the fraction of the window the line occupies, sets how hard the search is.
-\tbd{State the value of $W$ used in the simulations.}
 
 The model above predicts what a measurement records for given parameters. The rest of this section turns the
 question around: given the measurements, how well can $f_-$ be known, how much can each measurement add, and where
@@ -329,8 +327,10 @@ only once the dip has been found: a measurement on the baseline carries $I(x)\ap
 Eq.~\eqref{eq:vantrees} stays near $J_0$ while the strategy searches. What such a measurement contributes instead
 is \emph{elimination}: it shrinks the prior itself.
 
-\paragraph{Elimination model.} Consider a strategy that sweeps the window at spacing $\Delta x$ (e.g.\
-$\Delta x=\Gamma/3$) until it finds the dip and then measures at the steepest slope. Let the SNR be so high that a
+\paragraph{Elimination model.} Consider an idealized adaptive strategy: it steps through the window at spacing
+$\Delta x$ (e.g.\ $\Delta x=\Gamma/3$) only until it finds the dip, and from then on measures only at the steepest
+slope. This is not a sweep, which keeps spreading its measurements over the whole window after the dip is found
+(Sec.~\ref{sec:speedup}). Let the SNR be so high that a
 single measurement taken within the line, $|x-\theta|\lesssim\gamma$, shows a drop that cannot be mistaken for noise,
 so the first measurement that lands in the dip detects it. After $n$ measurements without a dip, the resonance is
 known only to lie in the part of the window not yet excluded, and the posterior is uniform there, so
@@ -353,8 +353,9 @@ log--log axis looks flat until about half the window is excluded, for a number o
 $W/\Delta x$. The focus is a cliff steeper than $-\tfrac12$, where detection collapses $\sigma$ from about the window
 to about $\Delta x$ in a single step. It ends
 once $\sigma$ is small compared with the line, so that the strategy knows where the steepest slope is. The refine
-regime is the $-\tfrac12$ tail. A narrow window ($W\lesssim3.5\,\Gamma$, $\sigma_0\lesssim\Gamma$) has no plateau. Search, focus and
-refine are therefore not separate mechanisms but the regimes of one bound.
+regime is the $-\tfrac12$ tail. A narrow window ($W\lesssim3.5\,\Gamma$, $\sigma_0\lesssim\Gamma$) has no plateau. The regimes belong to
+the adaptive strategy, which moves from the prior limit of the bound to its data limit by finding the dip first; a
+sweep has none, since it gains the same information $\bar I$ at every step (Sec.~\ref{sec:speedup}).
 
 The elimination model only illustrates the shape of the profile. At low SNR one measurement no longer reveals the
 dip and $n_d$ grows, but Eq.~\eqref{eq:vantrees} holds at any SNR and needs no detection model; the runs are read
@@ -392,7 +393,7 @@ against it alone.
 \addlegendentry{$(nI^*)^{-1/2}$}
 \end{loglogaxis}
 \end{tikzpicture}
-\caption{Schematic of the three regimes: the elimination model,
+\caption{Schematic of the three regimes of an adaptive strategy: the elimination model,
 Eqs.~\eqref{eq:elimination}--\eqref{eq:after-detection}, at illustrative values (SNR 10, $k=1$, $\Delta x=\Gamma/3$,
 dip found halfway through the grid). Solid: wide window, $W=20\,\Gamma$; dashed: narrow window, $W=2\,\Gamma$;
 dotted: unbiased Cram\'er--Rao bound $(nI^*)^{-1/2}$. The wide window shows a search plateau (shaded), a focus cliff
@@ -415,9 +416,18 @@ after it. Before the outcome is known, the expectation of this divergence is the
   &=H[y\mid x]-\mathbb E_{\theta,\phi} H[y\mid\theta,\phi,x],
   \label{eq:eig-kl}
 \end{align}
-the mutual information between the parameters and the outcome, with $p(\theta,\phi)$ the current posterior. Summed
-over a run, the gains are what the measurements added to the knowledge, and greedy Bayesian experiment design takes
-at every step the $x$ that maximizes Eq.~\eqref{eq:eig-kl}.
+the mutual information between the parameters and the outcome, with $p(\theta,\phi)$ the current posterior. Write
+$\mathrm{EIG}_n(x)$ for Eq.~\eqref{eq:eig-kl} evaluated with the posterior after $n$ measurements. Greedy Bayesian
+experiment design takes the next measurement where it is largest, and summed over a run the gains are what the
+measurements taught, on average over runs:
+\begin{equation}
+  \begin{aligned}
+  x_{n+1}&=\arg\max_x\,\mathrm{EIG}_n(x),\\
+  \mathbb E\Big[\sum_{i=0}^{n-1}\mathrm{EIG}_i(x_{i+1})\Big]
+  &=\underbrace{I(\theta,\phi;y_1,\dots,y_n)}_{\text{learned from }n\text{ outcomes}}.
+  \end{aligned}
+  \label{eq:greedy}
+\end{equation}
 
 The second term is fixed by the noise model: the noise is Gaussian with the same variance $\sigma^2/k$ at every drive
 frequency (Sec.~\ref{sec:model}), so $H[y\mid\theta,\phi,x]=\tfrac12\ln(2\pi e\,\sigma^2/k)$ for every $x$. All the
