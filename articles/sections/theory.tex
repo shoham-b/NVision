@@ -212,13 +212,13 @@ parameters, is the mean outcome, and Eq.~\eqref{eq:noise} gives the spread about
 
 A measurement at drive frequency $x$ returns one number $y$, the normalized PL averaged over its $k$ shots. The
 model predicts the signal $\mu(x;\theta,\phi)$, and by Eq.~\eqref{eq:noise} $y$ scatters about it with variance
-$\sigma^2/k$, the same whatever $\theta$ is. The likelihood $p(y\mid x,\theta)$ is the probability of that outcome
-if the dip is at $\theta$; for Gaussian scatter $\ln p=-k\,(y-\mu)^2/2\sigma^2+{\rm const}$. How much one
+$\sigma^2/k$, the same whatever $\theta$ is. The likelihood $\mathcal L(\theta)=p(y\mid x,\theta)$ is the probability of that outcome
+if the dip is at $\theta$; for Gaussian scatter $\ln\mathcal L=-k\,(y-\mu)^2/2\sigma^2+{\rm const}$. How much one
 measurement at $x$ tells about $\theta$ is its Fisher information. It asks how strongly an outcome points at
-$\theta$: take how fast $\ln p$ changes with $\theta$, square it, and average over the outcomes $y$ the measurement
+$\theta$: take how fast $\ln\mathcal L$ changes with $\theta$, square it, and average over the outcomes $y$ the measurement
 could return. The rate of change is
 \begin{equation*}
-  \frac{\partial\ln p}{\partial\theta}
+  \frac{\partial\ln\mathcal L}{\partial\theta}
   =\underbrace{\frac{k\,(y-\mu)}{\sigma^2}}_{\substack{\text{how far }y\text{ lies}\\\text{from the prediction}}}\,
   \underbrace{\frac{\partial \mu(x;\theta,\phi)}{\partial\theta}}_{g(x),\ \text{slope}},
 \end{equation*}
@@ -226,7 +226,7 @@ the slope $g(x)$ being how fast the predicted signal moves when $\theta$ moves. 
 \begin{equation}
   \begin{aligned}
   \underbrace{I(x)}_{\substack{\text{information}\\\text{at }x}}
-  &=\Big\langle\Big(\frac{\partial\ln p}{\partial\theta}\Big)^{\!2}\Big\rangle_{\!y}\\
+  &=\Big\langle\Big(\frac{\partial\ln\mathcal L}{\partial\theta}\Big)^{\!2}\Big\rangle_{\!y}\\
   &=\Big(\frac{k\,g(x)}{\sigma^2}\Big)^{\!2}\,\underbrace{\big\langle(y-\mu)^2\big\rangle_y}_{\sigma^2/k}\\[2pt]
   &=\frac{\overbrace{k}^{\text{shots}}\ \overbrace{g(x)^2}^{\text{slope}^2}}
   {\underbrace{\sigma^2}_{\text{shot variance}}}.
