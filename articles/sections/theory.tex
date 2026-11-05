@@ -210,18 +210,26 @@ of interest $\theta\equiv f_-$ is the transition frequency, and $\phi=(\Gamma,C)
 expected normalized PL $\mu(x;\theta,\phi)$ of Eq.~\eqref{eq:signal}, now written as a function of the design and the
 parameters, is the mean outcome, and Eq.~\eqref{eq:noise} gives the spread about it.
 
-How much one measurement at $x$ tells about $\theta$ is its Fisher information: the mean square, over the outcomes
-$y$, of how fast the log-likelihood $\ln p(y\mid x,\theta)$ changes with $\theta$. By Eq.~\eqref{eq:noise} the outcome
-of a measurement, the mean of $k$ shots, is Gaussian about $\mu$ with variance $\sigma^2/k$, the same whatever
-$\theta$ is, so $\ln p=-k\,(y-\mu)^2/2\sigma^2+{\rm const}$ and
+A measurement at drive frequency $x$ returns one number $y$, the normalized PL averaged over its $k$ shots. The
+model predicts the signal $\mu(x;\theta,\phi)$, and by Eq.~\eqref{eq:noise} $y$ scatters about it with variance
+$\sigma^2/k$, the same whatever $\theta$ is. The likelihood $p(y\mid x,\theta)$ is the probability of that outcome
+if the dip is at $\theta$; for Gaussian scatter $\ln p=-k\,(y-\mu)^2/2\sigma^2+{\rm const}$. How much one
+measurement at $x$ tells about $\theta$ is its Fisher information. It asks how strongly an outcome points at
+$\theta$: take how fast $\ln p$ changes with $\theta$, square it, and average over the outcomes $y$ the measurement
+could return. The rate of change is
+\begin{equation*}
+  \frac{\partial\ln p}{\partial\theta}
+  =\underbrace{\frac{k\,(y-\mu)}{\sigma^2}}_{\substack{\text{how far }y\text{ lies}\\\text{from the prediction}}}\,
+  \underbrace{\frac{\partial \mu(x;\theta,\phi)}{\partial\theta}}_{g(x),\ \text{slope}},
+\end{equation*}
+the slope $g(x)$ being how fast the predicted signal moves when $\theta$ moves. Squaring and averaging over $y$,
 \begin{equation}
   \begin{aligned}
-  \underbrace{I(x)}_{\substack{\text{information}\\\text{at }x}}&=\Big\langle\Big(\frac{\partial\ln p}{\partial\theta}\Big)^{\!2}\Big\rangle_{\!y}
-  =\Big(\frac{k\,g(x)}{\sigma^2}\Big)^{\!2}\,\underbrace{\big\langle(y-\mu)^2\big\rangle_y}_{\sigma^2/k}\\[2pt]
+  \underbrace{I(x)}_{\substack{\text{information}\\\text{at }x}}
+  &=\Big\langle\Big(\frac{\partial\ln p}{\partial\theta}\Big)^{\!2}\Big\rangle_{\!y}\\
+  &=\Big(\frac{k\,g(x)}{\sigma^2}\Big)^{\!2}\,\underbrace{\big\langle(y-\mu)^2\big\rangle_y}_{\sigma^2/k}\\[2pt]
   &=\frac{\overbrace{k}^{\text{shots}}\ \overbrace{g(x)^2}^{\text{slope}^2}}
-  {\underbrace{\sigma^2}_{\text{shot variance}}},\qquad
-  \underbrace{g(x)}_{\text{slope}}=\underbrace{\frac{\partial \mu(x;\theta,\phi)}{\partial\theta}}_{\substack{\text{how
-  fast }\mu\text{ moves}\\\text{when }\theta\text{ moves}}}.
+  {\underbrace{\sigma^2}_{\text{shot variance}}}.
   \end{aligned}
   \label{eq:fisher}
 \end{equation}
