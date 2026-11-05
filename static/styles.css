@@ -1927,7 +1927,7 @@ tbody.ss-case.collapsed > tr:first-child td::before { content: '▸ '; }
 tbody.ss-case.collapsed > tr:not(:first-child) { display: none; }
 
 /* Lab study (real data): an alternative to the signal parameters, so only the Study picker and the lab view remain. */
-#scan-section.lab-mode > *:not(h2):not(.scan-controls-split):not(#lab-view) { display: none !important; }
-#scan-section.lab-mode .panel-signal > *:not(.panel-title):not(#scan-generator-family-row) { display: none !important; }
+#scan-section.lab-mode > *:not(.scan-controls-split):not(#lab-view) { display: none !important; }
+#scan-section.lab-mode .panel-signal > *:not(#scan-generator-family-row) { display: none !important; }
 #scan-section.lab-mode .panel-locator { display: none !important; }
-body.lab-mode #stories-view { display: none !important; }
+body.lab-mode #stories-view, body.lab-mode .last-run, body.lab-mode .header-actions, body.lab-mode .tab-bar { display: none !important; }

@@ -225,6 +225,28 @@ def _mhz(value: float | None) -> float | None:
     return None if value is None else value / _MHZ
 
 
+def _sigma_curves(full: dict, held: dict, ref: dict) -> dict | None:
+    """Claimed sigma vs measurement step for one file, in MHz, for the UI's sigma graph; ``None`` for old records.
+
+    ``steps``: shape (n_steps,), 1-based. ``<run>_<param>``: SBED's claimed sigma after each step, shape (n_steps,), for
+    the run on all sweeps (``all``) and on the even sweeps (``even``). ``ref_<param>`` is the odd-sweep fit's sigma and
+    ``lab_<param>`` the sigma of a fit of the lab's averaged sweep (all shots, not independent of SBED's shots): one
+    number each, drawn as horizontal lines. A fixed parameter (sigma 0) or one a fit left on a bound has no line.
+    """
+    if "sigma_history" not in full or "sigma_history" not in held:
+        return None
+    lab_fit = full["lab_curve_fit"]
+    out: dict = {"steps": list(range(1, len(full["sigma_history"]["zeeman_shift"]) + 1))}
+    for param in HOLDOUT_PARAMS:
+        out[f"all_{param}"] = [_mhz(s) for s in full["sigma_history"][param]]
+        out[f"even_{param}"] = [_mhz(s) for s in held["sigma_history"][param]]
+        sigma_ref = ref[f"ref_{param}_sigma"]
+        out[f"ref_{param}"] = None if sigma_ref == 0.0 or ref.get(f"ref_{param}_at_bound") else _mhz(sigma_ref)
+        sigma_lab = lab_fit["sigmas"][param]
+        out[f"lab_{param}"] = None if sigma_lab == 0.0 or param in lab_fit["at_bound"] else _mhz(sigma_lab)
+    return out
+
+
 def lab_sweeps_payload(records: list[dict]) -> dict:
     """The UI's raw-sweeps lab page: one group per (source, folder), coverage within each group.
 
@@ -259,6 +281,7 @@ def lab_sweeps_payload(records: list[dict]) -> dict:
                 "ref_center_at_bound": bool(ref.get("ref_zero_field_freq_at_bound")),
                 "ref_chi2_dof": ref["ref_chi2_dof"],
                 "shot_reuse": held["shot_reuse"],
+                "sigma_curves": _sigma_curves(full, held, ref),
             }
         )
     out = []
