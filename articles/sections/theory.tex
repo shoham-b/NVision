@@ -483,8 +483,13 @@ Eq.~\eqref{eq:fisher}:
 \end{equation}
 The measurement adds $I(x)$ to the information $J_n$, so the width of the posterior shrinks from $J_n^{-1/2}$ to
 $(J_n+I(x))^{-1/2}$, and the EIG is the logarithm of that shrinkage. Maximizing the EIG is then maximizing $I(x)$,
-i.e.\ measuring at the steepest slope. Over a run the shrinkage factors multiply, so the gains add up to the
-logarithm of the total shrinkage, $\sum_n\mathrm{EIG}_n=\ln(\sigma_0/\sigma_n)$. The information the acquisition rule
+i.e.\ measuring at the steepest slope. Over a run the shrinkage factors multiply, so the gains add up to what the
+measurements taught, Eq.~\eqref{eq:greedy}, and that is the logarithm of the total shrinkage:
+\begin{equation*}
+  \sum_n\mathrm{EIG}_n
+  =\underbrace{I(\theta,\phi;y_1,\dots,y_n)}_{\text{learned, Eq.~\eqref{eq:greedy}}}
+  =\ln\frac{\sigma_0}{\sigma_n}.
+\end{equation*} The information the acquisition rule
 maximizes and the information budget of Sec.~\ref{sec:budget} are the same quantity. A strategy that measured every point at the steepest slope of the true line would reach the data limit of
 Eq.~\eqref{eq:vantrees}; greedy EIG approaches it once the posterior is narrow compared with the line.
 
