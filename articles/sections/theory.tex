@@ -604,17 +604,13 @@ $\sigma_{\rm tgt}$; the time needed, $T(\sigma_{\rm tgt})$, sets the bandwidth $
 times the number of measurements $N_{\rm ad}(\sigma_{\rm tgt})$ of Eq.~\eqref{eq:n-to-target}, $n_d$ to find the
 dip and the rest to refine it to $\sigma_{\rm tgt}$:
 \begin{equation}
-  \begin{aligned}
-  T(\sigma_{\rm tgt})&=t_m\Big[n_d+\frac{\sigma_{\rm tgt}^{-2}-12/\Delta x^2}{I^*}\Big],\\
-  \eta_{\rm eff}(\sigma_{\rm tgt})&=\frac{\sigma_{\rm tgt}\sqrt{T(\sigma_{\rm tgt})}}{\gamma_e},
-  \end{aligned}
+  T(\sigma_{\rm tgt})=t_m\Big[n_d+\frac{\sigma_{\rm tgt}^{-2}-12/\Delta x^2}{I^*}\Big].
   \label{eq:bandwidth}
 \end{equation}
-where $\eta_{\rm eff}$ is the sensitivity reached at that target, $\eta$ with $\sigma_{\rm tgt}$ in place of
-$\sigma_{f_-}$. For $\sigma_{\rm tgt}\to0$ the refine term dominates, $T\approx t_m\sigma_{\rm tgt}^{-2}/I^*$, and $\eta_{\rm eff}\to\eta$ of
-Eq.~\eqref{eq:sensitivity}. For a loose target the search term dominates, $T\approx n_d t_m$: the bandwidth cannot
-exceed about $1/(n_d t_m)\sim2\Delta x/(W t_m)$, whatever the SNR, and $\eta_{\rm eff}$ is worse than $\eta$. The
-window, i.e.\ the prior, therefore limits the bandwidth, while the line shape and SNR limit the sensitivity.
+For a tight target the refine term dominates, $T\approx t_m\sigma_{\rm tgt}^{-2}/I^*$, which is the sensitivity
+$\eta$ of Eq.~\eqref{eq:sensitivity} again. For a loose target the search term dominates, $T\approx n_d t_m$: the
+bandwidth cannot exceed about $1/(n_d t_m)\sim2\Delta x/(W t_m)$, whatever the SNR. The window, i.e.\ the prior,
+therefore limits the bandwidth, while the line shape and SNR limit the sensitivity.
 Only the total integration time $T=nk\,t_s$ enters the bound, not how it is divided into measurements: $n$
 measurements of $k$ shots carry the same information as $nk$ measurements of one shot at the same drive frequency.
 Neglecting the overhead of switching the drive frequency, the cost of a run is therefore its total number of shots
