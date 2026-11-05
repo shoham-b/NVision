@@ -34,7 +34,7 @@ log = logging.getLogger(__name__)
 
 # Bump when the processing of a raw sweep changes (locator settings, reference fit, record fields): every sweep's
 # record is then redone on the next sync.
-PROCESSING_VERSION = 2  # 2: no z when the reference fit sits on a prior bound
+PROCESSING_VERSION = 3  # 3: per-step sigma history + fit of the lab's averaged sweep; 2: no z on a bound reference
 # A held lock is touched every _LOCK_HEARTBEAT_S; one not touched for _STALE_LOCK_S belongs to a sync that died
 # (killed with its console, say) and is taken over.
 _LOCK_HEARTBEAT_S = 20.0

@@ -583,8 +583,15 @@ def _matlab_run_one(
     }
 
     ref = None
+    lab_curve_fit = None
     if ref_data is not None:
         ref = _fit_holdout_reference(ref_data, locator_bounds, infer_zero_field_freq)
+    else:
+        # The lab's own averaged sweep (all shots): the files store that curve but no fit of it, so fit it here.
+        # SBED draws from these same shots, so this is a yardstick for precision, not an independent check.
+        lab_curve_fit = _fit_holdout_reference(
+            data, locator_bounds, infer_zero_field_freq, label="Lab averaged sweep (all shots)"
+        )
 
     # The SMC default (1000 particles, 1% exploration) is tuned for a live instrument,
     # where each measurement is expensive and the run must stay cheap. On these
@@ -682,6 +689,18 @@ def _matlab_run_one(
     }
     if holdout_cols:
         record["holdout"] = holdout_cols
+    if lab_curve_fit is not None:
+        record["lab_curve_fit"] = {
+            "values": {k: float(v) for k, v in lab_curve_fit.values_phys.items()},
+            "sigmas": {k: float(v) for k, v in lab_curve_fit.sigmas_phys.items()},
+            "chi2_dof": lab_curve_fit.chi2_dof,
+            "at_bound": list(lab_curve_fit.at_bound),
+        }
+    # Claimed sigma after each measurement, physical units (Hz): one list of length total_steps per parameter.
+    record["sigma_history"] = {
+        name: [float(snap.belief.uncertainty()[name]) for snap in run_result.snapshots]
+        for name in ("zeeman_shift", "zero_field_freq")
+    }
 
     if not no_ui:
         gen_name = f"MATLAB:{run_name}"
@@ -717,8 +736,13 @@ def _matlab_run_one(
     )
 
 
-def _fit_holdout_reference(ref_data: Any, locator_bounds: dict[str, tuple[float, float]], infer_zero_field_freq: bool):
-    """Fit the held-out sweeps with the locator's model and bounds; echo the result."""
+def _fit_holdout_reference(
+    ref_data: Any,
+    locator_bounds: dict[str, tuple[float, float]],
+    infer_zero_field_freq: bool,
+    label: str = "Reference fit on held-out sweeps",
+):
+    """Fit *ref_data*'s shots with the locator's model and bounds; echo the result."""
     from nvision.metrics.lab_reference import CHI2_DOF_WARN, fit_reference
     from nvision.spectra.nv_center import NV_ZERO_FIELD_SPLITTING_HZ, nv_center_lorentzian_bounds_for_domain
 
@@ -733,8 +757,7 @@ def _fit_holdout_reference(ref_data: Any, locator_bounds: dict[str, tuple[float,
         fixed_zero_field_freq_phys=None if infer_zero_field_freq else NV_ZERO_FIELD_SPLITTING_HZ,
     )
     typer.echo(
-        f"Reference fit on held-out sweeps ({ref.n_bins} bins, {ref.n_shots} shots, "
-        f"shot std {ref.noise_std:.4f}), chi2/dof {ref.chi2_dof:.2f}:"
+        f"{label} ({ref.n_bins} bins, {ref.n_shots} shots, shot std {ref.noise_std:.4f}), chi2/dof {ref.chi2_dof:.2f}:"
     )
     for name, value in ref.values_phys.items():
         scale, unit = (1.0, "") if name == "contrast_total" else (1e-6, " MHz")
