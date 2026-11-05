@@ -416,18 +416,7 @@ after it. Before the outcome is known, the expectation of this divergence is the
   &=H[y\mid x]-\mathbb E_{\theta,\phi} H[y\mid\theta,\phi,x],
   \label{eq:eig-kl}
 \end{align}
-the mutual information between the parameters and the outcome, with $p(\theta,\phi)$ the current posterior. Write
-$\mathrm{EIG}_n(x)$ for Eq.~\eqref{eq:eig-kl} evaluated with the posterior after $n$ measurements. Greedy Bayesian
-experiment design takes the next measurement where it is largest, and summed over a run the gains are what the
-measurements taught, on average over runs:
-\begin{equation}
-  \begin{aligned}
-  x_{n+1}&=\arg\max_x\,\mathrm{EIG}_n(x),\\
-  \mathbb E\Big[\sum_{i=0}^{n-1}\mathrm{EIG}_i(x_{i+1})\Big]
-  &=\underbrace{I(\theta,\phi;y_1,\dots,y_n)}_{\text{learned from }n\text{ outcomes}}.
-  \end{aligned}
-  \label{eq:greedy}
-\end{equation}
+the mutual information between the parameters and the outcome, with $p(\theta,\phi)$ the current posterior.
 
 The second term is fixed by the noise model: the noise is Gaussian with the same variance $\sigma^2/k$ at every drive
 frequency (Sec.~\ref{sec:model}), so $H[y\mid\theta,\phi,x]=\tfrac12\ln(2\pi e\,\sigma^2/k)$ for every $x$. All the
@@ -442,6 +431,18 @@ $H[y\mid x]\le\tfrac12\ln 2\pi e\,(\sigma^2_{\rm pred}(x)+\sigma^2/k)$ and
 with equality when the predictive distribution of $\mu(x;\theta,\phi)$ is Gaussian. Whether it is depends on the
 posterior of $\theta$, not on the noise: the noise is Gaussian by construction, the posterior only becomes Gaussian
 with enough data.
+
+Write $\mathrm{EIG}_n(x)$ for Eq.~\eqref{eq:eig-kl} evaluated with the posterior after $n$ measurements. Greedy
+Bayesian experiment design takes the next measurement where it is largest, and summed over a run the gains are what
+the measurements taught, on average over runs:
+\begin{equation}
+  \begin{aligned}
+  x_{n+1}&=\arg\max_x\,\mathrm{EIG}_n(x),\\
+  \mathbb E\Big[\sum_{i=0}^{n-1}\mathrm{EIG}_i(x_{i+1})\Big]
+  &=\underbrace{I(\theta,\phi;y_1,\dots,y_n)}_{\text{learned from }n\text{ outcomes}}.
+  \end{aligned}
+  \label{eq:greedy}
+\end{equation}
 
 In the refine regime Eq.~\eqref{eq:eig-var} becomes an equality, and the EIG can be written with the Fisher
 information of Sec.~\ref{sec:fisher}. Three facts lead there.
