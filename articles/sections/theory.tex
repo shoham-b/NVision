@@ -443,8 +443,8 @@ with equality when the predictive distribution of $\mu(x;\theta,\phi)$ is Gaussi
 posterior of $\theta$, not on the noise: the noise is Gaussian by construction, the posterior only becomes Gaussian
 with enough data.
 
-\paragraph{When the variance is exact: refine.} In the data limit of Sec.~\ref{sec:budget} the posterior of $\theta$
-is close to a Gaussian of variance $\sigma_\theta^2$ (equal to $1/J_n$ when $\theta$ is orthogonal to the
+In the refine regime Eq.~\eqref{eq:eig-var} becomes an equality. There, in the data limit of Sec.~\ref{sec:budget}, the posterior of
+$\theta$ is close to a Gaussian of variance $\sigma_\theta^2$ (equal to $1/J_n$ when $\theta$ is orthogonal to the
 nuisances). Once it is also narrow compared with the line, $\mu$ is linear in $\theta$ over it,
 $\mu(x;\theta)\approx\mu(x;\hat\theta)+g(x)(\theta-\hat\theta)$, so the predicted signal is Gaussian too, with
 $\sigma^2_{\rm pred}(x)=g(x)^2\sigma_\theta^2$, and Eq.~\eqref{eq:eig-var} holds with equality:
@@ -470,7 +470,7 @@ narrow peak and wide tails can have the same standard deviation as a Gaussian, w
 the peak.
 \tbd{Results: when the SBED posterior becomes Gaussian, and its calibration in refine.}
 
-\paragraph{When it is not: search and focus.} Before the dip is found the posterior of $\theta$ is spread over the window, and
+In search and early focus it does not. Before the dip is found the posterior of $\theta$ is spread over the window, and
 the predicted signal at $x$ is two-valued: with probability $p$, the posterior mass that would put the dip at $x$, it
 is about $1-C$, otherwise 1. Then $\sigma^2_{\rm pred}=p(1-p)C^2$, while the true mutual information is at most the
 binary entropy $H_b(p)\le\ln2$. The variance form keeps growing with SNR where the true gain saturates, so it
