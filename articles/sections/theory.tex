@@ -443,20 +443,36 @@ with equality when the predictive distribution of $\mu(x;\theta,\phi)$ is Gaussi
 posterior of $\theta$, not on the noise: the noise is Gaussian by construction, the posterior only becomes Gaussian
 with enough data.
 
-In the refine regime Eq.~\eqref{eq:eig-var} becomes an equality. There, in the data limit of Sec.~\ref{sec:budget}, the posterior of
-$\theta$ is close to a Gaussian of variance $\sigma_\theta^2\approx1/J_n$, and its width $\sigma_\theta$ is small
-compared with the line. Over so narrow a range of $\theta$ the line is a straight line in $\theta$,
-$\mu(x;\theta)\approx\mu(x;\hat\theta)+g(x)(\theta-\hat\theta)$, so the predicted signal is Gaussian too, with
-$\sigma^2_{\rm pred}(x)=g(x)^2\sigma_\theta^2$, and Eq.~\eqref{eq:eig-var} holds with equality:
+In the refine regime Eq.~\eqref{eq:eig-var} becomes an equality, and the EIG can be written with the Fisher
+information of Sec.~\ref{sec:fisher}. Three facts lead there.
+
+First, the posterior of $\theta$ is a narrow Gaussian. In the data limit of Sec.~\ref{sec:budget} its variance is
+$\sigma_\theta^2\approx1/J_n$, one over the information collected so far, and its width $\sigma_\theta$ is small
+compared with the line.
+
+Second, the predicted signal is then Gaussian too. Fix the drive frequency $x$ and ask how the signal there depends
+on where the dip is. Moving the dip by a small amount changes the signal in proportion, at the rate $g(x)$, so over
+the narrow range of $\theta$ that the posterior allows,
+$\mu(x;\theta)\approx\mu(x;\hat\theta)+g(x)(\theta-\hat\theta)$. The predicted signal is the Gaussian $\theta$
+scaled by $g(x)$: a Gaussian of width $\sigma_{\rm pred}(x)=|g(x)|\,\sigma_\theta$. Eq.~\eqref{eq:eig-var} is then
+an equality.
+
+Third, inserting this width into Eq.~\eqref{eq:eig-var} gives $k\,g(x)^2/\sigma^2$, which is $I(x)$ by
+Eq.~\eqref{eq:fisher}:
 \begin{equation}
-  \mathrm{EIG}(x)=\tfrac12\ln\big(1+I(x)\,\sigma_\theta^2\big)=\tfrac12\ln\frac{J_n+I(x)}{J_n}.
+  \begin{aligned}
+  \mathrm{EIG}(x)&=\tfrac12\ln\Big(1+\underbrace{\frac{k\,g(x)^2}{\sigma^2}}_{I(x)}\,
+  \underbrace{\sigma_\theta^2}_{1/J_n}\Big)\\
+  &=\tfrac12\ln\frac{\overbrace{J_n+I(x)}^{\text{after}}}{\underbrace{J_n}_{\text{before}}}
+  =\ln\frac{\sigma_{\theta,\rm before}}{\sigma_{\theta,\rm after}}.
+  \end{aligned}
   \label{eq:eig-fisher}
 \end{equation}
-Maximizing the EIG is then maximizing $I(x)$, i.e.\ measuring at the steepest slope, and the gains telescope:
-$\sum_n\mathrm{EIG}_n=\tfrac12\ln(J_n/J_0)=\ln(\sigma_0/\sigma_n)$, the logarithm of the factor by which the
-uncertainty has narrowed. The
-information the acquisition rule maximizes and the information budget of Sec.~\ref{sec:budget} are the same
-quantity. A strategy that measured every point at the steepest slope of the true line would reach the data limit of
+The measurement adds $I(x)$ to the information $J_n$, so the width of the posterior shrinks from $J_n^{-1/2}$ to
+$(J_n+I(x))^{-1/2}$, and the EIG is the logarithm of that shrinkage. Maximizing the EIG is then maximizing $I(x)$,
+i.e.\ measuring at the steepest slope. Over a run the shrinkage factors multiply, so the gains add up to the
+logarithm of the total shrinkage, $\sum_n\mathrm{EIG}_n=\ln(\sigma_0/\sigma_n)$. The information the acquisition rule
+maximizes and the information budget of Sec.~\ref{sec:budget} are the same quantity. A strategy that measured every point at the steepest slope of the true line would reach the data limit of
 Eq.~\eqref{eq:vantrees}; greedy EIG approaches it once the posterior is narrow compared with the line.
 
 Eq.~\eqref{eq:eig-fisher} thus needs two conditions: the posterior has a single mode, with no appreciable mass left
