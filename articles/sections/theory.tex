@@ -73,11 +73,11 @@ Let the drive have detuning $\Delta=f-f_-$ from the transition and Rabi frequenc
 the population oscillates on resonance. Off resonance the spin oscillates faster but less deeply, at the
 generalized Rabi frequency
 \begin{equation*}
-  \tilde\Omega=\sqrt{\Omega^2+\Delta^2}.
+  \Omega_{\rm gen}=\sqrt{\Omega^2+\Delta^2}.
 \end{equation*}
 Starting from $m_s=0$, the probability of finding the spin in $m_s=-1$ after a drive of duration $t$ is
 \begin{equation}
-  P_{-1}(\Delta,t)=\frac{\Omega^2}{\tilde\Omega^2}\,\sin^2\!\big(\pi\tilde\Omega t\big),
+  P_{-1}(\Delta,t)=\frac{\Omega^2}{\Omega_{\rm gen}^2}\,\sin^2\!\big(\pi\Omega_{\rm gen} t\big),
   \label{eq:rabi}
 \end{equation}
 and $P_0=1-P_{-1}$ is the probability of finding it still in $m_s=0$. The prefactor is the depth of the
@@ -94,10 +94,10 @@ $P_{-1}$. How the drive is applied sets the line shape.
 same time, and the PL is read out while the drive is on (Fig.~\ref{fig:sequences}). The laser keeps pumping the spin
 back into $m_s=0$ while the drive keeps rotating it away, so every optical reset starts a new Rabi oscillation, and
 the PL, collected over many such cycles, reports Eq.~\eqref{eq:rabi} averaged over the time $T$ between resets.
-When the drive acts for many Rabi periods between resets, $\tilde\Omega T\gg1$, the oscillating factor averages to
+When the drive acts for many Rabi periods between resets, $\Omega_{\rm gen} T\gg1$, the oscillating factor averages to
 $\tfrac12$,
 \begin{equation}
-  \bar P_{-1}(\Delta)=\frac{\Omega^2}{\tilde\Omega^2}\,\frac1T\int_0^T\sin^2\!\big(\pi\tilde\Omega t\big)\,dt
+  \bar P_{-1}(\Delta)=\frac{\Omega^2}{\Omega_{\rm gen}^2}\,\frac1T\int_0^T\sin^2\!\big(\pi\Omega_{\rm gen} t\big)\,dt
   \;\longrightarrow\;\frac12\,\frac{\Omega^2}{\Omega^2+\Delta^2}.
   \label{eq:cw-lorentzian}
 \end{equation}
@@ -129,10 +129,9 @@ laser that reads the spin out also broadens the line through $\Gamma_c$, and nar
 and with them the contrast and the PL. Pulsed ODMR separates the two in time: a laser pulse polarizes the spin into
 $m_s=0$, the laser is switched off while a single microwave $\pi$-pulse of duration $t_\pi=1/(2\Omega)$ is applied,
 and a second laser pulse reads the spin out (Fig.~\ref{fig:sequences}). The pulse fully inverts the spin on
-resonance, and Eq.~\eqref{eq:rabi} at $t=t_\pi$ gives, with $r\equiv\tilde\Omega/\Omega=\sqrt{1+\Delta^2/\Omega^2}$
-(Appendix~\ref{app:odmr}),
+resonance, and Eq.~\eqref{eq:rabi} at $t=t_\pi$ gives (Appendix~\ref{app:odmr})
 \begin{equation}
-  P_{-1}^{\pi}(\Delta)=\frac{\sin^2(\pi r/2)}{r^2}.
+  P_{-1}^{\pi}(\Delta)=\frac{\Omega^2}{\Omega_{\rm gen}^2}\,\sin^2\!\Big(\frac{\pi}{2}\,\frac{\Omega_{\rm gen}}{\Omega}\Big).
   \label{eq:pulsed}
 \end{equation}
 This line is not a Lorentzian. Its half width, $0.80\,\Omega=0.40/t_\pi$, is the Fourier (time--bandwidth) limit of
@@ -213,34 +212,40 @@ of interest $\theta\equiv f_-$ is the transition frequency, and $\phi=(\Gamma,C)
 expected normalized PL $\mu(x;\theta,\phi)$ of Eq.~\eqref{eq:signal}, now written as a function of the design and the
 parameters, is the mean outcome, and Eq.~\eqref{eq:noise} gives the spread about it.
 
-How much one measurement at $x$ tells about $\theta$ is its Fisher information. For a Gaussian outcome of variance
-$\sigma^2/k$ it depends only on how fast the predicted outcome moves when $\theta$ moves, the slope $g$:
+How much one measurement at $x$ tells about $\theta$ is its Fisher information: the mean square, over the outcomes
+$y$, of how fast the log-likelihood $\ln p(y\mid x,\theta)$ changes with $\theta$. By Eq.~\eqref{eq:noise} the outcome
+of a measurement, the mean of $k$ shots, is Gaussian about $\mu$ with variance $\sigma^2/k$, the same whatever
+$\theta$ is, so $\ln p=-k\,(y-\mu)^2/2\sigma^2+{\rm const}$ and
 \begin{equation}
-  I(x)=\frac{k\,g(x)^2}{\sigma^2},\qquad g(x)=\frac{\partial \mu(x;\theta,\phi)}{\partial\theta}.
+  \begin{aligned}
+  \underbrace{I(x)}_{\substack{\text{information}\\\text{at }x}}&=\Big\langle\Big(\frac{\partial\ln p}{\partial\theta}\Big)^{\!2}\Big\rangle_{\!y}
+  =\Big(\frac{k\,g(x)}{\sigma^2}\Big)^{\!2}\,\underbrace{\big\langle(y-\mu)^2\big\rangle_y}_{\sigma^2/k}\\[2pt]
+  &=\frac{\overbrace{k}^{\text{shots}}\ \overbrace{g(x)^2}^{\text{slope}^2}}
+  {\underbrace{\sigma^2}_{\text{shot variance}}},\qquad
+  \underbrace{g(x)}_{\text{slope}}=\underbrace{\frac{\partial \mu(x;\theta,\phi)}{\partial\theta}}_{\substack{\text{how
+  fast }\mu\text{ moves}\\\text{when }\theta\text{ moves}}}.
+  \end{aligned}
   \label{eq:fisher}
 \end{equation}
+The noise enters only through its variance, and the line shape only through the slope $g$.
 A shift $\delta\theta$ moves the mean outcome by $g\,\delta\theta$, and it is resolved once that exceeds the noise
-$\sigma/\sqrt k$; $I(x)$ is the inverse square of the smallest shift resolved. It grows linearly with $k$, and at
+$\sigma/\sqrt k$. The smallest shift a measurement at $x$ resolves is therefore $\delta\theta_{\min}(x)=\sigma/(\sqrt
+k\,|g(x)|)$, and $I(x)=1/\delta\theta_{\min}(x)^2$. It grows linearly with $k$, and at
 the shot-noise limit, $\sigma^2=1/N_{\rm ph}$, with the total number of photons $kN_{\rm ph}$ collected at that
 drive frequency, which no averaging scheme can beat.
 
-For the Lorentzian of Eq.~\eqref{eq:signal}, written in terms of the detuning $u=x-\theta$ of the measurement from
-the resonance,
-\begin{equation*}
-  g(x)=\frac{\partial\mu}{\partial\theta}=-\frac{\partial\mu}{\partial u}=-\frac{2C\gamma^2u}{(\gamma^2+u^2)^2},
-\end{equation*}
-which vanishes on resonance, where the dip is flat, and on the baseline far from it: a measurement at the bottom of
-the dip or far outside it says almost nothing about where the dip is. $|g|$ is largest on the two sides of the dip, at
-$|u|=\gamma/\sqrt3$, where the dip is $3/4$ deep, with
-\begin{equation*}
-  g^*\equiv\max_x|g(x)|=\frac{9C}{4\sqrt3\,\Gamma}\approx1.30\,\frac{C}{\Gamma}.
-\end{equation*}
-The best possible information per measurement is therefore
+For the Lorentzian of Eq.~\eqref{eq:signal} the slope vanishes on resonance, where the dip is flat, and on the
+baseline far from it: a measurement at the bottom of the dip or far outside it says almost nothing about where the
+dip is. The slope is steepest on the two sides of the dip, a detuning $\gamma/\sqrt3$ from the resonance, where the
+dip is $3/4$ deep (Appendix~\ref{app:fisher}). A measurement there carries the most information one measurement
+can,
 \begin{equation}
-  I^*=\max_x I(x)=\frac{k\,g^{*2}}{\sigma^2}=\frac{27}{16}\,k\,\frac{\mathrm{SNR}^2}{\Gamma^2},
+  I^*=\max_x I(x)=\frac{27}{16}\,k\,\frac{\mathrm{SNR}^2}{\Gamma^2},
   \label{eq:istar}
 \end{equation}
-with $\mathrm{SNR}=C/\sigma$ of Eq.~\eqref{eq:snr}. $I^*$ assumes the nuisance parameters (width, contrast) are
+with $\mathrm{SNR}=C/\sigma$ of Eq.~\eqref{eq:snr}. The best place to measure is thus the flank of the dip, not its
+center, and the information there grows as $(\mathrm{SNR}/\Gamma)^2$: a deeper or a narrower line is equally
+valuable. $I^*$ assumes the nuisance parameters (width, contrast) are
 known; with free nuisances it is an upper bound on the usable information. The nuisances are inferred along with
 $\theta$ but are not the subject of this work.
 
@@ -268,8 +273,7 @@ center of the window,
   J_0\equiv\sigma_0^{-2}=\frac{12}{W^2}.
   \label{eq:prior}
 \end{equation}
-$J_0$ is the window's knowledge in the same currency: it is what a Gaussian estimate with the same variance would be
-worth. A narrower window starts with more, knowledge that no measurement had to pay for.
+A narrower window starts with more knowledge, which no measurement had to pay for.
 
 \subsection{Van Trees bound}
 \label{sec:budget}
@@ -277,39 +281,43 @@ worth. A narrower window starts with more, knowledge that no measurement had to 
 What we compare the strategies against is a limit on the uncertainty, whatever its source, the window or the
 measurements. Combining the two as independent estimates, by adding their inverse variances, gives
 \begin{equation}
-  \sigma_\theta(n)\ \approx\ \Big(J_0+\sum_{i=1}^{n}I(x_i)\Big)^{-1/2}\ \ge\
-  \sigma_{\rm vT}(n)=\Big(\frac{12}{W^2}+n I^*\Big)^{-1/2},
+  \begin{aligned}
+  \sigma_\theta(n)&\approx\Big(J_0+\sum_{i=1}^{n}I(x_i)\Big)^{-1/2}\\
+  &\ge\sigma_{\rm vT}(n)=\Big(\frac{12}{W^2}+n I^*\Big)^{-1/2},
+  \end{aligned}
   \label{eq:vantrees}
 \end{equation}
-where $\sigma_\theta(n)$ is the root-mean-square error after $n$ measurements, averaged over the prior, and the
-inequality uses $I(x)\le I^*$. Both ends of the curve are exact. With no data the best estimate is the center of the
-window, and its error is $\sigma_0$. With many, the error approaches the Cram\'er--Rao bound $(nI^*)^{-1/2}$ of Sec.~\ref{sec:fisher}.
-In between, Eq.~\eqref{eq:vantrees} is the van Trees inequality \cite{vantrees1968,gill1995} for a Gaussian prior of
-the same width, which holds for any estimator, biased or not; for the uniform window it is a reference curve rather
-than a strict bound, and Appendix~\ref{app:prior} shows how close the strict bounds lie.
-
-The curve refers to the mean squared error averaged over the prior, whatever the shape of the posterior. For the
-posterior mean that error is the expected posterior variance, so the posterior standard deviation can be compared
-with $\sigma_{\rm vT}$ from the first measurement on, as an average over runs, with no assumption on the shape of
-the posterior.
+where $\sigma_\theta(n)$ is the root-mean-square error after $n$ measurements, averaged over the window, and the
+inequality uses $I(x)\le I^*$. Eq.~\eqref{eq:vantrees} is the van Trees inequality \cite{vantrees1968,gill1995}, a
+lower bound for every estimator, biased or not, but for a Gaussian prior of variance $\sigma_0^2$. Our prior is the
+uniform window, so counting it as $J_0=12/W^2$ is a choice. It costs at most a factor $1.8$ in $\sigma$, and only
+early in the run:
+\begin{itemize}
+\item At $n=0$ the curve is exact: with no data the best guess is the center of the window, with error
+  $\sigma_0=W/\sqrt{12}\approx0.29\,W$.
+\item At large $n$ the prior term is negligible and the curve is the Cram\'er--Rao bound $(nI^*)^{-1/2}$ of
+  Sec.~\ref{sec:fisher}, reached only by measuring every time at the steepest slope.
+\item In between, the hard edges of the window carry information of their own (a resonance near an edge is easier to
+  locate), so the strict bound for a window lies below the curve, by at most $\pi/\sqrt3\approx1.8$ in $\sigma$
+  ($W/2\pi$ instead of $W/\sqrt{12}$ at $n=0$), and meets it once the measurements outweigh the prior
+  (Appendix~\ref{app:prior}).
+\end{itemize}
+The bound holds for the mean squared error whatever the shape of the posterior, and for the posterior mean that
+error equals the expected posterior variance. The posterior standard deviation, averaged over runs, can therefore
+be compared with $\sigma_{\rm vT}$ from the first measurement on, as long as the posterior is calibrated. In the data
+limit the curve is the floor; in the crossover, a strategy may undercut it by no more than the factor $1.8$.
 
 The curve has two limits, set by how the information of the measurements compares with that of the prior. While
 $nI^*\ll J_0$, it stays at the prior, $\sigma_{\rm vT}\approx\sigma_0=W/\sqrt{12}$: the measurements have not yet
 added to what the window told. An estimate in this limit leans on the prior and is biased toward its center, which
 is why its error may lie below the unbiased Cram\'er--Rao bound $(nI^*)^{-1/2}$. Once $nI^*\gg J_0$, the prior is
 washed out and $\sigma_{\rm vT}\approx(nI^*)^{-1/2}$, the unbiased Cram\'er--Rao bound, which falls with slope
-$-\tfrac12$ on a log--log scale. That the posterior then forgets the prior is not shown here but taken from the
-Bernstein--von Mises theorem \cite{vandervaart1998}: for a parameter of any finite dimension, here
-$(\theta,\phi)$, and under regularity conditions, the posterior approaches, as the data accumulate, a Gaussian
-centered near the true value whose covariance is the inverse of the Fisher information matrix $\mathbf J_n$ of all
-the parameters. Its mean is then asymptotically unbiased and attains the Cram\'er--Rao bound. The marginal
-posterior variance of $\theta$ is the $\theta\theta$ element of $\mathbf J_n^{-1}$, which is at least
-$1/J_n$, the value with the nuisances known; the two are equal when $\theta$ is orthogonal to the nuisances, i.e.\
-when the off-diagonal elements of $\mathbf J_n$ vanish. For the Lorentzian this holds when the measurements are
-placed symmetrically on the two sides of the dip, since $\partial\mu/\partial\theta$ is odd in $u$ while
-$\partial\mu/\partial\Gamma$ and $\partial\mu/\partial C$ are even. The theorem is proved for measurements fixed in
-advance; here each design depends on the previous outcomes, so we use it as a guide to the data limit rather than as
-a result. The two limits cross at $n_c=J_0/I^*$.
+$-\tfrac12$ on a log--log scale. The two limits cross at $n_c=J_0/I^*$.
+
+The bound treats the width $\Gamma$ and the contrast $C$ as known. Inferring them as well can only add to the
+uncertainty in $\theta$, but it adds nothing when the measurements are placed symmetrically on the two sides of the
+dip: a shift of $\theta$ then raises the signal on one side and lowers it on the other, while a change of $\Gamma$ or
+$C$ changes both sides alike, so the data tell the two apart.
 
 We name the regimes after what a strategy does in them: \emph{search} in the prior limit, where it has yet to find
 the dip; \emph{refine} in the data limit, where it measures on the sides of a dip it has located; and \emph{focus}
