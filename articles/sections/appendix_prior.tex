@@ -3,8 +3,7 @@
 \label{app:prior}
 % =====================================================================
 
-This appendix explains why Eq.~\eqref{eq:vantrees} is a reference curve rather than a strict bound for the uniform
-window, and how far the strict bounds lie from it.
+This appendix derives the statements of Sec.~\ref{sec:budget} about counting the uniform window as $J_0=12/W^2$.
 
 \paragraph{The prior's own information.} For a prior density $p(\theta)$, the van Trees inequality
 \cite{vantrees1968,gill1995} bounds the mean squared error of any estimator, averaged over the prior, by
@@ -22,9 +21,8 @@ whatever part of the scanned range it covers; only a smooth prior has a finite $
 \paragraph{Why the inverse variance.} For any prior, $J(p)\ge1/\mathrm{Var}(\theta)$, the Cram\'er--Rao inequality
 applied to a shift of the prior itself \cite{cramer1946}, with equality only for a Gaussian. With $J_0=1/\sigma_0^2$
 in place of $J(p)$, Eq.~\eqref{eq:vantrees} is therefore the van Trees bound for a Gaussian prior of the same
-variance, and for any other prior it lies at or above the strict bound: it is not itself a lower bound. It is the
-right reference for two reasons. At $n=0$ it is exact: with no data the estimate of least mean squared error is the
-mean of the prior, here the center of the window, and its error is $\sigma_0$. And where the signal is linear in
+variance, and for any other prior it lies at or above the strict bound: it is not itself a lower bound. Where the
+signal is linear in
 $\theta$ over the posterior, as in the data limit, the best estimate that is linear in the data has error
 $(J_0+\sum_iI(x_i))^{-1/2}$ for any prior of variance $\sigma_0^2$, because it depends on the prior only through its
 mean and variance \cite{vantrees1968}. The best estimate overall can only do better, so there the true optimum lies
