@@ -489,9 +489,12 @@ measurements taught, Eq.~\eqref{eq:greedy}, and that is the logarithm of the tot
   \sum_n\mathrm{EIG}_n
   =\underbrace{I(\theta,\phi;y_1,\dots,y_n)}_{\text{learned, Eq.~\eqref{eq:greedy}}}
   =\ln\frac{\sigma_0}{\sigma_n}.
-\end{equation*} The information the acquisition rule
-maximizes and the information budget of Sec.~\ref{sec:budget} are the same quantity. A strategy that measured every point at the steepest slope of the true line would reach the data limit of
-Eq.~\eqref{eq:vantrees}; greedy EIG approaches it once the posterior is narrow compared with the line.
+\end{equation*}
+The information the acquisition rule maximizes and the information budget of Sec.~\ref{sec:budget} are the same
+quantity. Each gain depends only on where it is taken, not on the earlier measurements, so maximizing every gain
+maximizes their sum: in refine greedy EIG is optimal over the whole run and reaches the data limit of
+Eq.~\eqref{eq:vantrees}. Before the dip is found this fails, since where one measures changes what later
+measurements can gain.
 
 Eq.~\eqref{eq:eig-fisher} thus needs two conditions: the posterior has a single mode, with no appreciable mass left
 elsewhere in the window, and that mode is narrow compared with the line, $\sigma_\theta\ll\gamma$. Appendix~\ref{app:gaussian}
