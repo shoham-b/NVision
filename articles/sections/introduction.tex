@@ -46,7 +46,11 @@ reinforcement-learning agent that refines the estimate \cite{guo2026}.
 These studies show that adaptive and learned strategies locate the resonance with far fewer measurements than a
 sweep, and measure the gain against that sweep. Information bounds are already used as
 benchmarks in Hamiltonian learning: the Bayesian Cram\'er--Rao bound certifies how close an SMC estimator comes to
-the best precision for the measurements it has chosen \cite{granade2012}. Such a bound has not yet been applied to
+the best precision for the measurements it has chosen \cite{granade2012}. The same kind of bound, the van Trees
+inequality \cite{vantrees1968,gill1995}, has been tested against the measured error of a photonic interferometer,
+which it follows for regular, narrow priors \cite{daurelio2022}. In simulations of iterative single-molecule
+localization, where each measurement is placed using the previous estimate, it has been used to compare placement
+strategies \cite{kalisvaart2022}. Such a bound has not yet been applied to
 the ODMR search as a whole, starting from nothing more than the search window. It would give a strategy-independent
 reference, showing how close current strategies come to the best achievable
 performance and which of their measurements are unavoidable. It would also supply a mechanism for the speedup over a
