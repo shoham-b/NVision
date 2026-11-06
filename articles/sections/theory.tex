@@ -264,58 +264,61 @@ with equality only when every measurement is taken at the steepest slope of the 
 bound \cite{cramer1946}, an unbiased estimate of $\theta$ from them has a standard deviation of at least
 $J_n^{-1/2}\ge(nI^*)^{-1/2}$.
 
-\subsection{Prior information: the search window}
+\subsection{Prior information}
 \label{sec:prior}
 
 Fisher information measures knowledge in inverse variance, Hz$^{-2}$: a Gaussian estimate of standard deviation
 $\sigma_\theta$ is worth $J=\sigma_\theta^{-2}$, and combining independent Gaussian estimates adds their inverse
-variances. The same currency measures what is known \emph{before} the first measurement. If the experimentalist
-knows only that the resonance lies somewhere in the window of width $W$, the state of knowledge is a uniform prior
-$p(\theta)=1/W$ on the window. Its spread is its standard deviation $\sigma_0$; with $v$ the distance from the
-center of the window,
+variances. The same currency measures what is known \emph{before} the first measurement, and that depends on the
+task. In a \emph{global search} the resonance is known only to lie somewhere in the window of width $W$, and the
+state of knowledge is a uniform prior $p(\theta)=1/W$ on the window. Its spread is its standard deviation $\sigma_0$;
+with $v$ the distance from the center of the window,
 \begin{equation}
-  \sigma_0^2=\int_{-W/2}^{W/2}\frac{v^2}{W}\,dv=\frac{W^2}{12},
-  \qquad
-  J_0\equiv\sigma_0^{-2}=\frac{12}{W^2}.
+  \sigma_0^2=\int_{-W/2}^{W/2}\frac{v^2}{W}\,dv=\frac{W^2}{12}.
   \label{eq:prior}
 \end{equation}
-A narrower window starts with more knowledge, which no measurement had to pay for.
+In \emph{tracking} the resonance was measured a short time ago and has since moved by a random amount, so the prior
+is a Gaussian of standard deviation $\sigma_0$ around the last estimate, narrow compared with the window.
+
+In a Gaussian, variance and information are the same quantity. For a window they differ: among all densities
+confined to a width $W$, the least Fisher information is $4\pi^2/W^2$ \cite{gill1995}, and this is what the window
+contributes to the bound below. The information of the prior is therefore
+\begin{equation}
+  J_0=\begin{cases}
+  4\pi^2/W^2 & \text{global search},\\
+  \sigma_0^{-2} & \text{tracking}.
+  \end{cases}
+  \label{eq:j0}
+\end{equation}
+A narrower prior starts with more knowledge, which no measurement had to pay for.
 
 \subsection{Van Trees bound}
 \label{sec:budget}
 
-What we compare the strategies against is a limit on the uncertainty, whatever its source, the window or the
-measurements. Combining the two as independent estimates, by adding their inverse variances, gives
+What we compare the strategies against is a limit on the uncertainty, whatever its source, the prior or the
+measurements. The van Trees inequality \cite{vantrees1968,gill1995} adds the information of the two, and with
+$I(x)\le I^*$ gives
 \begin{equation}
-  \begin{aligned}
-  \sigma_\theta(n)&\approx\Big(J_0+\sum_{i=1}^{n}I(x_i)\Big)^{-1/2}\\
-  &\ge\sigma_{\rm vT}(n)=\Big(\frac{12}{W^2}+n I^*\Big)^{-1/2},
-  \end{aligned}
+  \sigma_\theta(n)\ \ge\ \sigma_{\rm vT}(n)=\big(J_0+nI^*\big)^{-1/2},
   \label{eq:vantrees}
 \end{equation}
-where $\sigma_\theta(n)$ is the root-mean-square error after $n$ measurements, averaged over the window, and the
-inequality uses $I(x)\le I^*$. Eq.~\eqref{eq:vantrees} is the van Trees inequality \cite{vantrees1968,gill1995}, a
-lower bound for every estimator, biased or not, but for a Gaussian prior of variance $\sigma_0^2$. Our prior is the
-uniform window, so counting it as $J_0=12/W^2$ is a choice. It costs at most a factor $1.8$ in $\sigma$, and only
-early in the run:
-\begin{itemize}
-\item At $n=0$ the curve is exact: with no data the best guess is the center of the window, with error
-  $\sigma_0=W/\sqrt{12}\approx0.29\,W$.
-\item At large $n$ the prior term is negligible and the curve is the Cram\'er--Rao bound $(nI^*)^{-1/2}$ of
-  Sec.~\ref{sec:fisher}, reached only by measuring every time at the steepest slope.
-\item In between, the hard edges of the window carry information of their own (a resonance near an edge is easier to
-  locate), so the strict bound for a window lies below the curve, by at most $\pi/\sqrt3\approx1.8$ in $\sigma$
-  ($W/2\pi$ instead of $W/\sqrt{12}$ at $n=0$), and meets it once the measurements outweigh the prior
-  (Appendix~\ref{app:prior}).
-\end{itemize}
+for any estimator, biased or not. In tracking, $\sigma_\theta(n)$ is the root-mean-square error after $n$ measurements
+averaged over the prior, and the bound starts at $\sigma_0$. In a global search it is the root-mean-square error of
+the worst-placed resonance in the window. There the bound is tight at large $n$ but not at small $n$, where the error
+is $W/\sqrt{12}$, about $1.8$ times above it, so a gap there is not an inefficiency of the strategy. Averaged over
+the window, as in our runs, the error can fall below the bound only through resonances next to an edge, by about 1\%
+for a linear signal (Appendix~\ref{app:prior}). At large $n$ the prior term is negligible in both cases and the curve
+is the Cram\'er--Rao bound $(nI^*)^{-1/2}$ of Sec.~\ref{sec:fisher}, reached only by measuring every time at the
+steepest slope.
+
 The bound holds for the mean squared error whatever the shape of the posterior, and for the posterior mean that
 error equals the expected posterior variance. The posterior standard deviation, averaged over runs, can therefore
-be compared with $\sigma_{\rm vT}$ from the first measurement on, as long as the posterior is calibrated. In the data
-limit the curve is the floor; in the crossover, a strategy may undercut it by no more than the factor $1.8$.
+be compared with $\sigma_{\rm vT}$ from the first measurement on, as long as the posterior is calibrated.
 
 The curve has two limits, set by how the information of the measurements compares with that of the prior. While
-$nI^*\ll J_0$, it stays at the prior, $\sigma_{\rm vT}\approx\sigma_0=W/\sqrt{12}$: the measurements have not yet
-added to what the window told. An estimate in this limit leans on the prior and is biased toward its center, which
+$nI^*\ll J_0$, it stays at the prior, $\sigma_{\rm vT}\approx J_0^{-1/2}$, which is $\sigma_0$ in tracking and
+$W/2\pi$ in a global search: the measurements have not yet
+added to what the prior told. An estimate in this limit leans on the prior and is biased toward its center, which
 is why its error may lie below the unbiased Cram\'er--Rao bound $(nI^*)^{-1/2}$. Once $nI^*\gg J_0$, the prior is
 washed out and $\sigma_{\rm vT}\approx(nI^*)^{-1/2}$, the unbiased Cram\'er--Rao bound, which falls with slope
 $-\tfrac12$ on a log--log scale. The two limits cross at $n_c=J_0/I^*$.
@@ -327,12 +330,13 @@ $C$ changes both sides alike, so the data tell the two apart.
 
 We name the regimes after what a strategy does in them: \emph{search} in the prior limit, where it has yet to find
 the dip; \emph{refine} in the data limit, where it measures on the sides of a dip it has located; and \emph{focus}
-in the crossover between them, where it narrows down from the window to the dip.
+in the crossover between them, where it narrows down from the window to the dip. A tracking run with
+$\sigma_0\lesssim\Gamma$ has the dip located from the start, so it has no search and is all refine.
 
-If every measurement carried $I^*$, the crossover would come after
-$n_c=J_0/I^*=\tfrac{64}{9}\,(\Gamma/W)^2/(k\,\mathrm{SNR}^2)$ measurements, far below one for any realistic window. It comes much later because $I^*$ is reached
-only once the dip has been found: a measurement on the baseline carries $I(x)\approx0$, so the sum in
-Eq.~\eqref{eq:vantrees} stays near $J_0$ while the strategy searches. What such a measurement contributes instead
+In a global search, if every measurement carried $I^*$, the crossover would come after
+$n_c=J_0/I^*=\tfrac{64\pi^2}{27}\,(\Gamma/W)^2/(k\,\mathrm{SNR}^2)$ measurements, far below one for a wide window. It comes much later because $I^*$ is reached
+only once the dip has been found: a measurement on the baseline carries $I(x)\approx0$, so the information collected
+stays near that of the prior while the strategy searches. What such a measurement contributes instead
 is \emph{elimination}: it shrinks the prior itself.
 
 \paragraph{Elimination model.} Consider an idealized adaptive strategy: it steps through the window at spacing
@@ -347,15 +351,16 @@ known only to lie in the part of the window not yet excluded, and the posterior 
   \label{eq:elimination}
 \end{equation}
 where $n_d\le W/\Delta x$ is the step that finds the dip (on average $W/(2\Delta x)$ over a uniformly placed
-resonance). In information terms $J(n)=12/(W-n\Delta x)^2$: the gain per step is not constant but grows as the
+resonance). This is a model of the error, not a bound, so it counts the remaining window by its inverse variance,
+$\sigma(n)^{-2}=12/(W-n\Delta x)^2$: the gain per step is not constant but grows as the
 remaining width shrinks. Detection localizes the resonance to about one grid step, a uniform interval of width
-$\Delta x$ worth $12/\Delta x^2$, after which each measurement adds $I^*$:
+$\Delta x$ and inverse variance $12/\Delta x^2$, after which each measurement adds $I^*$:
 \begin{equation}
   \sigma(n)=\Big(\frac{12}{\Delta x^2}+(n-n_d)\,I^*\Big)^{-1/2},\qquad n\ge n_d .
   \label{eq:after-detection}
 \end{equation}
-Eqs.~\eqref{eq:elimination}--\eqref{eq:after-detection} reproduce both limits of Eq.~\eqref{eq:vantrees}:
-$\sigma=\sigma_0$ at $n=0$ and $\sigma\to(nI^*)^{-1/2}$ for $n\gg n_d$. For a wide window the three regimes become
+Eqs.~\eqref{eq:elimination}--\eqref{eq:after-detection} start at the true error $\sigma=\sigma_0$ at $n=0$, above the
+bound, and reach its data limit $\sigma\to(nI^*)^{-1/2}$ for $n\gg n_d$. For a wide window the three regimes become
 visible (Fig.~\ref{fig:budget}). The search is a plateau: Eq.~\eqref{eq:elimination} falls linearly, which on a
 log--log axis looks flat until about half the window is excluded, for a number of steps that grows with
 $W/\Delta x$. The focus is a cliff steeper than $-\tfrac12$, where detection collapses $\sigma$ from about the window
@@ -406,7 +411,7 @@ Eqs.~\eqref{eq:elimination}--\eqref{eq:after-detection}, at illustrative values 
 dip found halfway through the grid). Solid: wide window, $W=20\,\Gamma$; dashed: narrow window, $W=2\,\Gamma$;
 dotted: unbiased Cram\'er--Rao bound $(nI^*)^{-1/2}$. The wide window shows a search plateau (shaded), a focus cliff
 at detection (vertical segment) and the $-\tfrac12$ refine tail; the narrow window shows no plateau. Both start near
-the prior limit $\sigma_0$ of the van Trees bound and tend to its data limit, the unbiased Cram\'er--Rao bound, at
+the prior width $\sigma_0$ and tend to the data limit of the van Trees bound, the unbiased Cram\'er--Rao bound, at
 large $n$. Simulated and measured runs are shown against the bound in Sec.~\ref{sec:results}.}
 \label{fig:budget}
 \end{figure}
@@ -551,13 +556,14 @@ $\propto kC^2/\sigma^2$; they differ in the width factor, $1/\Gamma^2$ against $
 spends only a fraction of order $\Gamma/W$ of its measurements on the line.
 
 The sweep therefore accumulates information at the rate $\bar I$ from its first measurement,
-$\sigma\approx(J_0+n\bar I)^{-1/2}$, with no plateau and no cliff, as observed by \citet{dushenko2020sbed}. An
+$\sigma\approx(\sigma_0^{-2}+n\bar I)^{-1/2}$, with no plateau and no cliff, as observed by \citet{dushenko2020sbed}.
+This too is a model of the error, so the window enters through its inverse variance. An
 adaptive strategy pays the search cost $n_d$ first and then gains $I^*$ per measurement. Let $\sigma_{\rm tgt}$ (Hz) be
 the target precision, the standard deviation of $f_-$ at which a run is considered done. The number of measurements
 to reach it is
 \begin{equation}
   \begin{aligned}
-  N_{\rm sweep}(\sigma_{\rm tgt})&=\frac{\sigma_{\rm tgt}^{-2}-J_0}{\bar I},\\
+  N_{\rm sweep}(\sigma_{\rm tgt})&=\frac{\sigma_{\rm tgt}^{-2}-\sigma_0^{-2}}{\bar I},\\
   N_{\rm ad}(\sigma_{\rm tgt})&=n_d+\frac{\sigma_{\rm tgt}^{-2}-12/\Delta x^2}{I^*},
   \end{aligned}
   \label{eq:n-to-target}
