@@ -131,6 +131,7 @@ STAGE_METRIC_KEYS: tuple[str, ...] = (
     "stage_window_phys",
     "stage_window_fwhm",
     "stage_prior_info",
+    "stage_prior_info_var",
     "stage_true_passage_step",
     "stage_eta_eff",
     "stage2_oracle_steps",
@@ -385,9 +386,10 @@ def compute_stage_metrics(run_result: RunResult) -> dict[str, Any]:
     * ``stage_fwhm_true_phys`` (``None`` for drive-controlled models, whose width depends on the drive),
       ``stage_prior_fwhm_phys`` (the prior's mean FWHM), ``stage_window_phys`` (the drive-frequency range) and
       ``stage_window_fwhm`` = window over true FWHM: the axes the stages scale with.
-    * ``stage_prior_info`` = ``J0``: the information (Hz^-2) the prior already holds, ``1 / Var(prior)`` of the
-      primary parameter (``12 / W^2`` for a uniform prior of width ``W``), computed exactly from the locator's prior
-      (bounds and distribution, :func:`belief_prior_variance_phys`), not from any measurement. A window is a prior.
+    * ``stage_prior_info`` = ``J0``: the information (Hz^-2) the prior already holds, as the van Trees bound uses it:
+      ``4 pi^2 / W^2`` for a uniform prior of width ``W`` (the primary parameter's range), ``1 / Var(prior)`` for a
+      Gaussian one (:func:`belief_prior_info_phys`), computed from the locator's prior, not from any measurement.
+      ``stage_prior_info_var`` = ``1 / Var(prior)`` (``12 / W^2`` when uniform), for models of actual error.
     * ``stage2_oracle_steps`` = ``max(0, eps^-2 - J0) / I*``: measurements to reach ``eps`` from the prior at the best
       point. ``stage2_efficiency`` = that over ``stage2_steps``.
     * ``stage_true_passage_step``: first step from which the true error ``|estimate - truth|`` stays ``<= tau`` for
@@ -575,6 +577,30 @@ def belief_prior_variance_phys(belief: Any, name: str) -> float:
     raise TypeError(f"Cannot read the prior of a {type(belief).__name__}: J0 needs an SMC or grid belief")
 
 
+def belief_prior_info_phys(belief: Any, name: str) -> tuple[float, float]:
+    """``(J0_bound, J0_var)`` in Hz^-2: the prior information about parameter ``name`` under two conventions.
+
+    * ``J0_var = 1 / Var(prior)`` (:func:`belief_prior_variance_phys`): the inverse variance, right for models of the
+      actual error (sweep, elimination) and for a Gaussian (tracking) prior, where it is ``1 / sigma0^2``.
+    * ``J0_bound``: the J0 of the van Trees bound the Information tab draws. For a Gaussian prior it equals
+      ``J0_var``. For a uniform prior of width ``W`` (a global search, no prior entry) it is ``4 pi^2 / W^2`` (Gill and
+      Levit), a strict bound on the worst-placed resonance; ``W`` is the width of the parameter's own prior range
+      (``physical_param_bounds[name]``), not the drive window. The uniform average can undercut this bound by about 1 %
+      and sits up to 1.8x above it early on (``12 / W^2`` would be the inverse variance).
+    """
+    from nvision.belief.grid_marginal import GridMarginalDistribution
+    from nvision.belief.smc_marginal import SMCMarginalDistribution
+
+    var_info = 1.0 / belief_prior_variance_phys(belief, name)
+    uniform = (isinstance(belief, SMCMarginalDistribution) and (belief.priors or {}).get(name) is None) or isinstance(
+        belief, GridMarginalDistribution
+    )
+    if not uniform:
+        return var_info, var_info
+    lo_phys, hi_phys = (float(v) for v in belief.physical_param_bounds[name])
+    return 4.0 * math.pi**2 / (hi_phys - lo_phys) ** 2, var_info
+
+
 def _true_fwhm_phys(true_signal: Any) -> float | None:
     """Effective FWHM (Hz) of the true dip, ``2 * effective_hwhm``; ``None`` when the width depends on the drive."""
     from nvision.spectra.nv_center import effective_hwhm
@@ -615,11 +641,12 @@ def _add_oracle_metrics(
     out["stage_window_phys"] = _finite_or_none(float(x_hi_phys - x_lo_phys))
     out["stage_window_fwhm"] = None if not fwhm_true else _finite_or_none(float(x_hi_phys - x_lo_phys) / fwhm_true)
 
-    # The prior is information: J0 = 1 / Var(prior of the primary parameter), 12 / W^2 for a uniform prior of width W.
-    # Read from the locator's prior itself, not from the claimed sigma after a measurement (which mixes one
-    # measurement and the filter's own, overconfident, calibration into it).
-    prior_info = 1.0 / belief_prior_variance_phys(belief, primary)
+    # The prior is information. J0 (the bound's) is 4 pi^2 / W^2 for a uniform prior of width W, 1 / Var for a Gaussian
+    # one; the inverse variance is kept separately for models of actual error. Read from the locator's prior itself,
+    # not from the claimed sigma after a measurement (which mixes one measurement and the filter's own calibration in).
+    prior_info, prior_info_var = belief_prior_info_phys(belief, primary)
     out["stage_prior_info"] = _finite_or_none(prior_info)
+    out["stage_prior_info_var"] = _finite_or_none(prior_info_var)
 
     # First passage of the true error to the stop target (needs no scaling assumption, covers all three stages).
     if tau is not None and float(tau) > 0:
