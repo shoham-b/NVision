@@ -7692,10 +7692,13 @@ function main() {
     }
 
     // ── Information: how fast each locator approaches the van Trees bound ───────────────────────────────────────
-    // Every run is one accumulation of information from the prior J0 = sigma_0^-2 of the PRIMARY parameter (not the
-    // drive window: the primary parameter's own prior is far tighter). sigma_0 is the claimed sigma after the first
-    // measurement (stage_prior_info = sigma_0^-2); J0 is taken as the median over every run of the use case, so all
-    // locators share one ceiling. No locator can beat
+    // Every run is one accumulation of information from the prior J0 of the PRIMARY parameter (not the drive window:
+    // the primary parameter's own prior is far tighter). stage_prior_info is the bound's J0, stored at run time: 4 pi^2/W^2
+    // (Gill and Levit) for a uniform global-search prior of width W, 1/sigma_0^2 for a Gaussian tracking prior. It is a
+    // strict bound on the worst-placed resonance, so the uniform average can undercut it ~1% and sits up to ~1.8x above
+    // it early on (R below 1 there is looseness, not waste). (stage_prior_info_var = 1/Var(prior) is for models of actual
+    // error and is not used here.) J0 is the median over every run of the use case, so all locators share one ceiling.
+    // No locator can beat
     //   sigma(n) >= (J0 + n I*)^(-1/2),
     // I* = stage_fisher_star = the information of one measurement at the steepest point of the true signal. All values
     // are physical (Hz, Hz^-2). A run missing stage_fisher_star / stage_prior_info / its series is left out (a dash),

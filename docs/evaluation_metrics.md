@@ -105,9 +105,12 @@ $$\sigma_0^2 = \int_{-W/2}^{W/2} \frac{u^2}{W}\,du = \frac{1}{W}\cdot\frac{2\,(W
 It is W² (Hz²), not W. The prior information scale is J₀ = 12/W² (Hz⁻²). A uniform prior has no finite Fisher
 information at its edges, so the inverse variance is used as the convention: after N measurements 1/σ² = 12/W² + Σ I_j.
 Fisher information is not unitless (Hz⁻²); the unitless quantity is the gain log₂(σ₀/σ) = log₂(W/(√12 σ)) bits.
-`stage_prior_info` stores J₀ = 1/Var(prior) of the primary parameter, computed exactly from the locator's own prior
-(its bounds and distribution, `belief_prior_variance_phys` in `nvision/metrics/stages.py`): 12/W² for the uniform
-`zeeman_shift` prior of width W. It is not read from any measurement: the claimed σ after the first measurement (used
+Two prior informations are stored (`belief_prior_info_phys` in `nvision/metrics/stages.py`). `stage_prior_info` is the J₀
+of the bound: for a global search (uniform prior, simulated prior unchanged) J₀ = 4π²/W² (Gill and Levit), a strict bound
+on the worst-placed resonance, W being the width of the primary parameter's own prior range (`zeeman_shift`), not the
+drive window; for a Gaussian tracking prior J₀ = 1/σ₀². `stage_prior_info_var` is always 1/Var(prior)
+(`belief_prior_variance_phys`; 12/W² when uniform) and is the one for models of actual error (sweep, elimination). Neither
+is read from any measurement: the claimed σ after the first measurement (used
 before) mixed one measurement and the particle filter's own calibration, which is overconfident, into the prior. A prior
 whose variance cannot be computed exactly raises instead of falling back.
 
@@ -139,7 +142,7 @@ $$\sigma_{\mathrm{CRLB}}(N) = \Big(\frac{12}{W^2} + N\,I^*\Big)^{-1/2}.$$
 It starts at W/√12, bends where N I\* ≈ 12/W², then has slope −½ (van Trees form). A claimed σ below the plain
 1/√(N I\*) at small N is expected; only a true error (averaged over repeats) below this curve would indicate a defect.
 The Stages view's Whole run chart draws it from the run's own start (J₀ from the claimed σ after the first measurement,
-every measurement counted); the focus and refine charts restart from each stage's own claimed σ. The Information tab starts it from the primary parameter's own prior instead (see below): W is the drive window, not that prior.
+every measurement counted); the focus and refine charts restart from each stage's own claimed σ. The Information tab starts it from the primary parameter's own prior instead (see below): W is the drive window, not that prior, and uses J₀ = 4π²/W² for a global search.
 
 The stages are regimes of one continuous accumulation of information, J = 1/σ² from J₀. The Whole run scope therefore
 also shows two stage-free charts (`renderHlInfoCurve`), both from the claimed σ: the **prior share** J₀/J (1 → 0, dashed =
@@ -167,21 +170,27 @@ Stored only for runs recorded after these columns were added; re-run to get them
 
 The stage boundaries are not used to judge a locator any more. The claim is the single bound σ(n) ≥ (J₀ + n·I\*)^(-1/2),
 and every locator is judged by its distance to it. All of it is computed in the browser from the per-step `series.e` /
-`series.u` and the stored `stage_fisher_star` and `stage_prior_info`, so `nv render` is enough (no re-run) once those
-are stored. `stage_prior_info` is written at run time: rows recorded before J₀ was taken from the prior carry the old
-claimed-σ value and need a re-run.
+`series.u` and the stored `stage_fisher_star` and `stage_prior_info`. `stage_prior_info` is written at run time, so
+rows recorded before this change carry J₀ = 12/W² (and no `stage_prior_info_var`). `nv metrics recalc` fixes them
+without a re-run (`rederive_prior_info_fields`): for a uniform `zeeman_shift` prior J₀ = (π²/3) · stored, the old value
+moves to `stage_prior_info_var`, and `stage2_oracle_steps` / `stage2_efficiency` are recomputed; rows already current
+are skipped and any other primary parameter raises. `nv render` alone only re-reads what is stored. Rows from before
+J₀ came from the prior carry the claimed-σ value and cannot be rescaled: re-run those.
 
 * **J₀ is the prior of the primary parameter, not the drive window.** `stage_window_phys` is the swept drive-frequency
-  range; the primary parameter (e.g. `zeeman_shift`) has its own prior, and a window-based J₀ = 12/W² of the drive range
-  put the "bound" far too low, so locators appeared to beat it. J₀ = 1/Var(prior of the primary parameter)
-  (`stage_prior_info`), 12/W² for a uniform prior of width W on `zeeman_shift`, computed from the locator's prior itself
-  (bounds and distribution), not from a claimed σ. Every run of a use case starts from the same prior, so they all store
-  the same J₀; the browser still takes the median over the use case's runs, so all locators share one ceiling.
+  range; the primary parameter (e.g. `zeeman_shift`) has its own prior, and a window-based J₀ of the drive range
+  put the "bound" far too low, so locators appeared to beat it. J₀ = `stage_prior_info` = 4π²/W² for the uniform
+  global-search prior of width W on `zeeman_shift` (1/σ₀² for a Gaussian tracking prior), computed from the locator's
+  prior itself, not from a claimed σ. Every run of a use case starts from the same prior, so they all store the same J₀;
+  the browser still takes the median over the use case's runs, so all locators share one ceiling.
 * **Information vs the bound**: per repeat and step, z = error² · (J₀ + n·I\*); R(n) = 1 / mean(z) over the repeats still
   running (a run that has stopped keeps its final error; a step needs at least half of a use case's repeats), and the median
   over use cases when several are selected. R = 1 is the bound, below it measurements are wasted. The mean square is the
-  quantity the bound is on, so a few catastrophic runs dominate it on purpose (rule 8); R of the true error must stay ≤ 1, and
-  a value above 1 is a defect in J₀ or I\*. The same quantity from the claimed σ (dotted) above the true one is overconfidence.
+  quantity the bound is on, so a few catastrophic runs dominate it on purpose (rule 8). Because the global-search J₀ is a
+  worst-case bound, R of the true error is **not** expected to sit near 1 early on: the uniform average has up to 1.8× the
+  bound's variance while n·I\* ≲ J₀ (R ≈ 0.55 there), so a low R at small n is looseness of the bound, not wasted
+  measurements. R should stay ≤ 1 up to about 1 % (the uniform average can undercut the bound that much); a clear excess
+  above that is a defect in J₀ or I\*. Read the gap between locators, and the approach to 1 once n·I\* ≫ J₀. The same quantity from the claimed σ (dotted) above the true one is overconfidence.
   A median-based "typical run" version was tried and dropped: median error² is not tied to the variance for non-Gaussian
   errors (it read up to 1.65), so it is no bound.
 * **Cost to reach a precision**: T(τ) = the first measurement from which the true error stays ≤ τ = σ₀ / gain (gains
