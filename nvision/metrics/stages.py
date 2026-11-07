@@ -601,6 +601,33 @@ def belief_prior_info_phys(belief: Any, name: str) -> tuple[float, float]:
     return 4.0 * math.pi**2 / (hi_phys - lo_phys) ** 2, var_info
 
 
+def rederive_prior_info_fields(row: dict[str, Any]) -> dict[str, Any]:
+    """Stage fields that depend on J0, re-derived from a stored result row recorded with ``J0 = 12 / W^2``.
+
+    ``nv metrics recalc`` has no beliefs to rebuild a run from, so it cannot call :func:`compute_stage_metrics`. For a
+    uniform prior (the simulated global-search prior of ``zeeman_shift``) the stored legacy value is exactly
+    ``12 / W^2``, hence ``J0_bound = 4 pi^2 / W^2 = (pi^2 / 3) * stored``. Returns the changed fields
+    (``stage_prior_info``, ``stage_prior_info_var``, and ``stage2_oracle_steps`` / ``stage2_efficiency`` when their
+    inputs are stored); ``{}`` when the row has no J0 or already carries ``stage_prior_info_var`` (already current).
+    A row whose primary parameter is not ``zeeman_shift`` raises ``ValueError``: its prior shape is not known here.
+    """
+    legacy_j0 = row.get("stage_prior_info")
+    if legacy_j0 is None or row.get("stage_prior_info_var") is not None:
+        return {}
+    primary = row.get("stage_primary_param")
+    if primary != "zeeman_shift":
+        raise ValueError(f"Cannot rescale the legacy J0 of a row with primary parameter {primary!r}: prior unknown")
+    j0 = float(legacy_j0) * math.pi**2 / 3.0
+    out: dict[str, Any] = {"stage_prior_info": _finite_or_none(j0), "stage_prior_info_var": float(legacy_j0)}
+    eps, fisher_star = row.get("stage_eps_target_phys"), row.get("stage_fisher_star")
+    if eps is not None and fisher_star:
+        oracle2 = max(0.0, float(eps) ** -2 - j0) / float(fisher_star)
+        out["stage2_oracle_steps"] = _finite_or_none(oracle2)
+        if row.get("stage2_steps"):
+            out["stage2_efficiency"] = _finite_or_none(oracle2 / row["stage2_steps"])
+    return out
+
+
 def _true_fwhm_phys(true_signal: Any) -> float | None:
     """Effective FWHM (Hz) of the true dip, ``2 * effective_hwhm``; ``None`` when the width depends on the drive."""
     from nvision.spectra.nv_center import effective_hwhm

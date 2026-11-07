@@ -171,8 +171,11 @@ Stored only for runs recorded after these columns were added; re-run to get them
 The stage boundaries are not used to judge a locator any more. The claim is the single bound σ(n) ≥ (J₀ + n·I\*)^(-1/2),
 and every locator is judged by its distance to it. All of it is computed in the browser from the per-step `series.e` /
 `series.u` and the stored `stage_fisher_star` and `stage_prior_info`. `stage_prior_info` is written at run time, so
-**rows recorded before this change carry J₀ = 12/W² (and no `stage_prior_info_var`) and need a re-run** to get
-4π²/W²; `nv render` alone only re-reads what is stored. Rows from before J₀ came from the prior carry the claimed-σ value.
+rows recorded before this change carry J₀ = 12/W² (and no `stage_prior_info_var`). `nv metrics recalc` fixes them
+without a re-run (`rederive_prior_info_fields`): for a uniform `zeeman_shift` prior J₀ = (π²/3) · stored, the old value
+moves to `stage_prior_info_var`, and `stage2_oracle_steps` / `stage2_efficiency` are recomputed; rows already current
+are skipped and any other primary parameter raises. `nv render` alone only re-reads what is stored. Rows from before
+J₀ came from the prior carry the claimed-σ value and cannot be rescaled: re-run those.
 
 * **J₀ is the prior of the primary parameter, not the drive window.** `stage_window_phys` is the swept drive-frequency
   range; the primary parameter (e.g. `zeeman_shift`) has its own prior, and a window-based J₀ of the drive range

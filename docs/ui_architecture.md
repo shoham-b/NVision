@@ -170,7 +170,7 @@ Key sections inside `main()` (in order of appearance):
      `stage_prior_info` (J₀ of the bound: 4π²/W² for a uniform global-search `zeeman_shift` prior of width W, 1/σ₀² for a
      Gaussian tracking prior, computed from the locator's prior at run time; `stage_prior_info_var` = 1/Var(prior) is
      stored alongside for models of actual error and is not used by the tab; one J₀ per use case: the median over every
-     locator's runs, which share the prior). Rows recorded before the 4π²/W² change carry 12/W² and need a re-run. The single-repeat panels (`#scan-run-content`) are shown only in the Run view, collapsed the same way elsewhere.
+     locator's runs, which share the prior). Rows recorded before the 4π²/W² change carry 12/W²; `nv metrics recalc` rescales them (no re-run). The single-repeat panels (`#scan-run-content`) are shown only in the Run view, collapsed the same way elsewhere.
    * **Scaling** (`renderScalingTab`, `renderScaling`, view `#scaling-view`) — one point per use case (median over its
      repeats) of the stage steps against window, SNR and (FWHM/(SNR τ))², for the locators picked in `#scaling-pick`
      (default SBED). A panel is drawn only when the selection spans at least two values of its x-axis (a window or SNR

@@ -458,6 +458,26 @@ def test_smc_belief_prior_is_uniform_on_zeeman_shift():
     assert j0_bound / j0_var == pytest.approx(math.pi**2 / 3)
 
 
+def test_rederive_prior_info_fields_rescales_legacy_rows():
+    row = {
+        "stage_primary_param": "zeeman_shift",
+        "stage_prior_info": 3.0,  # legacy 12 / W^2 with W = 2
+        "stage_eps_target_phys": 0.1,
+        "stage_fisher_star": 1.0,
+        "stage2_steps": 4,
+    }
+    out = stages.rederive_prior_info_fields(row)
+    assert out["stage_prior_info"] == pytest.approx(math.pi**2)
+    assert out["stage_prior_info_var"] == pytest.approx(3.0)
+    assert out["stage2_oracle_steps"] == pytest.approx(100.0 - math.pi**2)
+    assert out["stage2_efficiency"] == pytest.approx((100.0 - math.pi**2) / 4)
+    # idempotent: a current row is left alone
+    assert stages.rederive_prior_info_fields({**row, **out}) == {}
+    assert stages.rederive_prior_info_fields({"stage_primary_param": "zeeman_shift"}) == {}
+    with pytest.raises(ValueError, match="prior unknown"):
+        stages.rederive_prior_info_fields({**row, "stage_primary_param": "zero_field_freq"})
+
+
 def test_gaussian_prior_info_is_inverse_variance_for_both_conventions(monkeypatch):
     from nvision.belief.smc_marginal import SMCMarginalDistribution
 
