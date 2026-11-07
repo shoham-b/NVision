@@ -576,10 +576,6 @@ using $\int g^2\,du=\pi C^2/(4\gamma)=\pi C^2/(2\Gamma)$ for the Lorentzian, val
 $\propto kC^2/\sigma^2$; they differ in the width factor, $1/\Gamma^2$ against $1/(\Gamma W)$, because the sweep
 spends only a fraction of order $\Gamma/W$ of its measurements on the line.
 
-<<<<<<< HEAD
-The sweep therefore accumulates information at the rate $I_{\rm sweep}$ from its first measurement,
-$\sigma\approx(\sigma_0^{-2}+nI_{\rm sweep})^{-1/2}$, with no plateau and no cliff, as observed by \citet{dushenko2020sbed}.
-=======
 Where a sweep measures does not depend on what it has learned, so its expected information grows at the constant
 rate $I_{\rm sweep}$ from its first measurement, and the van Trees bound for the sweep is
 $\sigma\approx(\sigma_0^{-2}+nI_{\rm sweep})^{-1/2}$. This has the same $n^{-1/2}$ form as the refine regime of an adaptive
@@ -591,7 +587,6 @@ strategy moves its measurements onto the slope, so its rate rises from about $I_
 spending a fraction of order $\Gamma/W$ of its measurements on the line and stays at $I_{\rm sweep}$. Averaged over many
 passes the steps of the individual runs are smoothed out, and the error follows the bound with no plateau and no
 cliff, as observed by \citet{dushenko2020sbed}.
->>>>>>> origin/master
 This too is a model of the error, so the window enters through its inverse variance. An
 adaptive strategy pays the search cost $n_d$ first and then gains $I_{\rm max}$ per measurement. Let $\sigma_{\rm tgt}$ (Hz) be
 the target precision, the standard deviation of $f_-$ at which a run is considered done. The number of measurements
@@ -604,12 +599,8 @@ to reach it is
   \label{eq:n-to-target}
 \end{equation}
 where the adaptive count follows the elimination model: $n_d$ measurements to detect the dip, after which the
-<<<<<<< HEAD
-information starts at $12/\Delta x^2$ and grows by $I_{\rm max}$ per measurement until it reaches $\sigma_{\rm tgt}^{-2}$.
-=======
 information starts at $12/\Delta x^2$ and grows by $I_{\rm max}$ per measurement until it reaches $\sigma_{\rm tgt}^{-2}$.
 The sweep count uses the averaged rate, so it holds for targets that take more than one pass of the window.
->>>>>>> origin/master
 The speedup is $R(\sigma_{\rm tgt})=N_{\rm sweep}/N_{\rm ad}$. For a precise target the refine terms dominate and
 \begin{equation}
   \begin{aligned}
