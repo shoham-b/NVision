@@ -6,13 +6,13 @@
 For a prior density $p(\theta)$, the van Trees inequality \cite{vantrees1968,gill1995} bounds the mean squared error
 of any estimator, averaged over the prior, by
 \begin{equation*}
-  \sigma_\theta^2(n)\ \ge\ \big(J(p)+nI^*\big)^{-1},\qquad
+  \sigma_\theta^2(n)\ \ge\ \big(J(p)+nI_{\rm max}\big)^{-1},\qquad
   J(p)=\int\frac{p'(\theta)^2}{p(\theta)}\,d\theta .
 \end{equation*}
 For a Gaussian prior $J(p)=\sigma_0^{-2}$, the value used for tracking. A uniform window drops from $1/W$ to zero at
 its edges, so $J(p)$ is infinite and the inequality reduces to $\sigma_\theta\ge0$: true, but empty. The inverse
 variance $12/W^2$ cannot simply take its place, since $J(p)\ge1/\mathrm{Var}(\theta)$ with equality only for a
-Gaussian: for a signal linear in $\theta$, $(12/W^2+nI^*)^{-1/2}$ is the error of the best linear estimator, which an
+Gaussian: for a signal linear in $\theta$, $(12/W^2+nI_{\rm max})^{-1/2}$ is the error of the best linear estimator, which an
 estimator can reach and the best estimator beats, so it is not a lower bound.
 
 \paragraph{Worst-placed resonance.} Instead of the prior, weight the positions in the window by
@@ -21,14 +21,14 @@ has the least Fisher information, $J(\rho)=4\pi^2/W^2$ \cite{gill1995}. The van 
 squared error averaged with the weight $\rho$, and the worst-placed resonance is at least as bad as any such average,
 which gives Eq.~\eqref{eq:vantrees} for a global search. The prior itself stays uniform; $\rho$ is only a step in the
 argument. For a signal linear in $\theta$ the worst-placed
-resonance starts at $W/2$, $\pi$ times above the bound, and the bound is tight at large $n$: with $m=\sqrt{nI^*}\,W/2$
-the half width in units of the measurement error, the best worst-case mean squared error is $(nI^*)^{-1}(1-\pi^2/m^2)$
+resonance starts at $W/2$, $\pi$ times above the bound, and the bound is tight at large $n$: with $m=\sqrt{nI_{\rm max}}\,W/2$
+the half width in units of the measurement error, the best worst-case mean squared error is $(nI_{\rm max})^{-1}(1-\pi^2/m^2)$
 to order $m^{-2}$, with this same $\cos^2$ density as the least favorable one \cite{bickel1981}, and the bound agrees
 with this to that order.
 
 \paragraph{Average over the window.} This argument does not cover the error averaged over a uniformly placed
 resonance, which is what the runs report. For a signal linear in $\theta$ the best achievable average error can be
-computed numerically. It lies above the bound until $nI^*W^2\approx400$, by a factor that starts at
-$\pi/\sqrt3\approx1.8$ at $n=0$ and falls below $1.1$ by $nI^*W^2\approx80$, that is $n\approx2\,n_c$. From
-$nI^*W^2\approx400$, $n\approx10\,n_c$, it lies below the bound, by at most about $1\%$ in $\sigma$, an effect that vanishes as $n$ grows. The cause
+computed numerically. It lies above the bound until $nI_{\rm max}W^2\approx400$, by a factor that starts at
+$\pi/\sqrt3\approx1.8$ at $n=0$ and falls below $1.1$ by $nI_{\rm max}W^2\approx80$, that is $n\approx2\,n_c$. From
+$nI_{\rm max}W^2\approx400$, $n\approx10\,n_c$, it lies below the bound, by at most about $1\%$ in $\sigma$, an effect that vanishes as $n$ grows. The cause
 is the hard edge: the posterior of a resonance close to an edge is cut off there, so it is slightly easier to locate.

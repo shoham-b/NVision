@@ -246,23 +246,23 @@ dip is. The slope is steepest on the two sides of the dip, a detuning $\gamma/\s
 dip is $3/4$ deep (Appendix~\ref{app:fisher}). A measurement there carries the most information one measurement
 can,
 \begin{equation}
-  I^*=\max_x I(x)=\frac{27}{16}\,k\,\frac{\mathrm{SNR}^2}{\Gamma^2},
+  I_{\rm max}=\max_x I(x)=\frac{27}{16}\,k\,\frac{\mathrm{SNR}^2}{\Gamma^2},
   \label{eq:istar}
 \end{equation}
 with $\mathrm{SNR}=C/\sigma$ of Eq.~\eqref{eq:snr}. The best place to measure is thus the flank of the dip, not its
 center, and the information there grows as $(\mathrm{SNR}/\Gamma)^2$: a deeper or a narrower line is equally
-valuable. $I^*$ assumes the nuisance parameters (width, contrast) are
+valuable. $I_{\rm max}$ assumes the nuisance parameters (width, contrast) are
 known; with free nuisances it is an upper bound on the usable information. The nuisances are inferred along with
 $\theta$ but are not the subject of this work.
 
 Measurements are independent given $\theta$, so their Fisher information adds: $n$ measurements at
 $x_1,\dots,x_n$ carry
 \begin{equation*}
-  J_n=\sum_{i=1}^{n}I(x_i)\ \le\ n\,I^*,
+  J_n=\sum_{i=1}^{n}I(x_i)\ \le\ n\,I_{\rm max},
 \end{equation*}
 with equality only when every measurement is taken at the steepest slope of the true line. By the Cram\'er--Rao
 bound \cite{cramer1946}, an unbiased estimate of $\theta$ from them has a standard deviation of at least
-$J_n^{-1/2}\ge(nI^*)^{-1/2}$.
+$J_n^{-1/2}\ge(nI_{\rm max})^{-1/2}$.
 
 \subsection{Prior information}
 \label{sec:prior}
@@ -304,31 +304,31 @@ $\sigma_0=W/\sqrt{12}$. A narrower prior starts with more knowledge, which no me
 
 What we compare the strategies against is a limit on the uncertainty, whatever its source, the prior or the
 measurements. The van Trees inequality \cite{vantrees1968,gill1995} adds the information of the two, and with
-$I(x)\le I^*$ gives
+$I(x)\le I_{\rm max}$ gives
 \begin{equation}
-  \sigma_\theta(n)\ \ge\ \sigma_{\rm vT}(n)=\big(J_0+nI^*\big)^{-1/2},
+  \sigma_\theta(n)\ \ge\ \sigma_{\rm vT}(n)=\big(J_0+nI_{\rm max}\big)^{-1/2},
   \label{eq:vantrees}
 \end{equation}
 for any estimator, biased or not. Here $\sigma_\theta(n)$ is the root-mean-square error after $n$ measurements; what
 it is averaged over depends on the task, as discussed below.
 
 The curve has two limits, set by how the information of the measurements compares with that of the prior. While
-$nI^*\ll J_0$, it stays at the prior, $\sigma_{\rm vT}\approx J_0^{-1/2}$, which is $\sigma_0$ in tracking and
+$nI_{\rm max}\ll J_0$, it stays at the prior, $\sigma_{\rm vT}\approx J_0^{-1/2}$, which is $\sigma_0$ in tracking and
 $W/2\pi$ in a global search: the measurements have not yet
 added to what the prior told. An estimate in this limit leans on the prior and is biased toward its center, which
-is why its error may lie below the unbiased Cram\'er--Rao bound $(nI^*)^{-1/2}$. Once $nI^*\gg J_0$, the prior is
-washed out and $\sigma_{\rm vT}\approx(nI^*)^{-1/2}$, the unbiased Cram\'er--Rao bound of Sec.~\ref{sec:fisher}, which
+is why its error may lie below the unbiased Cram\'er--Rao bound $(nI_{\rm max})^{-1/2}$. Once $nI_{\rm max}\gg J_0$, the prior is
+washed out and $\sigma_{\rm vT}\approx(nI_{\rm max})^{-1/2}$, the unbiased Cram\'er--Rao bound of Sec.~\ref{sec:fisher}, which
 falls with slope $-\tfrac12$ on a log--log scale and is reached only by measuring every time at the steepest slope.
-The two limits cross at $n_c=J_0/I^*$.
+The two limits cross at $n_c=J_0/I_{\rm max}$.
 
 \paragraph{Reading the bound.} In tracking the error is averaged over the prior, and the bound starts at the true
-error $\sigma_0$. A run that lies above it has measurements that carried less than $I^*$, or that
+error $\sigma_0$. A run that lies above it has measurements that carried less than $I_{\rm max}$, or that
 were not used efficiently.
 
 In a global search $J_0$ comes from the $\cos^2$ density and not from the uniform prior, so the bound is about a
 different error: for any strategy, some resonance in the window has a root-mean-square error of at least
 $\sigma_{\rm vT}(n)$. Our runs instead report the error averaged over a uniformly placed resonance. For a signal
-linear in $\theta$, where every measurement can carry $I^*$, the best achievable values of the two errors compare
+linear in $\theta$, where every measurement can carry $I_{\rm max}$, the best achievable values of the two errors compare
 with the bound as follows (Appendix~\ref{app:prior}). Before any measurement, the best estimate is the center of the
 window. The worst-placed resonance is then $W/2$ away, $\pi$ times above the bound of $W/2\pi$, and the average error
 is $W/\sqrt{12}$, $\pi/\sqrt3\approx1.8$ times above it. This gap belongs to the window and not to any strategy.
@@ -337,7 +337,7 @@ $n\approx10\,n_c$ it lies below the bound, by at most about 1\%, because a reson
 locate.
 
 A run is therefore read against the curve in three parts. Up to a few $n_c$ a gap says nothing about the strategy.
-Beyond that, a gap means that the measurements carried less than $I^*$ or were not used efficiently. A claimed
+Beyond that, a gap means that the measurements carried less than $I_{\rm max}$ or were not used efficiently. A claimed
 uncertainty below the curve by more than about 1\% plus the scatter of the runs points to an overconfident
 posterior. For a wide window $n_c\ll1$, so the curve can be read in this way from the first measurement on.
 
@@ -352,12 +352,12 @@ $C$ changes both sides alike, so the data tell the two apart.
 
 We name the regimes of a strategy after what it does in them: \emph{search} while it has yet to find the dip, so
 that its measurements carry little information and its error stays near the prior; \emph{refine} once it measures
-on the sides of a dip it has located, so that they carry about $I^*$ and its error follows the data limit; and
+on the sides of a dip it has located, so that they carry about $I_{\rm max}$ and its error follows the data limit; and
 \emph{focus} in between, where it narrows down from the window to the dip. A tracking run with
 $\sigma_0\lesssim\Gamma$ has the dip located from the start, so it has no search and is all refine.
 
-In a global search, if every measurement carried $I^*$, the crossover would come after
-$n_c=J_0/I^*=\tfrac{64\pi^2}{27}\,(\Gamma/W)^2/(k\,\mathrm{SNR}^2)$ measurements, far below one for a wide window. It comes much later because $I^*$ is reached
+In a global search, if every measurement carried $I_{\rm max}$, the crossover would come after
+$n_c=J_0/I_{\rm max}=\tfrac{64\pi^2}{27}\,(\Gamma/W)^2/(k\,\mathrm{SNR}^2)$ measurements, far below one for a wide window. It comes much later because $I_{\rm max}$ is reached
 only once the dip has been found: a measurement on the baseline carries $I(x)\approx0$, so the information collected
 stays near that of the prior while the strategy searches. What such a measurement contributes instead
 is \emph{elimination}: it shrinks the prior itself.
@@ -377,13 +377,13 @@ where $n_d\le W/\Delta x$ is the step that finds the dip. This is a model of the
 uses the standard deviation of the remaining window, Eq.~\eqref{eq:prior}; the $\pi$ of Eq.~\eqref{eq:j0} belongs to
 the bound alone. In inverse variance, $\sigma(n)^{-2}=12/(W-n\Delta x)^2$: the gain per step is not constant but
 grows as the remaining width shrinks. Detection localizes the resonance to about one grid step, a uniform interval of width
-$\Delta x$ and inverse variance $12/\Delta x^2$, after which each measurement adds $I^*$:
+$\Delta x$ and inverse variance $12/\Delta x^2$, after which each measurement adds $I_{\rm max}$:
 \begin{equation}
-  \sigma(n)=\Big(\frac{12}{\Delta x^2}+(n-n_d)\,I^*\Big)^{-1/2},\qquad n\ge n_d .
+  \sigma(n)=\Big(\frac{12}{\Delta x^2}+(n-n_d)\,I_{\rm max}\Big)^{-1/2},\qquad n\ge n_d .
   \label{eq:after-detection}
 \end{equation}
 Eqs.~\eqref{eq:elimination}--\eqref{eq:after-detection} start at the true error $\sigma=\sigma_0$ at $n=0$, above the
-bound, and reach its data limit $\sigma\to(nI^*)^{-1/2}$ for $n\gg n_d$. For a wide window the three regimes become
+bound, and reach its data limit $\sigma\to(nI_{\rm max})^{-1/2}$ for $n\gg n_d$. For a wide window the three regimes become
 visible (Fig.~\ref{fig:budget}). The search is a plateau: Eq.~\eqref{eq:elimination} falls linearly, which on a
 log--log axis looks flat until about half the window is excluded, for a number of steps that grows with
 $W/\Delta x$. The focus is a cliff steeper than $-\tfrac12$, where detection collapses $\sigma$ from about the window
@@ -392,7 +392,7 @@ once $\sigma$ is small compared with the line, so that the strategy knows where 
 regime is the $-\tfrac12$ tail. In a window about as narrow as the line, the first measurements already land in the
 dip, so there is no plateau (dashed curve). The regimes belong to
 the adaptive strategy, which moves from the prior limit of the bound to its data limit by finding the dip first; a
-sweep has none, since it gains the same information $\bar I$ at every step (Sec.~\ref{sec:speedup}).
+sweep has none, since it gains the same information $I_{\rm sweep}$ at every step (Sec.~\ref{sec:speedup}).
 
 The elimination model only illustrates the shape of the profile. At low SNR one measurement no longer reveals the
 dip and $n_d$ grows, but Eq.~\eqref{eq:vantrees} holds at any SNR and needs no detection model; the runs are read
@@ -427,13 +427,13 @@ against it alone.
 \addplot[thick, dashed, forget plot] coordinates {(3, 0.28868) (3, 0.096225)};
 \addplot[thick, dashed, forget plot, domain=3:1000, samples=200] {1/sqrt(108 + 168.75*(x-3))};
 \addplot[gray, dotted, thick, domain=1:1000, samples=100] {1/sqrt(168.75*x)};
-\addlegendentry{$(nI^*)^{-1/2}$}
+\addlegendentry{$(nI_{\rm max})^{-1/2}$}
 \end{loglogaxis}
 \end{tikzpicture}
 \caption{Schematic of the three regimes of an adaptive strategy: the elimination model,
 Eqs.~\eqref{eq:elimination}--\eqref{eq:after-detection}, at illustrative values (SNR 10, $k=1$, $\Delta x=\Gamma/3$,
 dip found halfway through the grid). Solid: wide window, $W=20\,\Gamma$; dashed: narrow window, $W=2\,\Gamma$;
-dotted: unbiased Cram\'er--Rao bound $(nI^*)^{-1/2}$. The wide window shows a search plateau (shaded), a focus cliff
+dotted: unbiased Cram\'er--Rao bound $(nI_{\rm max})^{-1/2}$. The wide window shows a search plateau (shaded), a focus cliff
 at detection (vertical segment) and the $-\tfrac12$ refine tail; the narrow window shows no plateau. Both start near
 the prior width $\sigma_0$ and tend to the data limit of the van Trees bound, the unbiased Cram\'er--Rao bound, at
 large $n$. Simulated and measured runs are shown against the bound in Sec.~\ref{sec:results}.}
@@ -563,12 +563,12 @@ particles of the particle filter of Sec.~\ref{sec:bayes}, which learns $\sigma$ 
 The same budget predicts the speedup over a conventional sweep. An adaptive strategy in the refine regime measures
 at the steepest slope and gains, per measurement, Eq.~\eqref{eq:istar},
 \begin{equation*}
-  I^*=\frac{27}{16}\,\frac{k\,C^2}{\sigma^2\,\Gamma^2}.
+  I_{\rm max}=\frac{27}{16}\,\frac{k\,C^2}{\sigma^2\,\Gamma^2}.
 \end{equation*}
-A sweep spreads its measurements uniformly over the window, so its information per measurement is the window
-average of Eq.~\eqref{eq:fisher},
+A sweep spreads its measurements uniformly over the window, so the information it gains per step is the window
+average of Eq.~\eqref{eq:fisher}, taken over the drive frequency in the window (not over the prior),
 \begin{equation}
-  \bar I=\frac{1}{W}\int I(x)\,dx=\frac{k}{\sigma^2W}\int g(x)^2\,dx=\frac{\pi}{2}\,
+  I_{\rm sweep}=\frac{1}{W}\int I(x)\,dx=\frac{k}{\sigma^2W}\int g(x)^2\,dx=\frac{\pi}{2}\,
   \frac{k\,C^2}{\sigma^2\,\Gamma\,W},
   \label{eq:sweep-info}
 \end{equation}
@@ -577,34 +577,34 @@ $\propto kC^2/\sigma^2$; they differ in the width factor, $1/\Gamma^2$ against $
 spends only a fraction of order $\Gamma/W$ of its measurements on the line.
 
 Where a sweep measures does not depend on what it has learned, so its expected information grows at the constant
-rate $\bar I$ from its first measurement, and the van Trees bound for the sweep is
-$\sigma\approx(\sigma_0^{-2}+n\bar I)^{-1/2}$. This has the same $n^{-1/2}$ form as the refine regime of an adaptive
-strategy; the two differ in the rate, $\bar I$ against $I^*$. A single sweep reaches this bound only once its
+rate $I_{\rm sweep}$ from its first measurement, and the van Trees bound for the sweep is
+$\sigma\approx(\sigma_0^{-2}+nI_{\rm sweep})^{-1/2}$. This has the same $n^{-1/2}$ form as the refine regime of an adaptive
+strategy; the two differ in the rate, $I_{\rm sweep}$ against $I_{\rm max}$. A single sweep reaches this bound only once its
 posterior has one peak. Until the scan has passed over the dip it learns only that the dip is not where it has
 looked, so its error, like that of an adaptive run, stays near $\sigma_0$ and then drops when the dip is resolved,
 after about one pass of the window, or several at low SNR. What the sweep lacks is the phase after that: an adaptive
-strategy moves its measurements onto the slope, so its rate rises from about $\bar I$ to $I^*$, while the sweep keeps
-spending a fraction of order $\Gamma/W$ of its measurements on the line and stays at $\bar I$. Averaged over many
+strategy moves its measurements onto the slope, so its rate rises from about $I_{\rm sweep}$ to $I_{\rm max}$, while the sweep keeps
+spending a fraction of order $\Gamma/W$ of its measurements on the line and stays at $I_{\rm sweep}$. Averaged over many
 passes the steps of the individual runs are smoothed out, and the error follows the bound with no plateau and no
 cliff, as observed by \citet{dushenko2020sbed}.
 This too is a model of the error, so the window enters through its inverse variance. An
-adaptive strategy pays the search cost $n_d$ first and then gains $I^*$ per measurement. Let $\sigma_{\rm tgt}$ (Hz) be
+adaptive strategy pays the search cost $n_d$ first and then gains $I_{\rm max}$ per measurement. Let $\sigma_{\rm tgt}$ (Hz) be
 the target precision, the standard deviation of $f_-$ at which a run is considered done. The number of measurements
 to reach it is
 \begin{equation}
   \begin{aligned}
-  N_{\rm sweep}(\sigma_{\rm tgt})&=\frac{\sigma_{\rm tgt}^{-2}-\sigma_0^{-2}}{\bar I},\\
-  N_{\rm ad}(\sigma_{\rm tgt})&=n_d+\frac{\sigma_{\rm tgt}^{-2}-12/\Delta x^2}{I^*},
+  N_{\rm sweep}(\sigma_{\rm tgt})&=\frac{\sigma_{\rm tgt}^{-2}-\sigma_0^{-2}}{I_{\rm sweep}},\\
+  N_{\rm ad}(\sigma_{\rm tgt})&=n_d+\frac{\sigma_{\rm tgt}^{-2}-12/\Delta x^2}{I_{\rm max}},
   \end{aligned}
   \label{eq:n-to-target}
 \end{equation}
 where the adaptive count follows the elimination model: $n_d$ measurements to detect the dip, after which the
-information starts at $12/\Delta x^2$ and grows by $I^*$ per measurement until it reaches $\sigma_{\rm tgt}^{-2}$.
+information starts at $12/\Delta x^2$ and grows by $I_{\rm max}$ per measurement until it reaches $\sigma_{\rm tgt}^{-2}$.
 The sweep count uses the averaged rate, so it holds for targets that take more than one pass of the window.
 The speedup is $R(\sigma_{\rm tgt})=N_{\rm sweep}/N_{\rm ad}$. For a precise target the refine terms dominate and
 \begin{equation}
   \begin{aligned}
-  R_\infty=\frac{I^*}{\bar I}&=\frac{27}{8\pi}\,\frac{W}{\Gamma}\\
+  R_\infty=\frac{I_{\rm max}}{I_{\rm sweep}}&=\frac{27}{8\pi}\,\frac{W}{\Gamma}\\
   &\approx1.07\,\frac{W}{\Gamma}\approx\frac{W}{\Gamma}:
   \end{aligned}
   \label{eq:speedup}
@@ -614,7 +614,7 @@ the speedup is the inverse occupancy of the window, the number of linewidths tha
 of the SNR, because both strategies gain information $\propto\mathrm{SNR}^2$. For a loose target the search cost
 $n_d$ dominates $N_{\rm ad}$ and $R(\sigma_{\rm tgt})<R_\infty$, so the full dependence on window,
 linewidth, SNR (through $n_d$ at low SNR) and target is given by Eq.~\eqref{eq:n-to-target}. A sweep cannot approach
-the van Trees bound at any $n$: its rate $\bar I$ is fixed by the window, while the bound's data limit requires every
+the van Trees bound at any $n$: its rate $I_{\rm sweep}$ is fixed by the window, while the bound's data limit requires every
 measurement at the steepest slope.
 \tbd{Check Eq.~\eqref{eq:speedup} against the speedup reported in Ref.~\cite{dushenko2020sbed} for their window
 and line structure (a resolved triplet, not one Lorentzian).}
@@ -623,14 +623,14 @@ and line structure (a resolved triplet, not one Lorentzian).}
 find the dip, and the rate at which it gains information afterwards. Both can be read off a run without a detection
 model. Late in a run the inverse variance grows linearly,
 \begin{equation}
-  \sigma(n)^{-2}\approx q\,I^*(n-n_0),
+  \sigma(n)^{-2}\approx q\,I_{\rm max}(n-n_0),
   \label{eq:strategy-numbers}
 \end{equation}
-where $q\le1$ is the fraction of $I^*$ that its measurements carry, as in Sec.~\ref{sec:sensitivity}, and $n_0$ is the number of measurements lost
+where $q\le1$ is the fraction of $I_{\rm max}$ that its measurements carry, as in Sec.~\ref{sec:sensitivity}, and $n_0$ is the number of measurements lost
 before this growth began. The offset $n_0$ generalizes $n_d$: it holds the search and also whatever the focus costs
-beyond the single step of the elimination model. A sweep has $q=\bar I/I^*=1/R_\infty$ and $n_0\approx0$, and the ideal
+beyond the single step of the elimination model. A sweep has $q=I_{\rm sweep}/I_{\rm max}=1/R_\infty$ and $n_0\approx0$, and the ideal
 adaptive strategy has $q=1$ and $n_0\approx n_d$, so all strategies can be placed on one $(n_0,q)$ plane. The number of
-measurements to a precise target is then $n_0+\sigma_{\rm tgt}^{-2}/(qI^*)$.
+measurements to a precise target is then $n_0+\sigma_{\rm tgt}^{-2}/(qI_{\rm max})$.
 
 \subsection{Sensitivity and bandwidth}
 \label{sec:sensitivity}
@@ -639,16 +639,16 @@ Sensitivity and bandwidth follow from the same budget once measurements are conv
 measurement take $t_m=k\,t_s$ ($k$ shots of duration $t_s$), so that $n$ measurements take $T=n t_m$. With $D$
 known, $D-f_-=\delta_Z=\gamma_e B_z$, so the field uncertainty is $\sigma_B=\sigma_{f_-}/\gamma_e$.
 
-\paragraph{Sensitivity (refine).} In the refine regime every measurement adds $I^*$, so after a time $T$
+\paragraph{Sensitivity (refine).} In the refine regime every measurement adds $I_{\rm max}$, so after a time $T$
 \begin{equation*}
-  \sigma_{f_-}(T)=(nI^*)^{-1/2}=\Big(\frac{T}{t_m}\,I^*\Big)^{-1/2}
+  \sigma_{f_-}(T)=(nI_{\rm max})^{-1/2}=\Big(\frac{T}{t_m}\,I_{\rm max}\Big)^{-1/2}
   \quad\Longrightarrow\quad
-  \sigma_{f_-}\sqrt T=\sqrt{\frac{t_m}{I^*}} .
+  \sigma_{f_-}\sqrt T=\sqrt{\frac{t_m}{I_{\rm max}}} .
 \end{equation*}
 The uncertainty falls as $\sigma_{f_-}\propto T^{-1/2}$, so the product $\sigma_{f_-}\sqrt T$ does not depend on $T$
 and characterizes the strategy rather than the length of the run. Converted to field, this constant is the sensitivity,
 \begin{equation}
-  \eta=\sigma_B\sqrt T=\frac{1}{\gamma_e}\sqrt{\frac{t_m}{I^*}}
+  \eta=\sigma_B\sqrt T=\frac{1}{\gamma_e}\sqrt{\frac{t_m}{I_{\rm max}}}
   =\frac{1}{\gamma_e}\sqrt{\frac{16\,k\,t_s\,\Gamma^2}{27\,k\,\mathrm{SNR}^2}}
   =\frac{4}{3\sqrt3}\,\frac{\Gamma\sqrt{t_s}}{\gamma_e\,\mathrm{SNR}},
   \label{eq:sensitivity}
@@ -658,7 +658,7 @@ averaging $k$ shots into one measurement costs $k$ times the time and gives $k$ 
 $4/(3\sqrt3)$ is that of the standard CW-ODMR sensitivity of a Lorentzian line \cite{dreau2011}: the familiar formula
 is the refine limit of the budget, reached only by a strategy that measures at the steepest slope. A strategy whose
 refine measurements are not all at the steepest slope gains less per measurement: if they carry on average a
-fraction $q\le1$ of $I^*$, $I^*$ is replaced by $qI^*$ in Eq.~\eqref{eq:sensitivity}, and its sensitivity is worse
+fraction $q\le1$ of $I_{\rm max}$, $I_{\rm max}$ is replaced by $qI_{\rm max}$ in Eq.~\eqref{eq:sensitivity}, and its sensitivity is worse
 by $1/\sqrt q$, i.e.\ $\eta/\sqrt q$.
 
 \paragraph{Bandwidth (whole run).} A field reading is useful once its error reaches the target
@@ -666,10 +666,10 @@ $\sigma_{\rm tgt}$; the time needed, $T(\sigma_{\rm tgt})$, sets the bandwidth $
 times the number of measurements $N_{\rm ad}(\sigma_{\rm tgt})$ of Eq.~\eqref{eq:n-to-target}, $n_d$ to find the
 dip and the rest to refine it to $\sigma_{\rm tgt}$:
 \begin{equation}
-  T(\sigma_{\rm tgt})=t_m\Big[n_d+\frac{\sigma_{\rm tgt}^{-2}-12/\Delta x^2}{I^*}\Big].
+  T(\sigma_{\rm tgt})=t_m\Big[n_d+\frac{\sigma_{\rm tgt}^{-2}-12/\Delta x^2}{I_{\rm max}}\Big].
   \label{eq:bandwidth}
 \end{equation}
-For a tight target the refine term dominates, $T\approx t_m\sigma_{\rm tgt}^{-2}/I^*$, which is the sensitivity
+For a tight target the refine term dominates, $T\approx t_m\sigma_{\rm tgt}^{-2}/I_{\rm max}$, which is the sensitivity
 $\eta$ of Eq.~\eqref{eq:sensitivity} again. For a loose target the search term dominates, $T\approx n_d t_m$: the
 bandwidth cannot exceed about $1/(n_d t_m)$, whatever the SNR, which is $2\Delta x/(W t_m)$ for a resonance halfway
 through the window. The window, i.e.\ the prior,
