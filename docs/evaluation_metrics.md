@@ -4,6 +4,8 @@ Read this before adding or changing any locator-comparison metric or results vie
 is for, which quantity drives each stage, and the rules that keep a metric meaningful. The stage detector itself
 (search → focus → refine, the Fisher-efficiency rule) is defined in [locator_comparison.md](locator_comparison.md).
 
+Naming: the article calls the "focus" stage *localize*; code and UI keep "focus".
+
 ## What the comparison is for
 
 **Bayesian SBED is the subject.** The other locators are a yardstick that shows what SBED gains. Scenario: the

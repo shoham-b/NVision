@@ -353,7 +353,7 @@ $C$ changes both sides alike, so the data tell the two apart.
 We name the regimes of a strategy after what it does in them: \emph{search} while it has yet to find the dip, so
 that its measurements carry little information and its error stays near the prior; \emph{refine} once it measures
 on the sides of a dip it has located, so that they carry about $I_{\rm max}$ and its error follows the data limit; and
-\emph{focus} in between, where it narrows down from the window to the dip. A tracking run with
+\emph{localize} in between, from the first detection of the dip until it locks onto the dip, as it narrows down from the window to the dip. After that a global search has become a tracking problem: its posterior is roughly Gaussian of width $\lesssim\Gamma$ around the dip, and it behaves like a tracking run. A tracking run with
 $\sigma_0\lesssim\Gamma$ has the dip located from the start, so it has no search and is all refine.
 
 In a global search, if every measurement carried $I_{\rm max}$, the crossover would come after
@@ -386,7 +386,7 @@ Eqs.~\eqref{eq:elimination}--\eqref{eq:after-detection} start at the true error 
 bound, and reach its data limit $\sigma\to(nI_{\rm max})^{-1/2}$ for $n\gg n_d$. For a wide window the three regimes become
 visible (Fig.~\ref{fig:budget}). The search is a plateau: Eq.~\eqref{eq:elimination} falls linearly, which on a
 log--log axis looks flat until about half the window is excluded, for a number of steps that grows with
-$W/\Delta x$. The focus is a cliff steeper than $-\tfrac12$, where detection collapses $\sigma$ from about the window
+$W/\Delta x$. The localize stage is a cliff steeper than $-\tfrac12$, where detection collapses $\sigma$ from about the window
 to about $\Delta x$ in a single step. It ends
 once $\sigma$ is small compared with the line, so that the strategy knows where the steepest slope is. The refine
 regime is the $-\tfrac12$ tail. In a window about as narrow as the line, the first measurements already land in the
@@ -415,7 +415,7 @@ against it alone.
 % Regimes of the wide window: search shaded, focus = the detection step, refine = the tail.
 \fill[gray!15] (axis cs:1,3e-3) rectangle (axis cs:30,10);
 \node[font=\scriptsize] at (axis cs:5.5,0.012) {search};
-\node[font=\scriptsize, anchor=west] at (axis cs:31,0.9) {focus};
+\node[font=\scriptsize, anchor=west] at (axis cs:31,0.9) {localize};
 \node[font=\scriptsize] at (axis cs:250,0.035) {refine};
 \addplot[thick, domain=1:30, samples=60] {(20 - x/3)/sqrt(12)};
 \addlegendentry{$W=20\,\Gamma$}
@@ -433,7 +433,7 @@ against it alone.
 \caption{Schematic of the three regimes of an adaptive strategy: the elimination model,
 Eqs.~\eqref{eq:elimination}--\eqref{eq:after-detection}, at illustrative values (SNR 10, $k=1$, $\Delta x=\Gamma/3$,
 dip found halfway through the grid). Solid: wide window, $W=20\,\Gamma$; dashed: narrow window, $W=2\,\Gamma$;
-dotted: unbiased Cram\'er--Rao bound $(nI_{\rm max})^{-1/2}$. The wide window shows a search plateau (shaded), a focus cliff
+dotted: unbiased Cram\'er--Rao bound $(nI_{\rm max})^{-1/2}$. The wide window shows a search plateau (shaded), a localize cliff
 at detection (vertical segment) and the $-\tfrac12$ refine tail; the narrow window shows no plateau. Both start near
 the prior width $\sigma_0$ and tend to the data limit of the van Trees bound, the unbiased Cram\'er--Rao bound, at
 large $n$. Simulated and measured runs are shown against the bound in Sec.~\ref{sec:results}.}
@@ -526,14 +526,14 @@ $\theta$: a single mode, with no appreciable mass left elsewhere in the window, 
 $\sigma_\theta\ll\gamma$. The Gaussian shape is needed only for the equality in Eq.~\eqref{eq:eig-fisher}. Appendix~\ref{app:gaussian}
 shows that the deviations from a Gaussian, and the error of the linearization, are both controlled by the ratio
 $\sigma_\theta/\gamma$, and that leftover mass far from the dip dominates the posterior variance unless it is
-smaller than about $(\sigma_\theta/W)^2$. Both conditions are met in refine and not at the start of focus, so
-Eq.~\eqref{eq:eig-fisher} describes the refine regime, while in focus Eq.~\eqref{eq:eig-var} holds only as a bound.
+smaller than about $(\sigma_\theta/W)^2$. Both conditions are met in refine and not at the start of the localize stage, so
+Eq.~\eqref{eq:eig-fisher} describes the refine regime, while in the localize stage Eq.~\eqref{eq:eig-var} holds only as a bound.
 The same conditions decide when the posterior standard deviation can be read as a 68\% interval: a posterior with a
 narrow peak and wide tails can have the same standard deviation as a Gaussian, with most of its mass much closer to
 the peak.
 \tbd{Results: when the SBED posterior becomes Gaussian, and its calibration in refine.}
 
-\paragraph{Search and focus.} Before the dip is found the posterior of $\theta$ is spread over the window, and
+\paragraph{Search and localize.} Before the dip is found the posterior of $\theta$ is spread over the window, and
 the predicted signal at $x$ is two-valued: with probability $p$, the posterior mass that would put the dip at $x$, it
 is about $1-C$, otherwise 1. Then $\sigma^2_{\rm pred}=p(1-p)C^2$, while the true mutual information is at most the
 binary entropy $H_b(p)\le\ln2$. The variance form keeps growing with SNR where the true gain saturates, so it
@@ -541,14 +541,14 @@ overvalues search candidates relative to refine candidates; both peak at $p=\tfr
 candidates alike. Here greedy EIG is only myopically optimal, which is where the strategies of
 Sec.~\ref{sec:locators} differ.
 
-The same two-valued picture holds in focus, with a different ranking. Once a peak has formed at the dip, a small
+The same two-valued picture holds in the localize stage, with a different ranking. Once a peak has formed at the dip, a small
 residual mass $p$ far from it gives a predictive variance $p(1-p)C^2$ at its location, large at high SNR even for
 small $p$, while the information it holds is at most $H_b(p)$, small for small $p$. The variance form therefore keeps
 spending measurements to remove such distant mass. This reduces the posterior variance, which the tail dominates and
-which is the quantity Eq.~\eqref{eq:vantrees} constrains, rather than the posterior entropy: in focus the variance
+which is the quantity Eq.~\eqref{eq:vantrees} constrains, rather than the posterior entropy: in the localize stage the variance
 rule acts as a design for the mean squared error, while a rule built on the information gain would refine the peak
-sooner and accept the tail. Whether this explains why focus costs SBED far more measurements than the bound is a
-hypothesis we have not tested. \tbd{Test: share of focus measurements placed more than a few FWHM from
+sooner and accept the tail. Whether this explains why localizing costs SBED far more measurements than the bound is a
+hypothesis we have not tested. \tbd{Test: share of localize-stage measurements placed more than a few FWHM from
 the peak, compared with the residual mass there.}
 
 Bayesian SBED (Sec.~\ref{sec:locators}) evaluates Eq.~\eqref{eq:eig-var} at every candidate drive frequency on the
@@ -627,7 +627,7 @@ model. Late in a run the inverse variance grows linearly,
   \label{eq:strategy-numbers}
 \end{equation}
 where $q\le1$ is the fraction of $I_{\rm max}$ that its measurements carry, as in Sec.~\ref{sec:sensitivity}, and $n_0$ is the number of measurements lost
-before this growth began. The offset $n_0$ generalizes $n_d$: it holds the search and also whatever the focus costs
+before this growth began. The offset $n_0$ generalizes $n_d$: it holds the search and also whatever localizing costs
 beyond the single step of the elimination model. A sweep has $q=I_{\rm sweep}/I_{\rm max}=1/R_\infty$ and $n_0\approx0$, and the ideal
 adaptive strategy has $q=1$ and $n_0\approx n_d$, so all strategies can be placed on one $(n_0,q)$ plane. The number of
 measurements to a precise target is then $n_0+\sigma_{\rm tgt}^{-2}/(qI_{\rm max})$.
