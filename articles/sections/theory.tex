@@ -503,7 +503,8 @@ own. Late in a run the inverse of the averaged squared error grows linearly,
   \label{eq:strategy-numbers}
 \end{equation}
 where $q\le1$ is the fraction of $I_{\rm max}$ that the measurements carry, and
-$n_0$ is the number of measurements lost, on average, before this growth began. The offset $n_0$ generalizes $n_d$: it holds the search and also whatever localizing costs
+$n_0$ is the number of measurements lost, on average, before this growth began. The offset $n_0$ generalizes $n_d$, the step that finds the dip in the elimination model of
+Eqs.~\eqref{eq:elimination}--\eqref{eq:after-detection}: it holds the search and also whatever localizing costs
 beyond the single step of the elimination model. A sweep has $q=I_{\rm sweep}/I_{\rm max}=1/R_\infty$ and $n_0\approx0$, and the ideal
 adaptive strategy has $q=1$ and $n_0\approx n_d$, so all strategies can be placed on one $(n_0,q)$ plane. The number of
 measurements to a precise target is then $n_0+\sigma_{\rm tgt}^{-2}/(qI_{\rm max})$.
