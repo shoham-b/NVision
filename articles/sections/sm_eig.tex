@@ -4,14 +4,15 @@
 % =====================================================================
 
 Sec.~\ref{sec:eig} of the main text asks two questions of the variance form of the expected information gain,
-Eq.~\eqref{eq:eig-var}: (A) when it agrees with the exact gain, and (B) when maximizing it greedily puts the
-measurements where the van Trees bound needs them. This section gives the run-level argument behind (B) in refine,
-and the argument for the two earlier regimes, where both answers fail.
+Eq.~\eqref{eq:eig-var}: when it agrees with the exact gain, and when maximizing it greedily puts the
+measurements where the van Trees bound needs them. This section gives the run-level argument that greedy choice is
+optimal in refine, and the argument for the two earlier regimes, where neither result holds.
 
 \paragraph{When the variance form is exact.} Eq.~\eqref{eq:eig-var} is an equality when $\mu(d;\theta,\phi)$, with
 $\theta,\phi$ drawn from the posterior, is Gaussian distributed. Whether it is depends on the posterior of $\theta$,
 not on the noise: the noise is Gaussian by construction, while the posterior only becomes Gaussian with enough data
-(Sec.~\ref{sm:gaussian}). Question (A) is therefore whether the posterior makes the predicted signal Gaussian.
+(Sec.~\ref{sm:gaussian}). Whether the Gaussian form is exact is therefore a question of whether the posterior makes the predicted signal
+Gaussian.
 
 \paragraph{Greedy over the whole run.} In any regime, the chain rule of mutual information \cite{cover2006} makes
 the gains of a run add up: on average over runs they equal what all the outcomes together taught about the
@@ -37,9 +38,9 @@ deviation as a Gaussian, with most of its mass much closer to the peak (Sec.~\re
 \paragraph{Search: a two-valued signal.} Before the dip is found the posterior of $\theta$ is spread over the window,
 and the predicted signal at $d$ is two-valued: with probability $p$, the posterior mass that would put the dip at $d$,
 it is about $1-C$, otherwise 1. Then $\sigma^2_{\rm pred}=p(1-p)C^2$, while the true mutual information is at most the
-binary entropy $H_b(p)\le\ln2$. For (A), the variance form keeps growing with SNR where the true gain saturates, so it
+binary entropy $H_b(p)\le\ln2$. The Gaussian form is not exact: it keeps growing with SNR where the true gain saturates, so it
 overvalues search candidates relative to refine candidates; both peak at $p=\tfrac12$, so they rank search
-candidates alike. For (B), the chain-rule argument of Eq.~\eqref{eq:eig-sum} fails, since where one measures changes
+candidates alike. Nor is greedy choice optimal over the run: the chain-rule argument of Eq.~\eqref{eq:eig-sum} fails, since where one measures changes
 what later measurements can gain. Here greedy EIG is only myopically optimal, which is where the strategies of
 Sec.~\ref{sec:locators} of the main text differ.
 
