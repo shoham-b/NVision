@@ -223,13 +223,12 @@ How much one measurement at $x$ tells about $\theta$ is its Fisher information d
   \label{eq:fisher}
 \end{equation}
 the average running over the outcomes $y$ the measurement could return, and the slope $\partial\mu/\partial\theta$
-being how fast the predicted signal moves when $\theta$ moves.
-The noise enters only through its variance, and the line shape only through the slope.
-A shift $\delta\theta$ moves the mean outcome by $(\partial\mu/\partial\theta)\,\delta\theta$, and it is resolved once
-that exceeds the noise $\sigma/\sqrt k$. The smallest shift a measurement at $x$ resolves is therefore
-$\delta\theta_{\min}(x)=\sigma/(\sqrt k\,|\partial\mu/\partial\theta|)$, and $I(x)=1/\delta\theta_{\min}(x)^2$. It grows linearly with $k$, and at
-the shot-noise limit, $\sigma^2=1/N_{\rm ph}$, with the total number of photons $kN_{\rm ph}$ collected at that
-drive frequency, which no averaging scheme can beat.
+being how fast the predicted signal moves when $\theta$ moves. The smallest shift a measurement at $x$ resolves,
+where $(\partial\mu/\partial\theta)\,\delta\theta$ equals the noise $\sigma/\sqrt k$, is
+\begin{equation*}
+  \delta\theta_{\min}(x)=\frac{\sigma}{\sqrt k\,|\partial\mu/\partial\theta|}=I(x)^{-1/2},
+\end{equation*}
+and at the shot-noise limit, $\sigma^2=1/N_{\rm ph}$, $I(x)=kN_{\rm ph}\,(\partial\mu/\partial\theta)^2$.
 
 For the Lorentzian of Eq.~\eqref{eq:signal} the slope vanishes on resonance, where the dip is flat, and on the
 baseline far from it: a measurement at the bottom of the dip or far outside it says almost nothing about where the
