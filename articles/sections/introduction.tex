@@ -15,46 +15,40 @@ resonance (ODMR): the photoluminescence of the center is recorded while a microw
 search window, the range of drive frequencies in which the spin resonance can lie, and the field is read from the
 position of the resonance. Every point of this scan takes time, so the number of measurements needed to locate
 the resonance to a given precision sets both the sensitivity and the bandwidth of the magnetometer. It matters most
-where the scan is repeated, as when a time-varying field is tracked \cite{schloss2018vector,haim2025} or imaged
-pixel by pixel \cite{lesage2013,levine2019}.
+where the scan is repeated, as when a time-varying field is tracked \cite{haim2025} or a field is imaged with a
+spectrum recorded at every pixel \cite{lesage2013,levine2019}.
 
 Locating the resonance is an instance of Hamiltonian learning: the parameters of a quantum system's Hamiltonian are
 inferred from measurements whose settings, here the microwave drive frequency, are chosen adaptively from what has
 been learned so far \cite{granade2012,gebhart2023}. For N-V centers, Hamiltonian learning and adaptive Bayesian estimation
-have been demonstrated mainly in the time domain, with Rabi and Ramsey sequences in which an evolution time is the
-chosen setting
+have been demonstrated mainly in the time domain, with Rabi and Ramsey sequences in which an evolution time or a
+readout phase is the chosen setting
 \cite{bonato2016,wang2017,santagati2019,mcmichael2021ramsey}. In ODMR, sequential Bayesian experiment design (SBED)
 has been applied directly \cite{dushenko2020sbed}. SBED maintains
 a posterior distribution over the parameters, here represented by a sequential Monte Carlo (SMC) particle cloud, and
-chooses each drive frequency by maximizing an expected utility, such as the expected information gain
-\cite{granade2012}; it reaches a given precision more than an order of magnitude faster
+chooses each drive frequency by maximizing an expected utility \cite{granade2012}, here the expected information gain
+\cite{dushenko2020sbed}; it reaches a given precision more than an order of magnitude faster
 than a sweep, the uniform scan conventionally used \cite{dushenko2020sbed}.
 
 Non-adaptive strategies reduce the number of points instead, by measuring a subset of the window and
 reconstructing the spectrum from it, with a low-complexity reconstruction \cite{luo2023} or with compressed sensing,
-which matches the accuracy of a full scan with a small fraction of its points \cite{haim2025}. A further line of work
-learns the measurement policy in advance rather than computing each setting from the posterior. In quantum
-metrology in general, learned policies have been used for adaptive phase estimation \cite{hentschel2010,lumino2018},
-reinforcement learning has been used to find controls that maximize the sensitivity of a quantum sensor
-\cite{xu2019,schuff2020,xiao2022} and to estimate several parameters simultaneously in a photonic experiment
-\cite{cimini2023}, and neural networks have replaced the costly optimization of the expected gain in Bayesian
-design with a fast learned heuristic \cite{fiderer2021}. For N-V centers, model-aware reinforcement learning on a
-particle-filter posterior has been applied to Ramsey magnetometry \cite{belliardo2024quantum,belliardo2024pra}, and
-for a wide field range a Bayesian neural network that narrows the range has been combined with a
-reinforcement-learning agent that refines the estimate \cite{guo2026}.
+which matches the accuracy of a full scan with a small fraction of its points \cite{haim2025}. Learned measurement policies \cite{hentschel2010,lumino2018} have recently spread with reinforcement learning (RL)
+across quantum metrology \cite{xu2019,schuff2020,fiderer2021,xiao2022,cimini2023}, including N-V magnetometry
+\cite{belliardo2024quantum,belliardo2024pra,guo2026}.
 
-These studies show that adaptive and learned strategies locate the resonance with far fewer measurements than a
-sweep, and measure the gain against that sweep. Information bounds are already used as
+In ODMR, adaptive and non-adaptive strategies have been shown to need far fewer measurements than a sweep, and the
+gain is measured against that sweep \cite{dushenko2020sbed,haim2025}; learned strategies are measured against the
+best established heuristics \cite{hentschel2010,fiderer2021,guo2026}. Information bounds are already used as
 benchmarks in Hamiltonian learning: the Bayesian Cram\'er--Rao bound certifies how close an SMC estimator comes to
 the best precision for the measurements it has chosen \cite{granade2012}. The same kind of bound, the van Trees
-inequality \cite{vantrees1968,gill1995}, has been tested against the measured error of a photonic interferometer,
-which it follows for regular, narrow priors \cite{daurelio2022}. In simulations of iterative single-molecule
+inequality \cite{vantrees1968,gill1995}, has been tested, for a regular prior, against the measured error of a
+photonic interferometer, which it captures when few photons are available \cite{daurelio2022}. In simulations of iterative single-molecule
 localization, where each measurement is placed using the previous estimate, it has been used to compare placement
 strategies \cite{kalisvaart2022}. Such a bound has not yet been applied to
 the ODMR search as a whole, starting from nothing more than the search window. It would give a strategy-independent
 reference, showing how close current strategies come to the best achievable
 performance and which of their measurements are unavoidable. It would also supply a mechanism for the speedup over a
-sweep, including its observed growth as the line occupies a smaller fraction of the window
+sweep, including its expected growth as the line occupies a smaller fraction of the window
 \cite{dushenko2020sbed}.
 
 Here we derive this limit for the ODMR search and use it to analyze SBED and drive-frequency sweeps for
