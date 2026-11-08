@@ -75,17 +75,6 @@ through the single linewidth $\Gamma$, which is inferred with the line.
 Equation~\eqref{eq:signal} is a single line. It holds when the hyperfine lines merge, $\Gamma\gg|A_\parallel|$, or
 when the nuclear spin is polarized into one $m_I$ \cite{jacques2009}.
 
-In pulsed ODMR the laser is off while a single microwave $\pi$-pulse of duration $t_\pi=1/(2\Omega)$ flips the spin,
-which removes the laser from the width of the line \cite{dreau2011}. The dip then follows the Rabi response at the
-end of the pulse (\SM{sm:pulsed}),
-\begin{equation}
-  \mu(f)=1-C\,\frac{\Omega^2}{\Omega_{\rm gen}^2}\,\sin^2\!\Big(\frac{\pi}{2}\,\frac{\Omega_{\rm gen}}{\Omega}\Big),
-  \qquad \Omega_{\rm gen}=\sqrt{\Omega^2+(f-f_-)^2},
-  \label{eq:pulsed-signal}
-\end{equation}
-with $\Omega_{\rm gen}$ the generalized Rabi frequency. This line is not a Lorentzian: its width is the Fourier limit
-of the pulse, $\sim1/t_\pi$, and it has side lobes up to 12\% of the depth, dips where there is no resonance.
-
 \emph{Noise.} Each reading of the normalized PL is noisy. Its floor is photon shot noise: a reading that collects
 $N_{\rm ph}$ photons on average off resonance has a relative standard deviation $N_{\rm ph}^{-1/2}$, and slightly
 less inside the dip, where fewer photons arrive. Technical noise (laser intensity, microwave power, collection
@@ -606,9 +595,4 @@ measurements of $k$ shots carry the same information as $nk$ measurements of one
 Neglecting the overhead of switching the drive frequency, the cost of a run is therefore its total number of shots
 $nk$, the integration time in units of $t_s$, and strategies that group their shots differently are compared on that
 axis.
-
-All closed-form results of this section are for the Lorentzian line of Eq.~\eqref{eq:signal}. For pulsed ODMR the
-same quantities follow, numerically, with Eq.~\eqref{eq:pulsed-signal} in place of Eq.~\eqref{eq:signal}.
-\tbd{Which ODMR mode the results focus on, once the simulations and the experiment are complete; where pulsed goes
-(a Theory subsection for the information of the pulsed line, and its own Results).}
 
