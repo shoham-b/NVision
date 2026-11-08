@@ -2,9 +2,11 @@
 
 Read this before adding or changing any locator-comparison metric or results view. It records what the comparison
 is for, which quantity drives each stage, and the rules that keep a metric meaningful. The stage detector itself
-(search → focus → refine, the Fisher-efficiency rule) is defined in [locator_comparison.md](locator_comparison.md).
+(search → localize → refine, the Fisher-efficiency rule) is defined in [locator_comparison.md](locator_comparison.md).
 
-Naming: the article calls the "focus" stage *localize*; code and UI keep "focus".
+Naming: the article calls the middle stage *localize*; so do the UI and these docs. Stored column names keep the historical `focus_found_step` (and the locator's focus window keeps the name "focus", as in the article).
+
+Terminology: **claimed uncertainty** σ̂_N is the standard deviation the locator itself reports after N measurements (the belief's posterior spread); it is compared against the true error and is not an accuracy measure on its own. Prior information J₀ is 4π²/W² for a global search over a uniform window of width W (article Eq. j0), 1/σ₀² for a Gaussian tracking prior; the plain 1/Var form is kept separately as `stage_prior_info_var`.
 
 ## What the comparison is for
 
@@ -22,7 +24,7 @@ The yardstick is a ladder, each rung tuned before the next:
 | 4 | `Bayesian-SBED-Drive` | also picks the MW drive amplitude (strong to search, near the slope optimum to refine) |
 
 Expected story: the search stage is a tie (blind, cost of order n for everyone); SBED's distinctive win over
-Smart-Sweep is in the focus stage; in refine SBED and Smart-Sweep both measure at the Fisher-optimal points, while a
+Smart-Sweep is in the localize stage; in refine SBED and Smart-Sweep both measure at the Fisher-optimal points, while a
 plain sweep keeps spreading its measurements over the whole dip.
 
 ## What drives each stage
@@ -32,7 +34,7 @@ Choose the axis from the stage's physics, not from whatever grid columns the res
 | Stage | What drives it | Axis | Metric |
 |---|---|---|---|
 | **Search** | whether the grid puts enough points inside the true dip, and how deep each point sees it | **grid points per true FWHM** = k × FWHM_true / FWHM_prior, with SNR = contrast / noise σ | measurements until a dip is seen (better: in grid **passes**), dip-found rate |
-| **Focus** | going from "dip seen" to "located near the steepest slope" (within ε, where the sensitivity is still ≥ 90% of its best) | information per measurement ∝ SNR², so cost ∝ 1/SNR²; expected independent of the window (a hypothesis, checked in the Scaling view) | measurements in the focus stage, efficiency = Fisher bound / steps |
+| **Localize** | going from "dip seen" to "located near the steepest slope" (within ε, where the sensitivity is still ≥ 90% of its best) | information per measurement ∝ SNR², so cost ∝ 1/SNR²; expected independent of the window (a hypothesis, checked in the Scaling view) | measurements in the localize stage, efficiency = Fisher bound / steps |
 | **Refine** | Fisher-limited precision | measurements an oracle needs for σ = τ, which scale like (FWHM_true / (SNR · τ))² | Fisher efficiency η (`stage3_sens_eff`), efficiency = Fisher bound / steps (`stage3_efficiency`) |
 
 `sigma_inhom` and the hyperfine isotope matter only through the dip's effective width: plot against the effective
@@ -59,13 +61,13 @@ them is σ_θ = 1/√(N I). The best point is the steepest slope of the dip: for
 I\* = k max g² / σ² ≈ 1.7 k SNR²/Γ². Hence the steps needed for a precision ε are N ≈ 1/(ε² I\*): **they fall as
 1/SNR²**. `stage_fisher_star` stores I\* (Hz⁻² per step; shots enter as the factor k).
 
-* **Focus ends at ε**, the half-width of the region around the best point where g² ≥ 0.9 max g² (η ≥ 1 − δ with
+* **Localize ends at ε**, the half-width of the region around the best point where g² ≥ 0.9 max g² (η ≥ 1 − δ with
   δ = 0.1). For a Lorentzian η ≈ 1 − 18 (ε/Γ)², so ε = √(0.1/18) Γ ≈ 0.075 Γ; the code finds it numerically from the
   true curve (`stage_eps_target_phys`), so it holds for any line shape. Oracle: `stage2_oracle_steps` = (ε⁻² − J₀)/I\*,
   about 100/SNR² for a Lorentzian when J₀ is small (the constant depends on the SNR and width definitions; the exponent is
   the point). J₀ is the prior, see below.
   Not defined for drive-controlled models (the best point is a drive setting; pulse fringes can be narrower than the grid).
-* **Refine starts when the claimed σ has stayed ≤ ε** for a few steps (`refine_start_step`; ε taken on the line as the run
+* **Refine starts when the claimed uncertainty σ̂ has stayed ≤ ε** for a few steps (`refine_start_step`; ε taken on the line as the run
   estimated it, so the boundary needs no true parameter and applies to an experiment). **It ends at the stop target τ**
   (`stage_tau_phys`). Oracle: `stage3_oracle_steps` = (τ⁻² − ε⁻²)/I\*. It scales like (FWHM_true / (SNR τ))²: the Scaling
   view's refine panel axis.
@@ -75,18 +77,18 @@ I\* = k max g² / σ² ≈ 1.7 k SNR²/Γ². Hence the steps needed for a precis
   lower bound that assumes every measurement is at the best point and the other parameters are known, so it is not a target.
   `stage{2,3}_wasted_share` is the share of the stage's measurements with η < 1 − δ.
 * The Fisher curve in the Stages view's claimed-uncertainty plots, (σ₀⁻² + j I\*)^(-1/2) after j in-stage measurements,
-  starts from the stage's own claimed σ and is the same bound; below it the belief claims more precision than the data carry.
+  starts from the stage's own claimed uncertainty σ̂ and is the same bound; below it the belief claims more precision than the data carry.
 
 Per-run axes stored with them: `stage_fwhm_true_phys` (2 × `effective_hwhm` of the true signal; none for drive-controlled
 models), `stage_prior_fwhm_phys` (mean prior FWHM), `stage_window_phys`, `stage_window_fwhm`.
 
 **What the first check showed** (2026-10-27, read-only, on the stored pure-Lorentzian SNR × window rows, written before
 `NVISION_DIP_P_FA` went to 0.1 and before measurements are confined to the focus window; re-check on fresh runs):
-SBED's focus stage took 25-150× the bound and flattened at roughly 20-40 steps at high SNR instead of following 1/SNR²;
-the claimed σ at focus start was already 0.05-0.25 Γ (not ≈ the FWHM) while the true error was 2-4× larger (overconfidence);
-focus steps grew about 2× from window 5 to 10 × FWHM; SBED search steps were far flatter in the window than proportional.
-With the focus stage's mean η only 0.3-0.5, the stage length looks set by exploration the tail rule counts, not by information.
-(These were measured with the old boundaries: search→focus at a 0.5 false-alarm dip scan, refine = first step whose whole
+SBED's localize stage took 25-150× the bound and flattened at roughly 20-40 steps at high SNR instead of following 1/SNR²;
+the claimed uncertainty σ̂ at localize start was already 0.05-0.25 Γ (not ≈ the FWHM) while the true error was 2-4× larger (overconfidence);
+localize steps grew about 2× from window 5 to 10 × FWHM; SBED search steps were far flatter in the window than proportional.
+With the localize stage's mean η only 0.3-0.5, the stage length looks set by exploration the tail rule counts, not by information.
+(These were measured with the old boundaries: search→localize at a 0.5 false-alarm dip scan, refine = first step whose whole
 remaining tail had mean η ≥ 0.9. In those rows the true error was already ≤ ε at "dip found" in about a third of SBED runs,
 and refine was reached in about 15% of runs. The boundaries above replace both; the old `max_info_step` column is now
 `refine_start_step`, so older rows show a dash and need a re-run.)
@@ -112,14 +114,14 @@ of the bound: for a global search (uniform prior, simulated prior unchanged) J�
 on the worst-placed resonance, W being the width of the primary parameter's own prior range (`zeeman_shift`), not the
 drive window; for a Gaussian tracking prior J₀ = 1/σ₀². `stage_prior_info_var` is always 1/Var(prior)
 (`belief_prior_variance_phys`; 12/W² when uniform) and is the one for models of actual error (sweep, elimination). Neither
-is read from any measurement: the claimed σ after the first measurement (used
+is read from any measurement: the claimed uncertainty σ̂ after the first measurement (used
 before) mixed one measurement and the particle filter's own calibration, which is overconfident, into the prior. A prior
 whose variance cannot be computed exactly raises instead of falling back.
 
 * Window widths are not comparable without J₀: a narrower window starts lower for free. A focus window built from the
   search posterior was paid for with shots; a window placed with the truth (e.g. the Zeeman edge pad) is information the
   locator did not earn.
-* The focus oracle is `(ε⁻² − J₀)/I*`, not "from scratch". Refine already started from ε⁻². Together:
+* The localize oracle is `(ε⁻² − J₀)/I*`, not "from scratch". Refine already started from ε⁻². Together:
   `(τ⁻² − J₀)/I*` for the whole run.
 
 ### When the three stages are distinct
@@ -128,33 +130,33 @@ The stages are regimes of one continuous accumulation of information; the bounda
 false-alarm rate, the stop target τ). Whether all three show depends on the run:
 
 * **Search** is visible only for large W/Γ: its plateau lasts about W/Γ points. If σ₀ ≲ Γ, i.e. W ≲ 3.5 Γ, there is no
-  plateau, only focus and refine.
-* **Focus** needs a gap between "dip seen" and ε = 0.075 Γ. At low SNR search and focus merge; at very high SNR focus is a
+  plateau, only localize and refine.
+* **Localize** needs a gap between "dip seen" and ε = 0.075 Γ. At low SNR search and localize merge; at very high SNR localize is a
   few steps.
 * **Refine** needs τ well below ε: its length is (τ⁻² − ε⁻²)/I\*. With τ ≈ ε the run stops on the cliff and has no −½
   tail. It also needs the locally linear regime (within ≈ 0.075 Γ of the best point).
 
-Focus and refine are expected to be independent of W; only search grows with it. So a large window shows three stages and a
+Localize and refine are expected to be independent of W; only search grows with it. So a large window shows three stages and a
 small one two.
 
 ### The CRLB with the real prior
 
 $$\sigma_{\mathrm{CRLB}}(N) = \Big(\frac{12}{W^2} + N\,I^*\Big)^{-1/2}.$$
 
-It starts at W/√12, bends where N I\* ≈ 12/W², then has slope −½ (van Trees form). A claimed σ below the plain
+It starts at W/√12, bends where N I\* ≈ 12/W², then has slope −½ (van Trees form). A claimed uncertainty σ̂ below the plain
 1/√(N I\*) at small N is expected; only a true error (averaged over repeats) below this curve would indicate a defect.
-The Stages view's Whole run chart draws it from the run's own start (J₀ from the claimed σ after the first measurement,
-every measurement counted); the focus and refine charts restart from each stage's own claimed σ. The Information tab starts it from the primary parameter's own prior instead (see below): W is the drive window, not that prior, and uses J₀ = 4π²/W² for a global search.
+The Stages view's Whole run chart draws it from the run's own start (J₀ from the claimed uncertainty σ̂ after the first measurement,
+every measurement counted); the localize and refine charts restart from each stage's own claimed uncertainty σ̂. The Information tab starts it from the primary parameter's own prior instead (see below): W is the drive window, not that prior, and uses J₀ = 4π²/W² for a global search.
 
 The stages are regimes of one continuous accumulation of information, J = 1/σ² from J₀. The Whole run scope therefore
-also shows two stage-free charts (`renderHlInfoCurve`), both from the claimed σ: the **prior share** J₀/J (1 → 0, dashed =
+also shows two stage-free charts (`renderHlInfoCurve`), both from the claimed uncertainty σ̂: the **prior share** J₀/J (1 → 0, dashed =
 J₀/(J₀ + N I\*)) and the **information rate** (J(N) − J(N′))/((N − N′) I\*), where 1 is every measurement at the
-Fisher-optimal point and a value above 1 means the claimed σ fell faster than any measurements could justify
-(overconfidence). Both are computed from the claimed σ, so they inherit its overconfidence; they say nothing about whether
+Fisher-optimal point and a value above 1 means the claimed uncertainty σ̂ fell faster than any measurements could justify
+(overconfidence). Both are computed from the claimed uncertainty σ̂, so they inherit its overconfidence; they say nothing about whether
 the dip was found, and search (detection) is not a Fisher regime, so the first steps need care. The stage boundaries and
 columns remain for the per-stage views.
 
-A fit of three straight log-log segments to the claimed σ is not used: the bound above is the reference. On the
+A fit of three straight log-log segments to the claimed uncertainty σ̂ is not used: the bound above is the reference. On the
 2026-11-02 check (3 use cases, SNR 5, 50 repeats each), the existing `refine_start_step` sat on the cliff, not on a −1/2
 tail, in 72 of 149 Smart-SBED and 113 of 149 Smart-Sweep runs.
 
@@ -183,7 +185,7 @@ J₀ came from the prior carry the claimed-σ value and cannot be rescaled: re-r
   range; the primary parameter (e.g. `zeeman_shift`) has its own prior, and a window-based J₀ of the drive range
   put the "bound" far too low, so locators appeared to beat it. J₀ = `stage_prior_info` = 4π²/W² for the uniform
   global-search prior of width W on `zeeman_shift` (1/σ₀² for a Gaussian tracking prior), computed from the locator's
-  prior itself, not from a claimed σ. Every run of a use case starts from the same prior, so they all store the same J₀;
+  prior itself, not from a claimed uncertainty σ̂. Every run of a use case starts from the same prior, so they all store the same J₀;
   the browser still takes the median over the use case's runs, so all locators share one ceiling.
 * **Information vs the bound**: per repeat and step, z = error² · (J₀ + n·I\*); R(n) = 1 / mean(z) over the repeats still
   running (a run that has stopped keeps its final error; a step needs at least half of a use case's repeats), and the median
@@ -192,7 +194,7 @@ J₀ came from the prior carry the claimed-σ value and cannot be rescaled: re-r
   worst-case bound, R of the true error is **not** expected to sit near 1 early on: the uniform average has up to 1.8× the
   bound's variance while n·I\* ≲ J₀ (R ≈ 0.55 there), so a low R at small n is looseness of the bound, not wasted
   measurements. R should stay ≤ 1 up to about 1 % (the uniform average can undercut the bound that much); a clear excess
-  above that is a defect in J₀ or I\*. Read the gap between locators, and the approach to 1 once n·I\* ≫ J₀. The same quantity from the claimed σ (dotted) above the true one is overconfidence.
+  above that is a defect in J₀ or I\*. Read the gap between locators, and the approach to 1 once n·I\* ≫ J₀. The same quantity from the claimed uncertainty σ̂ (dotted) above the true one is overconfidence.
   A median-based "typical run" version was tried and dropped: median error² is not tied to the variance for non-Gaussian
   errors (it read up to 1.65), so it is no bound.
 * **Cost to reach a precision**: T(τ) = the first measurement from which the true error stays ≤ τ = σ₀ / gain (gains
@@ -200,7 +202,7 @@ J₀ came from the prior carry the claimed-σ value and cannot be rescaled: re-r
   of its runs stop short; the share is in the hover). The bound's cost is (τ⁻² − J₀)/I\* = (gain² − 1) J₀/I\*. Targets are
   in units of σ₀, not of the FWHM, because a tight prior can already beat 0.1 FWHM.
 * **Lag n₀ and efficiency e**: the line T = n₀ + bound/e through a use case's rungs (at least three), summarised by the
-  median over use cases. n₀ is the measurements spent beyond the bound (search plus focus, with no thresholds), e the share
+  median over use cases. n₀ is the measurements spent beyond the bound (search plus localize, with no thresholds), e the share
   of the best information rate afterwards. The ladder is a median-run statistic against a mean-square bound, so e a little
   above 1 can occur, and a fit through three or four rungs is noisy; read n₀ and e together with the R chart.
 * **Search stays** as the one real stage (detecting the dip is not a Fisher regime). The stage columns in `stages.py`
@@ -208,10 +210,10 @@ J₀ came from the prior carry the claimed-σ value and cannot be rescaled: re-r
 
 ## Rules
 
-1. **Never use the accuracy at the end of a run or stage as a quality metric.** Every run stops once its claimed σ
+1. **Never use the accuracy at the end of a run or stage as a quality metric.** Every run stops once its claimed uncertainty σ̂
    stays below the target τ, so the error it happens to end with mostly reflects τ. What matters is that the claimed
    σ is right: report the share of runs with |error| ≤ 1σ and ≤ 2σ against the Gaussian 68% / 95%, or |error| /
-   claimed σ. Below nominal = overconfident (the belief is known to be; see the locator memory notes).
+   claimed uncertainty σ̂. Below nominal = overconfident (the belief is known to be; see the locator memory notes).
 2. **Every locator gets the same budget.** `NVISION_MAX_MEASUREMENTS` (default 2500, for every signal and every window
    of the SNR x window study) is the SBED family's `max_steps` and caps a plain sweep's total measurements. A run that hit it is censored: the stop rule never fired
    (`primary_converged_step` is null; a sweep still ends as a normal locator stop). Count it at the budget, as a lower
@@ -223,7 +225,7 @@ J₀ came from the prior carry the claimed-σ value and cannot be rescaled: re-r
 5. **Runs are paired.** Repeat *i* has the same true signal for every locator and noise level
    (`signal_repeat_key`), so per-repeat comparisons are valid; measurement noise differs, as it must.
 6. **Stops are compared only at matched reliability.** Comparing measurements-to-stop is fair only if the locators'
-   claimed σ are equally honest (rule 1); otherwise one could look faster by stopping riskier.
+   claimed uncertainty σ̂ are equally honest (rule 1); otherwise one could look faster by stopping riskier.
 7. **Metrics are per use case.** A use case is one signal at one noise level: window, line shape and SNR (generator ×
    noise for other studies). Compute every headline number (median and p75 cost, capped share, σ coverage, stage
    durations) within one use case first; never read it off runs pooled across windows, shapes or SNRs, since the cost
@@ -245,9 +247,9 @@ J₀ came from the prior carry the claimed-σ value and cannot be rescaled: re-r
   ratio R(n), the cost to reach a precision against the bound, a table with the lag n₀, efficiency e and cost at 5× gain,
   the claimed-σ and true-error curves, the information rate and the paired per-repeat difference against SBED; Search keeps
   its stage metrics; see "Information against the bound" below),
-  **Scaling** (fixed locator, many use cases: search and focus steps vs window, focus steps vs SNR, refine steps vs
+  **Scaling** (fixed locator, many use cases: search and localize steps vs window, localize steps vs SNR, refine steps vs
   (FWHM/(SNR τ))², each with its predicted scaling dotted and the Fisher bound dashed, a panel only when the selection spans
-  at least two values of its axis), **Sanity** (σ coverage vs SNR "Is the claimed σ right?", then the stop-quality panels, then the failed runs; the failed-run
+  at least two values of its axis), **Sanity** (σ coverage vs SNR "Is the claimed uncertainty σ̂ right?", then the stop-quality panels, then the failed runs; the failed-run
   count is in the tab label), and **Run** for one repeat. Stages and Sanity default to the median over the selected use cases.
   See [ui_architecture.md](ui_architecture.md).
 
@@ -258,12 +260,12 @@ J₀ came from the prior carry the claimed-σ value and cannot be rescaled: re-r
   Re-run to get them.
 * Search is judged by its steps against window / FWHM_true in the Scaling view; there is no analytic "passes" model for it
   yet, and the prior FWHM / grid step enters only through `stage_prior_fwhm_phys`.
-* The boundaries inherit the claimed σ's overconfidence (on the SNR × window study σ is ≈ 2 ε after the first measurement
+* The boundaries inherit the claimed uncertainty σ̂'s overconfidence (on the SNR × window study σ is ≈ 2 ε after the first measurement
   while the true error is ≈ 5 ε, and a few runs start refine with the error still several ε). They are as good as the
   Sanity coverage; a σ-free observable for "position known to within ε" is still to find.
-* The search→focus factor `FOCUS_SIGMA_DROP` = 0.7 is arbitrary (0.9 fires before the data have localised anything; 0.25 fires later than the true error reaches ε, at
+* The search→localize factor `FOCUS_SIGMA_DROP` = 0.7 is arbitrary (0.9 fires before the data have localised anything; 0.25 fires later than the true error reaches ε, at
   step 37 / 200); the stage boundaries also depend on δ = 0.1; a one-off sensitivity check (δ = 0.05 / 0.1 /
   0.2) that the locator ranking survives is still to do.
-* The signed z = (estimate − truth) / claimed σ is not stored (only |error|), so σ honesty is checked against a
+* The signed z = (estimate − truth) / claimed uncertainty σ̂ is not stored (only |error|), so σ honesty is checked against a
   half-normal, not N(0, 1).
 * SBED-Drive against every fixed drive amplitude, including the best one in hindsight.

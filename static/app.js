@@ -365,12 +365,12 @@ function main() {
         });
 
         // Stage boundaries sit BELOW the track so they read apart from the convergence
-        // milestones above it. Stage 2 (focus) starts the measurement after the step a
+        // milestones above it. Stage 2 (localize) starts the measurement after the step a
         // dip was found; stage 3 (refine) starts at refine_start_step (see metrics/stages.py).
         const focusFound = _mv(d, 'focus_found_step');
         const refineStart = _mv(d, 'refine_start_step');
         const stageTicks = [
-            { label: 'Focus', title: 'Start of stage 2: focus', step: focusFound != null ? focusFound + 1 : null, cls: 'stage-focus' },
+            { label: 'Localize', title: 'Start of stage 2: localize', step: focusFound != null ? focusFound + 1 : null, cls: 'stage-focus' },
             { label: 'Refine', title: 'Start of stage 3: refine', step: refineStart, cls: 'stage-refine' },
         ];
         stageTicks.forEach((t) => {
@@ -7471,7 +7471,7 @@ function main() {
     }
 
     // ── Stages tab ───────────────────────────────────────────────────────────
-    // Which stage section the Stages view shows: 0 = whole run, 1 / 2 / 3 = search / focus / refine. The others are
+    // Which stage section the Stages view shows: 0 = whole run, 1 / 2 / 3 = search / localize / refine. The others are
     // collapsed rather than display:none: Plotly cannot size a plot in a hidden panel, and keeping their width means
     // switching back needs no redraw.
     let hlStageShown = 0;
@@ -7525,13 +7525,13 @@ function main() {
             });
     }
 
-    // ── Stages: search -> focus -> refine ────────────────────────────────────
+    // ── Stages: search -> localize -> refine ────────────────────────────────────
     // Boundaries and per-stage metrics come from one detector (nvision/metrics/stages.py) applied to every
     // run, so locators are compared stage by stage on equal terms. Runs that failed outright (no data) are
     // skipped; runs that merely hit their step budget are kept.
     const HL_STAGES = [
         { n: 1, label: 'Search' },
-        { n: 2, label: 'Focus' },
+        { n: 2, label: 'Localize' },
         { n: 3, label: 'Refine' },
     ];
 
@@ -7614,9 +7614,9 @@ function main() {
         });
     }
 
-    // Locators side by side within ONE stage n (1 search, 2 focus, 3 refine): reached share, measurements spent, and
+    // Locators side by side within ONE stage n (1 search, 2 localize, 3 refine): reached share, measurements spent, and
     // the stage's own metrics. Search: the share of runs that ever saw a dip and the steps per window-in-FWHM (the
-    // blind cost scales with it). Focus and refine: how close the stage measured to the steepest point (sensitivity),
+    // blind cost scales with it). Localize and refine: how close the stage measured to the steepest point (sensitivity),
     // the Fisher bound on the steps the stage needs, the efficiency (bound / steps spent; 1 = Fisher-limited) and the
     // share of the stage's measurements that were off the optimum. Bound and efficiency need runs recorded with the
     // oracle columns (nvision/metrics/stages.py); older runs show a dash.
@@ -7958,10 +7958,10 @@ function main() {
         Plotly.react(div, traces, layout, { displayModeBar: false, responsive: true });
     }
 
-    // Which part of the run the over-time curves show: 0 = the whole run, 1 / 2 / 3 = just the search / focus / refine
+    // Which part of the run the over-time curves show: 0 = the whole run, 1 / 2 / 3 = just the search / localize / refine
     // stage. A stage view shifts each run so its stage begins at x = 1 (lining the locators up there) and stops at the
     // run's own end of that stage; runs that never reached the stage are left out.
-    const HL_CURVE_STAGE_NAMES = { 1: 'search', 2: 'focus', 3: 'refine' };
+    const HL_CURVE_STAGE_NAMES = { 1: 'search', 2: 'localize', 3: 'refine' };
 
     // First and last measurement (1-indexed) of the run in the chosen view, or null when the stage was not reached.
     function hlStageWindow(p, stage) {
@@ -8408,7 +8408,7 @@ function main() {
         const panels = [];
         const addPanel = (title, help, facets) => panels.push({ title, help, facets });
         const notes = [];
-        // Search and focus against the window: SNR combined by default, or one chart per SNR.
+        // Search and localize against the window: SNR combined by default, or one chart per SNR.
         if (windows.length >= 2) {
             const splitSnr = scalingSplit.snr && snrs.length > 1;
             if (snrs.length > 1) toggles.push(toggle('snr', 'SNR', scalingSplit.snr));
@@ -8418,23 +8418,23 @@ function main() {
                 : [{ label: snrs.length > 1 ? `${snrs.length} SNR levels combined` : (snrs.length ? snrLabel(snrs[0]) : ''), lines: combinedLines(p => p.window, p => p.snr, yField, boundField, 'SNR'), opts: { xTitle: 'Window ÷ signal width (1 / occupancy)', yTitle: `${yTitle} ÷ at smallest window`, xLog: true, ref: { slope }, refName } }];
             addPanel('Search steps vs signal occupancy', 'Measurements in the search stage against the window ÷ signal width (1 / signal occupancy; occupancy is the share of the window the signal covers, hyperfine lines included). A blind search must cover about window ÷ signal width dip-widths, so the dotted line (proportional to the window) is the prediction for the slope; SNR only shifts the level (the passes needed to see the dip). Combined: each SNR is divided by its own value at the smallest window and the SNRs are averaged (geometric mean, bar = min..max), so the chart tests the slope. Split: raw steps, one chart per SNR. Locators should be roughly alike here.',
                 windowFacets('search', null, 'Search steps', 1, '∝ window'));
-            addPanel('Focus steps vs signal occupancy', 'Measurements in the focus stage against the window. Focus starts once the dip is seen and aims at a precision set by the line width, so the prediction (dotted) is flat in the window. A slope means search is leaking into focus or the locator keeps searching. Combined: each SNR is divided by its own value at the smallest window and the SNRs are averaged (geometric mean, bar = min..max). Split: raw steps, one chart per SNR.',
-                windowFacets('focus', 'focusBound', 'Focus steps', 0, 'flat'));
+            addPanel('Localize steps vs signal occupancy', 'Measurements in the localize stage against the window. Localize starts once the dip is seen and aims at a precision set by the line width, so the prediction (dotted) is flat in the window. A slope means search is leaking into localize or the locator keeps searching. Combined: each SNR is divided by its own value at the smallest window and the SNRs are averaged (geometric mean, bar = min..max). Split: raw steps, one chart per SNR.',
+                windowFacets('focus', 'focusBound', 'Localize steps', 0, 'flat'));
         } else {
             notes.push('Select two or more windows (Parameters: Window) to see search and focus against the window.');
         }
-        // Focus against SNR: one chart per window by default, or windows combined.
+        // Localize against SNR: one chart per window by default, or windows combined.
         if (snrs.length >= 2) {
             const splitWin = scalingSplit.window && windows.length > 1;
             if (windows.length > 1) toggles.push(toggle('window', 'Window', scalingSplit.window));
             const byWindow = windows.length ? windows : [null];
             const snrOpts = { xTitle: 'SNR (contrast / noise σ)', xLog: true, ref: { slope: -2 }, refName: 'slope −2 (1/SNR²)' };
-            addPanel('Focus steps vs SNR', 'Measurements in the focus stage against SNR = contrast / noise σ. The information per measurement grows as SNR², so the steps needed for a given precision fall as 1/SNR²: the dotted line has slope −2, and the dashed line is the Fisher bound (every measurement at the best point). Steps flatten at high SNR where a few probing measurements dominate. Split: one chart per window. Combined: each window is divided by its own value at the lowest SNR and the windows are averaged (geometric mean, bar = min..max).',
+            addPanel('Localize steps vs SNR', 'Measurements in the localize stage against SNR = contrast / noise σ. The information per measurement grows as SNR², so the steps needed for a given precision fall as 1/SNR²: the dotted line has slope −2, and the dashed line is the Fisher bound (every measurement at the best point). Steps flatten at high SNR where a few probing measurements dominate. Split: one chart per window. Combined: each window is divided by its own value at the lowest SNR and the windows are averaged (geometric mean, bar = min..max).',
                 splitWin
-                    ? byWindow.map(w => ({ label: w == null ? '' : `occupancy ${ssOccLabel(1 / w)}`, lines: linesFor(p => p.snr, 'focus', 'focusBound', p => w == null || p.window === w), opts: { ...snrOpts, yTitle: 'Focus steps (median)' } }))
-                    : [{ label: windows.length > 1 ? `${windows.length} windows combined` : (windows.length ? `occupancy ${ssOccLabel(1 / windows[0])}` : ''), lines: combinedLines(p => p.snr, p => p.window, 'focus', 'focusBound', 'window'), opts: { ...snrOpts, yTitle: 'Focus steps ÷ at lowest SNR' } }]);
+                    ? byWindow.map(w => ({ label: w == null ? '' : `occupancy ${ssOccLabel(1 / w)}`, lines: linesFor(p => p.snr, 'focus', 'focusBound', p => w == null || p.window === w), opts: { ...snrOpts, yTitle: 'Localize steps (median)' } }))
+                    : [{ label: windows.length > 1 ? `${windows.length} windows combined` : (windows.length ? `occupancy ${ssOccLabel(1 / windows[0])}` : ''), lines: combinedLines(p => p.snr, p => p.window, 'focus', 'focusBound', 'window'), opts: { ...snrOpts, yTitle: 'Localize steps ÷ at lowest SNR' } }]);
         } else {
-            notes.push('Select two or more SNR levels to see focus against SNR.');
+            notes.push('Select two or more SNR levels to see the localize stage against SNR.');
         }
         // Refine against its driver.
         if (drivers.length >= 2) {
@@ -8565,15 +8565,15 @@ function main() {
             'Where Smart-SBED and SBED differ the most',
             (r) => r.sm.total < r.sb.total
                 ? `${r.uc.label}: Smart-SBED needs ${fmt(r.sm.total)} measurements against SBED's ${fmt(r.sb.total)} (${(r.sb.total / r.sm.total).toFixed(1)}× fewer); its search takes ${fmt(r.sm.search)} steps against ${fmt(r.sb.search)}.`
-                : `${r.uc.label}: SBED needs ${fmt(r.sb.total)} measurements against Smart-SBED's ${fmt(r.sm.total)} (${(r.sm.total / r.sb.total).toFixed(1)}× fewer); Smart-SBED's focus takes ${fmt(r.sm.focus)} steps against ${fmt(r.sb.focus)}.`,
+                : `${r.uc.label}: SBED needs ${fmt(r.sb.total)} measurements against Smart-SBED's ${fmt(r.sm.total)} (${(r.sm.total / r.sb.total).toFixed(1)}× fewer); Smart-SBED's localize takes ${fmt(r.sm.focus)} steps against ${fmt(r.sb.focus)}.`,
             (r) => [SBED, SMART]);
         add(pickMax(rows.filter(r => r.sb && r.sb.search > 0), r => r.sb.search / r.sb.total),
             'Where SBED spends almost everything searching',
-            (r) => `${r.uc.label}: ${Math.round(100 * r.sb.search / r.sb.total)}% of SBED's ${fmt(r.sb.total)} measurements go to finding the dip (${fmt(r.sb.search)} steps), only ${fmt(r.sb.focus)} to focus and ${fmt(r.sb.refine || 0)} to refine.`,
+            (r) => `${r.uc.label}: ${Math.round(100 * r.sb.search / r.sb.total)}% of SBED's ${fmt(r.sb.total)} measurements go to finding the dip (${fmt(r.sb.search)} steps), only ${fmt(r.sb.focus)} to localize and ${fmt(r.sb.refine || 0)} to refine.`,
             (r) => [SBED, SMART, r.sw && r.sw[0]]);
         add(pickMax(rows.filter(r => r.sb && r.sb.focus != null), r => r.sb.focus / r.sb.total),
             'Where SBED spends the most on focusing',
-            (r) => `${r.uc.label}: ${Math.round(100 * r.sb.focus / r.sb.total)}% of SBED's ${fmt(r.sb.total)} measurements are spent in focus (${fmt(r.sb.focus)} steps) after only ${fmt(r.sb.search)} to search.`,
+            (r) => `${r.uc.label}: ${Math.round(100 * r.sb.focus / r.sb.total)}% of SBED's ${fmt(r.sb.total)} measurements are spent in localize (${fmt(r.sb.focus)} steps) after only ${fmt(r.sb.search)} to search.`,
             (r) => [SBED, SMART]);
         add(pickMax(rows.filter(r => r.sb), r => Math.log(r.sb.total)),
             'The hardest case for SBED',
@@ -8588,7 +8588,7 @@ function main() {
             `<p style="margin:1em 0 0; font-size:0.8em; color:#94a3b8;">Found by scanning every use case of this generator family (median over at least ${MIN_REPEATS} repeats per locator), whatever the Parameters selection; the stories change when the data does. Picking the extreme of many use cases flatters the headline, so read each as an example and check the trend in Scaling and Stages.</p>`;
         stories.forEach((st, i) => {
             const names = [...new Set(st.strats.filter(Boolean))].filter(s => st.row.uc.perStrat.has(s));
-            const stage = [['search', 'Search', '#60a5fa'], ['focus', 'Focus', '#f59e0b'], ['refine', 'Refine', '#34d399']];
+            const stage = [['search', 'Search', '#60a5fa'], ['focus', 'Localize', '#f59e0b'], ['refine', 'Refine', '#34d399']];
             const x = names.map(s => `${_shortStratLabel(s)}<br>${fmt(st.row.uc.perStrat.get(s).total)}`);
             const traces = stage.map(([f, label, color]) => ({
                 type: 'bar', name: label, x, marker: { color },

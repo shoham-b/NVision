@@ -24,7 +24,7 @@ def compare_locators(df: pl.DataFrame, *, group_by: tuple[str, ...] = ()) -> pl.
     * ``err_median`` / ``err_p90``: |final primary-parameter error| (Hz); ``unc_median``: reported uncertainty;
       ``cover_2sigma``: share of runs with error within 2x their reported uncertainty.
     * ``focus_found`` / ``max_info``: share of runs that reached the stage boundary; ``*_step``: median step.
-    * ``stage{1,2,3}_steps``: median measurements in the search / focus / refine stage (reached runs only);
+    * ``stage{1,2,3}_steps``: median measurements in the search / localize / refine stage (reached runs only);
       ``stage{1,2,3}_unc_ratio``: median of (uncertainty at stage end) / (at its start);
       ``stage{1,2,3}_err_end``: median true error (Hz) of the primary parameter after the stage's last measurement;
       ``stage{1,2,3}_sens_eff``: median of the stage's mean sensitivity efficiency (1 = measuring at the most
