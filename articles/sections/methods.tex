@@ -6,7 +6,7 @@
 \subsection{Bayesian inference}
 \label{sec:bayes}
 
-Every strategy runs the same loop: it chooses a drive frequency $x_n$, takes one measurement $y_n$ there, updates
+Every strategy runs the same loop: it chooses a drive frequency $d_n$, takes one measurement $y_n$ there, updates
 the posterior over the line parameters with it, and stops when the stop rule of Sec.~\ref{sec:locators} fires. The
 strategies differ only in the first step; the posterior and its update, described here, are shared. The unknowns are
 those of Sec.~\ref{sec:fisher}, the parameter of interest $\theta$ and the nuisances $\phi$, together with the noise
@@ -72,7 +72,7 @@ measures only at the steepest-slope points of the posterior-mean line, once the 
 the optimal information. Its coarse search uses the same grid points, and the same measured values, as the reference
 sweep of that repeat.
 
-\paragraph{Bayesian SBED.} SBED is the particle filter choosing each $x$ by Eq.~\eqref{eq:eig-var}, maximized over
+\paragraph{Bayesian SBED.} SBED is the particle filter choosing each $d$ by Eq.~\eqref{eq:eig-var}, maximized over
 candidate drive frequencies concentrated on the steep sides of the posterior-mean dip and on the dips found. The
 candidates are restricted to the focus: one section per detected dip, padded by one half width on each side, which
 widens at once when a new dip appears and narrows only after a delay. A strategy that has piled its measurements onto

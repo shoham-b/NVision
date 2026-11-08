@@ -8,7 +8,7 @@ Eq.~\eqref{eq:eig-var}: (A) when it agrees with the exact gain, and (B) when max
 measurements where the van Trees bound needs them. This section gives the run-level argument behind (B) in refine,
 and the argument for the two earlier regimes, where both answers fail.
 
-\paragraph{When the variance form is exact.} Eq.~\eqref{eq:eig-var} is an equality when $\mu(x;\theta,\phi)$, with
+\paragraph{When the variance form is exact.} Eq.~\eqref{eq:eig-var} is an equality when $\mu(d;\theta,\phi)$, with
 $\theta,\phi$ drawn from the posterior, is Gaussian distributed. Whether it is depends on the posterior of $\theta$,
 not on the noise: the noise is Gaussian by construction, while the posterior only becomes Gaussian with enough data
 (Sec.~\ref{sm:gaussian}). Question (A) is therefore whether the posterior makes the predicted signal Gaussian.
@@ -17,7 +17,7 @@ not on the noise: the noise is Gaussian by construction, while the posterior onl
 the gains of a run add up: on average over runs they equal what all the outcomes together taught about the
 parameters,
 \begin{equation}
-  \mathbb E\Big[\sum_{i=0}^{n-1}\mathrm{EIG}_i(x_{i+1})\Big]
+  \mathbb E\Big[\sum_{i=0}^{n-1}\mathrm{EIG}_i(d_{i+1})\Big]
   =\underbrace{I(\theta,\phi;y_1,\dots,y_n)}_{\text{learned from }n\text{ outcomes}}.
   \label{eq:eig-sum}
 \end{equation}
@@ -25,7 +25,7 @@ This is bookkeeping and says nothing yet about the limit. The greedy rule, Eq.~\
 given the ones before it. That also maximizes the sum only if where one measures now does not change what later
 measurements can gain. In refine this holds: each gain is the logarithm of one shrinkage, Eq.~\eqref{eq:eig-fisher},
 so the gains from measurement $m$ to $n$ sum to $\ln(\sigma_m/\sigma_n)$, and they depend on where the measurements
-were taken only through the sum of their $I(x_i)$. Maximizing every $I(x_i)$ therefore maximizes the total: in refine
+were taken only through the sum of their $I(d_i)$. Maximizing every $I(d_i)$ therefore maximizes the total: in refine
 greedy EIG is optimal over the whole run and reaches the data limit of Eq.~\eqref{eq:vantrees}. The information the
 rule maximizes and the information the bound counts are then the same quantity.
 
@@ -35,7 +35,7 @@ deviation can be read as a 68\% interval: a posterior with a narrow peak and wid
 deviation as a Gaussian, with most of its mass much closer to the peak (Sec.~\ref{sm:gaussian}).
 
 \paragraph{Search: a two-valued signal.} Before the dip is found the posterior of $\theta$ is spread over the window,
-and the predicted signal at $x$ is two-valued: with probability $p$, the posterior mass that would put the dip at $x$,
+and the predicted signal at $d$ is two-valued: with probability $p$, the posterior mass that would put the dip at $d$,
 it is about $1-C$, otherwise 1. Then $\sigma^2_{\rm pred}=p(1-p)C^2$, while the true mutual information is at most the
 binary entropy $H_b(p)\le\ln2$. For (A), the variance form keeps growing with SNR where the true gain saturates, so it
 overvalues search candidates relative to refine candidates; both peak at $p=\tfrac12$, so they rank search

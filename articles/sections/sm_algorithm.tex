@@ -22,13 +22,13 @@ and a particle that leaves the unit cube is reflected back into it.
 for every particle because its update does not depend on the residuals, and scale $\beta_i$. The prior is
 $\alpha_0=10$, $\beta_0=\alpha_0\sigma_{\rm nom}^2$, with $\sigma_{\rm nom}$ the geometric mean of the prior range of
 $\sigma$. Before each measurement both are discounted by $d=0.99$; a measurement $y_n$, the mean of $k$ shots at
-$x_n$, then adds $\tfrac12$ to $\alpha$ and $\tfrac12 k\,r_{n,i}^2$ to $\beta_i$, with residual
-$r_{n,i}=y_n-\mu(x_n;\theta_i,\phi_i)$, so that after $n$ measurements
+$d_n$, then adds $\tfrac12$ to $\alpha$ and $\tfrac12 k\,r_{n,i}^2$ to $\beta_i$, with residual
+$r_{n,i}=y_n-\mu(d_n;\theta_i,\phi_i)$, so that after $n$ measurements
 $\beta_i=d^n\beta_0+\tfrac12\sum_{t<n}d^{\,n-1-t}k\,r_{t,i}^2$. Old residuals are thus forgotten with a memory of
 about $1/(1-d)=100$ measurements, and $\alpha$ saturates at $0.5/(1-d)=50$, about 100 degrees of freedom. With
 $\sigma^2$ integrated out, the measurement reweights the particles by the Student-$t$ predictive
 \begin{equation}
-  w_i\ \propto\ w_i\;t_{2\alpha}\!\Big(y_n;\,\mu(x_n;\theta_i,\phi_i),\,\frac{\beta_i}{k\alpha}\Big),
+  w_i\ \propto\ w_i\;t_{2\alpha}\!\Big(y_n;\,\mu(d_n;\theta_i,\phi_i),\,\frac{\beta_i}{k\alpha}\Big),
   \label{eq:smc-update}
 \end{equation}
 taken with $\alpha$, $\beta_i$ before the update. After a rejuvenation each $\beta_i$ is recomputed from the full
