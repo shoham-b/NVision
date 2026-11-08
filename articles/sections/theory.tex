@@ -311,36 +311,8 @@ washed out and $\sigma_{\rm vT}\approx(nI_{\rm max})^{-1/2}$, the unbiased Cram\
 falls with slope $-\tfrac12$ on a log--log scale and is reached only by measuring every time at the steepest slope.
 The two limits cross at $n_c=J_0/I_{\rm max}$.
 
-\paragraph{Reading the bound.} In tracking the error is averaged over the prior, and the bound starts at the true
-error $\sigma_0$. A run that lies above it has measurements that carried less than $I_{\rm max}$, or that
-were not used efficiently.
-
-In a global search $J_0$ comes from the $\cos^2$ density and not from the uniform prior, so the bound is about a
-different error: for any strategy, some resonance in the window has a root-mean-square error of at least
-$\sigma_{\rm vT}(n)$. Our runs instead report the error averaged over a uniformly placed resonance. For a signal
-linear in $\theta$, where every measurement can carry $I_{\rm max}$, the best achievable values of the two errors compare
-with the bound as follows (Appendix~\ref{app:prior}). Before any measurement, the best estimate is the center of the
-window. The worst-placed resonance is then $W/2$ away, $\pi$ times above the bound of $W/2\pi$, and the average error
-is $W/\sqrt{12}$, $\pi/\sqrt3\approx1.8$ times above it. This gap belongs to the window and not to any strategy.
-It closes around $n_c$: the average error is within 10\% of the bound from $n\approx2\,n_c$, and from
-$n\approx10\,n_c$ it lies below the bound, by at most about 1\%, because a resonance next to an edge is slightly easier to
-locate.
-
-A run is therefore read against the curve in three parts. Up to a few $n_c$ a gap says nothing about the strategy.
-Beyond that, a gap means that the measurements carried less than $I_{\rm max}$ or were not used efficiently. A claimed
-uncertainty below the curve by more than about 1\% plus the scatter of the runs points to an overconfident
-posterior. For a wide window $n_c\ll1$, so the curve can be read in this way from the first measurement on.
-
-The bound holds for the mean squared error whatever the shape of the posterior, and for the posterior mean that
-error equals the expected posterior variance. The posterior standard deviation, averaged over runs, can therefore
-be compared with $\sigma_{\rm vT}$ from the first measurement on, as long as the posterior is calibrated.
-
-The bound treats the width $\Gamma$ and the contrast $C$ as known. Inferring them as well can only add to the
-uncertainty in $\theta$, but it adds nothing when the measurements are placed symmetrically on the two sides of the
-dip: a shift of $\theta$ then raises the signal on one side and lowers it on the other, while a change of $\Gamma$ or
-$C$ changes both sides alike, so the data tell the two apart.
-
-We name the regimes of a strategy after what it does in them: \emph{search} while it has yet to find the dip, so
+Any strategy therefore starts in the prior limit and, if it does well, ends in the data limit, and in between it
+must pass from one to the other. We name these regimes after what the strategy does in them: \emph{search} while it has yet to find the dip, so
 that its measurements carry little information and its error stays near the prior; \emph{refine} once it measures
 on the sides of a dip it has located, so that they carry about $I_{\rm max}$ and its error follows the data limit; and
 \emph{localize} in between, from the first detection of the dip until it locks onto the dip, as it narrows down from the window to the dip. After that a global search has become a tracking problem: its posterior is roughly Gaussian of width $\lesssim\Gamma$ around the dip, and it behaves like a tracking run. A tracking run with
@@ -387,6 +359,38 @@ sweep has none, since it gains the same information $I_{\rm sweep}$ at every ste
 The elimination model only illustrates the shape of the profile. At low SNR one measurement no longer reveals the
 dip and $n_d$ grows, but Eq.~\eqref{eq:vantrees} holds at any SNR and needs no detection model; the runs are read
 against it alone.
+
+\paragraph{Reading the bound.} We judge a strategy by how close its runs come to Eq.~\eqref{eq:vantrees}: a run on
+the curve gets all the information its measurements can give, and the gap above it shows how much it loses. How a
+gap is read depends on the task, because the error the bound limits is not always the error the runs report. In
+tracking the two are the same: both are averaged over the Gaussian prior, and the bound starts at the true error
+$\sigma_0$. A run that lies above it has measurements that carried less than $I_{\rm max}$, or that the strategy did
+not use efficiently.
+
+In a global search $J_0$ comes from the $\cos^2$ density and not from the uniform prior, so the bound is about a
+different error: for any strategy, some resonance in the window has a root-mean-square error of at least
+$\sigma_{\rm vT}(n)$. Our runs instead report the error averaged over a uniformly placed resonance. For a signal
+linear in $\theta$, where every measurement can carry $I_{\rm max}$, the best achievable values of the two errors compare
+with the bound as follows (Appendix~\ref{app:prior}). Before any measurement, the best estimate is the center of the
+window. The worst-placed resonance is then $W/2$ away, $\pi$ times above the bound of $W/2\pi$, and the average error
+is $W/\sqrt{12}$, $\pi/\sqrt3\approx1.8$ times above it. This gap belongs to the window and not to any strategy.
+It closes around $n_c$: the average error is within 10\% of the bound from $n\approx2\,n_c$, and from
+$n\approx10\,n_c$ it lies below the bound, by at most about 1\%, because a resonance next to an edge is slightly easier to
+locate.
+
+A run is therefore read against the curve in three parts. Up to a few $n_c$ a gap says nothing about the strategy.
+Beyond that, a gap means that the measurements carried less than $I_{\rm max}$ or were not used efficiently. A claimed
+uncertainty below the curve by more than about 1\% plus the scatter of the runs points to an overconfident
+posterior. For a wide window $n_c\ll1$, so the curve can be read in this way from the first measurement on.
+
+The bound holds for the mean squared error whatever the shape of the posterior, and for the posterior mean that
+error equals the expected posterior variance. The posterior standard deviation, averaged over runs, can therefore
+be compared with $\sigma_{\rm vT}$ from the first measurement on, as long as the posterior is calibrated.
+
+The bound treats the width $\Gamma$ and the contrast $C$ as known. Inferring them as well can only add to the
+uncertainty in $\theta$, but it adds nothing when the measurements are placed symmetrically on the two sides of the
+dip: a shift of $\theta$ then raises the signal on one side and lowers it on the other, while a change of $\Gamma$ or
+$C$ changes both sides alike, so the data tell the two apart.
 
 \begin{figure}[t]
 \centering
