@@ -472,9 +472,13 @@ average of Eq.~\eqref{eq:fisher}, taken over the drive frequency in the window (
   \label{eq:sweep-info}
 \end{equation}
 
-Comparing the two rates, both scale as $kC^2/\sigma^2$. They differ only in the width factor: $1/\Gamma^2$ for the
-adaptive strategy and $1/(\Gamma W)$ for the sweep. The extra factor $\Gamma/W$ is the fraction of the sweep's
-measurements that land on the line at all.
+Comparing the two rates,
+\begin{equation*}
+  I_{\rm max}\propto\frac{k\,C^2}{\sigma^2}\,\frac{1}{\Gamma^2},\qquad
+  I_{\rm sweep}\propto\frac{k\,C^2}{\sigma^2}\,\frac{1}{\Gamma}\,\frac{1}{W}:
+\end{equation*}
+they share the factor $kC^2/\sigma^2$ and differ only in the width factor. The extra factor $\Gamma/W$ of the
+sweep is the fraction of its measurements that land on the line at all.
 
 Where a sweep measures does not depend on what it has learned, so its information grows at the constant rate
 $I_{\rm sweep}$, while an adaptive strategy in refine gains $I_{\rm max}$ per measurement. For a precise target,
