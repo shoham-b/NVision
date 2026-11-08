@@ -33,10 +33,11 @@ regex/substring). Only the sweeps, on every scenario: `--run-group all --filter-
 The `voigt-grid` is posed in the dimensionless numbers that decide how hard a search is, not in contrast, noise
 sigma and linewidth separately, and each axis changes one thing:
 
-- **SNR = `contrast_total` / noise sigma.** Every signal carries the same `contrast_total`
+- **SNR = C / noise sigma** (the article's Eq. snr), C = `contrast_total` / 2 the per-line contrast (each Zeeman group
+  carries half of `contrast_total`; the factor is `LINE_CONTRAST_FRACTION` in `sim/presets.py`). Every signal carries the same `contrast_total`
   (`NVISION_SBED_SNR_CONTRAST`, 0.25) and a run is named by its SNR, `SNR(10)`, for the levels in
   `NVISION_SBED_SNR_VALUES` (default 1, 2, 5, 10, 20). The runs are not a grid of noise levels and contrasts: the name
-  carries only the SNR, and the Gaussian sigma (`contrast_total / SNR`) is derived for each signal when the run is
+  carries only the SNR, and the Gaussian sigma (`contrast_total / 2 / SNR`) is derived for each signal when the run is
   resolved, so the name keeps its meaning if the contrast constant is changed. Results record it as `snr`. The levels
   are spaced geometrically because the behaviour is: in a 12-repeat scan at a 10-FWHM window, everything converges
   from SNR 20 up (10 vs 50 barely differs), at SNR 10 most runs still converge, at 5 a quarter to three quarters hit

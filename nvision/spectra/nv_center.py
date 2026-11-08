@@ -322,6 +322,9 @@ def physics_config_fingerprint() -> str:
         # falsification probe (widest unmeasured stretch, chance 2-10 % falling with axis coverage) and the
         # focus pad shrank from 3 to 1 effective HWHM per side: every SBED trajectory differs.
         "sbed-gap-probe-pad1-v1",
+        # Bumped when the SNR label became the article's C / sigma (C = contrast_total / 2): an SNR(x) run's
+        # noise sigma is half of before at the same label.
+        "snr-per-line-contrast-v1",
         NV_ZEEMAN_EDGE_PAD_FWHM,
         MIN_HWHM,
         MAX_HWHM,

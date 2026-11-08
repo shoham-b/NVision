@@ -77,6 +77,7 @@ _SNR_RE = re.compile(r"^SNR\(([0-9]*\.?[0-9]+(?:e[+-]?[0-9]+)?)\)(?:\+Drift\(([A
 
 
 snr_noise_name = sim_presets.snr_noise_name
+snr_for_contrast_sigma = sim_presets.snr_for_contrast_sigma
 
 
 def parse_snr(name: str) -> float | None:
@@ -100,10 +101,8 @@ def reference_contrast(generator: object) -> float:
 
 
 def sigma_for_snr(generator: object, snr: float) -> float:
-    """The per-shot Gaussian sigma of an SNR on this signal: ``reference_contrast / snr``."""
-    if not snr > 0:
-        raise ValueError(f"SNR must be positive, got {snr}")
-    return reference_contrast(generator) / snr
+    """The per-shot Gaussian sigma of an SNR = C / sigma on this signal: ``C / snr``, C = reference contrast / 2."""
+    return sim_presets.sigma_for_contrast_snr(reference_contrast(generator), snr)
 
 
 def noise_sigma_for(generator: object, noise_name: str) -> float | None:
