@@ -647,11 +647,10 @@ measurement take $t_m=k\,t_s$ ($k$ shots of duration $t_s$), so that $n$ measure
 known, $D-f_-=\delta_Z=\gamma_e B_z$, so the field uncertainty is $\sigma_B=\sigma_{f_-}/\gamma_e$.
 
 \paragraph{Sensitivity (refine).} In the refine regime every measurement adds $I_{\rm max}$, so after a time $T$
-\begin{equation*}
-  \sigma_{f_-}(T)=(nI_{\rm max})^{-1/2}=\Big(\frac{T}{t_m}\,I_{\rm max}\Big)^{-1/2}
-  \quad\Longrightarrow\quad
-  \sigma_{f_-}\sqrt T=\sqrt{\frac{t_m}{I_{\rm max}}} .
-\end{equation*}
+\begin{align*}
+  \sigma_{f_-}(T)&=(nI_{\rm max})^{-1/2}=\Big(\frac{T}{t_m}\,I_{\rm max}\Big)^{-1/2},\\
+  \sigma_{f_-}\sqrt T&=\sqrt{\frac{t_m}{I_{\rm max}}} .
+\end{align*}
 The uncertainty falls as $\sigma_{f_-}\propto T^{-1/2}$, so the product $\sigma_{f_-}\sqrt T$ does not depend on $T$
 and characterizes the strategy rather than the length of the run. Converted to field, this constant is the sensitivity,
 \begin{equation}
@@ -667,6 +666,68 @@ is the refine limit of the budget, reached only by a strategy that measures at t
 refine measurements are not all at the steepest slope gains less per measurement: if they carry on average a
 fraction $q\le1$ of $I_{\rm max}$, $I_{\rm max}$ is replaced by $qI_{\rm max}$ in Eq.~\eqref{eq:sensitivity}, and its sensitivity is worse
 by $1/\sqrt q$, i.e.\ $\eta/\sqrt q$.
+
+\paragraph{Sensitivity as a function of time.} Eq.~\eqref{eq:sensitivity} is a limit. Read off a run of length $T$,
+the product $\eta(T)=\sigma_B(T)\sqrt T$ also carries the search, and its expected course follows from the error
+curve of Sec.~\ref{sec:budget} with $n=T/t_m$. During the search the error barely falls, Eq.~\eqref{eq:elimination},
+so the product grows,
+\begin{equation*}
+  \eta(T)=\frac{1}{\gamma_e}\,\frac{W-(T/t_m)\Delta x}{\sqrt{12}}\,\sqrt T\;\propto\;\sqrt T,\qquad T<n_d t_m .
+\end{equation*}
+Detection drops it by the localize factor, and afterwards, by Eq.~\eqref{eq:after-detection},
+\begin{equation}
+  \frac{\eta(T)}{\eta}=\Big(1-\frac{n_e\,t_m}{T}\Big)^{-1/2}\approx1+\frac{n_e\,t_m}{2T},
+  \qquad T\ge n_d t_m ,
+  \label{eq:sensitivity-time}
+\end{equation}
+with $\eta$ the sensitivity of Eq.~\eqref{eq:sensitivity} and $n_e=n_d-12/(\Delta x^2 I_{\rm max})$. The measurements spent on the search, less the information
+that detection supplies, are a fixed debt $n_e$; refine pays it off, so $\eta(T)$ approaches $\eta$ from above and the
+excess falls as $1/T$ (Fig.~\ref{fig:sensitivity-time}). A run therefore reports a sensitivity within a fraction
+$\epsilon$ of $\eta$ only once $T\gtrsim n_e t_m/2\epsilon$, i.e.\ after about $50\,n_e$ measurements for 1\%. For any
+strategy described by $(n_0,q)$, Eq.~\eqref{eq:strategy-numbers} gives the same form,
+$\eta(T)\approx(\eta/\sqrt q)\,(1-n_0t_m/T)^{-1/2}$: $q$ sets the floor and $n_0$ how slowly it is reached. The
+unbiased Cram\'er--Rao bound $(nI_{\rm max})^{-1/2}$ is the constant $\eta$ at all $T$; the van Trees bound, which
+includes the prior, lies below it and rises to it as $\sqrt T$ while $T\lesssim n_c t_m$, but no strategy can follow it
+there, since $J_0$ belongs to the window and not to any measurement.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{loglogaxis}[
+  width=\linewidth, height=5.6cm,
+  xlabel={time $T/t_m$}, ylabel={$\eta(T)/\eta$},
+  xmin=1, xmax=1000, ymin=0.5, ymax=500,
+  legend style={font=\scriptsize, at={(0.98,0.98)}, anchor=north east, draw=none, fill=white, fill opacity=0.8,
+    text opacity=1},
+  legend cell align=left,
+  label style={font=\small}, tick label style={font=\scriptsize},
+]
+% Same illustrative values as Fig. budget: SNR = 10, k = 1, Delta x = Gamma/3 -> I* = 168.75 / Gamma^2;
+% eta(T)/eta = sigma(n) sqrt(n I*), n = T/t_m.
+\fill[gray!15] (axis cs:1,0.5) rectangle (axis cs:30,500);
+\node[font=\scriptsize] at (axis cs:5.5,0.8) {search};
+\node[font=\scriptsize, anchor=west] at (axis cs:31,40) {localize};
+\node[font=\scriptsize] at (axis cs:250,2.2) {refine};
+\addplot[thick, domain=1:30, samples=60] {(20 - x/3)/sqrt(12)*sqrt(168.75*x)};
+\addlegendentry{$W=20\,\Gamma$}
+\addplot[thick, forget plot] coordinates {(30, 205.4) (30, 6.847)};
+\addplot[thick, forget plot, domain=30:1000, samples=200] {sqrt(168.75*x/(108 + 168.75*(x-30)))};
+\addplot[thick, dashed, domain=1:3, samples=20] {(2 - x/3)/sqrt(12)*sqrt(168.75*x)};
+\addlegendentry{$W=2\,\Gamma$}
+\addplot[thick, dashed, forget plot] coordinates {(3, 6.495) (3, 2.165)};
+\addplot[thick, dashed, forget plot, domain=3:1000, samples=200] {sqrt(168.75*x/(108 + 168.75*(x-3)))};
+\addplot[gray, dotted, thick, domain=1:1000, samples=2] {1};
+\addlegendentry{$\eta$, Eq.~\eqref{eq:sensitivity}}
+\end{loglogaxis}
+\end{tikzpicture}
+\caption{Expected sensitivity $\eta(T)=\sigma_B(T)\sqrt T$ of an adaptive strategy as a function of the run time,
+from the elimination model with the values of Fig.~\ref{fig:budget}. Solid: wide window, $W=20\,\Gamma$; dashed:
+narrow window, $W=2\,\Gamma$; dotted: the refine limit $\eta$ of Eq.~\eqref{eq:sensitivity}, which is also the
+unbiased Cram\'er--Rao bound. During the search (shaded) $\eta(T)$ grows as $\sqrt T$; detection drops it, and in
+refine it approaches $\eta$ from above with an excess $n_e t_m/2T$, Eq.~\eqref{eq:sensitivity-time}. Simulated and
+measured runs are shown against $\eta$ in Sec.~\ref{sec:results}.}
+\label{fig:sensitivity-time}
+\end{figure}
 
 \paragraph{Bandwidth (whole run).} A field reading is useful once its error reaches the target
 $\sigma_{\rm tgt}$; the time needed, $T(\sigma_{\rm tgt})$, sets the bandwidth $1/T(\sigma_{\rm tgt})$. It is $t_m$
