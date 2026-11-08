@@ -932,7 +932,8 @@ def run(  # noqa: C901
         list[float] | None,
         typer.Option(
             "--snr",
-            help="Only the noise levels of this SNR (contrast_total / noise sigma) in the run group. Repeat for "
+            help="Only the noise levels of this SNR (C / noise sigma, C = contrast_total / 2) in the run group. "
+            "Repeat for "
             "several, e.g. --snr 10 --snr 20.",
         ),
     ] = None,

@@ -218,7 +218,7 @@ J₀ came from the prior carry the claimed-σ value and cannot be rescaled: re-r
    bound, and show the capped share.
 3. **Show the raw metrics before ranking anything.** No arbitrary reference locator (e.g. "divided by k = 3"), no
    "cheapest k" summaries, until the plain per-locator metrics have been looked at.
-4. **Use physical axes.** SNR = contrast / noise σ (∞ without noise) and the effective FWHM, per the stage table
+4. **Use physical axes.** SNR = C / noise σ with C = contrast_total / 2 (∞ without noise) and the effective FWHM, per the stage table
    above.
 5. **Runs are paired.** Repeat *i* has the same true signal for every locator and noise level
    (`signal_repeat_key`), so per-repeat comparisons are valid; measurement noise differs, as it must.

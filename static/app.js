@@ -6940,13 +6940,13 @@ function main() {
         return row.primary_converged_step == null;
     }
 
-    // SNR = dip contrast / noise σ; Infinity without noise, null when the run records no contrast or noise.
+    // SNR = C / noise σ with C = contrast_total / 2 (the article's Eq. snr); Infinity without noise, null when the run records no contrast or noise.
     function ssSnr(row) {
         if (row.snr != null) return row.snr;
         const c = row.grid_contrast_total;
         const s = row.noise_sigma;
         if (c == null || s == null) return null;
-        return s > 0 ? c / s : Infinity;
+        return s > 0 ? window.NVISION_LINE_CONTRAST_FRACTION * c / s : Infinity;
     }
 
     // |z| = |reported estimate − truth| / claimed σ at the end of the run; null without a usable σ.
@@ -7262,7 +7262,7 @@ function main() {
         }
         const hasInf = usable.some((r) => ssSnr(r) === Infinity);
         const xaxis = {
-            title: 'SNR (contrast / noise σ)', type: 'log',
+            title: 'SNR (C / noise σ)', type: 'log',
             tickvals: [...ticks, ...(hasInf ? [xInf] : [])],
             ticktext: [...ticks.map((v) => String(v)), ...(hasInf ? ['∞'] : [])],
         };
@@ -8428,8 +8428,8 @@ function main() {
             const splitWin = scalingSplit.window && windows.length > 1;
             if (windows.length > 1) toggles.push(toggle('window', 'Window', scalingSplit.window));
             const byWindow = windows.length ? windows : [null];
-            const snrOpts = { xTitle: 'SNR (contrast / noise σ)', xLog: true, ref: { slope: -2 }, refName: 'slope −2 (1/SNR²)' };
-            addPanel('Focus steps vs SNR', 'Measurements in the focus stage against SNR = contrast / noise σ. The information per measurement grows as SNR², so the steps needed for a given precision fall as 1/SNR²: the dotted line has slope −2, and the dashed line is the Fisher bound (every measurement at the best point). Steps flatten at high SNR where a few probing measurements dominate. Split: one chart per window. Combined: each window is divided by its own value at the lowest SNR and the windows are averaged (geometric mean, bar = min..max).',
+            const snrOpts = { xTitle: 'SNR (C / noise σ)', xLog: true, ref: { slope: -2 }, refName: 'slope −2 (1/SNR²)' };
+            addPanel('Focus steps vs SNR', 'Measurements in the focus stage against SNR = C / noise σ (C = contrast_total / 2). The information per measurement grows as SNR², so the steps needed for a given precision fall as 1/SNR²: the dotted line has slope −2, and the dashed line is the Fisher bound (every measurement at the best point). Steps flatten at high SNR where a few probing measurements dominate. Split: one chart per window. Combined: each window is divided by its own value at the lowest SNR and the windows are averaged (geometric mean, bar = min..max).',
                 splitWin
                     ? byWindow.map(w => ({ label: w == null ? '' : `occupancy ${ssOccLabel(1 / w)}`, lines: linesFor(p => p.snr, 'focus', 'focusBound', p => w == null || p.window === w), opts: { ...snrOpts, yTitle: 'Focus steps (median)' } }))
                     : [{ label: windows.length > 1 ? `${windows.length} windows combined` : (windows.length ? `occupancy ${ssOccLabel(1 / windows[0])}` : ''), lines: combinedLines(p => p.snr, p => p.window, 'focus', 'focusBound', 'window'), opts: { ...snrOpts, yTitle: 'Focus steps ÷ at lowest SNR' } }]);
