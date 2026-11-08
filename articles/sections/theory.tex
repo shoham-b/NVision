@@ -302,12 +302,13 @@ $I(x)\le I_{\rm max}$ gives
   \sigma_\theta(n)\ \ge\ \sigma_{\rm vT}(n)=\big(J_0+nI_{\rm max}\big)^{-1/2},
   \label{eq:vantrees}
 \end{equation}
-for any estimator, biased or not. Here $\sigma_\theta(n)$ is the root-mean-square error after $n$ measurements; what
-it is averaged over depends on the task, as discussed below.
+for any estimator, biased or not. Here $\sigma_\theta^2(n)=\mathbb E\big[(\hat\theta_n-\theta)^2\big]$ is the mean
+squared error (MSE) of the estimate $\hat\theta_n$ after $n$ measurements, and $\sigma_\theta$ its root. It is an error
+against the true $\theta$, not the uncertainty a strategy claims; what it is averaged over depends on the task, as
+discussed below.
 
 The curve has two limits, set by how the information of the measurements compares with that of the prior. While
-$nI_{\rm max}\ll J_0$, it stays at the prior, $\sigma_{\rm vT}\approx J_0^{-1/2}$, which is $\sigma_0$ in tracking and
-$W/2\pi$ in a global search: the measurements have not yet
+$nI_{\rm max}\ll J_0$, it stays at the prior, $\sigma_{\rm vT}\approx J_0^{-1/2}$: the measurements have not yet
 added to what the prior told. An estimate in this limit leans on the prior and is biased toward its center, which
 is why its error may lie below the unbiased Cram\'er--Rao bound $(nI_{\rm max})^{-1/2}$. Once $nI_{\rm max}\gg J_0$, the prior is
 washed out and $\sigma_{\rm vT}\approx(nI_{\rm max})^{-1/2}$, the unbiased Cram\'er--Rao bound of Sec.~\ref{sec:fisher}, which
@@ -394,7 +395,7 @@ Beyond that, a gap means that the measurements carried less than $I_{\rm max}$ o
 uncertainty below the curve by more than about 1\% plus the scatter of the runs points to an overconfident
 posterior. For a wide window $n_c\ll1$, so the curve can be read in this way from the first measurement on.
 
-The bound holds for the mean squared error whatever the shape of the posterior, and for the posterior mean that
+The bound holds for the MSE whatever the shape of the posterior, and for the posterior mean that
 error equals the expected posterior variance. The posterior standard deviation, averaged over runs, can therefore
 be compared with $\sigma_{\rm vT}$ from the first measurement on, as long as the posterior is calibrated.
 
@@ -552,7 +553,7 @@ residual mass $p$ far from it gives a predictive variance $p(1-p)C^2$ at its loc
 small $p$, while the information it holds is at most $H_b(p)$, small for small $p$. The variance form therefore keeps
 spending measurements to remove such distant mass. This reduces the posterior variance, which the tail dominates and
 which is the quantity Eq.~\eqref{eq:vantrees} constrains, rather than the posterior entropy: in the localize stage the variance
-rule acts as a design for the mean squared error, while a rule built on the information gain would refine the peak
+rule acts as a design for the MSE, while a rule built on the information gain would refine the peak
 sooner and accept the tail. Whether this explains why localizing costs SBED far more measurements than the bound is a
 hypothesis we have not tested. \tbd{Test: share of localize-stage measurements placed more than a few FWHM from
 the peak, compared with the residual mass there.}
