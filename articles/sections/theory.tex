@@ -450,10 +450,19 @@ large $n$. Simulated and measured runs are shown against the bound in Sec.~\ref{
 \subsection{Information gained per measurement}
 \label{sec:eig}
 
-The bound counts Fisher information, the most a measurement can contribute. What a measurement actually contributes
-is how far it moves the posterior: the Kullback--Leibler divergence \cite{kullback1951} from the posterior before it
-to the posterior after it. Before the outcome is known, the expectation of this divergence is the expected information gain
-\cite{lindley1956},
+The bound counts information as Fisher information, an inverse variance of $\theta$ in Hz$^{-2}$. A Bayesian
+strategy chooses its measurements by a different quantity: how far a measurement is expected to move the posterior,
+in nats. This section relates the two by answering two questions. (A) SBED does not compute the exact expected
+gain but an upper bound on it, set by the variance of the predicted signal: when does that bound agree with the
+exact gain? (B) The bound is reached only by measuring at the steepest slope, yet the rule never mentions the
+slope: when does maximizing the gain put the measurements where the bound needs them? In refine the answer to both
+is ``always'': the gain becomes the logarithm of a Fisher-information ratio, and greedy maximization reaches the data
+limit of the bound. In search and localize both fail. We take refine first, since it is the exact case, and then
+show how the earlier regimes depart from it.
+
+\paragraph{Expected information gain.} What a measurement actually contributes is how far it moves the posterior:
+the Kullback--Leibler divergence \cite{kullback1951} from the posterior before it to the posterior after it. Before
+the outcome is known, the expectation of this divergence is the expected information gain \cite{lindley1956},
 \begin{align}
   \mathrm{EIG}(x)&=\mathbb E_{y\mid x}\Big[D_{\rm KL}\big(p(\theta,\phi\mid y,x)\,\|\,p(\theta,\phi)\big)\Big]
   =I(\theta,\phi;y\mid x)\nonumber\\
@@ -463,10 +472,11 @@ to the posterior after it. Before the outcome is known, the expectation of this 
 the mutual information \cite{cover2006} between the parameters and the outcome, with $p(\theta,\phi)$ the current
 posterior.
 
-The second term is fixed by the noise model: the noise is Gaussian with the same variance $\sigma^2/k$ at every drive
-frequency (Sec.~\ref{sec:model}), so $H[y\mid\theta,\phi,x]=\tfrac12\ln(2\pi e\,\sigma^2/k)$ for every $x$. All the
-dependence on $x$ is in the first term, the entropy of the predictive distribution of $y$. Its spread has two parts:
-the noise, and the spread of the predicted signal over the posterior,
+\paragraph{The variance form computed by SBED.} The second term is fixed by the noise model: the noise is Gaussian
+with the same variance $\sigma^2/k$ at every drive frequency (Sec.~\ref{sec:model}), so
+$H[y\mid\theta,\phi,x]=\tfrac12\ln(2\pi e\,\sigma^2/k)$ for every $x$. All the dependence on $x$ is in the first
+term, the entropy of the predictive distribution of $y$. Its spread has two parts: the noise, and the spread of the
+predicted signal over the posterior,
 \begin{equation*}
   \sigma^2_{\rm pred}(x)=\mathrm{Var}_{\theta,\phi}\big[\underbrace{\mu(x;\theta,\phi)}_{\mathbb E[y\mid x,\theta,\phi]}\big],
 \end{equation*}
@@ -481,20 +491,35 @@ with equality when $\mu(x;\theta,\phi)$, with $\theta,\phi$ drawn from the poste
 posterior of $\theta$, not on the noise: the noise is Gaussian by construction, the posterior only becomes Gaussian
 with enough data.
 
-Write $\mathrm{EIG}_n(x)$ for Eq.~\eqref{eq:eig-kl} evaluated with the posterior after $n$ measurements. Greedy
-Bayesian experiment design takes the next measurement where it is largest,
+Bayesian SBED (Sec.~\ref{sec:locators}) evaluates Eq.~\eqref{eq:eig-var} at every candidate drive frequency on the
+particles of the particle filter of Sec.~\ref{sec:bayes}, which learns $\sigma$ and uses its posterior mean. Question
+(A) is therefore whether the posterior makes the predicted signal Gaussian.
+\tbd{Mention computing the exact mixture entropy from the particles, or leave out?}
+% Code note: smc_marginal.py expected_information_gain uses the single-shot noise
+% variance (no 1/k); the ranking is unchanged at fixed k.
+
+\paragraph{Greedy design.} Write $\mathrm{EIG}_n(x)$ for Eq.~\eqref{eq:eig-kl} evaluated with the posterior after
+$n$ measurements. Greedy Bayesian experiment design takes the next measurement where it is largest,
 \begin{equation}
   x_{n+1}=\arg\max_x\,\mathrm{EIG}_n(x).
   \label{eq:greedy}
 \end{equation}
-This rule never mentions the slope of the line, while the bound is reached only by measuring at the steepest slope.
-We now show that the two agree once the dip is located, so that in refine greedy EIG reaches the data limit of the
-bound, and that they differ before that.
+In any regime, the chain rule of mutual information \cite{cover2006} makes the gains of a run add up: on average over
+runs they equal what all the outcomes together taught about the parameters,
+\begin{equation}
+  \mathbb E\Big[\sum_{i=0}^{n-1}\mathrm{EIG}_i(x_{i+1})\Big]
+  =\underbrace{I(\theta,\phi;y_1,\dots,y_n)}_{\text{learned from }n\text{ outcomes}}.
+  \label{eq:eig-sum}
+\end{equation}
+This is bookkeeping and says nothing yet about the limit. The greedy rule maximizes each term given the ones before
+it. That also maximizes the sum only if where one measures now does not change what later measurements can gain,
+and this is what question (B) turns on.
 
-\paragraph{Refine.} Once the dip is located, the posterior of $\theta$ is a single peak, narrow compared with the
-line. Fix the drive frequency $x$ and ask how the signal there depends on where the dip is. Moving the dip by a small
-amount changes the signal in proportion, at the rate $\partial\mu/\partial\theta$, so over the narrow range of
-$\theta$ that the posterior allows, $\mu(x;\theta)\approx\mu(x;\hat\theta)+(\partial\mu/\partial\theta)(\theta-\hat\theta)$.
+\paragraph{Refine: the gain becomes Fisher information.} Once the dip is located, the posterior of $\theta$ is a
+single peak, narrow compared with the line. Fix the drive frequency $x$ and ask how the signal there depends on where
+the dip is. Moving the dip by a small amount changes the signal in proportion, at the rate
+$\partial\mu/\partial\theta$, so over the narrow range of $\theta$ that the posterior allows,
+$\mu(x;\theta)\approx\mu(x;\hat\theta)+(\partial\mu/\partial\theta)(\theta-\hat\theta)$.
 The spread of the predicted signal is then $\sigma_{\rm pred}(x)=|\partial\mu/\partial\theta|\,\sigma_\theta$,
 whatever the shape of the peak, and the right side of Eq.~\eqref{eq:eig-var} becomes
 $\tfrac12\ln(1+I(x)\,\sigma_\theta^2)$ with $I(x)$ the Fisher information of Eq.~\eqref{eq:fisher}: the rule measures where $I(x)$ is largest, at the steepest slope. With enough
@@ -512,22 +537,7 @@ signal is then Gaussian too, Eq.~\eqref{eq:eig-var} is an equality, and
 The measurement adds $I(x)$ to the information $J_n$, so $J_{n+1}=J_n+I(x)$ is the predicted information after it,
 exact when the posterior is Gaussian and $\mu$ is linear over it. The width of the posterior shrinks from $J_n^{-1/2}$
 to $J_{n+1}^{-1/2}$, and the EIG is the logarithm of that shrinkage. The true EIG and the variance form then pick the
-same point.
-
-This is also the best choice for the run as a whole, not only for the next measurement. In any regime, the chain
-rule of mutual information \cite{cover2006} makes the gains of a run add up: on average over runs they equal what all
-the outcomes together taught about the parameters,
-\begin{equation}
-  \mathbb E\Big[\sum_{i=0}^{n-1}\mathrm{EIG}_i(x_{i+1})\Big]
-  =\underbrace{I(\theta,\phi;y_1,\dots,y_n)}_{\text{learned from }n\text{ outcomes}}.
-  \label{eq:eig-sum}
-\end{equation}
-This is bookkeeping and says nothing yet about the limit. In refine each gain is the logarithm of one shrinkage, so
-the gains from measurement $m$ to $n$ sum to $\ln(\sigma_m/\sigma_n)$, and they depend on where the measurements were
-taken only through the sum of their $I(x_i)$. Maximizing every $I(x_i)$ therefore maximizes the total: in refine greedy
-EIG is optimal over the whole run and reaches the data limit of Eq.~\eqref{eq:vantrees}. The information the rule
-maximizes and the information the bound counts are then the same quantity. Before the dip is found this fails, since
-where one measures changes what later measurements can gain.
+same point, which answers (A) for refine.
 
 The choice of the steepest slope thus needs only that all the posterior mass lies where the signal is linear in
 $\theta$: a single mode, with no appreciable mass left elsewhere in the window, narrow compared with the line,
@@ -536,34 +546,43 @@ shows that the deviations from a Gaussian, and the error of the linearization, a
 $\sigma_\theta/\gamma$, and that leftover mass far from the dip dominates the posterior variance unless it is
 smaller than about $(\sigma_\theta/W)^2$. Both conditions are met in refine and not at the start of the localize stage, so
 Eq.~\eqref{eq:eig-fisher} describes the refine regime, while in the localize stage Eq.~\eqref{eq:eig-var} holds only as a bound.
+
+The steepest slope is also the best choice for the run as a whole, not only for the next measurement. In refine each
+gain is the logarithm of one shrinkage, so by Eq.~\eqref{eq:eig-sum} the gains from measurement $m$ to $n$ sum to
+$\ln(\sigma_m/\sigma_n)$, and they depend on where the measurements were taken only through the sum of their
+$I(x_i)$. Maximizing every $I(x_i)$ therefore maximizes the total: in refine greedy EIG is optimal over the whole run
+and reaches the data limit of Eq.~\eqref{eq:vantrees}, which answers (B). The information the rule maximizes and the
+information the bound counts are then the same quantity.
+
 The same conditions decide when the posterior standard deviation can be read as a 68\% interval: a posterior with a
 narrow peak and wide tails can have the same standard deviation as a Gaussian, with most of its mass much closer to
 the peak.
 \tbd{Results: when the SBED posterior becomes Gaussian, and its calibration in refine.}
 
-\paragraph{Search and localize.} Before the dip is found the posterior of $\theta$ is spread over the window, and
-the predicted signal at $x$ is two-valued: with probability $p$, the posterior mass that would put the dip at $x$, it
-is about $1-C$, otherwise 1. Then $\sigma^2_{\rm pred}=p(1-p)C^2$, while the true mutual information is at most the
-binary entropy $H_b(p)\le\ln2$. The variance form keeps growing with SNR where the true gain saturates, so it
+\paragraph{Search: a two-valued signal.} Before the dip is found the posterior of $\theta$ is spread over the window,
+and the predicted signal at $x$ is two-valued: with probability $p$, the posterior mass that would put the dip at $x$,
+it is about $1-C$, otherwise 1. Then $\sigma^2_{\rm pred}=p(1-p)C^2$, while the true mutual information is at most the
+binary entropy $H_b(p)\le\ln2$. For (A), the variance form keeps growing with SNR where the true gain saturates, so it
 overvalues search candidates relative to refine candidates; both peak at $p=\tfrac12$, so they rank search
-candidates alike. Here greedy EIG is only myopically optimal, which is where the strategies of
-Sec.~\ref{sec:locators} differ.
+candidates alike. For (B), the chain-rule argument fails, since where one measures changes what later measurements
+can gain. Here greedy EIG is only myopically optimal, which is where the strategies of Sec.~\ref{sec:locators} differ.
 
-The same two-valued picture holds in the localize stage, with a different ranking. Once a peak has formed at the dip, a small
-residual mass $p$ far from it gives a predictive variance $p(1-p)C^2$ at its location, large at high SNR even for
-small $p$, while the information it holds is at most $H_b(p)$, small for small $p$. The variance form therefore keeps
-spending measurements to remove such distant mass. This reduces the posterior variance, which the tail dominates and
-which is the quantity Eq.~\eqref{eq:vantrees} constrains, rather than the posterior entropy: in the localize stage the variance
-rule acts as a design for the MSE, while a rule built on the information gain would refine the peak
-sooner and accept the tail. Whether this explains why localizing costs SBED far more measurements than the bound is a
-hypothesis we have not tested. \tbd{Test: share of localize-stage measurements placed more than a few FWHM from
-the peak, compared with the residual mass there.}
+\paragraph{Localize: the variance form chases the tail.} The same two-valued picture holds in the localize stage,
+with a different ranking. Once a peak has formed at the dip, a small residual mass $p$ far from it gives a predictive
+variance $p(1-p)C^2$ at its location, large at high SNR even for small $p$, while the information it holds is at most
+$H_b(p)$, small for small $p$. The variance form therefore keeps spending measurements to remove such distant mass.
+This reduces the posterior variance, which the tail dominates and which is the quantity Eq.~\eqref{eq:vantrees}
+constrains, rather than the posterior entropy: in the localize stage the variance rule acts as a design for the MSE,
+while a rule built on the information gain would refine the peak sooner and accept the tail. Whether this explains
+why localizing costs SBED far more measurements than the bound is a hypothesis we have not tested.
+\tbd{Test: share of localize-stage measurements placed more than a few FWHM from the peak, compared with the
+residual mass there.}
 
-Bayesian SBED (Sec.~\ref{sec:locators}) evaluates Eq.~\eqref{eq:eig-var} at every candidate drive frequency on the
-particles of the particle filter of Sec.~\ref{sec:bayes}, which learns $\sigma$ and uses its posterior mean.
-\tbd{Mention computing the exact mixture entropy from the particles, or leave out?}
-% Code note: smc_marginal.py expected_information_gain uses the single-shot noise
-% variance (no 1/k); the ranking is unchanged at fixed k.
+\paragraph{Summary.} In refine the variance form equals the exact gain, the gain is the logarithm of a
+Fisher-information ratio, and greedy EIG reaches the data limit of the bound. In search the variance form ranks
+candidates as the exact gain does, but greedy is only myopic. In localize the variance form departs from the exact
+gain and spends measurements on the tail, which lowers the MSE rather than the entropy. The bound is therefore met in
+refine, and the strategies of Sec.~\ref{sec:locators} differ in how they pass search and localize.
 
 \subsection{Speedup over a drive-frequency sweep}
 \label{sec:speedup}
@@ -576,13 +595,18 @@ at the steepest slope and gains, per measurement, Eq.~\eqref{eq:istar},
 A sweep spreads its measurements uniformly over the window, so the information it gains per step is the window
 average of Eq.~\eqref{eq:fisher}, taken over the drive frequency in the window (not over the prior),
 \begin{equation}
-  I_{\rm sweep}=\frac{1}{W}\int I(x)\,dx=\frac{k}{\sigma^2W}\int\Big(\frac{\partial\mu}{\partial\theta}\Big)^{\!2}dx=\frac{\pi}{2}\,
-  \frac{k\,C^2}{\sigma^2\,\Gamma\,W},
+  \begin{aligned}
+  I_{\rm sweep}&=\frac{1}{W}\int I(x)\,dx=\frac{k}{\sigma^2W}\int\Big(\frac{\partial\mu}{\partial\theta}\Big)^{\!2}dx\\
+  &=\frac{\pi}{2}\,\frac{k\,C^2}{\sigma^2\,\Gamma\,W}.
+  \end{aligned}
   \label{eq:sweep-info}
 \end{equation}
-using $\int(\partial\mu/\partial\theta)^2\,du=\pi C^2/(4\gamma)=\pi C^2/(2\Gamma)$ for the Lorentzian, valid for $W\gg\Gamma$. Both are
-$\propto kC^2/\sigma^2$; they differ in the width factor, $1/\Gamma^2$ against $1/(\Gamma W)$, because the sweep
-spends only a fraction of order $\Gamma/W$ of its measurements on the line.
+The integral in the middle is the squared slope of the Lorentzian added up across the line. It equals
+$\pi C^2/(2\Gamma)$ when the window contains the whole line, $W\gg\Gamma$.
+
+Comparing the two rates, both scale as $kC^2/\sigma^2$. They differ only in the width factor: $1/\Gamma^2$ for the
+adaptive strategy and $1/(\Gamma W)$ for the sweep. The extra factor $\Gamma/W$ is the fraction of the sweep's
+measurements that land on the line at all.
 
 Where a sweep measures does not depend on what it has learned, so its expected information grows at the constant
 rate $I_{\rm sweep}$ from its first measurement, and the van Trees bound for the sweep is
@@ -648,11 +672,10 @@ measurement take $t_m=k\,t_s$ ($k$ shots of duration $t_s$), so that $n$ measure
 known, $D-f_-=\delta_Z=\gamma_e B_z$, so the field uncertainty is $\sigma_B=\sigma_{f_-}/\gamma_e$.
 
 \paragraph{Sensitivity (refine).} In the refine regime every measurement adds $I_{\rm max}$, so after a time $T$
-\begin{equation*}
-  \sigma_{f_-}(T)=(nI_{\rm max})^{-1/2}=\Big(\frac{T}{t_m}\,I_{\rm max}\Big)^{-1/2}
-  \quad\Longrightarrow\quad
-  \sigma_{f_-}\sqrt T=\sqrt{\frac{t_m}{I_{\rm max}}} .
-\end{equation*}
+\begin{align*}
+  \sigma_{f_-}(T)&=(nI_{\rm max})^{-1/2}=\Big(\frac{T}{t_m}\,I_{\rm max}\Big)^{-1/2},\\
+  \sigma_{f_-}\sqrt T&=\sqrt{\frac{t_m}{I_{\rm max}}} .
+\end{align*}
 The uncertainty falls as $\sigma_{f_-}\propto T^{-1/2}$, so the product $\sigma_{f_-}\sqrt T$ does not depend on $T$
 and characterizes the strategy rather than the length of the run. Converted to field, this constant is the sensitivity,
 \begin{equation}
@@ -668,6 +691,68 @@ is the refine limit of the budget, reached only by a strategy that measures at t
 refine measurements are not all at the steepest slope gains less per measurement: if they carry on average a
 fraction $q\le1$ of $I_{\rm max}$, $I_{\rm max}$ is replaced by $qI_{\rm max}$ in Eq.~\eqref{eq:sensitivity}, and its sensitivity is worse
 by $1/\sqrt q$, i.e.\ $\eta/\sqrt q$.
+
+\paragraph{Sensitivity as a function of time.} Eq.~\eqref{eq:sensitivity} is a limit. Read off a run of length $T$,
+the product $\eta(T)=\sigma_B(T)\sqrt T$ also carries the search, and its expected course follows from the error
+curve of Sec.~\ref{sec:budget} with $n=T/t_m$. During the search the error barely falls, Eq.~\eqref{eq:elimination},
+so the product grows,
+\begin{equation*}
+  \eta(T)=\frac{1}{\gamma_e}\,\frac{W-(T/t_m)\Delta x}{\sqrt{12}}\,\sqrt T\;\propto\;\sqrt T,\qquad T<n_d t_m .
+\end{equation*}
+Detection drops it by the localize factor, and afterwards, by Eq.~\eqref{eq:after-detection},
+\begin{equation}
+  \frac{\eta(T)}{\eta}=\Big(1-\frac{n_e\,t_m}{T}\Big)^{-1/2}\approx1+\frac{n_e\,t_m}{2T},
+  \qquad T\ge n_d t_m ,
+  \label{eq:sensitivity-time}
+\end{equation}
+with $\eta$ the sensitivity of Eq.~\eqref{eq:sensitivity} and $n_e=n_d-12/(\Delta x^2 I_{\rm max})$. The measurements spent on the search, less the information
+that detection supplies, are a fixed debt $n_e$; refine pays it off, so $\eta(T)$ approaches $\eta$ from above and the
+excess falls as $1/T$ (Fig.~\ref{fig:sensitivity-time}). A run therefore reports a sensitivity within a fraction
+$\epsilon$ of $\eta$ only once $T\gtrsim n_e t_m/2\epsilon$, i.e.\ after about $50\,n_e$ measurements for 1\%. For any
+strategy described by $(n_0,q)$, Eq.~\eqref{eq:strategy-numbers} gives the same form,
+$\eta(T)\approx(\eta/\sqrt q)\,(1-n_0t_m/T)^{-1/2}$: $q$ sets the floor and $n_0$ how slowly it is reached. The
+unbiased Cram\'er--Rao bound $(nI_{\rm max})^{-1/2}$ is the constant $\eta$ at all $T$; the van Trees bound, which
+includes the prior, lies below it and rises to it as $\sqrt T$ while $T\lesssim n_c t_m$, but no strategy can follow it
+there, since $J_0$ belongs to the window and not to any measurement.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{loglogaxis}[
+  width=\linewidth, height=5.6cm,
+  xlabel={time $T/t_m$}, ylabel={$\eta(T)/\eta$},
+  xmin=1, xmax=1000, ymin=0.5, ymax=500,
+  legend style={font=\scriptsize, at={(0.98,0.98)}, anchor=north east, draw=none, fill=white, fill opacity=0.8,
+    text opacity=1},
+  legend cell align=left,
+  label style={font=\small}, tick label style={font=\scriptsize},
+]
+% Same illustrative values as Fig. budget: SNR = 10, k = 1, Delta x = Gamma/3 -> I* = 168.75 / Gamma^2;
+% eta(T)/eta = sigma(n) sqrt(n I*), n = T/t_m.
+\fill[gray!15] (axis cs:1,0.5) rectangle (axis cs:30,500);
+\node[font=\scriptsize] at (axis cs:5.5,0.8) {search};
+\node[font=\scriptsize, anchor=west] at (axis cs:31,40) {localize};
+\node[font=\scriptsize] at (axis cs:250,2.2) {refine};
+\addplot[thick, domain=1:30, samples=60] {(20 - x/3)/sqrt(12)*sqrt(168.75*x)};
+\addlegendentry{$W=20\,\Gamma$}
+\addplot[thick, forget plot] coordinates {(30, 205.4) (30, 6.847)};
+\addplot[thick, forget plot, domain=30:1000, samples=200] {sqrt(168.75*x/(108 + 168.75*(x-30)))};
+\addplot[thick, dashed, domain=1:3, samples=20] {(2 - x/3)/sqrt(12)*sqrt(168.75*x)};
+\addlegendentry{$W=2\,\Gamma$}
+\addplot[thick, dashed, forget plot] coordinates {(3, 6.495) (3, 2.165)};
+\addplot[thick, dashed, forget plot, domain=3:1000, samples=200] {sqrt(168.75*x/(108 + 168.75*(x-3)))};
+\addplot[gray, dotted, thick, domain=1:1000, samples=2] {1};
+\addlegendentry{$\eta$, Eq.~\eqref{eq:sensitivity}}
+\end{loglogaxis}
+\end{tikzpicture}
+\caption{Expected sensitivity $\eta(T)=\sigma_B(T)\sqrt T$ of an adaptive strategy as a function of the run time,
+from the elimination model with the values of Fig.~\ref{fig:budget}. Solid: wide window, $W=20\,\Gamma$; dashed:
+narrow window, $W=2\,\Gamma$; dotted: the refine limit $\eta$ of Eq.~\eqref{eq:sensitivity}, which is also the
+unbiased Cram\'er--Rao bound. During the search (shaded) $\eta(T)$ grows as $\sqrt T$; detection drops it, and in
+refine it approaches $\eta$ from above with an excess $n_e t_m/2T$, Eq.~\eqref{eq:sensitivity-time}. Simulated and
+measured runs are shown against $\eta$ in Sec.~\ref{sec:results}.}
+\label{fig:sensitivity-time}
+\end{figure}
 
 \paragraph{Bandwidth (whole run).} A field reading is useful once its error reaches the target
 $\sigma_{\rm tgt}$; the time needed, $T(\sigma_{\rm tgt})$, sets the bandwidth $1/T(\sigma_{\rm tgt})$. It is $t_m$
