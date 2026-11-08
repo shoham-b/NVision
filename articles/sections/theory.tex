@@ -206,12 +206,11 @@ model predicts the signal $\mu(x;\theta,\phi)$, and by Eq.~\eqref{eq:noise} $y$ 
 $\sigma^2/k$, the same whatever $\theta$ is. The likelihood $\mathcal L(\theta)=p(y\mid x,\theta)$ is the probability of that outcome
 if the dip is at $\theta$; for Gaussian scatter $\ln\mathcal L=-k\,(y-\mu)^2/2\sigma^2+{\rm const}$.
 
-How much one measurement at $x$ tells about $\theta$ is its Fisher information, the mean square of the score
-$\partial\ln\mathcal L/\partial\theta$ over the outcomes $y$ the measurement could return,
+How much one measurement at $x$ tells about $\theta$ is its Fisher information defined as
 \begin{equation*}
-  I(x)=\Big\langle\Big(\frac{\partial\ln\mathcal L}{\partial\theta}\Big)^{\!2}\Big\rangle_{\!y}.
+  I(x)=\Big\langle\Big(\frac{\partial\ln\mathcal L}{\partial\theta}\Big)^{\!2}\Big\rangle_{\!y},
 \end{equation*}
-For the Gaussian likelihood the score is
+the average running over the outcomes $y$ the measurement could return. For the Gaussian likelihood,
 \begin{equation*}
   \frac{\partial\ln\mathcal L}{\partial\theta}
   =\underbrace{\frac{k\,(y-\mu)}{\sigma^2}}_{\substack{\text{how far }y\text{ lies}\\\text{from the prediction}}}\,
