@@ -1,6 +1,9 @@
 \documentclass[aps,prapplied,reprint,superscriptaddress,nofootinbib,floatfix]{revtex4-2}
 
 \usepackage{amsmath,amssymb}
+% Unnumbered \paragraph headings: revtex otherwise labels them a., b., ..., which looks wrong
+% for a section with a single run-in paragraph heading.
+\setcounter{secnumdepth}{3}
 \usepackage{xcolor}
 \usepackage{graphicx}
 % Figures live in figures/ (next to this file locally, next to main.tex on Overleaf; synced by

@@ -318,9 +318,13 @@ on the sides of a dip it has located, so that they carry about $I_{\rm max}$ and
 \emph{localize} in between, from the first detection of the dip until it locks onto the dip, as it narrows down from the window to the dip. After that a global search has become a tracking problem: its posterior is roughly Gaussian of width $\lesssim\Gamma$ around the dip, and it behaves like a tracking run. A tracking run with
 $\sigma_0\lesssim\Gamma$ has the dip located from the start, so it has no search and is all refine.
 
-In a global search, if every measurement carried $I_{\rm max}$, the crossover would come after
-$n_c=J_0/I_{\rm max}=\tfrac{64\pi^2}{27}\,(\Gamma/W)^2/(k\,\mathrm{SNR}^2)$ measurements, far below one for a wide window. It comes much later because $I_{\rm max}$ is reached
-only once the dip has been found: a measurement on the baseline carries $I(x)\approx0$, so the information collected
+For a wide window, a global search reaches the data limit far later than the information per measurement alone
+would suggest. If every measurement carried $I_{\rm max}$, the crossover would come after
+\begin{equation}
+  n_c=\frac{J_0}{I_{\rm max}}=\frac{64\pi^2}{27}\,\frac{(\Gamma/W)^2}{k\,\mathrm{SNR}^2}
+  \;\overset{W\gg\Gamma}{\ll}\;1
+\end{equation}
+measurements. But $I_{\rm max}$ is reached only once the dip has been found: a measurement on the baseline carries $I(x)\approx0$, so the information collected
 stays near that of the prior while the strategy searches. What such a measurement contributes instead
 is \emph{elimination}: it shrinks the prior itself.
 
