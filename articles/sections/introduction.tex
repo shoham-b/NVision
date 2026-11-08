@@ -46,7 +46,11 @@ reinforcement-learning agent that refines the estimate \cite{guo2026}.
 These studies show that adaptive and learned strategies locate the resonance with far fewer measurements than a
 sweep, and measure the gain against that sweep. Information bounds are already used as
 benchmarks in Hamiltonian learning: the Bayesian Cram\'er--Rao bound certifies how close an SMC estimator comes to
-the best precision for the measurements it has chosen \cite{granade2012}. Such a bound has not yet been applied to
+the best precision for the measurements it has chosen \cite{granade2012}. The same kind of bound, the van Trees
+inequality \cite{vantrees1968,gill1995}, has been tested against the measured error of a photonic interferometer,
+which it follows for regular, narrow priors \cite{daurelio2022}. In simulations of iterative single-molecule
+localization, where each measurement is placed using the previous estimate, it has been used to compare placement
+strategies \cite{kalisvaart2022}. Such a bound has not yet been applied to
 the ODMR search as a whole, starting from nothing more than the search window. It would give a strategy-independent
 reference, showing how close current strategies come to the best achievable
 performance and which of their measurements are unavoidable. It would also supply a mechanism for the speedup over a
@@ -62,7 +66,7 @@ the speedup over a sweep: for a precise target it is approximately the ratio of 
 independent of the signal-to-noise ratio, which explains its growth with the window. It also recovers the standard
 CW-ODMR sensitivity as the refine limit, reached only by a strategy that measures at the steepest slope of the line,
 and shows that the window limits the bandwidth while the line shape and the signal-to-noise ratio limit the
-sensitivity. \tbd{Simulation and lab findings: how closely SBED follows the bound, and the speedup measured.}
+sensitivity.
 
 Section~\ref{sec:theory} derives the bound from the physical model, together with the speedup, sensitivity and
 bandwidth that follow from it. Section~\ref{sec:methods} describes SBED, with its particle filter, as a strategy that

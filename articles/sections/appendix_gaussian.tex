@@ -8,39 +8,39 @@ appendix states when that holds for the line of Eq.~\eqref{eq:signal}. There are
 the posterior has a single peak, and whether that peak is Gaussian. We take the nuisances as known; they add
 dimensions but do not change the scaling.
 
-\paragraph{Shape of a single peak.} Let $L(\theta)=\ln p(\theta)+\sum_i\ln p(y_i\mid\theta,x_i)$ be the log
+\paragraph{Shape of a single peak.} Let $\ell(\theta)=\ln p(\theta)+\sum_i\ln\mathcal L_i(\theta)$ be the log
 posterior and $\hat\theta$ its maximum. Inside the window the uniform prior is flat and only the likelihood
 contributes. Expanding about the maximum (Laplace's method \cite{vandervaart1998}),
 \begin{equation}
-  L(\theta)=L(\hat\theta)-\frac{J}{2}(\theta-\hat\theta)^2+\frac{L'''}{6}(\theta-\hat\theta)^3
-  +\frac{L''''}{24}(\theta-\hat\theta)^4+\dots,
+  \ell(\theta)=\ell(\hat\theta)-\frac{J}{2}(\theta-\hat\theta)^2+\frac{\ell'''}{6}(\theta-\hat\theta)^3
+  +\frac{\ell''''}{24}(\theta-\hat\theta)^4+\dots,
   \label{eq:laplace}
 \end{equation}
-with $J=-L''(\hat\theta)$, whose expectation is the Fisher information $J_n$ of Eq.~\eqref{eq:vantrees}. Keeping only
+with $J=-\ell''(\hat\theta)$, whose expectation is the Fisher information $J_n$ of Sec.~\ref{sec:fisher}. Keeping only
 the quadratic term gives a Gaussian of variance $\sigma_\theta^2=1/J$. Over the posterior,
 $|\theta-\hat\theta|\sim\sigma_\theta$, so the higher terms change the log density by relative amounts of order
-$L'''\sigma_\theta^3$ and $L''''\sigma_\theta^4$; the first sets the asymmetry of the peak, the second the weight
+$\ell'''\sigma_\theta^3$ and $\ell''''\sigma_\theta^4$; the first sets the asymmetry of the peak, the second the weight
 of its tails.
 
-For Gaussian noise, $\ln p(y\mid\theta,x)=-k\,[y-\mu(x;\theta)]^2/2\sigma^2$ up to a constant. Averaged over the
+For Gaussian noise, $\ln\mathcal L(\theta)=-k\,[y-\mu(x;\theta)]^2/2\sigma^2$ up to a constant. Averaged over the
 noise, the derivatives are
 \begin{equation*}
-  \mathbb E[L'']=-\sum_i\frac{k\,\mu_i'^2}{\sigma^2}=-J_n,\qquad
-  \mathbb E[L''']=-3\sum_i\frac{k\,\mu_i'\mu_i''}{\sigma^2},
+  \mathbb E[\ell'']=-\sum_i\frac{k\,\mu_i'^2}{\sigma^2}=-J_n,\qquad
+  \mathbb E[\ell''']=-3\sum_i\frac{k\,\mu_i'\mu_i''}{\sigma^2},
 \end{equation*}
 where primes are derivatives with respect to $\theta$ at $x_i$, so $\mu_i'=g(x_i)$. The line changes on the scale
 of its half width $\gamma$, so each further derivative brings a factor of order $1/\gamma$: $\mu''\sim\mu'/\gamma$,
-hence $|L'''|\lesssim J_n/\gamma$ and $|L''''|\lesssim J_n/\gamma^2$. The corrections in Eq.~\eqref{eq:laplace} are
+hence $|\ell'''|\lesssim J_n/\gamma$ and $|\ell''''|\lesssim J_n/\gamma^2$. The corrections in Eq.~\eqref{eq:laplace} are
 then of relative order
 \begin{equation}
-  L'''\sigma_\theta^3\sim\frac{\sigma_\theta}{\gamma},\qquad L''''\sigma_\theta^4\sim\frac{\sigma_\theta^2}{\gamma^2}.
+  \ell'''\sigma_\theta^3\sim\frac{\sigma_\theta}{\gamma},\qquad \ell''''\sigma_\theta^4\sim\frac{\sigma_\theta^2}{\gamma^2}.
   \label{eq:gauss-corrections}
 \end{equation}
 A single peak is Gaussian once it is narrow compared with the line, $\sigma_\theta\ll\gamma$. This is an upper
 estimate: at the steepest-slope points $\mu''=0$ (there $|g|$ is at its maximum), so for measurements placed there
 the cubic term vanishes on average and the corrections start at order $\sigma_\theta^2/\gamma^2$.
 
-In the data limit, $J_n\approx nI^*$ with $I^*$ of Eq.~\eqref{eq:istar}, and with $\Gamma=2\gamma$,
+In the data limit, $J_n\approx nI_{\rm max}$ with $I_{\rm max}$ of Eq.~\eqref{eq:istar}, and with $\Gamma=2\gamma$,
 \begin{equation*}
   \frac{\sigma_\theta}{\gamma}\approx\frac{8}{3\sqrt3}\,\frac{1}{\mathrm{SNR}\sqrt{nk}}
   \approx\frac{1.5}{\mathrm{SNR}\sqrt{nk}} ,
@@ -54,7 +54,7 @@ quadratic term relative to the linear one is $\mu''\sigma_\theta/2g\sim\sigma_\t
 therefore holds up to relative corrections of order $\sigma_\theta/\gamma$, and of order $\sigma_\theta^2/\gamma^2$
 at the steepest slope.
 
-\paragraph{Leftover mass.} The expansion describes one peak. Early in focus the posterior is instead a mixture: a
+\paragraph{Leftover mass.} The expansion describes one peak. Early in the localize stage the posterior is instead a mixture: a
 peak of weight $1-p$ and width $\sigma_\theta$ at the dip, and a remainder of weight $p$ spread over the part of
 the window not yet excluded, of width up to $W$. The variance of the mixture is
 \begin{equation*}

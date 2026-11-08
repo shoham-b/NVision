@@ -146,6 +146,31 @@ def test_sweeps_payload_groups_by_folder_and_lists_failures(tmp_path):
     assert payload["failed"] == [{"label": "data", "file": "b/bad.mat", "error": "ValueError: x"}]
 
 
+def test_sigma_curves_in_mhz_with_reference_lines_and_old_records_none():
+    from nvision.metrics.lab_reference import lab_sweeps_payload as payload_of
+
+    hist = {"zeeman_shift": [4e6, 2e6, 1e6], "zero_field_freq": [3e6, 1e6, 5e5]}
+    full = {
+        **_run(0.5),
+        "sigma_history": hist,
+        "lab_curve_fit": {"sigmas": {"zeeman_shift": 3e4, "zero_field_freq": 0.0}, "at_bound": []},
+    }
+    held = {**_run(0.5), "sigma_history": hist}
+    held["holdout"] = {**held["holdout"], "ref_zero_field_freq_sigma": 1e4, "ref_zero_field_freq_at_bound": 1}
+    held["holdout"]["ref_zeeman_shift_sigma"] = 2e4
+    rec = {"label": "l", "file": "a/1.mat", "folder": "a", "full": full, "holdout": held}
+    curves = payload_of([rec])["groups"][0]["rows"][0]["sigma_curves"]
+    assert curves["steps"] == [1, 2, 3]
+    assert curves["all_zeeman_shift"] == pytest.approx([4.0, 2.0, 1.0])
+    assert curves["ref_zeeman_shift"] == pytest.approx(0.02)
+    assert curves["lab_zeeman_shift"] == pytest.approx(0.03)
+    assert curves["ref_zero_field_freq"] is None  # reference fit sat on a bound
+    assert curves["lab_zero_field_freq"] is None  # centre held fixed (sigma 0)
+
+    old = {"label": "l", "file": "a/2.mat", "folder": "a", "full": _run(0.5), "holdout": _run(0.5)}
+    assert payload_of([old])["groups"][0]["rows"][0]["sigma_curves"] is None
+
+
 def test_a_stale_lock_is_taken_over(tmp_path):
     lock_path = tmp_path / "labs" / "sync.lock"
     lock_path.parent.mkdir(parents=True)

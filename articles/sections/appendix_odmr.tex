@@ -60,16 +60,16 @@ values at full saturation. Raising the laser power therefore both widens and fla
 % factor-2 convention for the rates. Check before quoting numbers.
 
 \paragraph{Pulsed line.} The $\pi$-pulse length is chosen so that on resonance, where the spin oscillates at
-$\Omega$, it is fully inverted: $\pi\Omega t_\pi=\pi/2$. Off resonance it oscillates at $\tilde\Omega$ instead.
-Measuring $\tilde\Omega$ in units of $\Omega$, $r\equiv\tilde\Omega/\Omega=\sqrt{1+\Delta^2/\Omega^2}\ge1$, the
-argument of the sine in Eq.~\eqref{eq:rabi} at $t=t_\pi$ is $\pi\tilde\Omega t_\pi=\pi r/2$ and the prefactor is
-$\Omega^2/\tilde\Omega^2=1/r^2$, which gives Eq.~\eqref{eq:pulsed}. On resonance $r=1$ and the inversion is
-complete. For $|\Delta|\gg\Omega$, $r\approx|\Delta|/\Omega$ and
+$\Omega$, it is fully inverted: $\pi\Omega t_\pi=\pi/2$. Off resonance it oscillates at $\Omega_{\rm gen}$ instead, so
+the argument of the sine in Eq.~\eqref{eq:rabi} at $t=t_\pi$ is $\pi\Omega_{\rm gen} t_\pi=(\pi/2)\,\Omega_{\rm gen}/\Omega$,
+which gives Eq.~\eqref{eq:pulsed}. On resonance $\Omega_{\rm gen}=\Omega$ and the inversion is complete. For
+$|\Delta|\gg\Omega$, $\Omega_{\rm gen}\approx|\Delta|$ and
 $P_{-1}^{\pi}\approx\sin^2(\pi\Delta t_\pi)/(2\Delta t_\pi)^2$, the power spectrum of a rectangular pulse of length
 $t_\pi$: far from resonance the spin responds to the frequency content of the pulse. The line vanishes wherever
-$\sin(\pi r/2)=0$, i.e.\ $r=2,4,\dots$, at $|\Delta|=\sqrt3\,\Omega,\sqrt{15}\,\Omega,\dots$: there the spin
-completes a whole number of full Rabi cycles and returns to $m_s=0$. Between the zeros lie side lobes that decay as
-$1/r^2$; the first, near $r=3$ at $|\Delta|\approx2.7\,\Omega$, is 12\% of the depth.
+$\Omega_{\rm gen}=2\Omega,4\Omega,\dots$, i.e.\ at $|\Delta|=\sqrt3\,\Omega,\sqrt{15}\,\Omega,\dots$: there the spin
+completes a whole number of full Rabi cycles during the pulse and returns to $m_s=0$. Between the zeros lie side
+lobes that decay as $\Omega^2/\Omega_{\rm gen}^2$; the first, near $\Omega_{\rm gen}=3\Omega$ at $|\Delta|\approx2.7\,\Omega$,
+is 12\% of the depth.
 
 \paragraph{Inhomogeneous broadening.} The transition frequency of the spin is not sharp: slowly fluctuating local
 fields, mostly from the bath of $^{13}$C nuclear spins, shift it by a random offset $\xi$ that is fixed during one
