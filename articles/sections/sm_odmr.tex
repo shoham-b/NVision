@@ -1,13 +1,122 @@
 % =====================================================================
-\section{ODMR line shapes}
-\label{app:odmr}
+\section{ODMR physics and line shapes}
+\label{sm:odmr}
 % =====================================================================
 
-This appendix derives the line shapes summarized in Sec.~\ref{sec:model}: the CW line with the laser treated as two
-rates rather than a reset, together with the broadening by the spin bath, and the pulsed line with its
-inhomogeneous broadening and readout.
+This section gives the physics behind the line model of Sec.~\ref{sec:model} of the main text: the optical
+readout of the N-V spin, the Rabi response that sets the CW and pulsed line shapes, the hyperfine structure and the
+second transition that Eq.~\eqref{eq:signal} leaves out, and the derivation of the line shapes with the laser
+treated as two rates rather than a reset, the broadening by the spin bath, and the pulsed readout.
 
-\paragraph{CW line with optical pumping.} Eq.~\eqref{eq:cw-lorentzian} treats the laser only as a reset, which is too
+\subsection{Optical readout}
+
+The negatively charged N-V center is described by five levels
+\cite{manson2006,doherty2013nv} (Fig.~\ref{fig:levels}): the spin-triplet ground state $^3A_2$, split into
+$|0\rangle_g$ and $|\pm1\rangle_g$ by the spin projection $m_s$ on the N-V axis; the spin-triplet excited state
+$^3E$, with $|0\rangle_e$ and $|\pm1\rangle_e$; and a metastable spin singlet $|s\rangle$ that stands for the
+singlet manifold. Green light drives the spin-conserving optical transitions $|m_s\rangle_g\to|m_s\rangle_e$, which
+decay back by emitting red photoluminescence (PL). From $|\pm1\rangle_e$, however, the intersystem crossing to the
+singlet is much faster than from $|0\rangle_e$, and the singlet decays preferentially to $|0\rangle_g$.
+% The singlet -> |g,0> branching ratio is still debated: ~50-70 % (Robledo et al. 2011; Tetienne et al. 2012)
+% vs ~90 % (Wirtitsch et al.), as summarized in arXiv:2511.19583. Not needed here: only the net pumping into
+% m_s = 0 enters, through the rate Gamma_p below. Verify the primary sources before quoting a number.
+Two
+consequences follow. Under continuous illumination the spin is pumped into $m_s=0$; and a center in $m_s=\pm1$
+spends part of its optical cycles in the dark singlet, so it emits less PL than one in $m_s=0$. The spin state can
+therefore be prepared and read out optically.
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{nv_5level_diagram}
+\caption{Five-level model of the N-V center \cite{manson2006,doherty2013nv}. \tbd{Caption to follow the figure.}}
+\label{fig:levels}
+\end{figure}
+
+The two transitions $f_\pm$ share the state $|0\rangle_g$ but lie $2\delta_Z$ apart. When this separation is large
+compared with the linewidth, a drive near $f_-$ is far off resonance with $f_+$ and couples only $|0\rangle_g$ and
+$|-1\rangle_g$. The excited state and the singlet then enter only through the rates at which the laser repolarizes
+the spin and destroys its coherence \cite{dreau2011}, so the spin reduces to a driven two-level system
+$\{m_s=0,m_s=-1\}$.
+
+\subsection{Rabi response and the two ODMR modes}
+
+Let the drive have detuning $\Delta=f-f_-$ from the transition and Rabi frequency $\Omega$, the rate in Hz at which
+the population oscillates on resonance. Off resonance the spin oscillates faster but less deeply, at the
+generalized Rabi frequency
+\begin{equation*}
+  \Omega_{\rm gen}=\sqrt{\Omega^2+\Delta^2}.
+\end{equation*}
+Starting from $m_s=0$, the probability of finding the spin in $m_s=-1$ after a drive of duration $t$ is
+\begin{equation}
+  P_{-1}(\Delta,t)=\frac{\Omega^2}{\Omega_{\rm gen}^2}\,\sin^2\!\big(\pi\Omega_{\rm gen} t\big),
+  \label{eq:rabi}
+\end{equation}
+and $P_0=1-P_{-1}$ is the probability of finding it still in $m_s=0$. The prefactor is the depth of the
+oscillation, the sine its time dependence. Since $m_s=-1$ is the darker state, the PL dip is proportional to
+$P_{-1}$. How the drive is applied sets the line shape.
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{odmr_sequence}
+\caption{Laser and microwave sequences of CW and pulsed ODMR. \tbd{Caption to follow the figure.}}
+\label{fig:sequences}
+\end{figure}
+
+\paragraph{CW ODMR.} In continuous-wave ODMR the laser and the microwave drive act on the spin continuously and at the
+same time, and the PL is read out while the drive is on (Fig.~\ref{fig:sequences}). The laser keeps pumping the spin
+back into $m_s=0$ while the drive keeps rotating it away, so every optical reset starts a new Rabi oscillation, and
+the PL, collected over many such cycles, reports Eq.~\eqref{eq:rabi} averaged over the time $T$ between resets.
+When the drive acts for many Rabi periods between resets, $\Omega_{\rm gen} T\gg1$, the oscillating factor averages to
+$\tfrac12$,
+\begin{equation}
+  \bar P_{-1}(\Delta)=\frac{\Omega^2}{\Omega_{\rm gen}^2}\,\frac1T\int_0^T\sin^2\!\big(\pi\Omega_{\rm gen} t\big)\,dt
+  \;\longrightarrow\;\frac12\,\frac{\Omega^2}{\Omega^2+\Delta^2}.
+  \label{eq:cw-lorentzian}
+\end{equation}
+The average only renormalizes the amplitude; the line shape is that of the prefactor, a Lorentzian in the detuning
+$\Delta$ of half width $\Omega$. This is the microwave contribution to the width, power broadening: the stronger the
+drive, the further off resonance it still flips the spin. With the laser treated as two rates rather than a reset
+(Sec.~\ref{sm:cw-pumping}), the line stays a Lorentzian, with the half width of Eq.~\eqref{eq:linewidth} of the
+main text.
+
+\paragraph{Pulsed ODMR} is a technique that removes the laser from the width of the line \cite{dreau2011}. In CW ODMR the
+laser that reads the spin out also broadens the line through $\Gamma_c$, and narrowing it means lowering both powers
+and with them the contrast and the PL. Pulsed ODMR separates the two in time: a laser pulse polarizes the spin into
+$m_s=0$, the laser is switched off while a single microwave $\pi$-pulse of duration $t_\pi=1/(2\Omega)$ is applied,
+and a second laser pulse reads the spin out (Fig.~\ref{fig:sequences}). The pulse fully inverts the spin on
+resonance, and Eq.~\eqref{eq:rabi} at $t=t_\pi$ gives (Sec.~\ref{sm:pulsed})
+\begin{equation}
+  P_{-1}^{\pi}(\Delta)=\frac{\Omega^2}{\Omega_{\rm gen}^2}\,\sin^2\!\Big(\frac{\pi}{2}\,\frac{\Omega_{\rm gen}}{\Omega}\Big).
+  \label{eq:pulsed}
+\end{equation}
+This line is not a Lorentzian. Its width is the Fourier limit of the pulse, $\sim1/t_\pi$, down to $\sim1/T_2^*$,
+where the spread of the transition frequency sets it, and it has side lobes up to 12\% of the depth: dips where there
+is no resonance, a hazard for a search.
+
+% Code: NVCenterPulsedDriveModel (spectra/nv_center_drive.py) evaluates Eq. (rabi) at the pulse time with the
+% Gaussian T2* average; NVCenterCWDriveModel broadens with MW power only, gamma = gamma_0 sqrt(1 + s_MW),
+% gamma_0 = 150 kHz fixed, i.e. no optical term. The SNR x window study uses a fixed linewidth (no drive),
+% consistent with one Gamma.
+
+\subsection{Hyperfine structure and the second transition}
+
+Each nuclear projection $m_I$ gives its own copy of the line, shifted by
+$A_\parallel m_I$ (Eq.~\eqref{eq:transitions}) and weighted by the population of that $m_I$, so the observed
+spectrum is a sum of $2I+1$ lines. Two cases reduce it to the single line of Eq.~\eqref{eq:signal}. Near the
+excited-state level anticrossing the nitrogen nuclear spin is polarized into a single $m_I$ \cite{jacques2009}: only
+one line remains, and its fixed offset $A_\parallel m_I$ is absorbed into $f_-$. When the line is much wider than
+the hyperfine spacing, $\Gamma\gg|A_\parallel|$, the lines merge into one.
+
+Equation~\eqref{eq:signal} also leaves out the $f_+$ line. The drive window lies below $D$ and holds $f_-$ only, but
+the tail of the $f_+$ line, $2\delta_Z$ higher, adds $C\gamma^2/[\gamma^2+(f-f_+)^2]$ inside it: at $f_-$ a fraction
+$\gamma^2/(\gamma^2+4\delta_Z^2)$ of the contrast $C$, i.e.\ 20\% at $\delta_Z=\gamma$ and below 1\% for
+$\delta_Z\gtrsim5\gamma$. Equation~\eqref{eq:signal} assumes $\delta_Z\gg\gamma$; small Zeeman shifts, where the two
+lines overlap, are outside the scope of this work. The same tail raises the on-resonance depth to
+$C[1+\gamma^2/(\gamma^2+4\delta_Z^2)]$, so the SNR $C/\sigma$ of Eq.~\eqref{eq:snr} is the $\delta_Z\gg\gamma$ limit
+of the on-resonance SNR.
+
+\subsection{CW line with optical pumping}
+\label{sm:cw-pumping}
+
+Eq.~\eqref{eq:cw-lorentzian} treats the laser only as a reset, which is too
 crude when the resets are frequent. The laser acts on the spin through two rates, both set by how often the center
 goes through an optical cycle: it pumps the spin back toward $m_s=0$, at a rate $\Gamma_p$, and each cycle destroys
 the phase between $m_s=0$ and $m_s=-1$, at a rate $\Gamma_c$. The two rates share a cause but are not equal. A cycle
@@ -82,10 +191,13 @@ standard deviation $\sigma_\xi=1/(\sqrt2\,\pi T_2^*)$ the CW line is a Voigt pro
 Eq.~\eqref{eq:bloch-ss}, of half width $\gamma$, convolved with a Gaussian of width $\sigma_\xi$. When
 $\gamma\gg\sigma_\xi$ it is the Lorentzian of Eq.~\eqref{eq:signal}; when the laser and microwave powers are
 lowered until $\gamma\lesssim\sigma_\xi$, the line stops narrowing at a width $\sim1/T_2^*$, as the pulsed line does.
-In either case it is one dip with one total width, which is the width inferred in Sec.~\ref{sec:methods}; the
-simulations use a pseudo-Voigt approximation to this profile.
+In either case it is one dip with one total width, which is the width inferred in Sec.~\ref{sec:methods} of the main
+text; the simulations use a pseudo-Voigt approximation to this profile.
 
-\paragraph{Pulsed line.} The $\pi$-pulse length is chosen so that on resonance, where the spin oscillates at
+\subsection{Pulsed line}
+\label{sm:pulsed}
+
+The $\pi$-pulse length is chosen so that on resonance, where the spin oscillates at
 $\Omega$, it is fully inverted: $\pi\Omega t_\pi=\pi/2$. Off resonance it oscillates at $\Omega_{\rm gen}$ instead, so
 the argument of the sine in Eq.~\eqref{eq:rabi} at $t=t_\pi$ is $\pi\Omega_{\rm gen} t_\pi=(\pi/2)\,\Omega_{\rm gen}/\Omega$,
 which gives Eq.~\eqref{eq:pulsed}. On resonance $\Omega_{\rm gen}=\Omega$ and the inversion is complete. For

@@ -38,7 +38,7 @@ adds Gaussian noise, so that the mean and covariance of the cloud are preserved.
 variance floor that decays with the number of measurements, so early rejuvenations can still widen the cloud, and
 reflection of particles that leave the prior bounds. Each particle's noise posterior is then recomputed from the full
 history at its new position. The initial cloud is drawn from the prior. The
-formulas and settings are in Appendix~\ref{app:algorithm}.
+formulas and settings are in \SM{sm:algorithm}.
 
 The particle filter reports the posterior mean and the weighted particle standard deviation,
 \begin{equation}
@@ -96,7 +96,7 @@ $\hat\sigma_N$ too small at any $N$.
 % covariance), so it overstates the entropy before the posterior is Gaussian.
 
 \paragraph{Use cases.} A use case is one simulated signal at one noise level, set by the SNR, the drive window, the
-Gaussian share of the width and the isotope (Appendix~\ref{app:algorithm}). Every metric is computed within one use
+Gaussian share of the width and the isotope (\SM{sm:algorithm}). Every metric is computed within one use
 case, over repeats whose true signal is the same for every strategy, so strategies are compared run by run; several
 use cases are summarized by the median over them.
 

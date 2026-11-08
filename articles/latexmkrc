@@ -1,0 +1,8 @@
+# Build supplemental.aux before the main document, so that its \externaldocument{supplemental} references
+# resolve (Overleaf's recipe for the xr package; Overleaf reads this file from the project root).
+add_cus_dep('tex', 'aux', 0, 'makeexternaldocument');
+sub makeexternaldocument {
+    if (!($root_filename eq $_[0])) {
+        system("latexmk -cd -pdf \"$_[0]\"");
+    }
+}

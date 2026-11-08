@@ -13,26 +13,11 @@
 % The code places the drive window above D and measures f_+ = D + delta_Z; the spectrum is mirror symmetric
 % about D, so this is equivalent to the lower transition f_- used here (the one measured in the lab).
 
-The negatively charged N-V center is described by five levels
-\cite{manson2006,doherty2013nv} (Fig.~\ref{fig:levels}): the spin-triplet ground state $^3A_2$, split into
-$|0\rangle_g$ and $|\pm1\rangle_g$ by the spin projection $m_s$ on the N-V axis; the spin-triplet excited state
-$^3E$, with $|0\rangle_e$ and $|\pm1\rangle_e$; and a metastable spin singlet $|s\rangle$ that stands for the
-singlet manifold. Green light drives the spin-conserving optical transitions $|m_s\rangle_g\to|m_s\rangle_e$, which
-decay back by emitting red photoluminescence (PL). From $|\pm1\rangle_e$, however, the intersystem crossing to the
-singlet is much faster than from $|0\rangle_e$, and the singlet decays preferentially to $|0\rangle_g$.
-% The singlet -> |g,0> branching ratio is still debated: ~50-70 % (Robledo et al. 2011; Tetienne et al. 2012)
-% vs ~90 % (Wirtitsch et al.), as summarized in arXiv:2511.19583. Not needed here: only the net pumping into
-% m_s = 0 enters, through the rate Gamma_p below. Verify the primary sources before quoting a number.
-Two
-consequences follow. Under continuous illumination the spin is pumped into $m_s=0$; and a center in $m_s=\pm1$
-spends part of its optical cycles in the dark singlet, so it emits less PL than one in $m_s=0$. The spin state can
-therefore be prepared and read out optically.
-\begin{figure}[t]
-\centering
-\includegraphics[width=\linewidth]{nv_5level_diagram}
-\caption{Five-level model of the N-V center \cite{manson2006,doherty2013nv}. \tbd{Caption to follow the figure.}}
-\label{fig:levels}
-\end{figure}
+Under green illumination the negatively charged N-V center emits red photoluminescence (PL). A center in the
+ground-state spin sublevels $m_s=\pm1$ crosses more often into a dark metastable singlet than one in $m_s=0$, so it
+emits less PL, and the singlet decays preferentially back to $m_s=0$ \cite{manson2006,doherty2013nv}. Continuous
+illumination therefore pumps the spin into $m_s=0$, and the spin state can be prepared and read out optically
+(\SM{sm:odmr}).
 
 With a static field $B_z$ along the N-V axis, the ground-state spin ($S=1$) Hamiltonian is \cite{doherty2013nv}
 \begin{equation}
@@ -53,64 +38,24 @@ apart, symmetrically about $D$. The hyperfine
 term splits each of them further into $2I+1$ lines, one per nuclear projection $m_I$, spaced by $|A_\parallel|$:
 a triplet for $^{14}$N and a doublet for $^{15}$N. Every N-V center contains one of the two isotopes ($^{14}$N at
 99.6\% natural abundance, $^{15}$N in isotopically enriched or implanted samples), so the hyperfine structure is
-always present; whether it is resolved depends on the linewidth. We first treat a single line and return to the
-hyperfine structure below.
+always present; whether it is resolved depends on the linewidth.
 
 An ODMR measurement sets the microwave drive frequency $f$ and records the PL, normalized to its off-resonance
 level. When $f$ meets a transition, the drive transfers population from $m_s=0$ to the darker $m_s=\pm1$ state and
-the PL dips.
-
-The two transitions share the state $|0\rangle_g$ but lie $2\delta_Z$ apart. When this separation is large
-compared with the linewidth, a drive near $f_-$ is far off resonance with $f_+$ and couples only $|0\rangle_g$ and
-$|-1\rangle_g$. The excited state and the singlet then enter only through the rates at which the laser repolarizes
-the spin and destroys its coherence \cite{dreau2011}, so the spin reduces to a driven two-level system
-$\{m_s=0,m_s=-1\}$. It is therefore enough to model one transition, and we take the one measured in our setup,
+the PL dips. When the two transitions, $2\delta_Z$ apart, are well separated compared with the linewidth, a drive
+near $f_-$ couples only $m_s=0$ and $m_s=-1$, and the spin reduces to a driven two-level system \cite{dreau2011}.
+It is therefore enough to model one transition, and we take the one measured in our setup,
 $f_-$ (Sec.~\ref{sec:setup}); $f_+$ behaves the same way, mirrored about $D$. With the zero-field splitting $D$
 treated as a known constant, $f_-$ carries the field, $D-f_-=\delta_Z=\gamma_e B_z$, and an uncertainty in $f_-$ is
 the same uncertainty in the Zeeman shift.
 
-Let the drive have detuning $\Delta=f-f_-$ from the transition and Rabi frequency $\Omega$, the rate in Hz at which
-the population oscillates on resonance. Off resonance the spin oscillates faster but less deeply, at the
-generalized Rabi frequency
-\begin{equation*}
-  \Omega_{\rm gen}=\sqrt{\Omega^2+\Delta^2}.
-\end{equation*}
-Starting from $m_s=0$, the probability of finding the spin in $m_s=-1$ after a drive of duration $t$ is
-\begin{equation}
-  P_{-1}(\Delta,t)=\frac{\Omega^2}{\Omega_{\rm gen}^2}\,\sin^2\!\big(\pi\Omega_{\rm gen} t\big),
-  \label{eq:rabi}
-\end{equation}
-and $P_0=1-P_{-1}$ is the probability of finding it still in $m_s=0$. The prefactor is the depth of the
-oscillation, the sine its time dependence. Since $m_s=-1$ is the darker state, the PL dip is proportional to
-$P_{-1}$. How the drive is applied sets the line shape.
-\begin{figure}[t]
-\centering
-\includegraphics[width=\linewidth]{odmr_sequence}
-\caption{Laser and microwave sequences of CW and pulsed ODMR. \tbd{Caption to follow the figure.}}
-\label{fig:sequences}
-\end{figure}
-
-\emph{CW ODMR.} In continuous-wave ODMR the laser and the microwave drive act on the spin continuously and at the
-same time, and the PL is read out while the drive is on (Fig.~\ref{fig:sequences}). The laser keeps pumping the spin
-back into $m_s=0$ while the drive keeps rotating it away, so every optical reset starts a new Rabi oscillation, and
-the PL, collected over many such cycles, reports Eq.~\eqref{eq:rabi} averaged over the time $T$ between resets.
-When the drive acts for many Rabi periods between resets, $\Omega_{\rm gen} T\gg1$, the oscillating factor averages to
-$\tfrac12$,
-\begin{equation}
-  \bar P_{-1}(\Delta)=\frac{\Omega^2}{\Omega_{\rm gen}^2}\,\frac1T\int_0^T\sin^2\!\big(\pi\Omega_{\rm gen} t\big)\,dt
-  \;\longrightarrow\;\frac12\,\frac{\Omega^2}{\Omega^2+\Delta^2}.
-  \label{eq:cw-lorentzian}
-\end{equation}
-The average only renormalizes the amplitude; the line shape is that of the prefactor, a Lorentzian in the detuning
-$\Delta$ of half width $\Omega$. This is the microwave contribution to the width, power broadening: the stronger the
-drive, the further off resonance it still flips the spin.
-
-The laser does more than reset the spin. It pumps the spin back toward $m_s=0$ at a rate $\Gamma_p$, and each
-optical cycle destroys the phase between $m_s=0$ and $m_s=-1$, at a rate $\Gamma_c$; both rates grow with the laser
-power and saturate at high power. The spin's environment adds its own relaxation rate $1/T_1$ to the first and its
-dephasing rate $1/T_2$ to the second, so the populations relax at $\Gamma_1=\Gamma_p+1/T_1$ and the coherence at
-$\Gamma_2=\Gamma_c+1/T_2$. With these rates, and the angular Rabi frequency $\Omega_R=2\pi\Omega$ of the drive, the
-line is still a Lorentzian (Appendix~\ref{app:odmr}), of half width \cite{dreau2011}
+In continuous-wave (CW) ODMR the laser and the microwave drive act on the spin at the same time. The laser pumps the
+spin back toward $m_s=0$ at a rate $\Gamma_p$, and each optical cycle destroys the phase between $m_s=0$ and
+$m_s=-1$, at a rate $\Gamma_c$; both rates grow with the laser power and saturate at high power. The spin's
+environment adds its own relaxation rate $1/T_1$ to the first and its dephasing rate $1/T_2$ to the second, so the
+populations relax at $\Gamma_1=\Gamma_p+1/T_1$ and the coherence at $\Gamma_2=\Gamma_c+1/T_2$. With these rates, and
+the angular Rabi frequency $\Omega_R=2\pi\Omega$ of the drive, the steady-state line is a Lorentzian
+(\SM{sm:cw-pumping}), of half width \cite{dreau2011}
 \begin{equation}
   \gamma=\frac{1}{2\pi}\sqrt{\Gamma_2^2+\Omega_R^2\,\frac{\Gamma_2}{\Gamma_1}} .
   \label{eq:linewidth}
@@ -118,7 +63,7 @@ line is still a Lorentzian (Appendix~\ref{app:odmr}), of half width \cite{dreau2
 The first term is the width without drive, set by the loss of coherence, mostly through the laser; the second is
 power broadening by the microwave, tempered by the pumping. At weak drive the laser sets the width, at strong drive
 the microwave. The spin bath also spreads the transition frequency itself, by $\sim1/T_2^*$; this adds a Gaussian
-broadening to the Lorentzian, and it sets the width once both powers are low (Appendix~\ref{app:odmr}). Whatever its
+broadening to the Lorentzian, and it sets the width once both powers are low (\SM{sm:cw-pumping}). Whatever its
 origin, the line is one dip of a single effective width, taken here as a Lorentzian: the normalized PL expected at
 drive frequency $f$ is
 \begin{equation}
@@ -129,37 +74,11 @@ with contrast $C$, the depth of the dip at $f=f_-$, half width $\gamma$ of Eq.~\
 at half maximum $\Gamma=2\gamma$. Optical and microwave broadening are not modeled separately: they enter only
 through the single linewidth $\Gamma$, which is inferred with the line.
 
-\emph{Pulsed ODMR} is a technique that removes the laser from the width of the line \cite{dreau2011}. In CW ODMR the
-laser that reads the spin out also broadens the line through $\Gamma_c$, and narrowing it means lowering both powers
-and with them the contrast and the PL. Pulsed ODMR separates the two in time: a laser pulse polarizes the spin into
-$m_s=0$, the laser is switched off while a single microwave $\pi$-pulse of duration $t_\pi=1/(2\Omega)$ is applied,
-and a second laser pulse reads the spin out (Fig.~\ref{fig:sequences}). The pulse fully inverts the spin on
-resonance, and Eq.~\eqref{eq:rabi} at $t=t_\pi$ gives (Appendix~\ref{app:odmr})
-\begin{equation}
-  P_{-1}^{\pi}(\Delta)=\frac{\Omega^2}{\Omega_{\rm gen}^2}\,\sin^2\!\Big(\frac{\pi}{2}\,\frac{\Omega_{\rm gen}}{\Omega}\Big).
-  \label{eq:pulsed}
-\end{equation}
-This line is not a Lorentzian. Its width is the Fourier limit of the pulse, $\sim1/t_\pi$, down to $\sim1/T_2^*$,
-where the spread of the transition frequency sets it, and it has side lobes up to 12\% of the depth: dips where there
-is no resonance, a hazard for a search (Appendix~\ref{app:odmr}).
-
-% Code: NVCenterPulsedDriveModel (spectra/nv_center_drive.py) evaluates Eq. (rabi) at the pulse time with the
-% Gaussian T2* average; NVCenterCWDriveModel broadens with MW power only, gamma = gamma_0 sqrt(1 + s_MW),
-% gamma_0 = 150 kHz fixed, i.e. no optical term. The SNR x window study uses a fixed linewidth (no drive),
-% consistent with one Gamma.
-
-\emph{Hyperfine structure.} Each nuclear projection $m_I$ gives its own copy of the line, shifted by
-$A_\parallel m_I$ (Eq.~\eqref{eq:transitions}) and weighted by the population of that $m_I$, so the observed
-spectrum is a sum of $2I+1$ lines. Two cases reduce it to the single line of Eq.~\eqref{eq:signal}. Near the
-excited-state level anticrossing the nitrogen nuclear spin is polarized into a single $m_I$ \cite{jacques2009}: only
-one line remains, and its fixed offset $A_\parallel m_I$ is absorbed into $f_-$. When the line is much wider than
-the hyperfine spacing, $\Gamma\gg|A_\parallel|$, the lines merge into one.
-
-Equation~\eqref{eq:signal} also leaves out the $f_+$ line. The drive window lies below $D$ and holds $f_-$ only, but
-the tail of the $f_+$ line, $2\delta_Z$ higher, adds $C\gamma^2/[\gamma^2+(f-f_+)^2]$ inside it: at $f_-$ a fraction
-$\gamma^2/(\gamma^2+4\delta_Z^2)$ of the contrast $C$, i.e.\ 20\% at $\delta_Z=\gamma$ and below 1\% for
-$\delta_Z\gtrsim5\gamma$. Equation~\eqref{eq:signal} assumes $\delta_Z\gg\gamma$; small Zeeman shifts, where the two
-lines overlap, are outside the scope of this work.
+Equation~\eqref{eq:signal} is a single line. It holds when the hyperfine lines merge, $\Gamma\gg|A_\parallel|$, or
+when the nuclear spin is polarized into one $m_I$ \cite{jacques2009}, and it neglects the tail of the $f_+$ line,
+which is below 1\% of the contrast at $f_-$ for $\delta_Z\gtrsim5\gamma$; small Zeeman shifts, where the two lines
+overlap, are outside the scope of this work. Pulsed ODMR, which removes the laser from the width of the line but
+gives a non-Lorentzian line with side lobes, is treated in \SM{sm:pulsed}.
 
 \emph{Noise.} Each reading of the normalized PL is noisy. Its floor is photon shot noise: a reading that collects
 $N_{\rm ph}$ photons on average off resonance has a relative standard deviation $N_{\rm ph}^{-1/2}$, and slightly
@@ -183,8 +102,7 @@ It is largest on resonance, where the drop is the contrast $C$,
   \label{eq:snr}
 \end{equation}
 the contrast over the noise, the single number by which a line is labeled. All SNR values in this paper follow
-Eq.~\eqref{eq:snr}. It neglects the $f_+$ line: its tail raises the on-resonance depth to
-$C[1+\gamma^2/(\gamma^2+4\delta_Z^2)]$, so $C/\sigma$ is the $\delta_Z\gg\gamma$ limit of the on-resonance SNR.
+Eq.~\eqref{eq:snr}.
 % Code convention differs: the code's SNR label is contrast_total/sigma with contrast_total = 2C, so a run
 % labeled SNR = x has C/sigma = x/2 here (and I* 4x smaller than the label suggests). Convert every
 % simulated SNR by /2 before quoting it in figures, tables or text.
@@ -274,12 +192,11 @@ In \emph{tracking} the resonance was measured a short time ago and has since mov
 is a Gaussian of standard deviation $\sigma_0$ around the last estimate, narrow compared with the window.
 
 The Fisher information of the prior probability density function (PDF) $p(\theta)$ is
-$J(p)=\int p'(\theta)^2/p(\theta)\,d\theta$, which measures how sharply $p$ changes as $\theta$ moves. For a
-Gaussian, $J(p)=\sigma_0^{-2}$. For a uniform window, $J(p)=\infty$: the density drops to zero at the edges in a
-single step, and the bound of Eq.~\eqref{eq:vantrees} reduces to $\sigma_\theta\ge0$ (Appendix~\ref{app:prior}).
-The solution is to use, among all densities confined to a width $W$, the one with the least information,
-$p(v)=(2/W)\cos^2(\pi v/W)$, which falls to zero gradually. Its information is $J(p)=4\pi^2/W^2$ \cite{gill1995},
-about $3.3$ times the uniform window's $12/W^2$. The information that enters the bound is therefore
+$J(p)=\int p'(\theta)^2/p(\theta)\,d\theta$. For a Gaussian, $J(p)=\sigma_0^{-2}$. For a uniform window $J(p)$ is
+infinite, since the density drops to zero at the edges in a single step, and the bound of Eq.~\eqref{eq:vantrees}
+becomes empty. We use instead, among all densities confined to a width $W$, the one with the least information,
+$p(v)=(2/W)\cos^2(\pi v/W)$, with $J(p)=4\pi^2/W^2$ \cite{gill1995} (\SM{sm:prior}). The information that enters
+the bound is therefore
 \begin{equation}
   J_0=\begin{cases}
   4\pi^2/W^2 & \text{global search},\\
@@ -379,16 +296,11 @@ tracking the two are the same: both are averaged over the Gaussian prior, and th
 $\sigma_0$. A run that lies above it has measurements that carried less than $I_{\rm max}$, or that the strategy did
 not use efficiently.
 
-In a global search $J_0$ comes from the $\cos^2$ density and not from the uniform prior, so the bound is about a
-different error: for any strategy, some resonance in the window has a root-mean-square error of at least
-$\sigma_{\rm vT}(n)$. Our runs instead report the error averaged over a uniformly placed resonance. For a signal
-linear in $\theta$, where every measurement can carry $I_{\rm max}$, the best achievable values of the two errors compare
-with the bound as follows (Appendix~\ref{app:prior}). Before any measurement, the best estimate is the center of the
-window. The worst-placed resonance is then $W/2$ away, $\pi$ times above the bound of $W/2\pi$, and the average error
-is $W/\sqrt{12}$, $\pi/\sqrt3\approx1.8$ times above it. This gap belongs to the window and not to any strategy.
-It closes around $n_c$: the average error is within 10\% of the bound from $n\approx2\,n_c$, and from
-$n\approx10\,n_c$ it lies below the bound, by at most about 1\%, because a resonance next to an edge is slightly easier to
-locate.
+In a global search the bound limits the error of the worst-placed resonance in the window, while our runs report
+the error averaged over a uniformly placed one. Before any measurement the average error, $W/\sqrt{12}$, lies
+$\pi/\sqrt3\approx1.8$ times above the bound; this gap belongs to the window and not to any strategy. It closes
+around $n_c$: the best achievable average error is within 10\% of the bound from $n\approx2\,n_c$, and from
+$n\approx10\,n_c$ it lies below it by at most about 1\% (\SM{sm:prior}).
 
 A run is therefore read against the curve in three parts. Up to a few $n_c$ a gap says nothing about the strategy.
 Beyond that, a gap means that the measurements carried less than $I_{\rm max}$ or were not used efficiently. A claimed
@@ -541,8 +453,8 @@ same point, which answers (A) for refine.
 
 The choice of the steepest slope thus needs only that all the posterior mass lies where the signal is linear in
 $\theta$: a single mode, with no appreciable mass left elsewhere in the window, narrow compared with the line,
-$\sigma_\theta\ll\gamma$. The Gaussian shape is needed only for the equality in Eq.~\eqref{eq:eig-fisher}. Appendix~\ref{app:gaussian}
-shows that the deviations from a Gaussian, and the error of the linearization, are both controlled by the ratio
+$\sigma_\theta\ll\gamma$. The Gaussian shape is needed only for the equality in Eq.~\eqref{eq:eig-fisher}.
+\SMcap{sm:gaussian} shows that the deviations from a Gaussian, and the error of the linearization, are both controlled by the ratio
 $\sigma_\theta/\gamma$, and that leftover mass far from the dip dominates the posterior variance unless it is
 smaller than about $(\sigma_\theta/W)^2$. Both conditions are met in refine and not at the start of the localize stage, so
 Eq.~\eqref{eq:eig-fisher} describes the refine regime, while in the localize stage Eq.~\eqref{eq:eig-var} holds only as a bound.
@@ -559,22 +471,11 @@ narrow peak and wide tails can have the same standard deviation as a Gaussian, w
 the peak.
 \tbd{Results: when the SBED posterior becomes Gaussian, and its calibration in refine.}
 
-\paragraph{Search: a two-valued signal.} Before the dip is found the posterior of $\theta$ is spread over the window,
-and the predicted signal at $x$ is two-valued: with probability $p$, the posterior mass that would put the dip at $x$,
-it is about $1-C$, otherwise 1. Then $\sigma^2_{\rm pred}=p(1-p)C^2$, while the true mutual information is at most the
-binary entropy $H_b(p)\le\ln2$. For (A), the variance form keeps growing with SNR where the true gain saturates, so it
-overvalues search candidates relative to refine candidates; both peak at $p=\tfrac12$, so they rank search
-candidates alike. For (B), the chain-rule argument fails, since where one measures changes what later measurements
-can gain. Here greedy EIG is only myopically optimal, which is where the strategies of Sec.~\ref{sec:locators} differ.
-
-\paragraph{Localize: the variance form chases the tail.} The same two-valued picture holds in the localize stage,
-with a different ranking. Once a peak has formed at the dip, a small residual mass $p$ far from it gives a predictive
-variance $p(1-p)C^2$ at its location, large at high SNR even for small $p$, while the information it holds is at most
-$H_b(p)$, small for small $p$. The variance form therefore keeps spending measurements to remove such distant mass.
-This reduces the posterior variance, which the tail dominates and which is the quantity Eq.~\eqref{eq:vantrees}
-constrains, rather than the posterior entropy: in the localize stage the variance rule acts as a design for the MSE,
-while a rule built on the information gain would refine the peak sooner and accept the tail. Whether this explains
-why localizing costs SBED far more measurements than the bound is a hypothesis we have not tested.
+\paragraph{Search and localize.} Before the dip is located the posterior of $\theta$ is spread over the window, the
+predicted signal at $x$ is two-valued (the dip is there or not), and both answers fail (\SM{sm:eig}). For (A), the
+variance form ranks search candidates as the exact gain does but overvalues them against refine candidates, and in
+localize it keeps spending measurements on residual posterior mass far from the dip. For (B), where one measures
+now changes what later measurements can gain, so greedy EIG is only myopically optimal.
 \tbd{Test: share of localize-stage measurements placed more than a few FWHM from the peak, compared with the
 residual mass there.}
 
@@ -608,50 +509,23 @@ Comparing the two rates, both scale as $kC^2/\sigma^2$. They differ only in the 
 adaptive strategy and $1/(\Gamma W)$ for the sweep. The extra factor $\Gamma/W$ is the fraction of the sweep's
 measurements that land on the line at all.
 
-Where a sweep measures does not depend on what it has learned, so its expected information grows at the constant
-rate $I_{\rm sweep}$ from its first measurement, and the van Trees bound for the sweep is
-$\sigma\approx(\sigma_0^{-2}+nI_{\rm sweep})^{-1/2}$. This has the same $n^{-1/2}$ form as the refine regime of an adaptive
-strategy; the two differ in the rate, $I_{\rm sweep}$ against $I_{\rm max}$. A single sweep reaches this bound only once its
-posterior has one peak. Until the scan has passed over the dip it learns only that the dip is not where it has
-looked, so its error, like that of an adaptive run, stays near $\sigma_0$ and then drops when the dip is resolved,
-after about one pass of the window, or several at low SNR. What the sweep lacks is the phase after that: an adaptive
-strategy moves its measurements onto the slope, so its rate rises from about $I_{\rm sweep}$ to $I_{\rm max}$, while the sweep keeps
-spending a fraction of order $\Gamma/W$ of its measurements on the line and stays at $I_{\rm sweep}$. Averaged over many
-passes the steps of the individual runs are smoothed out, and the error follows the bound with no plateau and no
-cliff, as observed by \citet{dushenko2020sbed}.
-This too is a model of the error, so the window enters through its inverse variance. An
-adaptive strategy pays the search cost $n_d$ first and then gains $I_{\rm max}$ per measurement. Let $\sigma_{\rm tgt}$ (Hz) be
-the target precision, the standard deviation of $f_-$ at which a run is considered done. The number of measurements
-to reach it is
+Where a sweep measures does not depend on what it has learned, so its information grows at the constant rate
+$I_{\rm sweep}$, while an adaptive strategy in refine gains $I_{\rm max}$ per measurement. For a precise target,
+where the search cost no longer matters, the speedup is the ratio of the two rates,
 \begin{equation}
-  \begin{aligned}
-  N_{\rm sweep}(\sigma_{\rm tgt})&=\frac{\sigma_{\rm tgt}^{-2}-\sigma_0^{-2}}{I_{\rm sweep}},\\
-  N_{\rm ad}(\sigma_{\rm tgt})&=n_d+\frac{\sigma_{\rm tgt}^{-2}-12/\Delta x^2}{I_{\rm max}},
-  \end{aligned}
-  \label{eq:n-to-target}
-\end{equation}
-where the adaptive count follows the elimination model: $n_d$ measurements to detect the dip, after which the
-information starts at $12/\Delta x^2$ and grows by $I_{\rm max}$ per measurement until it reaches $\sigma_{\rm tgt}^{-2}$.
-The sweep count uses the averaged rate, so it holds for targets that take more than one pass of the window.
-The speedup is $R(\sigma_{\rm tgt})=N_{\rm sweep}/N_{\rm ad}$. For a precise target the refine terms dominate and
-\begin{equation}
-  \begin{aligned}
-  R_\infty=\frac{I_{\rm max}}{I_{\rm sweep}}&=\frac{27}{8\pi}\,\frac{W}{\Gamma}\\
-  &\approx1.07\,\frac{W}{\Gamma}\approx\frac{W}{\Gamma}:
-  \end{aligned}
+  R_\infty=\frac{I_{\rm max}}{I_{\rm sweep}}=\frac{27}{8\pi}\,\frac{W}{\Gamma}\approx1.07\,\frac{W}{\Gamma}:
   \label{eq:speedup}
 \end{equation}
 the speedup is the inverse occupancy of the window, the number of linewidths that fit in it, which
 \citet{dushenko2020sbed} identified qualitatively; Eq.~\eqref{eq:speedup} gives its prefactor. It is independent
 of the SNR, because both strategies gain information $\propto\mathrm{SNR}^2$. For a loose target the search cost
-$n_d$ dominates $N_{\rm ad}$ and $R(\sigma_{\rm tgt})<R_\infty$, so the full dependence on window,
-linewidth, SNR (through $n_d$ at low SNR) and target is given by Eq.~\eqref{eq:n-to-target}. A sweep cannot approach
-the van Trees bound at any $n$: its rate $I_{\rm sweep}$ is fixed by the window, while the bound's data limit requires every
-measurement at the steepest slope.
+dominates and the speedup is smaller (\SM{sm:speedup}). A sweep cannot approach the van Trees bound at any $n$: its
+rate $I_{\rm sweep}$ is fixed by the window, while the bound's data limit requires every measurement at the steepest
+slope.
 \tbd{Check Eq.~\eqref{eq:speedup} against the speedup reported in Ref.~\cite{dushenko2020sbed} for their window
 and line structure (a resolved triplet, not one Lorentzian).}
 
-\paragraph{Comparing strategies.} Eq.~\eqref{eq:n-to-target} describes a strategy by two numbers: what it pays to
+\paragraph{Comparing strategies.} A strategy is thus described by two numbers: what it pays to
 find the dip, and the rate at which it gains information afterwards. Both can be read off a run without a detection
 model. Late in a run the inverse variance grows linearly,
 \begin{equation}
@@ -694,18 +568,12 @@ fraction $q\le1$ of $I_{\rm max}$, $I_{\rm max}$ is replaced by $qI_{\rm max}$ i
 by $1/\sqrt q$, i.e.\ $\eta/\sqrt q$.
 
 \paragraph{Bandwidth (whole run).} A field reading is useful once its error reaches the target
-$\sigma_{\rm tgt}$; the time needed, $T(\sigma_{\rm tgt})$, sets the bandwidth $1/T(\sigma_{\rm tgt})$. It is $t_m$
-times the number of measurements $N_{\rm ad}(\sigma_{\rm tgt})$ of Eq.~\eqref{eq:n-to-target}, $n_d$ to find the
-dip and the rest to refine it to $\sigma_{\rm tgt}$:
-\begin{equation}
-  T(\sigma_{\rm tgt})=t_m\Big[n_d+\frac{\sigma_{\rm tgt}^{-2}-12/\Delta x^2}{I_{\rm max}}\Big].
-  \label{eq:bandwidth}
-\end{equation}
-For a tight target the refine term dominates, $T\approx t_m\sigma_{\rm tgt}^{-2}/I_{\rm max}$, which is the sensitivity
-$\eta$ of Eq.~\eqref{eq:sensitivity} again. For a loose target the search term dominates, $T\approx n_d t_m$: the
-bandwidth cannot exceed about $1/(n_d t_m)$, whatever the SNR, which is $2\Delta x/(W t_m)$ for a resonance halfway
-through the window. The window, i.e.\ the prior,
-therefore limits the bandwidth, while the line shape and SNR limit the sensitivity.
+$\sigma_{\rm tgt}$; the time needed, $T(\sigma_{\rm tgt})=t_m\,[n_0+\sigma_{\rm tgt}^{-2}/(qI_{\rm max})]$ by
+Eq.~\eqref{eq:strategy-numbers}, sets the bandwidth $1/T(\sigma_{\rm tgt})$. For a tight target the refine term
+dominates and gives the sensitivity of Eq.~\eqref{eq:sensitivity} again. For a loose target the search term
+dominates, $T\approx n_0t_m$: the bandwidth cannot exceed about $1/(n_0t_m)$, whatever the SNR
+(\SM{sm:speedup}). The window, i.e.\ the prior, therefore limits the bandwidth, while the line shape and SNR limit
+the sensitivity.
 Only the total integration time $T=nk\,t_s$ enters the bound, not how it is divided into measurements: $n$
 measurements of $k$ shots carry the same information as $nk$ measurements of one shot at the same drive frequency.
 Neglecting the overhead of switching the drive frequency, the cost of a run is therefore its total number of shots

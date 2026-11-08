@@ -1,0 +1,28 @@
+% =====================================================================
+\section{Expected information gain in search and localize}
+\label{sm:eig}
+% =====================================================================
+
+Sec.~\ref{sec:eig} of the main text asks two questions of the variance form of the expected information gain,
+Eq.~\eqref{eq:eig-var}: (A) when it agrees with the exact gain, and (B) when maximizing it greedily puts the
+measurements where the van Trees bound needs them. In refine the answer to both is yes. This section gives the
+argument for the two earlier regimes, where both fail.
+
+\paragraph{Search: a two-valued signal.} Before the dip is found the posterior of $\theta$ is spread over the window,
+and the predicted signal at $x$ is two-valued: with probability $p$, the posterior mass that would put the dip at $x$,
+it is about $1-C$, otherwise 1. Then $\sigma^2_{\rm pred}=p(1-p)C^2$, while the true mutual information is at most the
+binary entropy $H_b(p)\le\ln2$. For (A), the variance form keeps growing with SNR where the true gain saturates, so it
+overvalues search candidates relative to refine candidates; both peak at $p=\tfrac12$, so they rank search
+candidates alike. For (B), the chain-rule argument of Eq.~\eqref{eq:eig-sum} fails, since where one measures changes
+what later measurements can gain. Here greedy EIG is only myopically optimal, which is where the strategies of
+Sec.~\ref{sec:locators} of the main text differ.
+
+\paragraph{Localize: the variance form chases the tail.} The same two-valued picture holds in the localize stage,
+with a different ranking. Once a peak has formed at the dip, a small residual mass $p$ far from it gives a predictive
+variance $p(1-p)C^2$ at its location, large at high SNR even for small $p$, while the information it holds is at most
+$H_b(p)$, small for small $p$. The variance form therefore keeps spending measurements to remove such distant mass.
+This reduces the posterior variance, which the tail dominates (Sec.~\ref{sm:gaussian}) and which is the quantity
+Eq.~\eqref{eq:vantrees} constrains, rather than the posterior entropy: in the localize stage the variance rule acts
+as a design for the MSE, while a rule built on the information gain would refine the peak sooner and accept the
+tail. Whether this explains why localizing costs SBED far more measurements than the bound is a hypothesis we have
+not tested.

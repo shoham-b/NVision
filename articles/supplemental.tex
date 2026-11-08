@@ -1,0 +1,53 @@
+\documentclass[aps,prapplied,reprint,superscriptaddress,nofootinbib,floatfix]{revtex4-2}
+
+% Supplemental Material of nvision_paper.tex (main.tex on Overleaf). Compiled as its own document; its labels start
+% sm:, and it refers to equations and sections of the main text through xr-hyper.
+\usepackage{amsmath,amssymb}
+\setcounter{secnumdepth}{3}
+\usepackage{xcolor}
+\usepackage{graphicx}
+\graphicspath{{figures/}}
+\usepackage{xr-hyper}
+% The main document is nvision_paper.tex locally and main.tex on Overleaf.
+\IfFileExists{main.tex}{\externaldocument{main}}{\externaldocument{nvision_paper}}
+\usepackage{hyperref}
+\hypersetup{colorlinks=true, linkcolor=blue!50!black, citecolor=blue!50!black, urlcolor=blue!60!black}
+
+\newcommand{\code}[1]{\texttt{#1}}
+\newcommand{\tbd}[1]{\textcolor{red}{[#1]}}
+\newcommand{\SM}[1]{Sec.~\ref{#1}}
+
+% Supplemental numbering: Sec. S1, Eq. (S1), Fig. S1.
+\renewcommand{\thesection}{S\arabic{section}}
+\renewcommand{\theequation}{S\arabic{equation}}
+\renewcommand{\thefigure}{S\arabic{figure}}
+\renewcommand{\thetable}{S\arabic{table}}
+
+\begin{document}
+
+\title{Supplemental Material: Following the Information Bound from a Search-Window Prior with Sequential Bayesian
+Experiment Design in Nitrogen-Vacancy Magnetometry}
+
+\author{\tbd{Authors}}
+\affiliation{\tbd{Affiliation}}
+
+\maketitle
+
+Equations, sections and figures without the prefix S refer to the main text.
+
+\input{sections/sm_odmr}
+
+\input{sections/sm_prior}
+
+\input{sections/sm_eig}
+
+\input{sections/sm_gaussian}
+
+\input{sections/sm_speedup}
+
+\input{sections/sm_algorithm}
+
+\bibliographystyle{apsrev4-2}
+\bibliography{nvision_paper}
+
+\end{document}

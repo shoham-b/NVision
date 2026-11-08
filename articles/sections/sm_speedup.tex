@@ -1,0 +1,51 @@
+% =====================================================================
+\section{Measurements to a target precision}
+\label{sm:speedup}
+% =====================================================================
+
+This section derives the number of measurements a sweep and an adaptive strategy need to reach a target
+precision, from which the speedup of Eq.~\eqref{eq:speedup} and the bandwidth of Sec.~\ref{sec:sensitivity} of
+the main text follow.
+
+\paragraph{Sweep.} Where a sweep measures does not depend on what it has learned, so its expected information grows
+at the constant rate $I_{\rm sweep}$ of Eq.~\eqref{eq:sweep-info} from its first measurement, and the van Trees bound
+for the sweep is $\sigma\approx(\sigma_0^{-2}+nI_{\rm sweep})^{-1/2}$. This has the same $n^{-1/2}$ form as the refine
+regime of an adaptive strategy; the two differ in the rate, $I_{\rm sweep}$ against $I_{\rm max}$. A single sweep
+reaches this bound only once its posterior has one peak. Until the scan has passed over the dip it learns only that
+the dip is not where it has looked, so its error, like that of an adaptive run, stays near $\sigma_0$ and then drops
+when the dip is resolved, after about one pass of the window, or several at low SNR. What the sweep lacks is the
+phase after that: an adaptive strategy moves its measurements onto the slope, so its rate rises from about
+$I_{\rm sweep}$ to $I_{\rm max}$, while the sweep keeps spending a fraction of order $\Gamma/W$ of its measurements on
+the line and stays at $I_{\rm sweep}$. Averaged over many passes the steps of the individual runs are smoothed out,
+and the error follows the bound with no plateau and no cliff, as observed by \citet{dushenko2020sbed}.
+
+\paragraph{Measurements to a target.} This too is a model of the error, so the window enters through its inverse
+variance. An adaptive strategy pays the search cost $n_d$ of the elimination model first and then gains
+$I_{\rm max}$ per measurement. Let $\sigma_{\rm tgt}$ (Hz) be the target precision, the standard deviation of $f_-$ at
+which a run is considered done. The number of measurements to reach it is
+\begin{equation}
+  \begin{aligned}
+  N_{\rm sweep}(\sigma_{\rm tgt})&=\frac{\sigma_{\rm tgt}^{-2}-\sigma_0^{-2}}{I_{\rm sweep}},\\
+  N_{\rm ad}(\sigma_{\rm tgt})&=n_d+\frac{\sigma_{\rm tgt}^{-2}-12/\Delta x^2}{I_{\rm max}},
+  \end{aligned}
+  \label{eq:n-to-target}
+\end{equation}
+where the adaptive count follows the elimination model, Eqs.~\eqref{eq:elimination}--\eqref{eq:after-detection}:
+$n_d$ measurements to detect the dip, after which the information starts at $12/\Delta x^2$ and grows by
+$I_{\rm max}$ per measurement until it reaches $\sigma_{\rm tgt}^{-2}$. The sweep count uses the averaged rate, so it
+holds for targets that take more than one pass of the window. The speedup is
+$R(\sigma_{\rm tgt})=N_{\rm sweep}/N_{\rm ad}$. For a precise target the refine terms dominate and $R$ tends to
+$R_\infty=I_{\rm max}/I_{\rm sweep}$ of Eq.~\eqref{eq:speedup}. For a loose target the search cost $n_d$ dominates
+$N_{\rm ad}$ and $R(\sigma_{\rm tgt})<R_\infty$, so the full dependence on window, linewidth, SNR (through $n_d$ at
+low SNR) and target is given by Eq.~\eqref{eq:n-to-target}.
+
+\paragraph{Bandwidth.} The time to reach the target is $t_m$ times $N_{\rm ad}(\sigma_{\rm tgt})$, $n_d$ measurements
+to find the dip and the rest to refine it:
+\begin{equation}
+  T(\sigma_{\rm tgt})=t_m\Big[n_d+\frac{\sigma_{\rm tgt}^{-2}-12/\Delta x^2}{I_{\rm max}}\Big].
+  \label{eq:bandwidth}
+\end{equation}
+For a tight target the refine term dominates, $T\approx t_m\sigma_{\rm tgt}^{-2}/I_{\rm max}$, which is the sensitivity
+$\eta$ of Eq.~\eqref{eq:sensitivity} again. For a loose target the search term dominates, $T\approx n_d t_m$: the
+bandwidth cannot exceed about $1/(n_d t_m)$, whatever the SNR, which is $2\Delta x/(W t_m)$ for a resonance halfway
+through the window.
