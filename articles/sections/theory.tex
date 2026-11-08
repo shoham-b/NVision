@@ -507,7 +507,53 @@ $n_0$ is the number of measurements lost, on average, before this growth began. 
 Eqs.~\eqref{eq:elimination}--\eqref{eq:after-detection}: it holds the search and also whatever localizing costs
 beyond the single step of the elimination model. A sweep has $q=I_{\rm sweep}/I_{\rm max}=1/R_\infty$ and $n_0\approx0$, and the ideal
 adaptive strategy has $q=1$ and $n_0\approx n_d$, so all strategies can be placed on one $(n_0,q)$ plane. The number of
-measurements to a precise target is then $n_0+\sigma_{\rm tgt}^{-2}/(qI_{\rm max})$.
+measurements to a precise target is then $n_0+\sigma_{\rm tgt}^{-2}/(qI_{\rm max})$. In the inverse squared error
+each strategy is a straight line that leaves the axis at $n_0$ with slope $q$ (Fig.~\ref{fig:strategy-numbers}): the
+sweep starts at once but climbs slowly, an adaptive strategy starts late but climbs fast, so it wins for a precise
+target and can lose for a loose one.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+  width=\linewidth, height=5.6cm,
+  xlabel={measurements $n$}, ylabel={$\sigma_\theta^{-2}/I_{\rm max}$},
+  xmin=0, xmax=180, ymin=0, ymax=60,
+  legend style={font=\scriptsize, at={(0.98,0.03)}, anchor=south east, draw=none, fill=white, fill opacity=0.8,
+    text opacity=1},
+  legend cell align=left,
+  label style={font=\small}, tick label style={font=\scriptsize},
+  clip=false,
+]
+% Exaggerated illustrative values, chosen for legibility (a real sweep has q = 1/R_inf ~ Gamma/W, far smaller):
+% ideal adaptive q = 1, n0 = 20; real adaptive q = 0.6, n0 = 35; sweep q = 0.25, n0 = 0. Target level 40.
+\addplot[thick, domain=20:80, samples=2] {x-20};
+\addlegendentry{ideal adaptive, $q=1$}
+\addplot[thick, dashed, domain=35:135, samples=2] {0.6*(x-35)};
+\addlegendentry{adaptive, $q<1$}
+\addplot[thick, dotted, domain=0:180, samples=2] {0.25*x};
+\addlegendentry{sweep, $q=1/R_\infty$}
+% Precise target and the measurements each strategy needs to reach it.
+\addplot[gray, thin, forget plot, domain=0:180, samples=2] {40};
+\node[font=\scriptsize, gray, anchor=south west] at (axis cs:2,40) {$\sigma_{\rm tgt}^{-2}/I_{\rm max}$};
+\addplot[gray, thin, densely dotted, forget plot] coordinates {(60,0) (60,40)};
+\addplot[gray, thin, densely dotted, forget plot] coordinates {(101.67,0) (101.67,40)};
+\addplot[gray, thin, densely dotted, forget plot] coordinates {(160,0) (160,40)};
+% Offsets n0 on the axis.
+\node[font=\scriptsize, anchor=north] at (axis cs:20,-1) {$n_0$};
+\node[font=\scriptsize, anchor=north] at (axis cs:35,-1) {$n_0$};
+\fill (axis cs:20,0) circle (1.2pt);
+\fill (axis cs:35,0) circle (1.2pt);
+\end{axis}
+\end{tikzpicture}
+\caption{Schematic of Eq.~\eqref{eq:strategy-numbers}, with exaggerated values chosen for legibility (a real sweep
+has $q=1/R_\infty\approx\Gamma/W$, far smaller). In the inverse squared error, in units of $I_{\rm max}$, each
+strategy is a line that leaves the axis at its offset $n_0$ with slope $q$. Solid: ideal adaptive strategy,
+$q=1$, $n_0=n_d$; dashed: an adaptive strategy that loses information, $q<1$, larger $n_0$; dotted: sweep, $n_0\approx0$,
+$q=1/R_\infty$. The vertical lines mark the measurements each needs to reach a precise target (horizontal line),
+$n_0+\sigma_{\rm tgt}^{-2}/(qI_{\rm max})$. For a loose target, below the crossings, the sweep is ahead.}
+\label{fig:strategy-numbers}
+\end{figure}
 
 \subsection{Sensitivity and bandwidth}
 \label{sec:sensitivity}
@@ -519,10 +565,11 @@ known, $D-f_-=\delta_Z=\gamma_e B_z$, so the field uncertainty is $\sigma_B=\sig
 \paragraph{Sensitivity (refine).} In the refine regime every measurement adds $I_{\rm max}$, so after a time $T$
 \begin{align*}
   \sigma_{f_-}(T)&=(nI_{\rm max})^{-1/2}=\Big(\frac{T}{t_m}\,I_{\rm max}\Big)^{-1/2},\\
-  \sigma_{f_-}\sqrt T&=\sqrt{\frac{t_m}{I_{\rm max}}} .
+  \sigma_{f_-}\sqrt T&=\sqrt{\frac{t_m}{I_{\rm max}}}=\gamma_e\,\eta .
 \end{align*}
 The uncertainty falls as $\sigma_{f_-}\propto T^{-1/2}$, so the product $\sigma_{f_-}\sqrt T$ does not depend on $T$
-and characterizes the strategy rather than the length of the run. Converted to field, this constant is the sensitivity,
+and characterizes the strategy rather than the length of the run. Converted to field, this constant is the
+sensitivity $\eta$,
 \begin{equation}
   \begin{aligned}
   \eta=\sigma_B\sqrt T&=\frac{1}{\gamma_e}\sqrt{\frac{t_m}{I_{\rm max}}}
