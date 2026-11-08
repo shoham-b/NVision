@@ -59,8 +59,7 @@ the angular Rabi frequency $\Omega_R=2\pi\Omega$ of the drive, the steady-state 
   \gamma=\frac{1}{2\pi}\sqrt{\Gamma_2^2+\Omega_R^2\,\frac{\Gamma_2}{\Gamma_1}} .
   \label{eq:linewidth}
 \end{equation}
-The first term is the width without drive, set by the loss of coherence, mostly through the laser; the second is
-power broadening by the microwave, tempered by the pumping. At weak drive the laser sets the width, at strong drive
+At weak drive the laser sets the width, at strong drive
 the microwave. The spin bath also spreads the transition frequency itself, by $\sim1/T_2^*$; this adds a Gaussian
 broadening to the Lorentzian, and it sets the width once both powers are low (\SM{sm:cw-pumping}). Whatever its
 origin, the line is one dip of a single effective width, taken here as a Lorentzian: the normalized PL expected at
@@ -421,11 +420,12 @@ rule of Eq.~\eqref{eq:greedy} maximizes the expected gain and never refers to th
 measurements there? In refine the answer to both is ``always''; in search and localize both fail.
 
 \paragraph{Refine: the gain becomes Fisher information.} Once the dip is located, the posterior of $\theta$ is a
-single peak, narrow compared with the line, over which the signal is linear in $\theta$:
-$\mu(d;\theta)\approx\mu(d;\hat\theta)+(\partial\mu/\partial\theta)(\theta-\hat\theta)$. Then
+single peak, narrow compared with the line, so a first-order Taylor expansion about the estimate $\hat\theta$ makes
+the signal linear in $\theta$: $\mu(d;\theta)\approx\mu(d;\hat\theta)+(\partial\mu/\partial\theta)(\theta-\hat\theta)$. Then
 $\sigma_{\rm pred}(d)=|\partial\mu/\partial\theta|\,\sigma_\theta$ whatever the shape of the peak, and the rule
 measures where the Fisher information $I(d)$ of Eq.~\eqref{eq:fisher} is largest, at the steepest slope. With enough
-data the peak also becomes Gaussian, of variance $\sigma_\theta^2\approx1/J_n$ \cite{vandervaart1998}, so
+data the peak also becomes Gaussian by the central limit theorem for posteriors (the Bernstein--von Mises theorem
+\cite{vandervaart1998}), of variance $\sigma_\theta^2\approx1/J_n$, so
 Eq.~\eqref{eq:eig-var} is an equality and
 \begin{equation}
   \begin{aligned}
