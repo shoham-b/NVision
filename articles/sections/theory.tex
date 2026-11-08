@@ -59,8 +59,7 @@ the angular Rabi frequency $\Omega_R=2\pi\Omega$ of the drive, the steady-state 
   \gamma=\frac{1}{2\pi}\sqrt{\Gamma_2^2+\Omega_R^2\,\frac{\Gamma_2}{\Gamma_1}} .
   \label{eq:linewidth}
 \end{equation}
-The first term is the width without drive, set by the loss of coherence, mostly through the laser; the second is
-power broadening by the microwave, tempered by the pumping. At weak drive the laser sets the width, at strong drive
+At weak drive the laser sets the width, at strong drive
 the microwave. The spin bath also spreads the transition frequency itself, by $\sim1/T_2^*$; this adds a Gaussian
 broadening to the Lorentzian, and it sets the width once both powers are low (\SM{sm:cw-pumping}). Whatever its
 origin, the line is one dip of a single effective width, taken here as a Lorentzian: the normalized PL expected at
@@ -75,17 +74,6 @@ through the single linewidth $\Gamma$, which is inferred with the line.
 
 Equation~\eqref{eq:signal} is a single line. It holds when the hyperfine lines merge, $\Gamma\gg|A_\parallel|$, or
 when the nuclear spin is polarized into one $m_I$ \cite{jacques2009}.
-
-In pulsed ODMR the laser is off while a single microwave $\pi$-pulse of duration $t_\pi=1/(2\Omega)$ flips the spin,
-which removes the laser from the width of the line \cite{dreau2011}. The dip then follows the Rabi response at the
-end of the pulse (\SM{sm:pulsed}),
-\begin{equation}
-  \mu(f)=1-C\,\frac{\Omega^2}{\Omega_{\rm gen}^2}\,\sin^2\!\Big(\frac{\pi}{2}\,\frac{\Omega_{\rm gen}}{\Omega}\Big),
-  \qquad \Omega_{\rm gen}=\sqrt{\Omega^2+(f-f_-)^2},
-  \label{eq:pulsed-signal}
-\end{equation}
-with $\Omega_{\rm gen}$ the generalized Rabi frequency. This line is not a Lorentzian: its width is the Fourier limit
-of the pulse, $\sim1/t_\pi$, and it has side lobes up to 12\% of the depth, dips where there is no resonance.
 
 \emph{Noise.} Each reading of the normalized PL is noisy. Its floor is photon shot noise: a reading that collects
 $N_{\rm ph}$ photons on average off resonance has a relative standard deviation $N_{\rm ph}^{-1/2}$, and slightly
@@ -421,11 +409,12 @@ rule of Eq.~\eqref{eq:greedy} maximizes the expected gain and never refers to th
 measurements there? In refine the answer to both is ``always''; in search and localize both fail.
 
 \paragraph{Refine: the gain becomes Fisher information.} Once the dip is located, the posterior of $\theta$ is a
-single peak, narrow compared with the line, over which the signal is linear in $\theta$:
-$\mu(d;\theta)\approx\mu(d;\hat\theta)+(\partial\mu/\partial\theta)(\theta-\hat\theta)$. Then
+single peak, narrow compared with the line, so a first-order Taylor expansion about the estimate $\hat\theta$ makes
+the signal linear in $\theta$: $\mu(d;\theta)\approx\mu(d;\hat\theta)+(\partial\mu/\partial\theta)(\theta-\hat\theta)$. Then
 $\sigma_{\rm pred}(d)=|\partial\mu/\partial\theta|\,\sigma_\theta$ whatever the shape of the peak, and the rule
 measures where the Fisher information $I(d)$ of Eq.~\eqref{eq:fisher} is largest, at the steepest slope. With enough
-data the peak also becomes Gaussian, of variance $\sigma_\theta^2\approx1/J_n$ \cite{vandervaart1998}, so
+data the peak also becomes Gaussian by the central limit theorem for posteriors (the Bernstein--von Mises theorem
+\cite{vandervaart1998}), of variance $\sigma_\theta^2\approx1/J_n$, so
 Eq.~\eqref{eq:eig-var} is an equality and
 \begin{equation}
   \begin{aligned}
@@ -472,9 +461,13 @@ average of Eq.~\eqref{eq:fisher}, taken over the drive frequency in the window (
   \label{eq:sweep-info}
 \end{equation}
 
-Comparing the two rates, both scale as $kC^2/\sigma^2$. They differ only in the width factor: $1/\Gamma^2$ for the
-adaptive strategy and $1/(\Gamma W)$ for the sweep. The extra factor $\Gamma/W$ is the fraction of the sweep's
-measurements that land on the line at all.
+Comparing the two rates,
+\begin{equation*}
+  I_{\rm max}\propto\frac{k\,C^2}{\sigma^2}\,\frac{1}{\Gamma^2},\qquad
+  I_{\rm sweep}\propto\frac{k\,C^2}{\sigma^2}\,\frac{1}{\Gamma}\,\frac{1}{W}:
+\end{equation*}
+they share the factor $kC^2/\sigma^2$ and differ only in the width factor. The extra factor $\Gamma/W$ of the
+sweep is the fraction of its measurements that land on the line at all.
 
 Where a sweep measures does not depend on what it has learned, so its information grows at the constant rate
 $I_{\rm sweep}$, while an adaptive strategy in refine gains $I_{\rm max}$ per measurement. For a precise target,
@@ -489,8 +482,6 @@ of the SNR, because both strategies gain information $\propto\mathrm{SNR}^2$. Fo
 dominates and the speedup is smaller (\SM{sm:speedup}). A sweep cannot approach the van Trees bound at any $n$: its
 rate $I_{\rm sweep}$ is fixed by the window, while the bound's data limit requires every measurement at the steepest
 slope.
-\tbd{Check Eq.~\eqref{eq:speedup} against the speedup reported in Ref.~\cite{dushenko2020sbed} for their window
-and line structure (a resolved triplet, not one Lorentzian).}
 
 \paragraph{Comparing strategies.} A strategy is thus described by two numbers: what it pays to
 find the dip, and the rate at which it gains information afterwards. Both are read off the error averaged over runs,
@@ -501,10 +492,57 @@ own. Late in a run the inverse of the averaged squared error grows linearly,
   \label{eq:strategy-numbers}
 \end{equation}
 where $q\le1$ is the fraction of $I_{\rm max}$ that the measurements carry, and
-$n_0$ is the number of measurements lost, on average, before this growth began. The offset $n_0$ generalizes $n_d$: it holds the search and also whatever localizing costs
+$n_0$ is the number of measurements lost, on average, before this growth began. The offset $n_0$ generalizes $n_d$, the step that finds the dip in the elimination model of
+Eqs.~\eqref{eq:elimination}--\eqref{eq:after-detection}: it holds the search and also whatever localizing costs
 beyond the single step of the elimination model. A sweep has $q=I_{\rm sweep}/I_{\rm max}=1/R_\infty$ and $n_0\approx0$, and the ideal
 adaptive strategy has $q=1$ and $n_0\approx n_d$, so all strategies can be placed on one $(n_0,q)$ plane. The number of
-measurements to a precise target is then $n_0+\sigma_{\rm tgt}^{-2}/(qI_{\rm max})$.
+measurements to a precise target is then $n_0+\sigma_{\rm tgt}^{-2}/(qI_{\rm max})$. In the inverse squared error
+each strategy is a straight line that leaves the axis at $n_0$ with slope $q$ (Fig.~\ref{fig:strategy-numbers}): the
+sweep starts at once but climbs slowly, an adaptive strategy starts late but climbs fast, so it wins for a precise
+target and can lose for a loose one.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}
+\begin{axis}[
+  width=\linewidth, height=5.6cm,
+  xlabel={measurements $n$}, ylabel={$\sigma_\theta^{-2}/I_{\rm max}$},
+  xmin=0, xmax=180, ymin=0, ymax=60,
+  legend style={font=\scriptsize, at={(0.98,0.03)}, anchor=south east, draw=none, fill=white, fill opacity=0.8,
+    text opacity=1},
+  legend cell align=left,
+  label style={font=\small}, tick label style={font=\scriptsize},
+  clip=false,
+]
+% Exaggerated illustrative values, chosen for legibility (a real sweep has q = 1/R_inf ~ Gamma/W, far smaller):
+% ideal adaptive q = 1, n0 = 20; real adaptive q = 0.6, n0 = 35; sweep q = 0.25, n0 = 0. Target level 40.
+\addplot[thick, domain=20:80, samples=2] {x-20};
+\addlegendentry{ideal adaptive, $q=1$}
+\addplot[thick, dashed, domain=35:135, samples=2] {0.6*(x-35)};
+\addlegendentry{adaptive, $q<1$}
+\addplot[thick, dotted, domain=0:180, samples=2] {0.25*x};
+\addlegendentry{sweep, $q=1/R_\infty$}
+% Precise target and the measurements each strategy needs to reach it.
+\addplot[gray, thin, forget plot, domain=0:180, samples=2] {40};
+\node[font=\scriptsize, gray, anchor=south west] at (axis cs:2,40) {$\sigma_{\rm tgt}^{-2}/I_{\rm max}$};
+\addplot[gray, thin, densely dotted, forget plot] coordinates {(60,0) (60,40)};
+\addplot[gray, thin, densely dotted, forget plot] coordinates {(101.67,0) (101.67,40)};
+\addplot[gray, thin, densely dotted, forget plot] coordinates {(160,0) (160,40)};
+% Offsets n0 on the axis.
+\node[font=\scriptsize, anchor=north] at (axis cs:20,-1) {$n_0$};
+\node[font=\scriptsize, anchor=north] at (axis cs:35,-1) {$n_0$};
+\fill (axis cs:20,0) circle (1.2pt);
+\fill (axis cs:35,0) circle (1.2pt);
+\end{axis}
+\end{tikzpicture}
+\caption{Schematic of Eq.~\eqref{eq:strategy-numbers}, with exaggerated values chosen for legibility (a real sweep
+has $q=1/R_\infty\approx\Gamma/W$, far smaller). In the inverse squared error, in units of $I_{\rm max}$, each
+strategy is a line that leaves the axis at its offset $n_0$ with slope $q$. Solid: ideal adaptive strategy,
+$q=1$, $n_0=n_d$; dashed: an adaptive strategy that loses information, $q<1$, larger $n_0$; dotted: sweep, $n_0\approx0$,
+$q=1/R_\infty$. The vertical lines mark the measurements each needs to reach a precise target (horizontal line),
+$n_0+\sigma_{\rm tgt}^{-2}/(qI_{\rm max})$. For a loose target, below the crossings, the sweep is ahead.}
+\label{fig:strategy-numbers}
+\end{figure}
 
 \subsection{Sensitivity and bandwidth}
 \label{sec:sensitivity}
@@ -516,10 +554,11 @@ known, $D-f_-=\delta_Z=\gamma_e B_z$, so the field uncertainty is $\sigma_B=\sig
 \paragraph{Sensitivity (refine).} In the refine regime every measurement adds $I_{\rm max}$, so after a time $T$
 \begin{align*}
   \sigma_{f_-}(T)&=(nI_{\rm max})^{-1/2}=\Big(\frac{T}{t_m}\,I_{\rm max}\Big)^{-1/2},\\
-  \sigma_{f_-}\sqrt T&=\sqrt{\frac{t_m}{I_{\rm max}}} .
+  \sigma_{f_-}\sqrt T&=\sqrt{\frac{t_m}{I_{\rm max}}}=\gamma_e\,\eta .
 \end{align*}
 The uncertainty falls as $\sigma_{f_-}\propto T^{-1/2}$, so the product $\sigma_{f_-}\sqrt T$ does not depend on $T$
-and characterizes the strategy rather than the length of the run. Converted to field, this constant is the sensitivity,
+and characterizes the strategy rather than the length of the run. Converted to field, this constant is the
+sensitivity $\eta$,
 \begin{equation}
   \begin{aligned}
   \eta=\sigma_B\sqrt T&=\frac{1}{\gamma_e}\sqrt{\frac{t_m}{I_{\rm max}}}
@@ -537,8 +576,12 @@ fraction $q\le1$ of $I_{\rm max}$, $I_{\rm max}$ is replaced by $qI_{\rm max}$ i
 by $1/\sqrt q$, i.e.\ $\eta/\sqrt q$.
 
 \paragraph{Sensitivity over a run.} Read off a run of length $T$, the product $\sigma_B(T)\sqrt T$ is not yet this
-constant: during the search the error barely falls and the product grows as $\sqrt T$, and after detection it
-approaches $\eta$ from above, with an excess that falls as $1/T$ (\SM{sm:speedup}).
+constant. At the bound, $\sigma_{f_-}^{-2}=J_0+(T/t_m)\,I_{\rm max}$, so
+\begin{equation*}
+  \sigma_B\sqrt T=\frac{1}{\gamma_e}\,\frac{\sqrt T}{\sqrt{J_0+(T/t_m)\,I_{\rm max}}}\;\longrightarrow\;\eta ,
+\end{equation*}
+which grows as $\sqrt T$ while the prior information $J_0$ dominates and tends to $\eta$ once the data dominate. A
+real strategy reaches the same constant; its search offset $n_0$ only changes how (\SM{sm:speedup}).
 
 \paragraph{Bandwidth (whole run).} A field reading is useful once its error reaches the target
 $\sigma_{\rm tgt}$; the time needed, $T(\sigma_{\rm tgt})=t_m\,[n_0+\sigma_{\rm tgt}^{-2}/(qI_{\rm max})]$ by
@@ -552,9 +595,4 @@ measurements of $k$ shots carry the same information as $nk$ measurements of one
 Neglecting the overhead of switching the drive frequency, the cost of a run is therefore its total number of shots
 $nk$, the integration time in units of $t_s$, and strategies that group their shots differently are compared on that
 axis.
-
-All closed-form results of this section are for the Lorentzian line of Eq.~\eqref{eq:signal}. For pulsed ODMR the
-same quantities follow, numerically, with Eq.~\eqref{eq:pulsed-signal} in place of Eq.~\eqref{eq:signal}.
-\tbd{Which ODMR mode the results focus on, once the simulations and the experiment are complete; where pulsed goes
-(a Theory subsection for the information of the pulsed line, and its own Results).}
 
