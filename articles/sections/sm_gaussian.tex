@@ -1,10 +1,10 @@
 % =====================================================================
 \section{Approach of the posterior to a Gaussian}
-\label{app:gaussian}
+\label{sm:gaussian}
 % =====================================================================
 
 Eq.~\eqref{eq:eig-fisher} and the reading of $\sigma_\theta$ as a 68\% interval assume a Gaussian posterior. This
-appendix states when that holds for the line of Eq.~\eqref{eq:signal}. There are two separate questions: whether
+section states when that holds for the line of Eq.~\eqref{eq:signal}. There are two separate questions: whether
 the posterior has a single peak, and whether that peak is Gaussian. We take the nuisances as known; they add
 dimensions but do not change the scaling.
 
@@ -22,13 +22,13 @@ $|\theta-\hat\theta|\sim\sigma_\theta$, so the higher terms change the log densi
 $\ell'''\sigma_\theta^3$ and $\ell''''\sigma_\theta^4$; the first sets the asymmetry of the peak, the second the weight
 of its tails.
 
-For Gaussian noise, $\ln\mathcal L(\theta)=-k\,[y-\mu(x;\theta)]^2/2\sigma^2$ up to a constant. Averaged over the
+For Gaussian noise, $\ln\mathcal L(\theta)=-k\,[y-\mu(d;\theta)]^2/2\sigma^2$ up to a constant. Averaged over the
 noise, the derivatives are
 \begin{equation*}
   \mathbb E[\ell'']=-\sum_i\frac{k\,\mu_i'^2}{\sigma^2}=-J_n,\qquad
   \mathbb E[\ell''']=-3\sum_i\frac{k\,\mu_i'\mu_i''}{\sigma^2},
 \end{equation*}
-where primes are derivatives with respect to $\theta$ at $x_i$. The line changes on the scale
+where primes are derivatives with respect to $\theta$ at $d_i$. The line changes on the scale
 of its half width $\gamma$, so each further derivative brings a factor of order $1/\gamma$: $\mu''\sim\mu'/\gamma$,
 hence $|\ell'''|\lesssim J_n/\gamma$ and $|\ell''''|\lesssim J_n/\gamma^2$. The corrections in Eq.~\eqref{eq:laplace} are
 then of relative order
@@ -49,7 +49,7 @@ so at an SNR of order 10 a few shots on the sides of the dip already make the pe
 
 \paragraph{Linearization of the signal.} The same ratio controls the step from a Gaussian posterior to a Gaussian
 prediction used in Eq.~\eqref{eq:eig-fisher}. Expanding the signal over the posterior,
-$\mu(x;\theta)=\mu(x;\hat\theta)+\mu'(x)(\theta-\hat\theta)+\tfrac12\mu''(x)(\theta-\hat\theta)^2+\dots$, the
+$\mu(d;\theta)=\mu(d;\hat\theta)+\mu'(d)(\theta-\hat\theta)+\tfrac12\mu''(d)(\theta-\hat\theta)^2+\dots$, the
 quadratic term relative to the linear one is $\mu''\sigma_\theta/2\mu'\sim\sigma_\theta/\gamma$. Eq.~\eqref{eq:eig-fisher}
 therefore holds up to relative corrections of order $\sigma_\theta/\gamma$, and of order $\sigma_\theta^2/\gamma^2$
 at the steepest slope.

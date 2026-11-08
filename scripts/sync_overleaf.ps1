@@ -3,7 +3,8 @@
   Two-way sync of the article in articles/ with an Overleaf project via its Git bridge.
 
 .DESCRIPTION
-  Synced files: nvision_paper.bib, articles/sections/*.tex, the main document, which is
+  Synced files: nvision_paper.bib, articles/sections/*.tex, supplemental.tex (the Supplemental Material) with
+  the latexmkrc that builds it first, the main document, which is
   articles/nvision_paper.tex locally but main.tex on Overleaf (Overleaf's default main document),
   and every figure under articles/figures/ (same path on Overleaf, subfolders included; see
   $figureExtensions). Figures are synced as a folder: pull also brings down figures that exist only on
@@ -35,6 +36,10 @@ $url = "https://git@git.overleaf.com/$($env:OVERLEAF_PROJECT_ID)"
 $map = [ordered]@{
     "nvision_paper.tex" = "main.tex"
     "nvision_paper.bib" = "nvision_paper.bib"
+    # Supplemental Material: its own document, cross-referenced from main.tex through xr-hyper; latexmkrc makes
+    # Overleaf build supplemental.aux before main.tex.
+    "supplemental.tex"  = "supplemental.tex"
+    "latexmkrc"         = "latexmkrc"
 }
 Get-ChildItem (Join-Path $articles "sections") -Filter *.tex | ForEach-Object {
     $map["sections/$($_.Name)"] = "sections/$($_.Name)"

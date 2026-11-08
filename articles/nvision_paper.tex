@@ -9,6 +9,15 @@
 % Figures live in figures/ (next to this file locally, next to main.tex on Overleaf; synced by
 % scripts/sync_overleaf.ps1). Images: \includegraphics{name}; TikZ: \input{figures/name}. See figures/README.md.
 \graphicspath{{figures/}}
+% Cross-references into the Supplemental Material (supplemental.tex, compiled separately; its labels start sm:).
+% The file-dependency lines let latexmk (and Overleaf, through latexmkrc) build supplemental.aux first.
+\usepackage{xr-hyper}
+\makeatletter
+\newcommand*{\addFileDependency}[1]{\typeout{(#1)}\@addtofilelist{#1}\IfFileExists{#1}{}{\typeout{No file #1.}}}
+\makeatother
+\externaldocument{supplemental}
+\addFileDependency{supplemental.tex}
+\addFileDependency{supplemental.aux}
 % Visible (dark-blue) links: citations jump to the reference list; DOIs and arXiv ids there open the paper.
 \usepackage{hyperref}
 \hypersetup{colorlinks=true, linkcolor=blue!50!black, citecolor=blue!50!black, urlcolor=blue!60!black}
@@ -20,6 +29,9 @@
 \newcommand{\code}[1]{\texttt{#1}}
 % Red placeholder: text, numbers or decisions still missing.
 \newcommand{\tbd}[1]{\textcolor{red}{[#1]}}
+% Pointer to a section of the Supplemental Material (label sm:...).
+\newcommand{\SM}[1]{Sec.~\ref{#1} of the Supplemental Material~\cite{supp}}
+\newcommand{\SMcap}[1]{Section~\ref{#1} of the Supplemental Material~\cite{supp}}
 
 % ---------------------------------------------------------------------
 % SKELETON (2026-11-02). Story spine agreed with the authors:
@@ -62,11 +74,8 @@ Experiment Design in Nitrogen-Vacancy Magnetometry}
 \input{sections/conclusion}
 
 \appendix
-\input{sections/appendix_odmr}
 \input{sections/appendix_fisher}
-\input{sections/appendix_prior}
-\input{sections/appendix_algorithm}
-\input{sections/appendix_gaussian}
+% The other derivations and the algorithm settings are in the Supplemental Material, supplemental.tex.
 
 \bibliographystyle{apsrev4-2}
 \bibliography{nvision_paper}

@@ -1,0 +1,54 @@
+% =====================================================================
+\section{Expected information gain across the regimes}
+\label{sm:eig}
+% =====================================================================
+
+Sec.~\ref{sec:eig} of the main text asks two questions of the variance form of the expected information gain,
+Eq.~\eqref{eq:eig-var}: (A) when it agrees with the exact gain, and (B) when maximizing it greedily puts the
+measurements where the van Trees bound needs them. This section gives the run-level argument behind (B) in refine,
+and the argument for the two earlier regimes, where both answers fail.
+
+\paragraph{When the variance form is exact.} Eq.~\eqref{eq:eig-var} is an equality when $\mu(d;\theta,\phi)$, with
+$\theta,\phi$ drawn from the posterior, is Gaussian distributed. Whether it is depends on the posterior of $\theta$,
+not on the noise: the noise is Gaussian by construction, while the posterior only becomes Gaussian with enough data
+(Sec.~\ref{sm:gaussian}). Question (A) is therefore whether the posterior makes the predicted signal Gaussian.
+
+\paragraph{Greedy over the whole run.} In any regime, the chain rule of mutual information \cite{cover2006} makes
+the gains of a run add up: on average over runs they equal what all the outcomes together taught about the
+parameters,
+\begin{equation}
+  \mathbb E\Big[\sum_{i=0}^{n-1}\mathrm{EIG}_i(d_{i+1})\Big]
+  =\underbrace{I(\theta,\phi;y_1,\dots,y_n)}_{\text{learned from }n\text{ outcomes}}.
+  \label{eq:eig-sum}
+\end{equation}
+This is bookkeeping and says nothing yet about the limit. The greedy rule, Eq.~\eqref{eq:greedy}, maximizes each term
+given the ones before it. That also maximizes the sum only if where one measures now does not change what later
+measurements can gain. In refine this holds: each gain is the logarithm of one shrinkage, Eq.~\eqref{eq:eig-fisher},
+so the gains from measurement $m$ to $n$ sum to $\ln(\sigma_{\theta,m}/\sigma_{\theta,n})$, and they depend on where the measurements
+were taken only through the sum of their $I(d_i)$. Maximizing every $I(d_i)$ therefore maximizes the total: in refine
+greedy EIG is optimal over the whole run and reaches the data limit of Eq.~\eqref{eq:vantrees}. The information the
+rule maximizes and the information the bound counts are then the same quantity.
+
+\paragraph{Reading the posterior width.} The conditions under which Eq.~\eqref{eq:eig-fisher} holds, a single peak
+with $\sigma_\theta\ll\gamma$ and almost no mass elsewhere in the window, also decide when the posterior standard
+deviation can be read as a 68\% interval: a posterior with a narrow peak and wide tails can have the same standard
+deviation as a Gaussian, with most of its mass much closer to the peak (Sec.~\ref{sm:gaussian}).
+
+\paragraph{Search: a two-valued signal.} Before the dip is found the posterior of $\theta$ is spread over the window,
+and the predicted signal at $d$ is two-valued: with probability $p$, the posterior mass that would put the dip at $d$,
+it is about $1-C$, otherwise 1. Then $\sigma^2_{\rm pred}=p(1-p)C^2$, while the true mutual information is at most the
+binary entropy $H_b(p)\le\ln2$. For (A), the variance form keeps growing with SNR where the true gain saturates, so it
+overvalues search candidates relative to refine candidates; both peak at $p=\tfrac12$, so they rank search
+candidates alike. For (B), the chain-rule argument of Eq.~\eqref{eq:eig-sum} fails, since where one measures changes
+what later measurements can gain. Here greedy EIG is only myopically optimal, which is where the strategies of
+Sec.~\ref{sec:locators} of the main text differ.
+
+\paragraph{Localize: the variance form chases the tail.} The same two-valued picture holds in the localize stage,
+with a different ranking. Once a peak has formed at the dip, a small residual mass $p$ far from it gives a predictive
+variance $p(1-p)C^2$ at its location, large at high SNR even for small $p$, while the information it holds is at most
+$H_b(p)$, small for small $p$. The variance form therefore keeps spending measurements to remove such distant mass.
+This reduces the posterior variance, which the tail dominates (Sec.~\ref{sm:gaussian}) and which is the quantity
+Eq.~\eqref{eq:vantrees} constrains, rather than the posterior entropy: in the localize stage the variance rule acts
+as a design for the MSE, while a rule built on the information gain would refine the peak sooner and accept the
+tail. Whether this explains why localizing costs SBED far more measurements than the bound is a hypothesis we have
+not tested.
