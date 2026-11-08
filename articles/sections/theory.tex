@@ -107,17 +107,20 @@ drive, the further off resonance it still flips the spin.
 
 The laser does more than reset the spin. It pumps the spin back toward $m_s=0$ at a rate $\Gamma_p$, and each
 optical cycle destroys the phase between $m_s=0$ and $m_s=-1$, at a rate $\Gamma_c$; both rates grow with the laser
-power and saturate at high power. With these rates, and the angular Rabi frequency $\Omega_R=2\pi\Omega$ of the
-drive, the line is still a Lorentzian (Appendix~\ref{app:odmr}), of half width \cite{dreau2011}
+power and saturate at high power. The spin's environment adds its own relaxation rate $1/T_1$ to the first and its
+dephasing rate $1/T_2$ to the second, so the populations relax at $\Gamma_1=\Gamma_p+1/T_1$ and the coherence at
+$\Gamma_2=\Gamma_c+1/T_2$. With these rates, and the angular Rabi frequency $\Omega_R=2\pi\Omega$ of the drive, the
+line is still a Lorentzian (Appendix~\ref{app:odmr}), of half width \cite{dreau2011}
 \begin{equation}
-  \gamma=\frac{1}{2\pi}\sqrt{\Gamma_c^2+\Omega_R^2\,\frac{\Gamma_c}{\Gamma_p}} .
+  \gamma=\frac{1}{2\pi}\sqrt{\Gamma_2^2+\Omega_R^2\,\frac{\Gamma_2}{\Gamma_1}} .
   \label{eq:linewidth}
 \end{equation}
-The first term is the width the laser alone imposes, through the loss of coherence; the second is power broadening
-by the microwave, tempered by the pumping. At weak drive the laser sets the width, at strong drive the microwave.
-The spin bath broadens the line as well, and once both powers are low it sets the width at $\sim1/T_2^*$
-(Appendix~\ref{app:odmr}). Whatever its origin, the line is one dip of a single effective width, taken here as a
-Lorentzian: the normalized PL expected at drive frequency $f$ is
+The first term is the width without drive, set by the loss of coherence, mostly through the laser; the second is
+power broadening by the microwave, tempered by the pumping. At weak drive the laser sets the width, at strong drive
+the microwave. The spin bath also spreads the transition frequency itself, by $\sim1/T_2^*$; this adds a Gaussian
+broadening to the Lorentzian, and it sets the width once both powers are low (Appendix~\ref{app:odmr}). Whatever its
+origin, the line is one dip of a single effective width, taken here as a Lorentzian: the normalized PL expected at
+drive frequency $f$ is
 \begin{equation}
   \mu(f)=1-C\,\frac{\gamma^2}{\gamma^2+(f-f_-)^2},
   \label{eq:signal}

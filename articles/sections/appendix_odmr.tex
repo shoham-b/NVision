@@ -18,29 +18,31 @@ pumps, and $\Gamma_c$ exceeds $\Gamma_p$.
 % The ordering Gamma_c > Gamma_p follows Dreau et al. (2011), whose saturated values differ by about an order of
 % magnitude. Verify the values there before quoting numbers.
 The spin's environment adds rates of its own, independent of the laser: its longitudinal relaxation $1/T_1$ adds
-to $\Gamma_p$ and its homogeneous dephasing $1/T_2$ adds to $\Gamma_c$. Both are slow against the optical rates at
-the laser powers of CW ODMR and are left out below; if they matter, $\Gamma_p$ and $\Gamma_c$ in what follows stand
-for $\Gamma_p+1/T_1$ and $\Gamma_c+1/T_2$. The slow spread of the transition frequency, which sets $T_2^*$, is not a
-rate of this kind and is treated separately below. The microwave enters only through its angular Rabi
+to $\Gamma_p$ and its homogeneous dephasing $1/T_2$ adds to $\Gamma_c$, giving the total rates
+$\Gamma_1=\Gamma_p+1/T_1$ for the populations and $\Gamma_2=\Gamma_c+1/T_2$ for the coherence of
+Eq.~\eqref{eq:linewidth}. At the laser powers of CW ODMR both environmental rates are slow against the optical ones,
+$\Gamma_1\approx\Gamma_p$ and $\Gamma_2\approx\Gamma_c$, but the derivation below holds for any values of the totals.
+The slow spread of the transition frequency, which sets $T_2^*$, is not a rate of this kind and is treated
+separately below. The microwave enters only through its angular Rabi
 frequency $\Omega_R=2\pi\Omega$. The competition between the two is clearest in terms of populations. A drive whose
-coherence is destroyed at the rate $\Gamma_c$ no longer produces Rabi oscillations; it moves population between
+coherence is destroyed at the rate $\Gamma_2$ no longer produces Rabi oscillations; it moves population between
 $m_s=0$ and $m_s=-1$, in both directions alike, at the rate
 \begin{equation}
-  W(\Delta)=\frac{\Omega_R^2\,\Gamma_c}{2\big[\Gamma_c^2+(2\pi\Delta)^2\big]}
-  =\frac{\Omega_R^2}{2\Gamma_c}\,\frac{\Gamma_c^2}{\Gamma_c^2+(2\pi\Delta)^2},
+  W(\Delta)=\frac{\Omega_R^2\,\Gamma_2}{2\big[\Gamma_2^2+(2\pi\Delta)^2\big]}
+  =\frac{\Omega_R^2}{2\Gamma_2}\,\frac{\Gamma_2^2}{\Gamma_2^2+(2\pi\Delta)^2},
   \label{eq:transfer-rate}
 \end{equation}
-a Lorentzian of peak $\Omega_R^2/2\Gamma_c$ and half width $\Gamma_c/2\pi$ in Hz. The laser returns population from
-$m_s=-1$ at the rate $\Gamma_p$, so with $P_0=1-P_{-1}$ the population of $m_s=-1$ obeys
+a Lorentzian of peak $\Omega_R^2/2\Gamma_2$ and half width $\Gamma_2/2\pi$ in Hz. The laser, helped by $T_1$, returns
+population from $m_s=-1$ at the rate $\Gamma_1$, so with $P_0=1-P_{-1}$ the population of $m_s=-1$ obeys
 \begin{equation*}
-  \dot P_{-1}=W\,(P_0-P_{-1})-\Gamma_pP_{-1}=W-(2W+\Gamma_p)\,P_{-1}.
+  \dot P_{-1}=W\,(P_0-P_{-1})-\Gamma_1P_{-1}=W-(2W+\Gamma_1)\,P_{-1}.
 \end{equation*}
 In steady state, inserting Eq.~\eqref{eq:transfer-rate} and then ordering the terms of the denominator,
 \begin{equation}
   \begin{aligned}
-  P_{-1}^{\rm ss}(\Delta)&=\frac{W}{2W+\Gamma_p}
-  =\frac12\,\frac{\Omega_R^2\,\Gamma_c}{\Omega_R^2\,\Gamma_c+\Gamma_p\big[\Gamma_c^2+(2\pi\Delta)^2\big]}\\
-  &=\frac12\,\frac{\Omega_R^2\,\Gamma_c/\Gamma_p}{(2\pi\Delta)^2+\Gamma_c^2+\Omega_R^2\,\Gamma_c/\Gamma_p},
+  P_{-1}^{\rm ss}(\Delta)&=\frac{W}{2W+\Gamma_1}
+  =\frac12\,\frac{\Omega_R^2\,\Gamma_2}{\Omega_R^2\,\Gamma_2+\Gamma_1\big[\Gamma_2^2+(2\pi\Delta)^2\big]}\\
+  &=\frac12\,\frac{\Omega_R^2\,\Gamma_2/\Gamma_1}{(2\pi\Delta)^2+\Gamma_2^2+\Omega_R^2\,\Gamma_2/\Gamma_1},
   \end{aligned}
   \label{eq:bloch-ss}
 \end{equation}
@@ -49,12 +51,12 @@ Eq.~\eqref{eq:cw-lorentzian} when the two rates are equal and small against $\Om
 Lorentzian in $2\pi\Delta$ whose squared half width is the constant in its denominator, which gives
 Eq.~\eqref{eq:linewidth}.
 
-The first term of Eq.~\eqref{eq:linewidth} is the width the laser alone imposes, through the loss of coherence. The
-second is power broadening by the microwave: a strong drive saturates the transfer, $W\gg\Gamma_p$, already on the
+The first term of Eq.~\eqref{eq:linewidth} is the width without drive, set by the loss of coherence. The
+second is power broadening by the microwave: a strong drive saturates the transfer, $W\gg\Gamma_1$, already on the
 tails of the line, and the line widens until $W$ there has fallen to about the pumping rate. The depth of the line,
 Eq.~\eqref{eq:bloch-ss} at $\Delta=0$, is
 \begin{equation*}
-  P_{-1}^{\rm ss}(0)=\frac12\,\frac{\Omega_R^2}{\Omega_R^2+\Gamma_p\Gamma_c}:
+  P_{-1}^{\rm ss}(0)=\frac12\,\frac{\Omega_R^2}{\Omega_R^2+\Gamma_1\Gamma_2}:
 \end{equation*}
 it grows with the microwave power, toward $\tfrac12$, and falls with the laser power, which repolarizes the spin
 before the drive can flip it.
