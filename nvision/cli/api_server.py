@@ -24,6 +24,7 @@ from nvision.cache import CacheBridge
 from nvision.cache.hashing import stable_config_hash
 from nvision.cache.locator_keys import MIN_VIEWABLE_CACHE_SCHEMA_VERSION, combination_base_cache_config
 from nvision.gui.report import _STATIC_DIR, render_index_html
+from nvision.metrics.claim_columns import CLAIM_COLUMN_KEYS
 from nvision.runner.cache import _decompress_text
 from nvision.sim.combinations import SWEEP_SPACING_DIVISORS, CombinationGrid
 from nvision.sim.defaults import PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS
@@ -221,6 +222,8 @@ _COMPARE_FIELDS = (
     "stage3_oracle_steps",
     "stage3_efficiency",
     "stage3_wasted_share",
+    # The columns the article's claims need (nvision/metrics/claim_columns.py).
+    *CLAIM_COLUMN_KEYS,
 )
 
 

@@ -10,6 +10,7 @@ from typing import Any
 
 import polars as pl
 
+from nvision.metrics.claim_columns import CLAIM_COLUMN_KEYS, compute_claim_columns
 from nvision.metrics.milestones import calculate_zeeman_metrics, detect_all_converged_step, resolve_primary_param
 from nvision.metrics.stages import STAGE_METRIC_KEYS, compute_stage_metrics
 from nvision.models.experiment import CoreExperiment
@@ -113,8 +114,12 @@ def generate_attempt_metrics(
         for k, v in milestone_data.items():
             metrics_serialized[k] = _maybe_finite(v)
         # Search / focus / refine stages, detected the same way for every locator (see metrics/stages.py).
-        for k, v in compute_stage_metrics(run_result).items():
+        stage_metrics = compute_stage_metrics(run_result)
+        for k, v in stage_metrics.items():
             metrics_serialized[k] = v if isinstance(v, str) else _maybe_finite(v)
+        # Columns the article's claims need (PIT, sweep information, far placement; metrics/claim_columns.py).
+        for k, v in compute_claim_columns(run_result, stage_metrics).items():
+            metrics_serialized[k] = _maybe_finite(v)
 
     sweep_steps: int | None = None
     locator_steps: int | None = None
@@ -302,6 +307,7 @@ def generate_attempt_metrics(
         "primary_converged_step": primary_converged_step,
         "all_converged_step": all_converged_step,
         **{key: metrics_serialized.get(key) for key in STAGE_METRIC_KEYS},
+        **{key: metrics_serialized.get(key) for key in CLAIM_COLUMN_KEYS},
         "failure_reason": failure_reason,
         "metrics": metrics_serialized,
     }
