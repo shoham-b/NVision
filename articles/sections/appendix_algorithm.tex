@@ -35,9 +35,9 @@ $\sigma^2$ integrated out, the measurement reweights the particles by the Studen
 taken with $\alpha$, $\beta_i$ before the update. After a rejuvenation each $\beta_i$ is recomputed from the full
 history at the particle's new position.
 
-\paragraph{Initial cloud.} \tbd{The prior on the Zeeman shift $\delta_Z$ is being changed to uniform over the range the truth is drawn
-from (now a truncated Gaussian, offset from the truth, plus 10\% of the particles uniform over the bounds); state it
-here once Sec.~\ref{sec:prior} is fixed.}
+\paragraph{Initial cloud.} The simulated runs are global searches (Sec.~\ref{sec:prior}): the prior on the Zeeman
+shift $\delta_Z$ is uniform over the range the truth is drawn from. \tbd{Tracking runs, with a Gaussian prior and the
+truth drawn from that same Gaussian, are not simulated yet.}
 
 \paragraph{Stop rule and budget.} The ceilings on the claimed uncertainty are $100$~kHz for $\theta$, $500$~kHz for
 each width and $0.01$ for the contrast; they must hold for 8 consecutive measurements, together with a dip found by
@@ -54,7 +54,7 @@ family-wise false-alarm probability $p_{\rm FA}=0.1$ over the $N_{\rm tests}$ st
 
 \paragraph{Sweep family.} $\Gamma_0$ is the FWHM of the prior-mean line. SimpleSweep measures a uniform grid of
 spacing $\Gamma_0/p$, $p=2,3,4$. Smart-Sweep sweeps at $\Gamma_0/3$ until the dip test finds a dip, then at
-$\Gamma_0/10$ inside the focus, and then measures only at the maxima of $g(x)^2$ at the posterior mean, cycling
+$\Gamma_0/10$ inside the focus, and then measures only at the maxima of $(\partial\mu/\partial\theta)^2$ at the posterior mean, cycling
 between them, once the posterior expects each of those points to carry at least $90\%$ of the information of the
 true optimum.
 

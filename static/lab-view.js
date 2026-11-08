@@ -208,6 +208,41 @@ async function renderLabStudy(container, name) {
     }, { responsive: true });
 }
 
+// One Plotly graph of claimed σ (MHz) against measurement step for the files picked in #lab-sigma-files, for the
+// parameter picked in the radio group. Per file: SBED on all sweeps (solid), SBED on the even sweeps (dashed), and the
+// odd-sweep fit's σ and the lab-averaged-sweep fit's σ as horizontal lines. Legend clicks toggle each line.
+function renderLabSigmaGraph(files) {
+    const picker = document.getElementById('lab-sigma-files');
+    const colors = ['#1e90ff', '#e05c00', '#00a878', '#8b5cf6', '#d946ef', '#0891b2', '#ca8a04', '#be123c'];
+    const draw = () => {
+        const param = document.querySelector('input[name="lab-sigma-param"]:checked').value;
+        const picked = [...picker.selectedOptions].map((o) => files[Number(o.value)]);
+        const traces = [];
+        picked.forEach((f, k) => {
+            const c = f.curves, color = colors[k % colors.length], label = picked.length > 1 ? `${f.file} · ` : '';
+            const hline = (sigma, name, dash) => sigma == null ? [] : [{
+                x: [c.steps[0], c.steps[c.steps.length - 1]], y: [sigma, sigma], mode: 'lines', line: { color, width: 2, dash },
+                name: `${label}${name} (${sigma.toPrecision(2)} MHz)`, legendgroup: f.id,
+            }];
+            traces.push(
+                { x: c.steps, y: c[`all_${param}`], mode: 'lines', line: { color, width: 2 }, name: `${label}SBED, all sweeps`, legendgroup: f.id },
+                { x: c.steps, y: c[`even_${param}`], mode: 'lines', line: { color, width: 2, dash: 'dash' }, name: `${label}SBED, even sweeps`, legendgroup: f.id },
+                ...hline(c[`ref_${param}`], 'odd-sweep fit σ', 'dot'),
+                ...hline(c[`lab_${param}`], 'lab averaged sweep fit σ', 'dashdot'),
+            );
+        });
+        Plotly.react('lab-sweeps-sigma', traces, {
+            margin: { t: 10, r: 10, b: 50, l: 60 }, hovermode: 'x unified',
+            xaxis: { title: 'measurement step', type: 'log', gridcolor: '#eeeeee' },
+            yaxis: { title: `claimed σ of ${param} (MHz)`, type: 'log', gridcolor: '#eeeeee' },
+            legend: { orientation: 'h', y: -0.25 },
+        }, { responsive: true });
+    };
+    picker.onchange = draw;
+    document.querySelectorAll('input[name="lab-sigma-param"]').forEach((el) => { el.onchange = draw; });
+    draw();
+}
+
 // Raw ESR sweeps run through SBED (from /api/lab-sweeps): per folder, SBED on all the data, and SBED on the even
 // sweeps checked against a fit of the odd ones (z). See nvision/metrics/lab_reference.py.
 async function renderLabSweeps(body, fmt) {
@@ -248,14 +283,26 @@ async function renderLabSweeps(body, fmt) {
             <thead><tr>${head}</tr></thead>
             <tbody>${g.rows.map((r) => `<tr>${cols.map((c) => `<td style="${cell} ${mono}">${c[2](r)}</td>`).join('')}</tr>`).join('')}</tbody>
         </table></div>`).join('');
+    // One entry per file, in table order, keyed for the file picker; files from old records have no sigma_curves.
+    const sigmaFiles = data.groups.flatMap((g) => g.rows.map((r) => ({ id: `${g.label}/${g.folder}/${r.file}`, folder: g.folder, file: r.file, curves: r.sigma_curves })));
+    const fileOptions = sigmaFiles.map((f, k) => `<option value="${k}" ${f.curves ? '' : 'disabled'} ${k === sigmaFiles.findIndex((x) => x.curves) ? 'selected' : ''}>${f.folder} / ${f.file}${f.curves ? '' : ' (sync again)'}</option>`).join('');
     const failed = data.failed.length
         ? `<h3 style="margin:1.2em 0 0.3em; font-size:1em; color:#b91c1c;">Failed files (${data.failed.length})</h3><ul style="color:#b91c1c; font-size:0.85em;">${data.failed.map((f) => `<li><span style="${mono}">${f.label}/${f.file}</span>: ${f.error}</li>`).join('')}</ul>`
         : '';
     body.innerHTML = `
         <p style="margin:0 0 0.5em; color:#475569; font-size:0.85em;">Raw ESR recordings run through SBED. Real data has no ground truth, so each file is split by sweep: SBED gets the even sweeps and the odd ones are fitted as an independent reference. One file gives one independent z, so the shares are over the files of one folder (one experiment), never pooled across folders.</p>
         <div><h3 style="margin:0 0 0.3em; font-size:1em;">z of zeeman_shift per file <span tabindex="0" class="help-icon-visible" title="Each point is one file: (SBED estimate on the even sweeps − reference fit of the odd sweeps) / combined σ. Shaded: |z| ≤ 1 and ≤ 2. If SBED's claimed σ is honest, about 68% of the points sit in the inner band and 95% in the outer one.">?</span></h3><div id="lab-sweeps-z" style="height:360px"></div></div>
+        <div><h3 style="margin:1em 0 0.3em; font-size:1em;">Claimed σ vs measurement step <span tabindex="0" class="help-icon-visible" title="SBED's claimed σ after each measurement, against two yardsticks drawn as horizontal lines: the σ of a fit to the odd sweeps (never seen by SBED) and the σ of a fit to the lab's own averaged sweep (all shots; SBED draws from the same shots, so it is not independent). Click a legend entry to hide or show that line; double-click to isolate it. Select several files to overlay them.">?</span></h3>
+            <div style="display:flex; flex-wrap:wrap; gap:1em; align-items:flex-start; margin:0 0 0.4em; font-size:0.85em; color:#475569;">
+                <label>Files (Ctrl/Shift-click for several)<br><select id="lab-sigma-files" multiple size="6" style="min-width:22em; font-family:ui-monospace,monospace;">${fileOptions}</select></label>
+                <div><div>Parameter</div>
+                    <label><input type="radio" name="lab-sigma-param" value="zeeman_shift" checked> zeeman_shift</label><br>
+                    <label><input type="radio" name="lab-sigma-param" value="zero_field_freq"> zero_field_freq</label></div>
+            </div>
+            <div id="lab-sweeps-sigma" style="height:420px"></div></div>
         ${groups}${failed}`;
     await ensurePlotly();
+    renderLabSigmaGraph(sigmaFiles);
     const colors = ['#1e90ff', '#e05c00', '#00a878', '#8b5cf6', '#d946ef', '#0891b2'];
     const traces = data.groups.map((g, i) => ({
         x: g.rows.map(() => `${g.folder} (${g.label})`), y: g.rows.map((r) => r.z_zeeman), text: g.rows.map((r) => r.file),

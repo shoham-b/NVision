@@ -4,12 +4,24 @@
 % =====================================================================
 
 This appendix derives the line shapes summarized in Sec.~\ref{sec:model}: the CW line with the laser treated as two
-rates rather than a reset, and the pulsed line with its inhomogeneous broadening and readout.
+rates rather than a reset, together with the broadening by the spin bath, and the pulsed line with its
+inhomogeneous broadening and readout.
 
 \paragraph{CW line with optical pumping.} Eq.~\eqref{eq:cw-lorentzian} treats the laser only as a reset, which is too
 crude when the resets are frequent. The laser acts on the spin through two rates, both set by how often the center
 goes through an optical cycle: it pumps the spin back toward $m_s=0$, at a rate $\Gamma_p$, and each cycle destroys
-the phase between $m_s=0$ and $m_s=-1$, at a rate $\Gamma_c$. The microwave enters only through its angular Rabi
+the phase between $m_s=0$ and $m_s=-1$, at a rate $\Gamma_c$. The two rates share a cause but are not equal. A cycle
+that excites the center destroys the phase whatever happens next, since in the excited state the spin evolves under
+a different Hamiltonian and the decay path records its state; only the cycles that pass through the singlet move
+population into $m_s=0$. Every pumping cycle therefore destroys the phase, but not every phase-destroying cycle
+pumps, and $\Gamma_c$ exceeds $\Gamma_p$.
+% The ordering Gamma_c > Gamma_p follows Dreau et al. (2011), whose saturated values differ by about an order of
+% magnitude. Verify the values there before quoting numbers.
+The spin's environment adds rates of its own, independent of the laser: its longitudinal relaxation $1/T_1$ adds
+to $\Gamma_p$ and its homogeneous dephasing $1/T_2$ adds to $\Gamma_c$. Both are slow against the optical rates at
+the laser powers of CW ODMR and are left out below; if they matter, $\Gamma_p$ and $\Gamma_c$ in what follows stand
+for $\Gamma_p+1/T_1$ and $\Gamma_c+1/T_2$. The slow spread of the transition frequency, which sets $T_2^*$, is not a
+rate of this kind and is treated separately below. The microwave enters only through its angular Rabi
 frequency $\Omega_R=2\pi\Omega$. The competition between the two is clearest in terms of populations. A drive whose
 coherence is destroyed at the rate $\Gamma_c$ no longer produces Rabi oscillations; it moves population between
 $m_s=0$ and $m_s=-1$, in both directions alike, at the rate
@@ -59,17 +71,29 @@ values at full saturation. Raising the laser power therefore both widens and fla
 % Gamma_c^inf)) and calls it the FWHM; with Gamma_{p,c} = Gamma^inf s/(1+s) this is Eq. (linewidth) up to their
 % factor-2 convention for the rates. Check before quoting numbers.
 
+\paragraph{Spin bath in the CW line.} The local fields of the spin bath, mostly the $^{13}$C nuclear spins, shift
+the transition by a random offset $\xi$ that changes slowly, over times much longer than the repolarization time
+$1/\Gamma_p$. The spin therefore reaches the steady state of Eq.~\eqref{eq:bloch-ss} at the detuning $\Delta-\xi$
+before $\xi$ changes, and a measurement that averages over many values of $\xi$ records that steady state convolved
+with their distribution, the same average as Eq.~\eqref{eq:pulsed-t2star} below. For a Gaussian distribution of
+standard deviation $\sigma_\xi=1/(\sqrt2\,\pi T_2^*)$ the CW line is a Voigt profile: the Lorentzian of
+Eq.~\eqref{eq:bloch-ss}, of half width $\gamma$, convolved with a Gaussian of width $\sigma_\xi$. When
+$\gamma\gg\sigma_\xi$ it is the Lorentzian of Eq.~\eqref{eq:signal}; when the laser and microwave powers are
+lowered until $\gamma\lesssim\sigma_\xi$, the line stops narrowing at a width $\sim1/T_2^*$, as the pulsed line does.
+In either case it is one dip with one total width, which is the width inferred in Sec.~\ref{sec:methods}; the
+simulations use a pseudo-Voigt approximation to this profile.
+
 \paragraph{Pulsed line.} The $\pi$-pulse length is chosen so that on resonance, where the spin oscillates at
-$\Omega$, it is fully inverted: $\pi\Omega t_\pi=\pi/2$. Off resonance it oscillates at $\tilde\Omega$ instead.
-Measuring $\tilde\Omega$ in units of $\Omega$, $r\equiv\tilde\Omega/\Omega=\sqrt{1+\Delta^2/\Omega^2}\ge1$, the
-argument of the sine in Eq.~\eqref{eq:rabi} at $t=t_\pi$ is $\pi\tilde\Omega t_\pi=\pi r/2$ and the prefactor is
-$\Omega^2/\tilde\Omega^2=1/r^2$, which gives Eq.~\eqref{eq:pulsed}. On resonance $r=1$ and the inversion is
-complete. For $|\Delta|\gg\Omega$, $r\approx|\Delta|/\Omega$ and
+$\Omega$, it is fully inverted: $\pi\Omega t_\pi=\pi/2$. Off resonance it oscillates at $\Omega_{\rm gen}$ instead, so
+the argument of the sine in Eq.~\eqref{eq:rabi} at $t=t_\pi$ is $\pi\Omega_{\rm gen} t_\pi=(\pi/2)\,\Omega_{\rm gen}/\Omega$,
+which gives Eq.~\eqref{eq:pulsed}. On resonance $\Omega_{\rm gen}=\Omega$ and the inversion is complete. For
+$|\Delta|\gg\Omega$, $\Omega_{\rm gen}\approx|\Delta|$ and
 $P_{-1}^{\pi}\approx\sin^2(\pi\Delta t_\pi)/(2\Delta t_\pi)^2$, the power spectrum of a rectangular pulse of length
 $t_\pi$: far from resonance the spin responds to the frequency content of the pulse. The line vanishes wherever
-$\sin(\pi r/2)=0$, i.e.\ $r=2,4,\dots$, at $|\Delta|=\sqrt3\,\Omega,\sqrt{15}\,\Omega,\dots$: there the spin
-completes a whole number of full Rabi cycles and returns to $m_s=0$. Between the zeros lie side lobes that decay as
-$1/r^2$; the first, near $r=3$ at $|\Delta|\approx2.7\,\Omega$, is 12\% of the depth.
+$\Omega_{\rm gen}=2\Omega,4\Omega,\dots$, i.e.\ at $|\Delta|=\sqrt3\,\Omega,\sqrt{15}\,\Omega,\dots$: there the spin
+completes a whole number of full Rabi cycles during the pulse and returns to $m_s=0$. Between the zeros lie side
+lobes that decay as $\Omega^2/\Omega_{\rm gen}^2$; the first, near $\Omega_{\rm gen}=3\Omega$ at $|\Delta|\approx2.7\,\Omega$,
+is 12\% of the depth.
 
 \paragraph{Inhomogeneous broadening.} The transition frequency of the spin is not sharp: slowly fluctuating local
 fields, mostly from the bath of $^{13}$C nuclear spins, shift it by a random offset $\xi$ that is fixed during one

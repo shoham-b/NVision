@@ -212,6 +212,7 @@ _COMPARE_FIELDS = (
     "stage_window_phys",
     "stage_window_fwhm",
     "stage_prior_info",
+    "stage_prior_info_var",
     "stage_true_passage_step",
     "stage_eta_eff",
     "stage2_oracle_steps",

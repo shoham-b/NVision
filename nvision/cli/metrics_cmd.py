@@ -19,6 +19,7 @@ from nvision.cache import CacheBridge, stable_config_hash
 from nvision.cache.locator_keys import combination_base_cache_config
 from nvision.cli import defaults as cli_defaults
 from nvision.cli.app_instance import app
+from nvision.metrics.stages import rederive_prior_info_fields
 from nvision.runner.cache import strip_heavy_fields
 from nvision.sim.combinations import CombinationGrid
 from nvision.sim.gen.nv_center_generator import (
@@ -69,6 +70,10 @@ _METRIC_KEYS: tuple[str, ...] = (
     "total_dip_width",
     "min_dip_width",
     "sweep_efficiency",
+    "stage_prior_info",
+    "stage_prior_info_var",
+    "stage2_oracle_steps",
+    "stage2_efficiency",
 )
 
 
@@ -342,6 +347,8 @@ def recalc_metrics(
                 # Merge fresh re-derived values into main_result_row
                 updated_row = dict(main_result_row)
                 updated_row.update(fresh_metrics)
+                # Stage fields that depend on J0 (rows recorded with the inverse-variance J0 = 12/W^2).
+                updated_row.update(rederive_prior_info_fields(updated_row))
 
                 # Build full metrics dict (re-derived + everything stored in main_result_row)
                 full_metrics = _build_metrics_dict(updated_row)

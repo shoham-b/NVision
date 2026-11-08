@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from types import SimpleNamespace
 
 import numpy as np
@@ -51,11 +52,12 @@ def _run(uncs: list[float], dip_from: int | None, shots: list[int] | None = None
 @pytest.fixture(autouse=True)
 def _uniform_prior_on_mock_bounds(monkeypatch):
     """The mock belief is neither an SMC nor a grid belief: give it the uniform prior over its own bounds."""
-    monkeypatch.setattr(
-        stages,
-        "belief_prior_variance_phys",
-        lambda belief, name: stages.prior_variance_phys(None, belief.physical_param_bounds[name]),
-    )
+
+    def uniform_info(belief, name):
+        lo, hi = belief.physical_param_bounds[name]
+        return 4.0 * math.pi**2 / (hi - lo) ** 2, 12.0 / (hi - lo) ** 2
+
+    monkeypatch.setattr(stages, "belief_prior_info_phys", uniform_info)
 
 
 def _with_eta(monkeypatch, eta: list[float], eps_est: float = 2e6, eps_true: float = 0.1) -> None:
@@ -378,16 +380,17 @@ def test_oracle_steps_and_efficiency(monkeypatch):
 
 
 def test_focus_oracle_discounts_the_prior_information(monkeypatch):
-    # I* = 1, eps = 0.1 -> eps^-2 = 100. A uniform zeeman_shift prior of width W = 2 holds J0 = 12 / W^2 = 3,
-    # so (100 - 3) / 1 = 97 steps. J0 comes from the prior, not from the claimed sigma (0.2 here would give 25).
+    # I* = 1, eps = 0.1 -> eps^-2 = 100. A uniform zeeman_shift prior of width W = 2 holds J0 = 4 pi^2 / W^2 = pi^2,
+    # so (100 - pi^2) / 1 steps. J0 comes from the prior, not from the claimed sigma (0.2 here would give 25).
     _with_eta(monkeypatch, [0.0] * 6 + [1.0] * 4, eps_est=500e3)
     uncs = [0.2] + [0.19] * 1 + [0.1] * 8  # focus_idx at 2 needs <= 0.7 * 0.2 = 0.14
     run = _run(uncs, dip_from=1)
     for snap in run.snapshots:
         snap.belief.physical_param_bounds["zeeman_shift"] = (5.0, 7.0)
     m = compute_stage_metrics(run)
-    assert m["stage_prior_info"] == pytest.approx(3.0)
-    assert m["stage2_oracle_steps"] == pytest.approx(97.0)
+    assert m["stage_prior_info"] == pytest.approx(math.pi**2)
+    assert m["stage_prior_info_var"] == pytest.approx(3.0)  # 12 / W^2, kept for models of actual error
+    assert m["stage2_oracle_steps"] == pytest.approx(100.0 - math.pi**2)
 
 
 def test_uniform_prior_variance_is_w2_over_12():
@@ -448,6 +451,46 @@ def test_smc_belief_prior_is_uniform_on_zeeman_shift():
     assert belief_prior_variance_phys(belief, "zeeman_shift") == pytest.approx((hi - lo) ** 2 / 12.0)
     with pytest.raises(TypeError):
         belief_prior_variance_phys(SimpleNamespace(), "zeeman_shift")
+    # The bound's J0 for a global search is Gill-Levit 4 pi^2 / W^2; the inverse variance stays 12 / W^2.
+    j0_bound, j0_var = stages.belief_prior_info_phys(belief, "zeeman_shift")
+    assert j0_bound == pytest.approx(4 * math.pi**2 / (hi - lo) ** 2)
+    assert j0_var == pytest.approx(12.0 / (hi - lo) ** 2)
+    assert j0_bound / j0_var == pytest.approx(math.pi**2 / 3)
+
+
+def test_rederive_prior_info_fields_rescales_legacy_rows():
+    row = {
+        "stage_primary_param": "zeeman_shift",
+        "stage_prior_info": 3.0,  # legacy 12 / W^2 with W = 2
+        "stage_eps_target_phys": 0.1,
+        "stage_fisher_star": 1.0,
+        "stage2_steps": 4,
+    }
+    out = stages.rederive_prior_info_fields(row)
+    assert out["stage_prior_info"] == pytest.approx(math.pi**2)
+    assert out["stage_prior_info_var"] == pytest.approx(3.0)
+    assert out["stage2_oracle_steps"] == pytest.approx(100.0 - math.pi**2)
+    assert out["stage2_efficiency"] == pytest.approx((100.0 - math.pi**2) / 4)
+    # idempotent: a current row is left alone
+    assert stages.rederive_prior_info_fields({**row, **out}) == {}
+    assert stages.rederive_prior_info_fields({"stage_primary_param": "zeeman_shift"}) == {}
+    with pytest.raises(ValueError, match="prior unknown"):
+        stages.rederive_prior_info_fields({**row, "stage_primary_param": "zero_field_freq"})
+
+
+def test_gaussian_prior_info_is_inverse_variance_for_both_conventions(monkeypatch):
+    from nvision.belief.smc_marginal import SMCMarginalDistribution
+
+    monkeypatch.undo()  # drop the autouse mock-belief patch: this test needs the real function
+
+    belief = object.__new__(SMCMarginalDistribution)
+    belief.priors = {"zeeman_shift": (0.5, 0.05)}
+    belief.physical_param_bounds = {"zeeman_shift": (0.0, 10.0)}
+    belief.prior_broad_fraction = 0.0
+    belief.num_particles = 100
+    j0_bound, j0_var = stages.belief_prior_info_phys(belief, "zeeman_shift")
+    assert j0_bound == pytest.approx(j0_var)
+    assert j0_var == pytest.approx(1.0 / 0.5**2, rel=1e-3)  # sigma0 = 0.05 * 10 = 0.5
 
 
 def test_true_error_first_passage_and_effective_sensitivity(monkeypatch):
