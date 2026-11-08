@@ -6,7 +6,9 @@
 % nvision/sim/locs/bayesian/sbed_locator.py, nvision/belief/focus_window.py, nvision/belief/dip_detection.py,
 % nvision/sim/locs/search_grid.py).
 
-\paragraph{Particle filter.} The cloud has $N_p=1000$ particles. Every dimension is scaled to $[0,1]$ by its prior
+\paragraph{Particle filter.} Each particle holds the Zeeman shift and the nuisances of the line: its half width
+$\gamma=\Gamma/2$ of Eq.~\eqref{eq:signal}, or, for the pseudo-Voigt line, its Lorentzian half width and the standard
+deviation of its Gaussian part, and its contrast $C$. The cloud has $N_p=1000$ particles. Every dimension is scaled to $[0,1]$ by its prior
 bounds, so one resampling kernel serves all of them; reported values are mapped back to Hz. The cloud is resampled
 when the effective sample size $(\sum_i w_i^2)^{-1}$ falls below $0.2\,N_p$, systematically, and then rejuvenated with
 the Liu--West kernel,
@@ -16,9 +18,23 @@ the Liu--West kernel,
 \end{equation}
 with $\psi_i=(\theta_i,\phi_i)$ the whole particle and $\bar\psi$, $\Sigma$ the weighted mean and covariance before
 resampling. The diagonal of $\Sigma$ is floored at $(0.01\,e^{-n/25})^2$ of each unit range after $n$ measurements,
-and a particle that leaves the unit cube is reflected back into it.
+and a particle that leaves the unit cube is reflected back into it. These two safeguards depart from the plain
+Liu--West kernel: the floor decays with the number of measurements, so early rejuvenations can still widen a cloud
+that has collapsed too soon, and reflection keeps particles inside the prior bounds without piling them onto a bound,
+as clipping would.
 
-\paragraph{Noise model.} Each particle carries an inverse-gamma posterior on $\sigma^2$ with shape $\alpha$, the same
+\paragraph{Noise model.} The noise is Gaussian, as it is for the photon numbers of an ODMR shot, but technical
+noise adds to the shot noise by an amount that depends on the setup and can drift, so its level $\sigma$ is inferred
+with the line. It is not a particle dimension. Given a particle's line, the Gaussian likelihood is conjugate to an
+inverse-gamma prior on $\sigma^2$, so each particle carries that posterior in closed form, updated from its own
+residuals, and $\sigma^2$ is integrated out exactly: a Rao--Blackwellized particle filter with per-particle sufficient
+statistics \cite{storvik2002,carvalho2010pl}. Integrating out matters: a likelihood with a plug-in estimate of
+$\sigma$ is largest for a particle whose $\sigma$ happens to equal one residual, so resampling would favor such
+particles and drive $\sigma$ to its lower bound, while the Student-$t$ tails of the integrated likelihood do not
+reward that. Old residuals are discounted, as in the variance discounting of dynamic linear models
+\cite{westharrison1997}, so the noise posterior can follow a slow drift of $\sigma$.
+
+Each particle carries an inverse-gamma posterior on $\sigma^2$ with shape $\alpha$, the same
 for every particle because its update does not depend on the residuals, and scale $\beta_i$. The prior is
 $\alpha_0=10$, $\beta_0=\alpha_0\sigma_{\rm nom}^2$, with $\sigma_{\rm nom}$ the geometric mean of the prior range of
 $\sigma$. Before each measurement both are discounted by $d=0.99$; a measurement $y_n$, the mean of $k$ shots at
@@ -51,11 +67,8 @@ the prior range of the linewidth gets the boxcar score $\sum z_n/\sqrt{n}$, over
 significant when its score exceeds $t_\nu^{-1}(1-p_{\rm FA}/N_{\rm tests})$, the Bonferroni threshold for a
 family-wise false-alarm probability $p_{\rm FA}=0.1$ over the $N_{\rm tests}$ stretches tested.
 
-\paragraph{Sweep family.} $\Gamma_0$ is the FWHM of the prior-mean line. SimpleSweep measures a uniform grid of
-spacing $\Gamma_0/p$, $p=2,3,4$. Smart-Sweep sweeps at $\Gamma_0/3$ until the dip test finds a dip, then at
-$\Gamma_0/10$ inside the focus, and then measures only at the maxima of $(\partial\mu/\partial\theta)^2$ at the posterior mean, cycling
-between them, once the posterior expects each of those points to carry at least $90\%$ of the information of the
-true optimum.
+\paragraph{Sweep.} $\Gamma_0$ is the FWHM of the prior-mean line. SimpleSweep measures a uniform grid of
+spacing $\Gamma_0/p$, $p=2,3,4$, and repeats whole passes.
 
 \paragraph{Bayesian SBED.} After every resampling SBED places 800 candidate drive frequencies at the quantiles of a
 density with Gaussian kernels on the two sides of the posterior-mean dip, $\pm$HWHM from its center, kernels on the dips found and a

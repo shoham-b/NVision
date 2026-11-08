@@ -1,0 +1,32 @@
+% Flow chart of the measurement loop shared by every strategy (Sec. Bayesian inference, Fig. fig:bayes-loop).
+% Single column. Only the "choose" box (shaded) differs between strategies.
+\begin{tikzpicture}[
+  font=\small,
+  node distance=4.5mm,
+  box/.style={draw, rounded corners=2pt, align=center, text width=4.4cm, inner sep=3pt},
+  pick/.style={box, fill=gray!20, thick},
+  test/.style={draw, diamond, aspect=2.6, align=center, inner sep=1pt, font=\footnotesize},
+  arr/.style={-{Stealth[length=2mm]}},
+]
+\node[box] (prior) {Prior: particles $\{(\theta_i,\phi_i)\}$ drawn\\ over the search window};
+\node[pick, below=of prior] (choose) {Choose drive frequency $d_n$\\[1pt]
+  {\footnotesize sweep: next grid point\\ SBED: largest EIG in the focus}};
+\node[box, below=of choose] (measure) {Measure $y_n$ at $d_n$};
+\node[box, below=of measure] (update) {Reweight particles $w_i$\\[1pt]
+  {\footnotesize Student-$t$ likelihood, $\sigma$ integrated out}};
+\node[test, below=of update] (ess) {weight on few\\ particles?};
+\node[box, right=3mm of ess, text width=1.6cm, font=\footnotesize] (resample) {resample +\\ Liu--West jitter};
+\node[test, below=of ess] (stop) {stop rule\\ met?};
+\node[box, below=of stop] (report) {Report $\hat\theta_N$ and $\hat\sigma_N$, Eq.~\eqref{eq:sigma-hat}};
+
+\draw[arr] (prior) -- (choose);
+\draw[arr] (choose) -- (measure);
+\draw[arr] (measure) -- (update);
+\draw[arr] (update) -- (ess);
+\draw[arr] (ess) -- node[above, font=\scriptsize] {yes} (resample);
+\draw[arr] (ess) -- node[right, font=\scriptsize] {no} (stop);
+\draw[arr] (resample) |- (stop);
+\draw[arr] (stop) -- node[right, font=\scriptsize] {yes} (report);
+\coordinate (back) at ([xshift=-3mm]choose.west);
+\draw[arr] (stop.west) -- node[above, font=\scriptsize, pos=0.3] {no} (stop.west -| back) -- (back) -- (choose.west);
+\end{tikzpicture}
