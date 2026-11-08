@@ -494,13 +494,14 @@ signal is then Gaussian too, Eq.~\eqref{eq:eig-var} is an equality, and
   \begin{aligned}
   \mathrm{EIG}(x)&=\tfrac12\ln\Big(1+\underbrace{\frac{k}{\sigma^2}\Big(\frac{\partial\mu}{\partial\theta}\Big)^{\!2}}_{I(x)}\,
   \underbrace{\sigma_\theta^2}_{1/J_n}\Big)\\
-  &=\tfrac12\ln\frac{\overbrace{J_n+I(x)}^{\text{after}}}{\underbrace{J_n}_{\text{before}}}
-  =\ln\frac{\sigma_{\theta,\rm before}}{\sigma_{\theta,\rm after}}.
+  &=\tfrac12\ln\frac{\overbrace{J_n+I(x)}^{J_{n+1}}}{J_n}
+  =\ln\frac{\sigma_{\theta,n}}{\sigma_{\theta,n+1}}.
   \end{aligned}
   \label{eq:eig-fisher}
 \end{equation}
-The measurement adds $I(x)$ to the information $J_n$, so the width of the posterior shrinks from $J_n^{-1/2}$ to
-$(J_n+I(x))^{-1/2}$, and the EIG is the logarithm of that shrinkage. The true EIG and the variance form then pick the
+The measurement adds $I(x)$ to the information $J_n$, so $J_{n+1}=J_n+I(x)$ is the predicted information after it,
+exact when the posterior is Gaussian and $\mu$ is linear over it. The width of the posterior shrinks from $J_n^{-1/2}$
+to $J_{n+1}^{-1/2}$, and the EIG is the logarithm of that shrinkage. The true EIG and the variance form then pick the
 same point.
 
 This is also the best choice for the run as a whole, not only for the next measurement. In any regime, the chain
