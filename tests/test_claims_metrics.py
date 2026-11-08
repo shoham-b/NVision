@@ -172,3 +172,34 @@ def test_series_matrix_interpolates_and_leaves_nan_after_stop() -> None:
     assert m[0, 1] == pytest.approx(2.0)  # log-log midpoint of 4 -> 1 over 1 -> 4
     assert np.isnan(m[0, 3]) is np.True_ or np.isnan(m[0, 4])
     assert np.isnan(m[0, 4])
+
+
+def test_analyse_use_case_recovers_known_parameters_and_reports_missing_columns() -> None:
+    from nvision.metrics.claims_report import analyse_use_case
+
+    steps = [int(v) for v in GRID]
+    curve = claims.elimination_curve(GRID, W, DD, N_D, IMAX)
+    rows = [
+        {
+            "compare": {
+                "stage_prior_info": 12.0 / W**2,
+                "stage_prior_info_var": 12.0 / W**2,
+                "stage_fisher_star": IMAX,
+                "stage_window_phys": W,
+                "stage_fwhm_true_phys": 1.0,
+                "stage_tau_phys": 0.05,
+                "refine_start_step": 40,
+            },
+            "series": {"s": steps, "e": [float(v) for v in curve], "u": [float(v) for v in curve]},
+            "true_params": None,
+            "failure_reason": None,
+        }
+        for _ in range(12)
+    ]
+    out = analyse_use_case(rows)
+    assert out["fit_true"]["q"] == pytest.approx(1.0, rel=1e-3)
+    assert out["fit_claimed"]["q"] == pytest.approx(1.0, rel=1e-3)
+    assert out["speedup_predicted"] == pytest.approx(27 * W / (8 * math.pi))
+    assert out["pit"] is None and "PIT" in out["missing_columns"]  # recorded only by newer runs
+    assert out["coverage"][100]["within_1"] == 1.0  # claimed == true error: always within one sigma
+    assert analyse_use_case(rows[:3])["unavailable"]

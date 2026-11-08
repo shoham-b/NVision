@@ -403,6 +403,23 @@ def _add_lab_study_route(app: FastAPI, lab_dirs: list[Path], run_dir: Path) -> N
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
+def _add_claims_route(app: FastAPI, scan_fields: Any) -> None:
+    """``/api/claims``: the article-claim numbers (nvision/metrics/claims_report.py) per use case and locator for the
+    given generator(s)/noise(s), comma-separated. Read-only: computed from the stored per-step series that
+    ``scan_fields`` (the ``/api/scan-fields`` handler) serves. Module-level to keep build_app's complexity down."""
+    from nvision.metrics.claims_report import analyse_use_case
+
+    @app.get("/api/claims")
+    def claims_endpoint(generator: str, noise: str) -> list[dict]:
+        grouped: dict[tuple[str, str, str], list[dict]] = {}
+        for row in scan_fields(generator, noise):
+            grouped.setdefault((row["generator"], row["noise"], row["strategy"]), []).append(row)
+        return [
+            {"generator": g, "noise": n, "strategy": st, **analyse_use_case(group)}
+            for (g, n, st), group in sorted(grouped.items())
+        ]
+
+
 def build_app(cache_dir: Path, run_dir: Path, lab_dirs: list[Path] | None = None) -> FastAPI:
     """Build the FastAPI app serving the repo's frontend against *cache_dir*.
 
@@ -683,6 +700,8 @@ def build_app(cache_dir: Path, run_dir: Path, lab_dirs: list[Path] | None = None
             return out
         finally:
             bridge.close()
+
+    _add_claims_route(app, scan_fields)
 
     def _clear_caches() -> None:
         with lock:
