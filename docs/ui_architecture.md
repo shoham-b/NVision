@@ -4,6 +4,22 @@ The UI is a single-page application with no build step. All files are served dir
 
 Its colours, type, spacing and component markup are documented as a design system in [design_system/README.md](design_system/README.md). Read it before adding or restyling UI.
 
+## Vocabulary in the UI (article terms)
+
+The UI shows the article's quantities under shorter labels; the full table is in the [glossary](glossary.md).
+
+* **σ in plots and tables** is the **claimed uncertainty** $\hat\sigma_N$ (weighted particle standard deviation), not a 68 % interval before the posterior is Gaussian. The Sanity view tests whether it is honest (1σ / 2σ / 3σ coverage); end-of-run accuracy is deliberately not shown.
+* **SNR** on every axis and button is the code label `contrast_total / noise σ`, i.e. twice the article's $C/\sigma$ (`contrast_total` $= 2C$).
+* **Bound** in the Information view is the van Trees bound (prior information J₀ plus n·I*); the stage-oracle column names still say `fisher_star` / CRLB.
+* **Stages** are search / focus / refine. The article calls the middle regime *localize*.
+* **Dip found** (`dip_detected_step`) is the dip test at `NVISION_DIP_P_FA`; **focus found** (`focus_found_step`) is the claimed-uncertainty drop. They are different markers.
+
+## Known deviations (UI vs. article)
+
+* Stage *focus* here is *localize* in the article, and its boundaries come from the claimed uncertainty, not from the detection step.
+* Chart labels say "σ" and "CRLB"/"Fisher" where the article says $\hat\sigma_N$ and van Trees bound; the labels were not renamed.
+* The article's tracking (Gaussian prior) runs are not simulated; the UI's J₀ switch (4π²/W² vs 1/σ₀²) supports both, only the global-search case has data.
+
 ## File map
 
 | File | Lines | Responsibility |
@@ -145,7 +161,7 @@ Key sections inside `main()` (in order of appearance):
      Per locator it shows the median and p75 cost, the capped share, how often a dip was found, the search cost, and
      whether the claimed σ is right (share of runs with |error| ≤ 1σ / 2σ / 3σ, nominal 68% / 95% / 99.7%). Selecting
      several noise levels or windows gives several blocks. The **charts** ("Across use cases") span the whole family:
-     cost and search cost (and, in the **Sanity** view, the 1σ/2σ/3σ share: "Is the claimed σ right?") against SNR = contrast / noise σ, each point one use case, with a dotted
+     cost and search cost (and, in the **Sanity** view, the 1σ/2σ/3σ share: "Is the claimed σ right?") against SNR = C / noise σ, each point one use case, with a dotted
      vertical line at the SNR of the selected use case in the panel of its window. They follow the SNR x window study:
      x = SNR (log), one panel per window (`grid_window_fwhm`, absolute MHz in the tooltip), lines = locators at ONE
      line shape chosen by a button group (default the selected use case's shape; the shape is named by its Lorentzian

@@ -57,7 +57,7 @@ NVISION_SWEEP_BELIEF_CHUNK: int = max(1, int(os.getenv("NVISION_SWEEP_BELIEF_CHU
 # --- Robust Dip Detection Defaults -----------------------------------------
 
 # Family-wise false-alarm probability of the boxcar dip scan (Bonferroni over every window
-# tested), see nvision.belief.dip_detection.find_dips. 0.1 declares the dip (the focus stage start) a few to ~10
+# tested), see nvision.belief.dip_detection.find_dips. 0.1 declares the dip (the localize stage start) a few to ~10
 # measurements earlier than 0.01 with no off-dip detections on the single-dip SNR(10) probe; 0.2 and above start
 # producing them.
 NVISION_DIP_P_FA: float = float(os.getenv("NVISION_DIP_P_FA", "0.1"))
@@ -211,10 +211,10 @@ NVISION_SBED_HYPERFINE_VALUES: tuple[str, ...] = tuple(
 #
 # The grid is posed in the dimensionless numbers that decide how hard a search is, instead of in Hz and
 # absolute noise, and varies one thing per axis:
-#   * SNR = contrast_total / noise sigma. Every generator carries the same contrast_total
-#     (NVISION_SBED_SNR_CONTRAST); a run is named SNR(x) and its sigma is contrast / x. 1 is the smallest SNR
-#     worth running (every locator hits its budget there) and 20 is past where the locators converge, so the
-#     levels are spaced geometrically between them.
+#   * SNR = C / noise sigma (the article's Eq. snr), C = contrast_total / 2 the per-line contrast. Every generator
+#     carries the same contrast_total (NVISION_SBED_SNR_CONTRAST); a run is named SNR(x) and its sigma is C / x.
+#     1 is the smallest SNR worth running (every locator hits its budget there) and 20 is past where the
+#     locators converge, so the levels are spaced geometrically between them.
 #   * window = N x the signal's total FWHM, with ONE total FWHM for every signal (NVISION_SBED_FWHM), so the
 #     window is the same absolute 10 / 20 / 40 MHz whatever the line shape. 5-20 FWHM is what the study needs:
 #     the search is hard when the dips are a sizeable part of the window, not only when it is orders of
@@ -243,7 +243,7 @@ NVISION_SBED_SNR_CONTRAST: float = float(os.getenv("NVISION_SBED_SNR_CONTRAST", 
 # NVISION_SBED_SNR_VALUES (a nominal SNR there: its contrast comes from the drive, not a fixed value).
 
 # SNR (against NVISION_SBED_SNR_CONTRAST) every drift scenario in the drift run-groups is paired with
-# (sim.presets.drift_study_noises); the Gaussian noise is NVISION_SBED_SNR_CONTRAST / this.
+# (sim.presets.drift_study_noises); the Gaussian noise is (NVISION_SBED_SNR_CONTRAST / 2) / this.
 NVISION_DRIFT_SNR: float = float(os.getenv("NVISION_DRIFT_SNR", "40"))
 
 

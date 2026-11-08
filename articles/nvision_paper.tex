@@ -24,7 +24,7 @@
 \usepackage{tikz}
 \usepackage{pgfplots}
 \pgfplotsset{compat=1.18}
-\usetikzlibrary{arrows.meta,positioning}
+\usetikzlibrary{arrows.meta,positioning,shapes.geometric}
 
 \newcommand{\code}[1]{\texttt{#1}}
 % Red placeholder: text, numbers or decisions still missing.
@@ -40,8 +40,9 @@
 %   small N, unbiased CRLB at large N); a wide window shows three regimes
 %   because the information per measurement is ~0 until the dip is found
 %   (elimination model, agreed).
-% Scope agreed: Bayesian SBED against the sweep ladder (SimpleSweep k=2,3,4,
-%   Smart-Sweep). Smart-SBED and drive control: outlook at most.
+% Scope agreed: Bayesian SBED against the sweep ladder (SimpleSweep k=2,3,4).
+%   Smart-Sweep and Smart-SBED are the author's private experiments: keep them out of the
+%   article. Drive control: outlook at most.
 % Open decisions are marked \tbd{...} in the text.
 % ---------------------------------------------------------------------
 

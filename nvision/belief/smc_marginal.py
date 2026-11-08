@@ -718,7 +718,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         """Dips the observations measured *so far* show, most significant first (``find_dips``).
 
         ``p_fa`` overrides the family-wise false-alarm level (default ``NVISION_DIP_P_FA``); the stage
-        metrics pass a looser one to detect the start of the focus stage earlier than the locator acts on it.
+        metrics pass a looser one to detect the start of the localize stage earlier than the locator acts on it.
 
         Computed now from the current observations and the conjugate noise estimate, unlike
         :attr:`dip_candidates`, which is frozen when the epoch's candidates were generated. This is the one

@@ -6,39 +6,35 @@
 \subsection{Bayesian inference}
 \label{sec:bayes}
 
-Every strategy runs the same loop: it chooses a drive frequency $d_n$, takes one measurement $y_n$ there, updates
-the posterior over the line parameters with it, and stops when the stop rule of Sec.~\ref{sec:locators} fires. The
-strategies differ only in the first step; the posterior and its update, described here, are shared. The unknowns are
-those of Sec.~\ref{sec:fisher}, the parameter of interest $\theta$ and the nuisances $\phi$, together with the noise
-level $\sigma$, which is treated separately below.
+Every strategy runs the same loop, Fig.~\ref{fig:bayes-loop}: it chooses a drive frequency $d_n$, takes one
+measurement $y_n$ there, updates the posterior over the line parameters with it, and stops when the stop rule of
+Sec.~\ref{sec:locators} fires. The strategies differ only in the first step; the posterior and its update, described
+here, are shared. The unknowns are those of Sec.~\ref{sec:fisher}, the parameter of interest $\theta$ and the
+nuisances $\phi$, together with the noise level $\sigma$.
+
+\begin{figure}[t]
+\centering
+\input{figures/bayes_loop}
+\caption{The measurement loop shared by every strategy. Only the choice of the next drive frequency (shaded)
+differs between strategies; the particle posterior, its update and the stop rule are the same for all of them.
+The noise level $\sigma$ is integrated out in each particle, so the update weighs by a Student-$t$ likelihood.}
+\label{fig:bayes-loop}
+\end{figure}
 
 The posterior over $(\theta,\phi)$ is a weighted cloud of particles $\{(\theta_i,\phi_i),w_i\}_{i=1}^{N_p}$, updated
 by sequential Monte Carlo \cite{doucet2001smc}. Each particle is one hypothesis for the line. It holds the Zeeman
 shift $\delta_{Z,i}$, so $\theta_i=D-\delta_{Z,i}$ with $D$ fixed (the simulations measure the mirror
-transition $D+\delta_{Z,i}$, which is equivalent by symmetry), and the nuisances: the linewidth itself, as the
-half width $\gamma=\Gamma/2$ of Eq.~\eqref{eq:signal}, and the contrast $C$. The mechanisms that set the width,
-Eq.~\eqref{eq:linewidth}, are not inferred; only the width they produce is. For the pseudo-Voigt line the width is held
-as its Lorentzian half width and the standard deviation of its Gaussian part.
+transition $D+\delta_{Z,i}$, which is equivalent by symmetry), and the nuisances: the width of the line and its
+contrast $C$. The mechanisms that set the width, Eq.~\eqref{eq:linewidth}, are not inferred; only the width they
+produce is. The initial cloud is drawn from the prior.
 
-The noise is Gaussian, Eq.~\eqref{eq:noise}, as it is for the photon numbers of an ODMR shot, but its level $\sigma$
-is not known in advance: technical noise adds to the shot noise by an amount that depends on the setup and can drift.
-$\sigma$ is therefore inferred with the line, but not as a particle dimension. Given a particle's line, the Gaussian
-likelihood is conjugate to an inverse-gamma prior on $\sigma^2$, so each particle carries that posterior in closed
-form, updated from its own residuals, and $\sigma^2$ is integrated out exactly: a Rao--Blackwellized particle filter
-with per-particle sufficient statistics \cite{storvik2002,carvalho2010pl}. A measurement then reweights each particle
-by a Student-$t$ predictive, the Gaussian likelihood averaged over that particle's noise posterior. Integrating out
-matters: a likelihood with a plug-in estimate of $\sigma$ is largest for a particle whose $\sigma$ happens to equal
-one residual, so resampling would favor such particles and drive $\sigma$ to its lower bound, while the Student-$t$
-tails do not reward that. Old residuals are discounted, as in the variance discounting of dynamic linear models
-\cite{westharrison1997}, so the noise posterior can follow a slow drift of $\sigma$.
-
-When the weight has concentrated on a few particles, the cloud is resampled systematically \cite{kitagawa1996} and
-jittered with the Liu--West kernel \cite{liuwest2001}, which shrinks every particle towards the mean of the cloud and
-adds Gaussian noise, so that the mean and covariance of the cloud are preserved. Two safeguards depart from it: a
-variance floor that decays with the number of measurements, so early rejuvenations can still widen the cloud, and
-reflection of particles that leave the prior bounds. Each particle's noise posterior is then recomputed from the full
-history at its new position. The initial cloud is drawn from the prior. The
-formulas and settings are in \SM{sm:algorithm}.
+The noise is Gaussian, Eq.~\eqref{eq:noise}, but its level $\sigma$ is not known in advance, since technical noise
+adds to the shot noise by an amount that depends on the setup. Each particle therefore carries a closed-form
+posterior on $\sigma^2$, given its line, and $\sigma^2$ is integrated out \cite{storvik2002,carvalho2010pl}: a
+measurement reweights each particle by a Student-$t$ likelihood instead of a Gaussian with a plug-in $\sigma$, which
+would drive the estimate of $\sigma$ to its lower bound. When the weight has concentrated on a few particles, the
+cloud is resampled \cite{kitagawa1996} and jittered with the Liu--West kernel \cite{liuwest2001}, which preserves its
+mean and covariance. The noise model, the resampling safeguards and all settings are in \SM{sm:algorithm}.
 
 The particle filter reports the posterior mean and the weighted particle standard deviation,
 \begin{equation}
@@ -51,9 +47,8 @@ the claimed uncertainty whose meaning Sec.~\ref{sec:protocol} discusses.
 \subsection{Measurement strategies}
 \label{sec:locators}
 
-We compare two families of strategies. The sweep family holds the strategies an experimentalist would use without
-adaptive design: plain sweeps at several grid spacings, and Smart-Sweep, a sweep refined inside the dip once it is
-seen. The question is whether the best member of that family can match Bayesian SBED. All strategies infer with the
+We compare Bayesian SBED with the strategy an experimentalist would use without adaptive design, a sweep, run at
+several grid spacings; the best spacing is the yardstick SBED is measured against. All strategies infer with the
 particle filter of Sec.~\ref{sec:bayes}, so the comparison isolates the choice of measurements from the inference,
 and $\hat\sigma_N$ means the same for all of them. All run under the same stop rule and the same measurement budget:
 a run stops once the claimed uncertainty of every parameter has stayed below its ceiling for several consecutive
@@ -65,12 +60,8 @@ stretches of measured drive frequencies, about as wide as a plausible line, get 
 significant when its score passes a family-wise false-alarm threshold over all stretches tested. Each connected run of
 significant stretches is one dip.
 
-\paragraph{Sweep family.} SimpleSweep measures a uniform grid over the window, a few points per FWHM of the
+\paragraph{Sweep.} SimpleSweep measures a uniform grid over the window, a few points per FWHM of the
 prior-mean line, and repeats whole passes; the spacing is the one setting a sweep has, and several are run.
-Smart-Sweep sweeps the window coarsely until the dip test finds a dip, then finely inside the focus (below), and then
-measures only at the steepest-slope points of the posterior-mean line, once the posterior expects them to carry nearly
-the optimal information. Its coarse search uses the same grid points, and the same measured values, as the reference
-sweep of that repeat.
 
 \paragraph{Bayesian SBED.} SBED is the particle filter choosing each $d$ by Eq.~\eqref{eq:eig-var}, maximized over
 candidate drive frequencies concentrated on the steep sides of the posterior-mean dip and on the dips found. The

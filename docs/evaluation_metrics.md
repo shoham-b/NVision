@@ -33,7 +33,7 @@ Choose the axis from the stage's physics, not from whatever grid columns the res
 
 | Stage | What drives it | Axis | Metric |
 |---|---|---|---|
-| **Search** | whether the grid puts enough points inside the true dip, and how deep each point sees it | **grid points per true FWHM** = k × FWHM_true / FWHM_prior, with SNR = contrast / noise σ | measurements until a dip is seen (better: in grid **passes**), dip-found rate |
+| **Search** | whether the grid puts enough points inside the true dip, and how deep each point sees it | **grid points per true FWHM** = k × FWHM_true / FWHM_prior, with SNR = C / noise σ | measurements until a dip is seen (better: in grid **passes**), dip-found rate |
 | **Localize** | going from "dip seen" to "located near the steepest slope" (within ε, where the sensitivity is still ≥ 90% of its best) | information per measurement ∝ SNR², so cost ∝ 1/SNR²; expected independent of the window (a hypothesis, checked in the Scaling view) | measurements in the localize stage, efficiency = Fisher bound / steps |
 | **Refine** | Fisher-limited precision | measurements an oracle needs for σ = τ, which scale like (FWHM_true / (SNR · τ))² | Fisher efficiency η (`stage3_sens_eff`), efficiency = Fisher bound / steps (`stage3_efficiency`) |
 
@@ -261,7 +261,7 @@ report `why` instead of a number.
    bound, and show the capped share.
 3. **Show the raw metrics before ranking anything.** No arbitrary reference locator (e.g. "divided by k = 3"), no
    "cheapest k" summaries, until the plain per-locator metrics have been looked at.
-4. **Use physical axes.** SNR = contrast / noise σ (∞ without noise) and the effective FWHM, per the stage table
+4. **Use physical axes.** SNR = C / noise σ with C = contrast_total / 2 (∞ without noise) and the effective FWHM, per the stage table
    above.
 5. **Runs are paired.** Repeat *i* has the same true signal for every locator and noise level
    (`signal_repeat_key`), so per-repeat comparisons are valid; measurement noise differs, as it must.

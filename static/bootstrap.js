@@ -80,15 +80,17 @@ window.nvisionGeneratorAxes = function (rawGridInfo) {
 };
 
 // "SNR 20" for an `SNR(20)` noise name (the name of a run of the SNR studies, which carries no sigma); for an older
-// `Gauss(sigma)` name only when the signal's contrast_total is given (SNR = contrast / sigma, "no noise" for sigma 0);
+// `Gauss(sigma)` name only when the signal's contrast_total is given (SNR = C / sigma with C = contrast_total / 2, "no noise" for sigma 0);
 // null otherwise.
+// The article's SNR = C / sigma divides by the per-line contrast C = contrast_total / 2 (nvision.sim.presets.LINE_CONTRAST_FRACTION).
+window.NVISION_LINE_CONTRAST_FRACTION = 0.5;
 window.nvisionNoiseSnrLabel = function (noiseName, contrastTotal) {
     const snr = /^SNR\(([0-9]*\.?[0-9]+(?:e[+-]?[0-9]+)?)\)/.exec(noiseName);
     if (snr) return `SNR ${Number(snr[1])}`;
     const m = /^Gauss\(([0-9]*\.?[0-9]+(?:e[+-]?[0-9]+)?)\)/.exec(noiseName);
     if (!m || !(contrastTotal > 0)) return null;
     const sigma = parseFloat(m[1]);
-    return sigma > 0 ? `SNR ${Number((contrastTotal / sigma).toPrecision(3))}` : 'no noise';
+    return sigma > 0 ? `SNR ${Number((window.NVISION_LINE_CONTRAST_FRACTION * contrastTotal / sigma).toPrecision(3))}` : 'no noise';
 };
 
 // Every generator name that belongs to the same family as `name` (including itself),

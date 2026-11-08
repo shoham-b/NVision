@@ -1,6 +1,14 @@
 # Locator comparison: sweeps, Smart-Sweep, Smart-SBED
 
-Every locator searches for the resonance (`zeeman_split`, the primary parameter); the standard run groups
+Terms follow the article (`articles/sections/methods.tex`, `sm_algorithm.tex`): the **sweep family** (SimpleSweep, Smart-Sweep)
+is what an experimentalist would do without adaptive design, and the question is whether its best member matches
+Bayesian SBED. All strategies infer with the same particle filter (so the **claimed uncertainty** $\hat\sigma_N$ means the
+same for all), run under the same stop rule (claimed uncertainty below its ceiling for 8 consecutive measurements *and* a
+dip found by the **dip test**) and the same 2500-measurement budget; a run that hits the budget is censored and counted
+at the budget. Symbol/code-name table: [glossary](glossary.md). In SNR labels, `SNR(x)` is `contrast_total / noise_sigma`,
+i.e. the article's $C/\sigma = x/2$.
+
+Every locator searches for the resonance (`zeeman_shift`, the primary parameter); the standard run groups
 compare them on the same signals and noise levels. The generators are the ordinary ones, whose priors on the
 nuisance parameters are loose (std 10 % of the parameter range). The prior-based FWHM sizing below (sweep
 spacing, Smart-* search grid) is therefore less accurate than it would be after a prior classification of the
@@ -25,10 +33,11 @@ regex/substring). Only the sweeps, on every scenario: `--run-group all --filter-
 The `voigt-grid` is posed in the dimensionless numbers that decide how hard a search is, not in contrast, noise
 sigma and linewidth separately, and each axis changes one thing:
 
-- **SNR = `contrast_total` / noise sigma.** Every signal carries the same `contrast_total`
+- **SNR = C / noise sigma** (the article's Eq. snr), C = `contrast_total` / 2 the per-line contrast (each Zeeman group
+  carries half of `contrast_total`; the factor is `LINE_CONTRAST_FRACTION` in `sim/presets.py`). Every signal carries the same `contrast_total`
   (`NVISION_SBED_SNR_CONTRAST`, 0.25) and a run is named by its SNR, `SNR(10)`, for the levels in
   `NVISION_SBED_SNR_VALUES` (default 1, 2, 5, 10, 20). The runs are not a grid of noise levels and contrasts: the name
-  carries only the SNR, and the Gaussian sigma (`contrast_total / SNR`) is derived for each signal when the run is
+  carries only the SNR, and the Gaussian sigma (`contrast_total / 2 / SNR`) is derived for each signal when the run is
   resolved, so the name keeps its meaning if the contrast constant is changed. Results record it as `snr`. The levels
   are spaced geometrically because the behaviour is: in a 12-repeat scan at a 10-FWHM window, everything converges
   from SNR 20 up (10 vs 50 barely differs), at SNR 10 most runs still converge, at 5 a quarter to three quarters hit
@@ -132,9 +141,9 @@ parameters, clipped to their bounds) -- never the true signal's width (`nvision/
 | Strategy | Acquisition |
 |---|---|
 | `SimpleSweep-<k>perFWHM`, k = 2..4 | uniform grid over the whole axis with k points per FWHM (spacing FWHM/k), then a least-squares fit. k = 3 is the derived default; the rest are the spacing study |
-| `Smart-Sweep` | FWHM/2 sweep; once the data show a dip, sweep only inside the focus on a FWHM/10 grid, then measure at the max-information points once the refine rule fires |
+| `Smart-Sweep` | FWHM/3 sweep (the reference sweep's grid); once the data show a dip, sweep only inside the focus on a FWHM/10 grid, then measure at the max-information points once the refine rule fires |
 | `Bayesian-SBED` | unchanged SBED |
-| `Smart-SBED` | EIG over the not-yet-measured points of a FWHM/2 grid until a dip is found, then ordinary SBED inside the focus |
+| `Smart-SBED` | EIG over the not-yet-measured points of a FWHM/3 grid until a dip is found, then ordinary SBED inside the focus |
 
 `Smart-Sweep` and `Smart-SBED` are subclasses of the SBED locator: same belief, uncertainty-convergence stop,
 and focus rule (`next_focus_region`), but the focus is re-decided after every measurement (from
@@ -194,6 +203,21 @@ Per run (results-row columns): `focus_found_step`, `refine_start_step`, `stage{1
 `stage{1,2,3}_unc_start|unc_end|unc_ratio|sens_eff` (shot-weighted mean $\eta$ per stage). A stage a run never reached is `None` -- a plain sweep, which
 keeps moving across the dip, has no refine stage, which is a result, not missing data. The UI's "Stages" view
 shows them.
+
+## Known deviations (docs/code vs. article)
+
+- **Stage names and boundaries.** The article's regimes are *search* (dip not yet found), *localize* (from the first
+  detection of the dip until the strategy locks onto it) and *refine* (Gaussian, Fisher-limited tail). The code's middle
+  stage is called *focus* (`focus_found_step`, `stage2_*`) and its boundaries are decided from the claimed uncertainty
+  (0.7 drop, then within the tolerance), not from the dip-test detection, which is its own marker `dip_detected_step`.
+- **Bound.** The article judges runs against the van Trees bound with prior information $J_0$; the stage oracle on this page
+  is the CRLB-style $I^* = k\max g^2/\sigma^2$ (no prior). `stage_prior_info` carries $J_0$; see
+  [evaluation metrics](evaluation_metrics.md).
+- **Smart-Sweep coarse grid.** The strategy table said FWHM/2; the article, `search_grid.py` and
+  `COARSE_SEARCH_POINTS_PER_FWHM` give $\Gamma_0/3$ (corrected above).
+- **SimpleSweep spacing.** The article lists $p = 2, 3, 4$; the docs add that $k = 3$ is the derived default.
+- **Sweep reported estimate.** A plain sweep's reported estimate is its final fit while the claimed uncertainty comes from the
+  shared belief. A known open bug (the fit returning the domain midpoint) makes sweep accuracy numbers invalid; sweep cost is unaffected.
 
 ## Invalidation
 

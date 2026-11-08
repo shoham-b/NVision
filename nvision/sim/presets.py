@@ -483,6 +483,29 @@ def noises_single_each() -> list[tuple[str, CompositeNoise | None]]:
     return noises
 
 
+# The article's SNR = C / sigma (Eq. snr) divides by the per-line contrast C. ``contrast_total`` is the depth summed
+# over both Zeeman groups (each carries half of it), so C = LINE_CONTRAST_FRACTION * contrast_total. This is the ONE
+# place the factor lives; the Python (sigma <-> SNR) and the UI (static/bootstrap.js) both use it.
+LINE_CONTRAST_FRACTION: float = 0.5
+
+
+def line_contrast(contrast_total: float) -> float:
+    """The per-line contrast C of the article: ``contrast_total`` (summed over both Zeeman groups) / 2."""
+    return LINE_CONTRAST_FRACTION * float(contrast_total)
+
+
+def sigma_for_contrast_snr(contrast_total: float, snr: float) -> float:
+    """Per-shot Gaussian sigma of an SNR = C / sigma on a signal of this ``contrast_total``: ``C / snr``."""
+    if not snr > 0:
+        raise ValueError(f"SNR must be positive, got {snr}")
+    return line_contrast(contrast_total) / snr
+
+
+def snr_for_contrast_sigma(contrast_total: float, sigma: float) -> float:
+    """SNR = C / sigma of a signal of this ``contrast_total`` under Gaussian noise ``sigma`` (inf for sigma 0)."""
+    return line_contrast(contrast_total) / sigma if sigma > 0 else float("inf")
+
+
 def snr_noise_name(snr: float, drift_label: str | None = None) -> str:
     """The name of the noise level of a given SNR: ``SNR(20)`` (``SNR(20)+Drift(label)`` with a drift scenario)."""
     name = f"SNR({snr:g})"
@@ -492,10 +515,10 @@ def snr_noise_name(snr: float, drift_label: str | None = None) -> str:
 def snr_study_noises() -> list[tuple[str, CompositeNoise | None]]:
     """Noise grid of the SNR studies: one ``SNR(x)`` per level of ``NVISION_SBED_SNR_VALUES``.
 
-    A run is identified by its SNR; the Gaussian sigma (``contrast / SNR``) is derived per signal when the
-    combination is resolved (``CombinationGrid.resolve``), so the objects returned here are at the reference contrast
-    ``NVISION_SBED_SNR_CONTRAST``, only for listing. The ``drive-control`` group uses the same levels, where the SNR is
-    nominal: the contrast of a drive-controlled signal comes from the drive.
+    A run is identified by its SNR; the Gaussian sigma (``C / SNR``, C = ``contrast_total`` / 2) is derived per signal
+    when the combination is resolved (``CombinationGrid.resolve``), so the objects returned here are at the reference
+    contrast ``NVISION_SBED_SNR_CONTRAST``, only for listing. The ``drive-control`` group uses the same levels, where
+    the SNR is nominal: the contrast of a drive-controlled signal comes from the drive.
     """
     from nvision.sim.defaults import NVISION_SBED_SNR_CONTRAST, NVISION_SBED_SNR_VALUES
 
@@ -503,7 +526,9 @@ def snr_study_noises() -> list[tuple[str, CompositeNoise | None]]:
     for snr in NVISION_SBED_SNR_VALUES:
         if snr <= 0:
             raise ValueError(f"SNR levels must be positive, got {snr}")
-        noises.append((snr_noise_name(snr), gauss_with_drift(NVISION_SBED_SNR_CONTRAST / snr, None)))
+        noises.append(
+            (snr_noise_name(snr), gauss_with_drift(sigma_for_contrast_snr(NVISION_SBED_SNR_CONTRAST, snr), None))
+        )
     return noises
 
 
@@ -622,7 +647,7 @@ def drift_study_noises() -> list[tuple[str, CompositeNoise | None]]:
 
     if NVISION_DRIFT_SNR <= 0:
         raise ValueError(f"NVISION_DRIFT_SNR must be positive, got {NVISION_DRIFT_SNR}")
-    sigma = NVISION_SBED_SNR_CONTRAST / NVISION_DRIFT_SNR
+    sigma = sigma_for_contrast_snr(NVISION_SBED_SNR_CONTRAST, NVISION_DRIFT_SNR)
     noises: list[tuple[str, CompositeNoise | None]] = [
         (snr_noise_name(NVISION_DRIFT_SNR), gauss_with_drift(sigma, None))
     ]
