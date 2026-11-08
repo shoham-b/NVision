@@ -575,13 +575,18 @@ at the steepest slope and gains, per measurement, Eq.~\eqref{eq:istar},
 A sweep spreads its measurements uniformly over the window, so the information it gains per step is the window
 average of Eq.~\eqref{eq:fisher}, taken over the drive frequency in the window (not over the prior),
 \begin{equation}
-  I_{\rm sweep}=\frac{1}{W}\int I(x)\,dx=\frac{k}{\sigma^2W}\int\Big(\frac{\partial\mu}{\partial\theta}\Big)^{\!2}dx=\frac{\pi}{2}\,
-  \frac{k\,C^2}{\sigma^2\,\Gamma\,W},
+  \begin{aligned}
+  I_{\rm sweep}&=\frac{1}{W}\int I(x)\,dx=\frac{k}{\sigma^2W}\int\Big(\frac{\partial\mu}{\partial\theta}\Big)^{\!2}dx\\
+  &=\frac{\pi}{2}\,\frac{k\,C^2}{\sigma^2\,\Gamma\,W}.
+  \end{aligned}
   \label{eq:sweep-info}
 \end{equation}
-using $\int(\partial\mu/\partial\theta)^2\,du=\pi C^2/(4\gamma)=\pi C^2/(2\Gamma)$ for the Lorentzian, valid for $W\gg\Gamma$. Both are
-$\propto kC^2/\sigma^2$; they differ in the width factor, $1/\Gamma^2$ against $1/(\Gamma W)$, because the sweep
-spends only a fraction of order $\Gamma/W$ of its measurements on the line.
+The integral in the middle is the squared slope of the Lorentzian added up across the line. It equals
+$\pi C^2/(2\Gamma)$ when the window contains the whole line, $W\gg\Gamma$.
+
+Comparing the two rates, both scale as $kC^2/\sigma^2$. They differ only in the width factor: $1/\Gamma^2$ for the
+adaptive strategy and $1/(\Gamma W)$ for the sweep. The extra factor $\Gamma/W$ is the fraction of the sweep's
+measurements that land on the line at all.
 
 Where a sweep measures does not depend on what it has learned, so its expected information grows at the constant
 rate $I_{\rm sweep}$ from its first measurement, and the van Trees bound for the sweep is
