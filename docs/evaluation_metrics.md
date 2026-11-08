@@ -191,8 +191,9 @@ J₀ came from the prior carry the claimed-σ value and cannot be rescaled: re-r
   running (a run that has stopped keeps its final error; a step needs at least half of a use case's repeats), and the median
   over use cases when several are selected. R = 1 is the bound, below it measurements are wasted. The mean square is the
   quantity the bound is on, so a few catastrophic runs dominate it on purpose (rule 8). Because the global-search J₀ is a
-  worst-case bound, R of the true error is **not** expected to sit near 1 early on: the uniform average has up to 1.8× the
-  bound's variance while n·I\* ≲ J₀ (R ≈ 0.55 there), so a low R at small n is looseness of the bound, not wasted
+  worst-case bound, R of the true error is **not** expected to sit near 1 early on: the uniform average has π/√3 ≈ 1.81× the
+  bound's standard deviation (π²/3 ≈ 3.3× its variance, article Sec. budget) while n·I\* ≲ J₀, so R ≈ 0.30 there (an earlier
+  version of this text said 1.8× the variance, R ≈ 0.55; the cached study measures R(1) = 0.16-0.38, median 0.27), so a low R at small n is looseness of the bound, not wasted
   measurements. R should stay ≤ 1 up to about 1 % (the uniform average can undercut the bound that much); a clear excess
   above that is a defect in J₀ or I\*. Read the gap between locators, and the approach to 1 once n·I\* ≫ J₀. The same quantity from the claimed uncertainty σ̂ (dotted) above the true one is overconfidence.
   A median-based "typical run" version was tried and dropped: median error² is not tied to the variance for non-Gaussian
@@ -207,6 +208,45 @@ J₀ came from the prior carry the claimed-σ value and cannot be rescaled: re-r
   above 1 can occur, and a fit through three or four rungs is noisy; read n₀ and e together with the R chart.
 * **Search stays** as the one real stage (detecting the dip is not a Fisher regime). The stage columns in `stages.py`
   and the Scaling view are untouched.
+
+## Testing the article's claims
+
+The results section is filled from these numbers, so each one is built to be able to **fail** its claim: nothing is tuned
+toward the prediction, a fit with too little data says so (`why`) instead of widening its window, and the fitted numbers carry a
+bootstrap interval over repeats (fixed seed). Code: pure functions in `nvision/metrics/claims.py`; the per-use-case glue in
+`nvision/metrics/claims_report.py` (served at `/api/claims`, shown as the **Article claims** table in the Information tab's
+Whole run view); run-time columns in `nvision/metrics/claim_columns.py`. Tests: `tests/test_claims_metrics.py` (synthetic curves
+with a known answer: the elimination-model curve returns q = 1 and n₀ = n_d − 12/(Δd² I\*), a q = 0.5 and a q = 1.3 curve come back
+as given, a frozen run ends the fit window), `tests/test_claim_columns.py`. The claim → metric table is
+`scratch/claims_to_metrics.md`; what the cached data say is `scratch/claims_findings.md`.
+
+Common rules. Inputs are per-step true error `e` and claimed σ̂ `u` of one locator in one use case (rule 7). **A stopped run leaves the
+average and is never held at its final error** (that flattens 1/MSE late in the run and biases q low); a grid step counts only where
+≥ 90 % of the repeats still run (`ALIVE_MIN`). The stored series are downsampled (dense head, log-spaced tail) and interpolated log-log.
+
+| Article claim | Quantity | Function | Needs a re-run? |
+|---|---|---|---|
+| i. run-averaged σ̂ and true error vs σ_vT(n) from n = 1 | rms over repeats of `u`, `e`; R(n) = σ_vT²/mean(e²) (R ≤ 1 + 1 %; above that is a defect in J₀ or I\*) | `rms`, `bound_ratio` | no (`nv render`/server) |
+| i. the 1.8× window gap before any measurement | σ₀/σ_vT(0) = √(J₀/J₀_var) (π/√3 by construction) and, testing the assumption behind it, rms(truth − window centre)/(W/√12) over the repeats | `prior_gap`, `truth_prior_spread_ratio` | no |
+| ii. plateau / detection / −½ tail | plateau level over σ₀, first n with rms e ≤ σ₀/2, adjacent-grid drop there, log-log slope on n ≥ 2 n_half (steeper than −½ while n₀ > 0: −½·n/(n−n₀)) | `regimes` | no |
+| ii. elimination model overlay | `elimination_curve` (one n_d, an *illustration* of one run) and `elimination_mean_curve` (MSE averaged over a uniform n_d: what a run average should look like) | both | no |
+| iii. per-strategy (n₀, q) | WLS of 1/mean(e²) vs n on the late window, weights mse²; q = slope/I\* (not clipped), n₀ = −intercept/slope, bootstrap interval; the same fit on σ̂ gives the claimed rate | `fit_strategy_numbers` | no |
+| iv. R_∞ = 27W/(8πΓ) | prediction from the stored drive window and FWHM; measured as q_adaptive/q_sweep (noisy) or, exactly, `stage_fisher_star / stage_fisher_sweep` | `speedup_prediction`, column `stage_fisher_sweep` | the column: **yes** |
+| iv. finite-target cost n₀ + σ_tgt⁻²/(q I\*) | predicted vs the measured first-passage step | `predicted_cost`, `passage_steps` | no |
+| v. information rate in units of I\* | window fit for q, `information_rate_curve` for the curve; a rate above 1 for the claimed σ̂ is overconfidence | `fit_strategy_numbers`, `information_rate_curve` | no |
+| vi. coverage within 1σ̂ and 2σ̂ | share of runs with e ≤ kσ̂, per n, gated on `refine_start_step` as the proxy for "the posterior is Gaussian" (ungated shown beside it); nominal 68.3 % / 95.4 % | `coverage_curve` | no |
+| vi. coverage from particle quantiles | PIT = posterior CDF at the truth (`stage_pit_end`, `stage_pit_refine_start`); central 68 % / 95 % interval coverage with Wilson intervals; uniform if calibrated | `pit_coverage` | **yes** (the cache has no particles) |
+| vii. localize measurements far from the peak | `stage2_far_share` (share farther than 3 true FWHM from every point of the true curve with ≥ half the maximum depth) vs `stage2_far_mass` (mean posterior mass farther than 3 FWHM from the truth before those measurements), paired per run with a bootstrap interval. SBED's falsification probes are not tagged in the snapshots, so the share is an upper bound for the EIG's own placement | `far_placement`, `claim_columns.py` | **yes** |
+| viii. cost vs SNR and window | `stage_true_passage_step`, the cost ladder of the Information tab, now with the predicted cost beside it | existing + `predicted_cost` | no |
+| ix. sensitivity η vs measured, q correction | dimensionless η_meas/η_article = √(I\* · MSE · n) on the late window (t_s, γ_e, SNR cancel); it tends to √(n/(n−n₀))/√q, so it is a **check of q**, not a second confirmation | `sensitivity_ratio` | no |
+
+Columns that need a re-run are written by `compute_claim_columns` (called after `compute_stage_metrics` in `nvision/runner/metrics.py`)
+and are `None` ("missing columns" in the report) for runs recorded before; the cache holds no particle snapshots, so nothing is
+backfilled. They change nothing in the simulation, so the physics fingerprint and `CACHE_SCHEMA_VERSION` are not bumped; the stored
+results rows only gain keys. Everything else is computed at view time from already stored series: `nv render` / a running `nv serve` is
+enough. Caveats: with the old noise label (SNR = contrast_total/σ) every SNR axis is 2× the article's; J₀, I\*, R, q, n₀ and coverage do not
+depend on the label. A fit needs ≥ 4 grid steps with ≥ 90 % of the repeats running after 2 n_half; use cases whose runs stop earlier
+report `why` instead of a number.
 
 ## Rules
 

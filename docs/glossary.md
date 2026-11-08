@@ -54,6 +54,22 @@ physics about resonances.
   `primary_*` (`primary_converged_step`, `steps_to_primary`, `err_primary_at_milestone`, ...) and
   the shift-specific ones `*_shift` (`err_shift_at_milestone`, `final_err_shift`, ...).
 
+## Metrics that test the article's claims
+
+Defined in [evaluation_metrics.md](evaluation_metrics.md#testing-the-articles-claims); symbols as in the article.
+
+| Term | Symbol / names | What it is |
+|---|---|---|
+| **claimed σ̂ / true error** | `u`, `e` (series `u`, `e`) | σ̂_N = the particle filter's weighted standard deviation of the primary parameter after N measurements; the true error is `abs(estimate − truth)`. Both Hz. |
+| **bound ratio** | `R(n)`, `claims.bound_ratio` | σ_vT(n)² / mean(e²) over the repeats still running; the van Trees bound says R ≤ 1 (to about 1 %). 0.30 before any measurement (π/√3 gap in σ). |
+| **strategy numbers** | `q`, `n0`, `claims.fit_strategy_numbers` | Late-run fit 1/MSE = q·I\*·(n − n₀): q = share of I\* the measurements carry (not clipped), n₀ = measurements lost before steady growth. The same fit on σ̂ gives the *claimed* rate; claimed q / true q > 1 is overconfidence. |
+| **information rate** | `claims.information_rate_curve` | (J(n) − J(n′)) / ((n − n′) I\*), J = 1/mean(err²): information per measurement in units of I\*. |
+| **coverage** | `coverage_curve`, `coverage_at_stop` | Share of runs with e ≤ 1σ̂ and e ≤ 2σ̂ (nominal 68.3 % / 95.4 %), gated on `refine_start_step`. |
+| **PIT** | `stage_pit_end`, `stage_pit_refine_start` | Posterior CDF of the primary parameter at the truth; uniform over runs when the particle posterior is calibrated. |
+| **sweep information** | `stage_fisher_sweep` (Hz⁻² per measurement) | Window average of k·g(x)²/σ²: what a sweep gains per step; `stage_fisher_star / stage_fisher_sweep` is the measured R_∞. |
+| **far placement** | `stage2_far_share`, `stage2_far_mass` | Localize measurements placed farther than 3 true FWHM from the dip, and the mean posterior mass there before them. |
+| **sensitivity ratio** | `claims.sensitivity_ratio` | √(I\*·MSE·n): measured η over the article's η (≈ 1/√q, a check of q). |
+
 ## What deliberately still says "frequency"
 
 * `OverFrequencyGaussianNoise`, `CompositeOverFrequencyNoise`, `over_frequency_noise`,

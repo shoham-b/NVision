@@ -8171,6 +8171,65 @@ function main() {
         Plotly.react(div, traces, layout, { displayModeBar: false, responsive: true });
     }
 
+    // The article's claims, measured (nvision/metrics/claims.py via /api/claims). One row per locator: the median over the
+    // selected use cases of each use case's own number (rule 7). A dash is a number the stored data cannot give.
+    function renderHlClaims(generator, noises, sfx) {
+        const box = document.getElementById(`hl-claims${sfx}`);
+        if (!box) return;
+        const genList = [...toGenSet(generator)].sort();
+        const noiseList = [...new Set((Array.isArray(noises) ? noises : [noises]).filter(Boolean))].sort();
+        if (!genList.length || !noiseList.length) { box.innerHTML = ''; return; }
+        box.innerHTML = '<p style="color:#94a3b8;font-size:0.85em;">Loading the claims…</p>';
+        const params = new URLSearchParams({ generator: genList.join(','), noise: noiseList.join(',') });
+        fetch(`${window.NVISION_ASSET_PREFIX || ''}api/claims?${params}`, { cache: 'no-store' })
+            .then(r => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+            .then(items => {
+                const by = new Map();
+                for (const it of items) {
+                    if (!by.has(it.strategy)) by.set(it.strategy, []);
+                    by.get(it.strategy).push(it);
+                }
+                const strategies = [...by.keys()].sort(hlStrategyCompare);
+                const med = (arr, f) => { const v = arr.map(f).filter(x => x != null && isFinite(x)); return v.length ? hlMedian(v) : null; };
+                const g = (x, d = 2) => (x == null ? '–' : Number(x).toPrecision(d));
+                const pct = (x) => (x == null ? '–' : `${Math.round(100 * x)}%`);
+                const th = (t, tip) => `<th style="padding:2px 8px;text-align:right" title="${escapeHtml(tip)}">${t}</th>`;
+                const td = (v) => `<td style="padding:2px 8px;text-align:right;">${v}</td>`;
+                const rows = strategies.map(st => {
+                    const its = by.get(st).filter(i => !i.unavailable);
+                    const label = escapeHtml(_shortStratLabel(st));
+                    if (!its.length) return `<tr><td style="padding:2px 12px 2px 0">${label}</td><td colspan="9" style="color:#94a3b8">${escapeHtml(by.get(st)[0].unavailable)}</td></tr>`;
+                    const ft = (i) => i.fit_true, fc = (i) => i.fit_claimed;
+                    const q = med(its, i => ft(i) && ft(i).q), qc = med(its, i => fc(i) && fc(i).q);
+                    const fitted = its.filter(i => ft(i) && ft(i).q != null).length;
+                    const qLo = med(its, i => ft(i) && ft(i).q_ci && ft(i).q_ci[0]), qHi = med(its, i => ft(i) && ft(i).q_ci && ft(i).q_ci[1]);
+                    return `<tr><td style="padding:2px 12px 2px 0">${label}</td>` +
+                        td(`${fitted}/${its.length}`) +
+                        td(g(med(its, i => i.R_true['1']))) + td(g(med(its, i => i.R_true['30']))) +
+                        td(q == null ? '–' : `${g(q)} <span style="color:#94a3b8">[${g(qLo)}, ${g(qHi)}]</span>`) +
+                        td(g(med(its, i => ft(i) && ft(i).n0), 3)) +
+                        td(g(qc)) + td(q != null && qc != null ? g(qc / q) : '–') +
+                        td(`${pct(med(its, i => i.coverage_at_stop.within_1))} / ${pct(med(its, i => i.coverage_at_stop.within_2))}`) +
+                        td(g(med(its, i => i.sensitivity_ratio))) + '</tr>';
+                });
+                const pred = med(items.filter(i => !i.unavailable), i => i.speedup_predicted);
+                box.innerHTML = '<table class="metric-table" style="border-collapse:collapse;font-size:0.85em;"><thead><tr>' +
+                    '<th style="text-align:left;padding:2px 12px 2px 0">Locator</th>' +
+                    th('Fits', 'Use cases whose late window had enough steps with at least 90% of the repeats running, over use cases') +
+                    th('R(1)', 'Mean-square bound ratio after 1 measurement. The bound is on the worst-placed resonance, so a uniform average sits near 1/(pi/sqrt3)^2 = 0.30 before any measurement, then rises toward 1 only as n I* >> J0') +
+                    th('R(30)', 'Same after 30 measurements (a dash when fewer than 90% of the repeats were still running)') +
+                    th('q [95%]', 'Fraction of I* the measurements carried, late-run fit of 1/MSE = q I* (n - n0); bootstrap interval over repeats (median over use cases). Not clipped: a value above 1 is a defect') +
+                    th('n0', 'Measurements lost before the steady information growth (negative = growth slower than linear from zero in the window)') +
+                    th('q (claimed)', 'The same fit on the claimed sigma: the rate the locator thinks it gains') +
+                    th('q claimed / q', 'Above 1 = the claimed uncertainty falls faster than the true error (overconfidence)') +
+                    th('coverage 1σ / 2σ', 'Share of runs whose true error at the stop is within 1 and 2 claimed sigma. A correct sigma gives 68% / 95%') +
+                    th('η ratio', 'sqrt(I* MSE n) over the late window: measured sensitivity over the article eta. Equals 1/sqrt(q) up to the offset n0, so a check of q, not a second confirmation') +
+                    '</tr></thead><tbody>' + rows.join('') + '</tbody></table>' +
+                    (pred != null ? `<p style="font-size:0.8em;color:#64748b;margin:6px 0 0">Predicted speedup of an adaptive strategy over a sweep (article Eq. speedup, 27W/(8πΓ)): ${g(pred)}. Compare 1/q of the sweep rows.</p>` : '');
+            })
+            .catch(err => { box.innerHTML = `<p style="color:#721c24;font-size:0.85em;">Claims unavailable: ${escapeHtml(String(err.message || err))}</p>`; });
+    }
+
     // One Information block (a use case, or the median over the selection); `sfx` is the id suffix of its copy of the
     // markup (see ucRenderBlocks). Whole run: the information-vs-bound charts and table; Search: the one stage kept.
     function renderHlStages(generator, noises, sfx) {
@@ -8196,6 +8255,7 @@ function main() {
         renderHlInfoRatio(document.getElementById(`hl-info-ratio${sfx}`), info, strategies);
         renderHlInfoCost(document.getElementById(`hl-info-cost${sfx}`), ladders, strategies);
         renderHlWholeTable(byStrategy, strategies, ladders, sfx);
+        renderHlClaims(generator, noises, sfx);
         renderHlStageCurve(uncDiv, byStrategy, strategies, 'u', 'Median claimed uncertainty (Hz)');
         renderHlStageCurve(errCurveDiv, byStrategy, strategies, 'e', 'Median true |error| (Hz)');
         renderHlInfoCurve(document.getElementById(`hl-info-rate${sfx}`), byStrategy, strategies, 'rate');
