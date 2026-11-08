@@ -302,12 +302,13 @@ $I(x)\le I_{\rm max}$ gives
   \sigma_\theta(n)\ \ge\ \sigma_{\rm vT}(n)=\big(J_0+nI_{\rm max}\big)^{-1/2},
   \label{eq:vantrees}
 \end{equation}
-for any estimator, biased or not. Here $\sigma_\theta(n)$ is the root-mean-square error after $n$ measurements; what
-it is averaged over depends on the task, as discussed below.
+for any estimator, biased or not. Here $\sigma_\theta^2(n)=\mathbb E\big[(\hat\theta_n-\theta)^2\big]$ is the mean
+squared error (MSE) of the estimate $\hat\theta_n$ after $n$ measurements, and $\sigma_\theta$ its root. It is an error
+against the true $\theta$, not the uncertainty a strategy claims; what it is averaged over depends on the task, as
+discussed below.
 
 The curve has two limits, set by how the information of the measurements compares with that of the prior. While
-$nI_{\rm max}\ll J_0$, it stays at the prior, $\sigma_{\rm vT}\approx J_0^{-1/2}$, which is $\sigma_0$ in tracking and
-$W/2\pi$ in a global search: the measurements have not yet
+$nI_{\rm max}\ll J_0$, it stays at the prior, $\sigma_{\rm vT}\approx J_0^{-1/2}$: the measurements have not yet
 added to what the prior told. An estimate in this limit leans on the prior and is biased toward its center, which
 is why its error may lie below the unbiased Cram\'er--Rao bound $(nI_{\rm max})^{-1/2}$. Once $nI_{\rm max}\gg J_0$, the prior is
 washed out and $\sigma_{\rm vT}\approx(nI_{\rm max})^{-1/2}$, the unbiased Cram\'er--Rao bound of Sec.~\ref{sec:fisher}, which
@@ -321,13 +322,18 @@ on the sides of a dip it has located, so that they carry about $I_{\rm max}$ and
 \emph{localize} in between, from the first detection of the dip until it locks onto the dip, as it narrows down from the window to the dip. After that a global search has become a tracking problem: its posterior is roughly Gaussian of width $\lesssim\Gamma$ around the dip, and it behaves like a tracking run. A tracking run with
 $\sigma_0\lesssim\Gamma$ has the dip located from the start, so it has no search and is all refine.
 
-In a global search, if every measurement carried $I_{\rm max}$, the crossover would come after
-$n_c=J_0/I_{\rm max}=\tfrac{64\pi^2}{27}\,(\Gamma/W)^2/(k\,\mathrm{SNR}^2)$ measurements, far below one for a wide window. It comes much later because $I_{\rm max}$ is reached
-only once the dip has been found: a measurement on the baseline carries $I(x)\approx0$, so the information collected
+For a wide window, a global search reaches the data limit far later than the information per measurement alone
+would suggest. If every measurement carried $I_{\rm max}$, the crossover would come after
+\begin{equation}
+  n_c=\frac{J_0}{I_{\rm max}}=\frac{64\pi^2}{27}\,\frac{(\Gamma/W)^2}{k\,\mathrm{SNR}^2}
+  \;\overset{W\gg\Gamma}{\ll}\;1
+\end{equation}
+measurements. But $I_{\rm max}$ is reached only once the dip has been found: a measurement on the baseline carries $I(x)\approx0$, so the information collected
 stays near that of the prior while the strategy searches. What such a measurement contributes instead
 is \emph{elimination}: it shrinks the prior itself.
 
-\paragraph{Elimination model.} Consider an idealized adaptive strategy: it steps through the window at spacing
+\paragraph{Elimination model.} To see the three regimes in an actual error curve, consider the simplest strategy
+that has all of them. It steps through the window at spacing
 $\Delta x$ (e.g.\ $\Delta x=\Gamma/3$) only until it finds the dip, and from then on measures only at the steepest
 slope. This is not a sweep, which keeps spreading its measurements over the whole window after the dip is found
 (Sec.~\ref{sec:speedup}). Let the SNR be so high that a
@@ -348,20 +354,23 @@ $\Delta x$ and inverse variance $12/\Delta x^2$, after which each measurement ad
   \label{eq:after-detection}
 \end{equation}
 Eqs.~\eqref{eq:elimination}--\eqref{eq:after-detection} start at the true error $\sigma=\sigma_0$ at $n=0$, above the
-bound, and reach its data limit $\sigma\to(nI_{\rm max})^{-1/2}$ for $n\gg n_d$. For a wide window the three regimes become
-visible (Fig.~\ref{fig:budget}). The search is a plateau: Eq.~\eqref{eq:elimination} falls linearly, which on a
-log--log axis looks flat until about half the window is excluded, for a number of steps that grows with
-$W/\Delta x$. The localize stage is a cliff steeper than $-\tfrac12$, where detection collapses $\sigma$ from about the window
-to about $\Delta x$ in a single step. It ends
-once $\sigma$ is small compared with the line, so that the strategy knows where the steepest slope is. The refine
-regime is the $-\tfrac12$ tail. In a window about as narrow as the line, the first measurements already land in the
-dip, so there is no plateau (dashed curve). The regimes belong to
-the adaptive strategy, which moves from the prior limit of the bound to its data limit by finding the dip first; a
-sweep has none, since it gains the same information $I_{\rm sweep}$ at every step (Sec.~\ref{sec:speedup}).
+bound, and reach its data limit $\sigma\to(nI_{\rm max})^{-1/2}$ for $n\gg n_d$. In between, each regime takes a
+simple shape (Fig.~\ref{fig:budget}, solid curve): search, Eq.~\eqref{eq:elimination}, is a plateau, since a linear
+fall looks flat on a log--log axis until about half the window is excluded; localize is the single detection step,
+which drops $\sigma$ from about the window to about $\Delta x$; refine, Eq.~\eqref{eq:after-detection}, is the
+$-\tfrac12$ tail. In a window about as narrow as the line the first measurements already land in the dip, so there is
+no plateau (dashed curve). A sweep has none of the three, since it gains the same information $I_{\rm sweep}$ at every
+step (Sec.~\ref{sec:speedup}).
 
-The elimination model only illustrates the shape of the profile. At low SNR one measurement no longer reveals the
-dip and $n_d$ grows, but Eq.~\eqref{eq:vantrees} holds at any SNR and needs no detection model; the runs are read
-against it alone.
+\paragraph{Bayesian adaptive strategy.} A Bayesian strategy such as SBED is defined quite differently: it keeps a
+posterior over $\theta$ and picks each drive frequency by the expected information gain (Sec.~\ref{sec:eig}), with no
+grid and no detection rule. Its error nevertheless follows the same three-part profile. Before the dip is found, a
+measurement on the baseline only removes the posterior mass near where it was taken, so the posterior shrinks by
+elimination, as in the model; once a measurement lands in the dip the posterior collapses onto it; and once the dip is
+located, greedy EIG measures at the steepest slope and reaches the data limit (Sec.~\ref{sec:eig}). The model is
+therefore a picture of a Bayesian run, not a prediction of its step counts: at low SNR one measurement no longer
+reveals the dip, $n_d$ grows, and localize spreads over many measurements. Eq.~\eqref{eq:vantrees} holds at any SNR
+and needs no detection model, so the runs are read against it alone.
 
 \paragraph{Reading the bound.} We judge a strategy by how close its runs come to Eq.~\eqref{eq:vantrees}: a run on
 the curve gets all the information its measurements can give, and the gap above it shows how much it loses. How a
@@ -386,7 +395,7 @@ Beyond that, a gap means that the measurements carried less than $I_{\rm max}$ o
 uncertainty below the curve by more than about 1\% plus the scatter of the runs points to an overconfident
 posterior. For a wide window $n_c\ll1$, so the curve can be read in this way from the first measurement on.
 
-The bound holds for the mean squared error whatever the shape of the posterior, and for the posterior mean that
+The bound holds for the MSE whatever the shape of the posterior, and for the posterior mean that
 error equals the expected posterior variance. The posterior standard deviation, averaged over runs, can therefore
 be compared with $\sigma_{\rm vT}$ from the first measurement on, as long as the posterior is calibrated.
 
@@ -427,8 +436,9 @@ $C$ changes both sides alike, so the data tell the two apart.
 \addlegendentry{$(nI_{\rm max})^{-1/2}$}
 \end{loglogaxis}
 \end{tikzpicture}
-\caption{Schematic of the three regimes of an adaptive strategy: the elimination model,
-Eqs.~\eqref{eq:elimination}--\eqref{eq:after-detection}, at illustrative values (SNR 10, $k=1$, $\Delta x=\Gamma/3$,
+\caption{Schematic of the three regimes of an adaptive strategy, drawn with the elimination model,
+Eqs.~\eqref{eq:elimination}--\eqref{eq:after-detection}; a Bayesian adaptive strategy follows the same profile, with
+a less sharp localize step. Illustrative values (SNR 10, $k=1$, $\Delta x=\Gamma/3$,
 dip found halfway through the grid). Solid: wide window, $W=20\,\Gamma$; dashed: narrow window, $W=2\,\Gamma$;
 dotted: unbiased Cram\'er--Rao bound $(nI_{\rm max})^{-1/2}$. The wide window shows a search plateau (shaded), a localize cliff
 at detection (vertical segment) and the $-\tfrac12$ refine tail; the narrow window shows no plateau. Both start near
@@ -544,7 +554,7 @@ residual mass $p$ far from it gives a predictive variance $p(1-p)C^2$ at its loc
 small $p$, while the information it holds is at most $H_b(p)$, small for small $p$. The variance form therefore keeps
 spending measurements to remove such distant mass. This reduces the posterior variance, which the tail dominates and
 which is the quantity Eq.~\eqref{eq:vantrees} constrains, rather than the posterior entropy: in the localize stage the variance
-rule acts as a design for the mean squared error, while a rule built on the information gain would refine the peak
+rule acts as a design for the MSE, while a rule built on the information gain would refine the peak
 sooner and accept the tail. Whether this explains why localizing costs SBED far more measurements than the bound is a
 hypothesis we have not tested. \tbd{Test: share of localize-stage measurements placed more than a few FWHM from
 the peak, compared with the residual mass there.}
