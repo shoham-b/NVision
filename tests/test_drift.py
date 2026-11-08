@@ -192,7 +192,7 @@ def test_drift_noise_names_round_trip():
         assert combo is not None
         assert combo.noise.drift == noise.drift
         assert combo.noise.over_frequency_noise._parts[0].std == pytest.approx(
-            sim_defaults.NVISION_SBED_SNR_CONTRAST / sim_defaults.NVISION_DRIFT_SNR
+            presets.sigma_for_contrast_snr(sim_defaults.NVISION_SBED_SNR_CONTRAST, sim_defaults.NVISION_DRIFT_SNR)
         )
     # The older Gauss(sigma) names still resolve.
     for gauss in ("Gauss(0.006)+Drift(warmup)", "Gauss(0.006)"):
