@@ -6868,7 +6868,7 @@ function main() {
     // /api/run-rows: the per-repeat scalars of every run. A use case is one signal at one noise level (window x
     // line shape x SNR in the SNR x window study). The table has one block per use case of the current selection:
     // a cost, a capped share or a σ coverage is only meaningful within one use case, so nothing is pooled across
-    // them. The charts read the whole family against SNR = contrast / noise σ and mark the selected use case.
+    // them. The charts read the whole family against SNR = C / noise σ and mark the selected use case.
     // The chips choose which locators are shown; nothing is ranked.
     let ssRowsCache = null;   // { key, promise } of the last /api/run-rows request
     const ssHidden = new Set();   // locators the user switched off (new locators are shown by default)
@@ -8428,13 +8428,8 @@ function main() {
             const splitWin = scalingSplit.window && windows.length > 1;
             if (windows.length > 1) toggles.push(toggle('window', 'Window', scalingSplit.window));
             const byWindow = windows.length ? windows : [null];
-<<<<<<< HEAD
-            const snrOpts = { xTitle: 'SNR (contrast / noise σ)', xLog: true, ref: { slope: -2 }, refName: 'slope −2 (1/SNR²)' };
-            addPanel('Localize steps vs SNR', 'Measurements in the localize stage against SNR = contrast / noise σ. The information per measurement grows as SNR², so the steps needed for a given precision fall as 1/SNR²: the dotted line has slope −2, and the dashed line is the Fisher bound (every measurement at the best point). Steps flatten at high SNR where a few probing measurements dominate. Split: one chart per window. Combined: each window is divided by its own value at the lowest SNR and the windows are averaged (geometric mean, bar = min..max).',
-=======
             const snrOpts = { xTitle: 'SNR (C / noise σ)', xLog: true, ref: { slope: -2 }, refName: 'slope −2 (1/SNR²)' };
-            addPanel('Focus steps vs SNR', 'Measurements in the focus stage against SNR = C / noise σ (C = contrast_total / 2). The information per measurement grows as SNR², so the steps needed for a given precision fall as 1/SNR²: the dotted line has slope −2, and the dashed line is the Fisher bound (every measurement at the best point). Steps flatten at high SNR where a few probing measurements dominate. Split: one chart per window. Combined: each window is divided by its own value at the lowest SNR and the windows are averaged (geometric mean, bar = min..max).',
->>>>>>> claude/align-snr-article-e05091
+            addPanel('Localize steps vs SNR', 'Measurements in the localize stage against SNR = C / noise σ (C = contrast_total / 2). The information per measurement grows as SNR², so the steps needed for a given precision fall as 1/SNR²: the dotted line has slope −2, and the dashed line is the Fisher bound (every measurement at the best point). Steps flatten at high SNR where a few probing measurements dominate. Split: one chart per window. Combined: each window is divided by its own value at the lowest SNR and the windows are averaged (geometric mean, bar = min..max).',
                 splitWin
                     ? byWindow.map(w => ({ label: w == null ? '' : `occupancy ${ssOccLabel(1 / w)}`, lines: linesFor(p => p.snr, 'focus', 'focusBound', p => w == null || p.window === w), opts: { ...snrOpts, yTitle: 'Localize steps (median)' } }))
                     : [{ label: windows.length > 1 ? `${windows.length} windows combined` : (windows.length ? `occupancy ${ssOccLabel(1 / windows[0])}` : ''), lines: combinedLines(p => p.snr, p => p.window, 'focus', 'focusBound', 'window'), opts: { ...snrOpts, yTitle: 'Localize steps ÷ at lowest SNR' } }]);

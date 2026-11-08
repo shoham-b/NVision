@@ -161,7 +161,7 @@ Key sections inside `main()` (in order of appearance):
      Per locator it shows the median and p75 cost, the capped share, how often a dip was found, the search cost, and
      whether the claimed σ is right (share of runs with |error| ≤ 1σ / 2σ / 3σ, nominal 68% / 95% / 99.7%). Selecting
      several noise levels or windows gives several blocks. The **charts** ("Across use cases") span the whole family:
-     cost and search cost (and, in the **Sanity** view, the 1σ/2σ/3σ share: "Is the claimed σ right?") against SNR = contrast / noise σ, each point one use case, with a dotted
+     cost and search cost (and, in the **Sanity** view, the 1σ/2σ/3σ share: "Is the claimed σ right?") against SNR = C / noise σ, each point one use case, with a dotted
      vertical line at the SNR of the selected use case in the panel of its window. They follow the SNR x window study:
      x = SNR (log), one panel per window (`grid_window_fwhm`, absolute MHz in the tooltip), lines = locators at ONE
      line shape chosen by a button group (default the selected use case's shape; the shape is named by its Lorentzian
