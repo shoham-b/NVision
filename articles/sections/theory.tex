@@ -206,7 +206,7 @@ model predicts the signal $\mu(x;\theta,\phi)$, and by Eq.~\eqref{eq:noise} $y$ 
 $\sigma^2/k$, the same whatever $\theta$ is. The likelihood $\mathcal L(\theta)=p(y\mid x,\theta)$ is the probability of that outcome
 if the dip is at $\theta$. For the Gaussian scatter of Eq.~\eqref{eq:noise},
 \begin{equation*}
-  \ln\mathcal L=-\frac{k\,(y-\mu)^2}{2\sigma^2}+{\rm const}.
+  \mathcal L(\theta)=\sqrt{\frac{k}{2\pi\sigma^2}}\,\exp\!\Big[-\frac{k\,\big(y-\mu(x;\theta,\phi)\big)^2}{2\sigma^2}\Big].
 \end{equation*}
 
 How much one measurement at $x$ tells about $\theta$ is its Fisher information defined as
@@ -214,7 +214,8 @@ How much one measurement at $x$ tells about $\theta$ is its Fisher information d
   \begin{aligned}
   \underbrace{I(x)}_{\substack{\text{information}\\\text{at }x}}
   &=\Big\langle\Big(\frac{\partial\ln\mathcal L}{\partial\theta}\Big)^{\!2}\Big\rangle_{\!y}
-  =\Big(\frac{k}{\sigma^2}\,\frac{\partial\mu}{\partial\theta}\Big)^{\!2}\,
+  =\Big\langle\Big(\frac{k\,(y-\mu)}{\sigma^2}\,\frac{\partial\mu}{\partial\theta}\Big)^{\!2}\Big\rangle_{\!y}\\[2pt]
+  &=\Big(\frac{k}{\sigma^2}\,\frac{\partial\mu}{\partial\theta}\Big)^{\!2}\,
   \underbrace{\big\langle(y-\mu)^2\big\rangle_y}_{\sigma^2/k}\\[2pt]
   &=\frac{\overbrace{k}^{\text{shots}}}{\underbrace{\sigma^2}_{\text{shot variance}}}
   \overbrace{\Big(\frac{\partial\mu(x;\theta,\phi)}{\partial\theta}\Big)^{\!2}}^{\text{slope}^2},
