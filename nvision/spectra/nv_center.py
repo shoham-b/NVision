@@ -313,7 +313,7 @@ def physics_config_fingerprint() -> str:
         # (their dip no longer sits cut off on the window's lower edge D); the draws differ per signal.
         "zeeman-edge-pad-v1",
         # Bumped when the dip scan's default family-wise false-alarm level NVISION_DIP_P_FA went 0.01 -> 0.1:
-        # the dip is declared (focus stage starts) earlier, so focus sections and SBED trajectories differ.
+        # the dip is declared (localize stage starts) earlier, so focus sections and SBED trajectories differ.
         "dip-p-fa-0.1-v1",
         # Bumped when the SMC initial particles gained a 10 % uniform component per Gaussian-prior parameter
         # (the prior mean is drawn several stds off the truth): every SBED/SMC trajectory differs.
@@ -322,6 +322,9 @@ def physics_config_fingerprint() -> str:
         # falsification probe (widest unmeasured stretch, chance 2-10 % falling with axis coverage) and the
         # focus pad shrank from 3 to 1 effective HWHM per side: every SBED trajectory differs.
         "sbed-gap-probe-pad1-v1",
+        # Bumped when the SNR label became the article's C / sigma (C = contrast_total / 2): an SNR(x) run's
+        # noise sigma is half of before at the same label.
+        "snr-per-line-contrast-v1",
         NV_ZEEMAN_EDGE_PAD_FWHM,
         MIN_HWHM,
         MAX_HWHM,
