@@ -23,12 +23,10 @@ inferred from measurements whose settings, here the microwave drive frequency, a
 been learned so far \cite{granade2012,gebhart2023}. For N-V centers, Hamiltonian learning and adaptive Bayesian estimation
 have been demonstrated mainly in the time domain, with Rabi and Ramsey sequences in which an evolution time or a
 readout phase is the chosen setting
-\cite{bonato2016,wang2017,santagati2019,mcmichael2021ramsey}. In ODMR, sequential Bayesian experiment design (SBED)
-has been applied directly \cite{dushenko2020sbed}. SBED maintains
-a posterior distribution over the parameters, here represented by a sequential Monte Carlo (SMC) particle cloud, and
-chooses each drive frequency by maximizing an expected utility \cite{granade2012}, here the expected information gain
-\cite{dushenko2020sbed}; it reaches a given precision more than an order of magnitude faster
-than a sweep, the uniform scan conventionally used \cite{dushenko2020sbed}.
+\cite{bonato2016,wang2017,santagati2019,mcmichael2021ramsey}. In ODMR, sequential Bayesian experiment design (SBED),
+which keeps a posterior over the parameters as a sequential Monte Carlo (SMC) particle cloud \cite{granade2012} and
+chooses each drive frequency to maximize the expected information gain, reaches a given precision more than an order
+of magnitude faster than a sweep, the uniform scan conventionally used \cite{dushenko2020sbed}.
 
 Non-adaptive strategies reduce the number of points instead, by measuring a subset of the window and
 reconstructing the spectrum from it, with a low-complexity reconstruction \cite{luo2023} or with compressed sensing,
@@ -54,7 +52,7 @@ sweep, including its expected growth as the line occupies a smaller fraction of 
 Here we derive this limit for the ODMR search and use it to analyze SBED and drive-frequency sweeps for
 continuous-wave (CW) ODMR. The limit follows from Bayesian estimation theory with the search window as
 the prior \cite{vantrees1968,gill1995}, and the information it counts is the same quantity that SBED maximizes. It
-covers the whole run: finding the resonance, narrowing in on it and refining the estimate are limits of a single
+covers the whole run: finding the resonance, narrowing in on it and refining the estimate are regimes of a single
 bound rather than separate mechanisms. The same bound gives
 the speedup over a sweep: for a precise target it is approximately the ratio of the window width to the linewidth,
 independent of the signal-to-noise ratio, which explains its growth with the window. It also recovers the standard
