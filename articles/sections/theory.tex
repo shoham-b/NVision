@@ -268,12 +268,13 @@ with $v$ the distance from the center of the window,
 In \emph{tracking} the resonance was measured a short time ago and has since moved by a random amount, so the prior
 is a Gaussian of standard deviation $\sigma_0$ around the last estimate, narrow compared with the window.
 
-The information of a density $p$ is $J(p)=\int p'(\theta)^2/p(\theta)\,d\theta$, which grows the more sharply $p$
-varies. For the Gaussian it is the inverse variance, $\sigma_0^{-2}$. For the window it is infinite, because the
-density drops to zero at the edges in a step, and the bound below would say nothing (Appendix~\ref{app:prior}). The
-bound therefore takes the smoothest density that fits in the window, $(2/W)\cos^2(\pi v/W)$, which falls to zero
-gradually. It has the least information of all densities confined to a width $W$, namely $4\pi^2/W^2$
-\cite{gill1995}. The information that enters the bound is therefore
+The Fisher information of the prior probability density function (PDF) $p(\theta)$ is
+$J(p)=\int p'(\theta)^2/p(\theta)\,d\theta$, which measures how sharply $p$ changes as $\theta$ moves. For a
+Gaussian, $J(p)=\sigma_0^{-2}$. For a uniform window, $J(p)=\infty$: the density drops to zero at the edges in a
+single step, and the bound of Eq.~\eqref{eq:vantrees} reduces to $\sigma_\theta\ge0$ (Appendix~\ref{app:prior}).
+The solution is to use, among all densities confined to a width $W$, the one with the least information,
+$p(v)=(2/W)\cos^2(\pi v/W)$, which falls to zero gradually. Its information is $J(p)=4\pi^2/W^2$ \cite{gill1995},
+about $3.3$ times the uniform window's $12/W^2$. The information that enters the bound is therefore
 \begin{equation}
   J_0=\begin{cases}
   4\pi^2/W^2 & \text{global search},\\
@@ -281,8 +282,10 @@ gradually. It has the least information of all densities confined to a width $W$
   \end{cases}
   \label{eq:j0}
 \end{equation}
-For a global search this is a number the window supplies to the bound: the prior itself stays uniform, with spread
-$\sigma_0=W/\sqrt{12}$. A narrower prior starts with more knowledge, which no measurement had to pay for.
+For a global search the $\cos^2$ density is only a device for the bound. The prior the locator uses stays uniform,
+with spread $\sigma_0=W/\sqrt{12}$, and the bound then limits the worst-case error over the window rather than the
+error averaged over the uniform prior. In both cases $J_0$ is knowledge the strategy starts with: a narrower prior
+holds more of it, and no measurement had to pay for it.
 
 \subsection{Van Trees bound}
 \label{sec:budget}
