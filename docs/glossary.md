@@ -4,6 +4,31 @@ The word "frequency" used to name several different things in the SBED/SMC code,
 carried names that were not physical. Use the terms below exactly; never write plain "frequency" for any
 of them in new code, comments or docs.
 
+## Article symbols ↔ code names
+
+The paper (`articles/sections/theory.tex`, `methods.tex`, `sm_algorithm.tex`) uses the symbols on the left; the code
+uses the names on the right. Docs describing the algorithm use the article's terms and give the code name once.
+
+| Article | Code | Note |
+|---|---|---|
+| $f_-$, $\theta = D - \delta_Z$ | `zero_field_freq - zeeman_shift` (the lower transition) | The parameter of interest. The simulations measure the mirror transition `D + zeeman_shift`, equivalent by symmetry; `zeeman_shift` is the inferred particle dimension. |
+| $D$ | `zero_field_freq` | Fixed (known instrument constant) by default. |
+| $\delta_Z$ | `zeeman_shift` | Never a frequency of the signal. |
+| $\gamma$ (half width, $\Gamma = 2\gamma$ the FWHM) | `hwhm` (`hwhm_lorentz` + `sigma_inhom` for pseudo-Voigt) | Effective width; the mechanisms that set it are not inferred. |
+| $C$ (contrast of one dip) | **no direct name**; `contrast_total` $= 2C$ | `contrast_total` is shared by the two Zeeman groups (and hyperfine lines), so a merged dip carries `contrast_total / 2`. |
+| $\sigma$ (noise std of one shot; a measurement of $k$ shots has $\sigma/\sqrt k$) | `noise_sigma` (Gaussian noise model) | Inferred per particle through an inverse-gamma posterior, not as a particle dimension. |
+| $\mathrm{SNR} = C/\sigma$ | label `SNR(x)` $= x$ = `contrast_total / noise_sigma` | **A run labeled `SNR(x)` has article SNR $x/2$.** Convert before quoting a simulated SNR next to the paper's formulas. |
+| $d_n$ | `candidate_drive_freq` that was measured, `drive_freq` | The design. |
+| $W$ | the drive window `[drive_freq_min_phys, drive_freq_max_phys]` | |
+| $N_p$ | `NVISION_SMC_NUM_PARTICLES` (1000) | |
+| $\hat\theta_N$, $\hat\sigma_N$ | `belief.estimates()`, `belief.uncertainty()` | Posterior mean and weighted particle std. $\hat\sigma_N$ is the **claimed uncertainty**; it is *not* a 68 % interval before the posterior is Gaussian. |
+| van Trees bound | CRLB / `stage_fisher_star`, `stage_prior_info` (see [evaluation metrics](evaluation_metrics.md)) | The bound with prior information $J_0$; the code historically says "CRLB". |
+| dip test | `find_dips` (`belief/dip_detection.py`), `NVISION_DIP_P_FA` | Boxcar score over measured stretches, Bonferroni threshold. |
+| falsification probe | exploration step in SBED `_acquire` (`EXPLORE_PROBABILITY_*`) | Measures the middle of the widest unmeasured gap. |
+| search / localize / refine | search / focus / refine (`focus_found_step`, `refine_start_step`, `stage{1,2,3}_*`) | The article's *localize* is the code's *focus* stage; see Known deviations in [locator comparison](locator_comparison.md). |
+| SimpleSweep, Smart-Sweep | `SimpleSweep-<k>perFWHM`, `Smart-Sweep` | $\Gamma_0$ = FWHM of the prior-mean line; SimpleSweep spacing $\Gamma_0/p$, $p = 2,3,4$. |
+| Bayesian SBED | `Bayesian-SBED` | |
+
 ## Frequencies and shifts
 
 | Term | Symbol / names | What it is | Space |
