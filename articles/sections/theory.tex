@@ -210,7 +210,7 @@ the bound is therefore
   \end{cases}
   \label{eq:j0}
 \end{equation}
-For a global search the $\cos^2$ density is only a device for the bound. The prior the locator uses stays uniform,
+For a global search the $\cos^2$ density is only a device for the bound. The prior the strategy uses stays uniform,
 with spread $\sigma_0=W/\sqrt{12}$, and the bound then limits the worst-case error over the window rather than the
 error averaged over the uniform prior. In both cases $J_0$ is knowledge the strategy starts with: a narrower prior
 holds more of it, and no measurement had to pay for it.
@@ -264,33 +264,33 @@ single measurement taken within the line, $|d-\theta|\lesssim\gamma$, shows a dr
 so the first measurement that lands in the dip detects it. After $n$ measurements without a dip, the resonance is
 known only to lie in the part of the window not yet excluded, and the posterior is uniform there, so
 \begin{equation}
-  \sigma(n)=\frac{W-n\Delta d}{\sqrt{12}},\qquad n<n_d,
+  \sigma_\theta(n)=\frac{W-n\Delta d}{\sqrt{12}},\qquad n<n_d,
   \label{eq:elimination}
 \end{equation}
 where $n_d\le W/\Delta d$ is the step that finds the dip. Being a model of the actual error rather than a bound, it
 uses the standard deviation of the part of the window not yet excluded, Eq.~\eqref{eq:prior} with $W$ replaced by
-$W-n\Delta d$, and not the $J_0$ of Eq.~\eqref{eq:j0}. In inverse variance, $\sigma(n)^{-2}=12/(W-n\Delta d)^2$: the gain per step is not constant but
+$W-n\Delta d$, and not the $J_0$ of Eq.~\eqref{eq:j0}. In inverse variance, $\sigma_\theta(n)^{-2}=12/(W-n\Delta d)^2$: the gain per step is not constant but
 grows as the remaining width shrinks. Detection localizes the resonance to about one grid step, a uniform interval of width
 $\Delta d$ and inverse variance $12/\Delta d^2$, after which each measurement adds $I_{\rm max}$:
 \begin{equation}
-  \sigma(n)=\Big(\frac{12}{\Delta d^2}+(n-n_d)\,I_{\rm max}\Big)^{-1/2},\qquad n\ge n_d .
+  \sigma_\theta(n)=\Big(\frac{12}{\Delta d^2}+(n-n_d)\,I_{\rm max}\Big)^{-1/2},\qquad n\ge n_d .
   \label{eq:after-detection}
 \end{equation}
-Eqs.~\eqref{eq:elimination}--\eqref{eq:after-detection} start at the true error $\sigma=\sigma_0$ at $n=0$, above the
-bound, and reach its data limit $\sigma\to(nI_{\rm max})^{-1/2}$ for $n\gg n_d$. In between, each regime takes a
+Eqs.~\eqref{eq:elimination}--\eqref{eq:after-detection} start at the true error $\sigma_\theta=\sigma_0$ at $n=0$, above the
+bound, and reach its data limit $\sigma_\theta\to(nI_{\rm max})^{-1/2}$ for $n\gg n_d$. In between, each regime takes a
 simple shape (Fig.~\ref{fig:budget}, solid curve): search, Eq.~\eqref{eq:elimination}, is a plateau, since a linear
 fall looks flat on a log--log axis until about half the window is excluded; localize is the single detection step,
-which drops $\sigma$ from about the window to about $\Delta d$; refine, Eq.~\eqref{eq:after-detection}, is the
+which drops $\sigma_\theta$ from about the window to about $\Delta d$; refine, Eq.~\eqref{eq:after-detection}, is the
 $-\tfrac12$ tail. In a window about as narrow as the line the first measurements already land in the dip, so there is
 no plateau (dashed curve). A sweep has none of the three, since it gains the same information $I_{\rm sweep}$ at every
 step (Sec.~\ref{sec:speedup}).
 
-\paragraph{Reading the bound.} We judge a strategy by how close its runs come to Eq.~\eqref{eq:vantrees}: a run on
-the curve gets all the information its measurements can give, and the gap above it shows how much it loses. How a
-gap is read depends on the task, because the error the bound limits is not always the error the runs report. In
-tracking the two are the same: both are averaged over the Gaussian prior, and the bound starts at the true error
-$\sigma_0$. A run that lies above it has measurements that carried less than $I_{\rm max}$, or that the strategy did
-not use efficiently.
+\paragraph{Reading the bound.} We judge a strategy by how close its error, averaged over runs, comes to
+Eq.~\eqref{eq:vantrees}: a strategy on the curve gets all the information its measurements can give, and the gap
+above it shows how much it loses. How a gap is read depends on the task, because the error the bound limits is not
+always the error the runs report. In tracking the two are the same: both are averaged over the Gaussian prior, and
+the bound starts at the true error $\sigma_0$. An averaged error above it means that the measurements carried less
+than $I_{\rm max}$, or that the strategy did not use them efficiently.
 
 In a global search the bound limits the error of the worst-placed resonance in the window, while our runs report
 the error averaged over a uniformly placed one. Before any measurement the average error, $W/\sqrt{12}$, lies
@@ -321,7 +321,7 @@ $C$ changes both sides alike, so the data tell the two apart.
 \begin{tikzpicture}
 \begin{loglogaxis}[
   width=\linewidth, height=5.6cm,
-  xlabel={measurements $n$}, ylabel={$\sigma/\Gamma$},
+  xlabel={measurements $n$}, ylabel={$\sigma_\theta/\Gamma$},
   xmin=1, xmax=1000, ymin=3e-3, ymax=10,
   legend style={font=\scriptsize, at={(0.98,0.84)}, anchor=north east, draw=none, fill=white, fill opacity=0.8,
     text opacity=1},
@@ -437,8 +437,10 @@ Eq.~\eqref{eq:eig-var} is an equality and
   \label{eq:eig-fisher}
 \end{equation}
 the measurement adds $I(d)$ to the information, and the EIG is the logarithm of the shrinkage of the posterior
-width. The variance form and the exact gain then pick the same point, which answers (A). Since the gains of a run add
-up by the chain rule of mutual information, and each depends on its measurement only through $I(d_i)$, maximizing
+width. The variance form and the exact gain then pick the same point, which answers (A). Each gain is a mutual
+information, Eq.~\eqref{eq:eig-kl}, so by the chain rule of mutual information \cite{cover2006} the expected gains of
+a run add up to the information all its outcomes carry together. In refine each depends on its measurement only
+through $I(d_i)$, so maximizing
 every $I(d_i)$ also maximizes the total: greedy EIG is optimal over the whole run and reaches the data limit of
 Eq.~\eqref{eq:vantrees}, which answers (B) (\SM{sm:eig}). Both answers need the posterior to be one peak with
 $\sigma_\theta\ll\gamma$ and almost no mass left elsewhere in the window, which holds in refine and not at the
@@ -495,10 +497,10 @@ find the dip, and the rate at which it gains information afterwards. Both are re
 without a detection model; a single run's values depend on where its dip happened to lie and prove nothing on their
 own. Late in a run the inverse of the averaged squared error grows linearly,
 \begin{equation}
-  \sigma(n)^{-2}\approx q\,I_{\rm max}(n-n_0),
+  \sigma_\theta(n)^{-2}\approx q\,I_{\rm max}(n-n_0),
   \label{eq:strategy-numbers}
 \end{equation}
-where $q\le1$ is the fraction of $I_{\rm max}$ that the measurements carry, as in Sec.~\ref{sec:sensitivity}, and
+where $q\le1$ is the fraction of $I_{\rm max}$ that the measurements carry, and
 $n_0$ is the number of measurements lost, on average, before this growth began. The offset $n_0$ generalizes $n_d$: it holds the search and also whatever localizing costs
 beyond the single step of the elimination model. A sweep has $q=I_{\rm sweep}/I_{\rm max}=1/R_\infty$ and $n_0\approx0$, and the ideal
 adaptive strategy has $q=1$ and $n_0\approx n_d$, so all strategies can be placed on one $(n_0,q)$ plane. The number of

@@ -24,7 +24,7 @@ parameters,
 This is bookkeeping and says nothing yet about the limit. The greedy rule, Eq.~\eqref{eq:greedy}, maximizes each term
 given the ones before it. That also maximizes the sum only if where one measures now does not change what later
 measurements can gain. In refine this holds: each gain is the logarithm of one shrinkage, Eq.~\eqref{eq:eig-fisher},
-so the gains from measurement $m$ to $n$ sum to $\ln(\sigma_m/\sigma_n)$, and they depend on where the measurements
+so the gains from measurement $m$ to $n$ sum to $\ln(\sigma_{\theta,m}/\sigma_{\theta,n})$, and they depend on where the measurements
 were taken only through the sum of their $I(d_i)$. Maximizing every $I(d_i)$ therefore maximizes the total: in refine
 greedy EIG is optimal over the whole run and reaches the data limit of Eq.~\eqref{eq:vantrees}. The information the
 rule maximizes and the information the bound counts are then the same quantity.
