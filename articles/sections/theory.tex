@@ -403,10 +403,10 @@ with $\mathrm{EIG}_n$ evaluated on the posterior after $n$ measurements.
 % Code note: smc_marginal.py expected_information_gain uses the single-shot noise
 % variance (no 1/k); the ranking is unchanged at fixed k.
 
-\paragraph{Two questions.} (A) Eq.~\eqref{eq:eig-var} replaces the predictive distribution with a Gaussian: when
-does it agree with the exact gain? (B) The bound is reached only by measuring at the steepest slope, yet the greedy
-rule of Eq.~\eqref{eq:greedy} maximizes the expected gain and never refers to the slope: when does it put the
-measurements there? In refine the answer to both is ``always''; in search and localize both fail.
+\paragraph{Two questions.} First, when is the Gaussian form of Eq.~\eqref{eq:eig-var} equal to the exact gain?
+Second, the van Trees bound of Eq.~\eqref{eq:vantrees} is reached only by measuring at the steepest slope, yet the
+greedy rule of Eq.~\eqref{eq:greedy} maximizes the expected gain and never refers to the slope: when does it put the
+measurements there? In refine both hold, asymptotically in $n$; in search and localize neither does.
 
 \paragraph{Refine: the gain becomes Fisher information.} Once the dip is located, the posterior of $\theta$ is a
 single peak, narrow compared with the line, so a first-order Taylor expansion about the estimate $\hat\theta$ makes
@@ -426,20 +426,19 @@ Eq.~\eqref{eq:eig-var} is an equality and
   \label{eq:eig-fisher}
 \end{equation}
 the measurement adds $I(d)$ to the information, and the EIG is the logarithm of the shrinkage of the posterior
-width. The variance form and the exact gain then pick the same point, which answers (A). Each gain is a mutual
+width. The variance form and the exact gain then pick the same point: the Gaussian form is exact here. Each gain is a mutual
 information, Eq.~\eqref{eq:eig-kl}, so by the chain rule of mutual information \cite{cover2006} the expected gains of
 a run add up to the information all its outcomes carry together. In refine each depends on its measurement only
 through $I(d_i)$, so maximizing
 every $I(d_i)$ also maximizes the total: greedy EIG is optimal over the whole run and reaches the data limit of
-Eq.~\eqref{eq:vantrees}, which answers (B) (\SM{sm:eig}). Both answers need the posterior to be one peak with
+Eq.~\eqref{eq:vantrees}: greedy choice does put the measurements at the steepest slope (\SM{sm:eig}). Both results need the posterior to be one peak with
 $\sigma_\theta\ll\gamma$ and almost no mass left elsewhere in the window, which holds in refine and not at the
 start of localize (\SM{sm:gaussian}).
 
 \paragraph{Search and localize.} Before the dip is located the posterior of $\theta$ is spread over the window, the
-predicted signal at $d$ is two-valued (the dip is there or not), and both answers fail (\SM{sm:eig}). For (A), the
-variance form ranks search candidates as the exact gain does but overvalues them against refine candidates, and in
+predicted signal at $d$ is two-valued (the dip is there or not), and neither result holds (\SM{sm:eig}). The Gaussian form is no longer exact: it ranks search candidates as the exact gain does but overvalues them against refine candidates, and in
 localize it keeps spending measurements on residual posterior mass far from the dip, which lowers the MSE rather
-than the entropy. For (B), where one measures now changes what later measurements can gain, so choosing the most
+than the entropy. Nor is greedy choice optimal over the run: where one measures now changes what later measurements can gain, so choosing the most
 informative next measurement need not give the most informative run. The bound is therefore met in refine, and the
 strategies of Sec.~\ref{sec:locators} differ in how they pass search and localize.
 
