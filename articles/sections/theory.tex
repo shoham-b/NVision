@@ -134,13 +134,9 @@ resonance, and Eq.~\eqref{eq:rabi} at $t=t_\pi$ gives (Appendix~\ref{app:odmr})
   P_{-1}^{\pi}(\Delta)=\frac{\Omega^2}{\Omega_{\rm gen}^2}\,\sin^2\!\Big(\frac{\pi}{2}\,\frac{\Omega_{\rm gen}}{\Omega}\Big).
   \label{eq:pulsed}
 \end{equation}
-This line is not a Lorentzian. Its half width, $0.80\,\Omega=0.40/t_\pi$, is the Fourier (time--bandwidth) limit of
-the pulse: a pulse of duration $t_\pi$ contains frequencies spread over about $1/t_\pi$, so a longer pulse gives a
-narrower line. Its side lobes, the first 12\% of the depth, are a hazard for a search: a lobe is a dip where there is
-no resonance. The narrowing stops at $t_\pi\sim T_2^*$, where the spread of the transition frequency from one
-repetition to the next, of width $\sim1/T_2^*$, washes out the lobes and sets the width, a width fixed by the spin
-itself rather than by the laser or microwave power. The laser readout then sets only the depth of the line, the
-contrast $C$ (Appendix~\ref{app:odmr}).
+This line is not a Lorentzian. Its width is the Fourier limit of the pulse, $\sim1/t_\pi$, down to $\sim1/T_2^*$,
+where the spread of the transition frequency sets it, and it has side lobes up to 12\% of the depth: dips where there
+is no resonance, a hazard for a search (Appendix~\ref{app:odmr}).
 
 % Code: NVCenterPulsedDriveModel (spectra/nv_center_drive.py) evaluates Eq. (rabi) at the pulse time with the
 % Gaussian T2* average; NVCenterCWDriveModel broadens with MW power only, gamma = gamma_0 sqrt(1 + s_MW),
