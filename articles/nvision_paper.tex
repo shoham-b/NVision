@@ -2,6 +2,10 @@
 
 \usepackage{amsmath,amssymb}
 \usepackage{xcolor}
+\usepackage{graphicx}
+% Figures live in figures/ (next to this file locally, next to main.tex on Overleaf; synced by
+% scripts/sync_overleaf.ps1). Images: \includegraphics{name}; TikZ: \input{figures/name}. See figures/README.md.
+\graphicspath{{figures/}}
 % Visible (dark-blue) links: citations jump to the reference list; DOIs and arXiv ids there open the paper.
 \usepackage{hyperref}
 \hypersetup{colorlinks=true, linkcolor=blue!50!black, citecolor=blue!50!black, urlcolor=blue!60!black}
