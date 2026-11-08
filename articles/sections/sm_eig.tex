@@ -1,12 +1,38 @@
 % =====================================================================
-\section{Expected information gain in search and localize}
+\section{Expected information gain across the regimes}
 \label{sm:eig}
 % =====================================================================
 
 Sec.~\ref{sec:eig} of the main text asks two questions of the variance form of the expected information gain,
 Eq.~\eqref{eq:eig-var}: (A) when it agrees with the exact gain, and (B) when maximizing it greedily puts the
-measurements where the van Trees bound needs them. In refine the answer to both is yes. This section gives the
-argument for the two earlier regimes, where both fail.
+measurements where the van Trees bound needs them. This section gives the run-level argument behind (B) in refine,
+and the argument for the two earlier regimes, where both answers fail.
+
+\paragraph{When the variance form is exact.} Eq.~\eqref{eq:eig-var} is an equality when $\mu(x;\theta,\phi)$, with
+$\theta,\phi$ drawn from the posterior, is Gaussian distributed. Whether it is depends on the posterior of $\theta$,
+not on the noise: the noise is Gaussian by construction, while the posterior only becomes Gaussian with enough data
+(Sec.~\ref{sm:gaussian}). Question (A) is therefore whether the posterior makes the predicted signal Gaussian.
+
+\paragraph{Greedy over the whole run.} In any regime, the chain rule of mutual information \cite{cover2006} makes
+the gains of a run add up: on average over runs they equal what all the outcomes together taught about the
+parameters,
+\begin{equation}
+  \mathbb E\Big[\sum_{i=0}^{n-1}\mathrm{EIG}_i(x_{i+1})\Big]
+  =\underbrace{I(\theta,\phi;y_1,\dots,y_n)}_{\text{learned from }n\text{ outcomes}}.
+  \label{eq:eig-sum}
+\end{equation}
+This is bookkeeping and says nothing yet about the limit. The greedy rule, Eq.~\eqref{eq:greedy}, maximizes each term
+given the ones before it. That also maximizes the sum only if where one measures now does not change what later
+measurements can gain. In refine this holds: each gain is the logarithm of one shrinkage, Eq.~\eqref{eq:eig-fisher},
+so the gains from measurement $m$ to $n$ sum to $\ln(\sigma_m/\sigma_n)$, and they depend on where the measurements
+were taken only through the sum of their $I(x_i)$. Maximizing every $I(x_i)$ therefore maximizes the total: in refine
+greedy EIG is optimal over the whole run and reaches the data limit of Eq.~\eqref{eq:vantrees}. The information the
+rule maximizes and the information the bound counts are then the same quantity.
+
+\paragraph{Reading the posterior width.} The conditions under which Eq.~\eqref{eq:eig-fisher} holds, a single peak
+with $\sigma_\theta\ll\gamma$ and almost no mass elsewhere in the window, also decide when the posterior standard
+deviation can be read as a 68\% interval: a posterior with a narrow peak and wide tails can have the same standard
+deviation as a Gaussian, with most of its mass much closer to the peak (Sec.~\ref{sm:gaussian}).
 
 \paragraph{Search: a two-valued signal.} Before the dip is found the posterior of $\theta$ is spread over the window,
 and the predicted signal at $x$ is two-valued: with probability $p$, the posterior mass that would put the dip at $x$,
