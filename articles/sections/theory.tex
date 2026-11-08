@@ -150,12 +150,11 @@ excited-state level anticrossing the nitrogen nuclear spin is polarized into a s
 one line remains, and its fixed offset $A_\parallel m_I$ is absorbed into $f_-$. When the line is much wider than
 the hyperfine spacing, $\Gamma\gg|A_\parallel|$, the lines merge into one.
 
-\emph{The second transition.} The spectrum is mirror symmetric about $D$, so the drive window is placed below $D$
-and holds the lower transition only. The tail of the upper one, at $f_+=f_-+2\delta_Z$, adds
-$C\gamma^2/[\gamma^2+(f-f_+)^2]$ inside the window: at the line center a fraction $\gamma^2/(\gamma^2+4\delta_Z^2)$
-of the contrast $C$, i.e.\ 20\% at $\delta_Z=\gamma$ and below 1\% for $\delta_Z\gtrsim5\gamma$.
-Equation~\eqref{eq:signal} assumes $\delta_Z\gg\gamma$. Small Zeeman shifts, where the tails of the two lines overlap, are a separate problem and outside
-the scope of this work.
+Equation~\eqref{eq:signal} also leaves out the $f_+$ line. The drive window lies below $D$ and holds $f_-$ only, but
+the tail of the $f_+$ line, $2\delta_Z$ higher, adds $C\gamma^2/[\gamma^2+(f-f_+)^2]$ inside it: at $f_-$ a fraction
+$\gamma^2/(\gamma^2+4\delta_Z^2)$ of the contrast $C$, i.e.\ 20\% at $\delta_Z=\gamma$ and below 1\% for
+$\delta_Z\gtrsim5\gamma$. Equation~\eqref{eq:signal} assumes $\delta_Z\gg\gamma$; small Zeeman shifts, where the two
+lines overlap, are outside the scope of this work.
 
 $f_-$ is the parameter of interest. The width $\Gamma$ and the contrast $C$ are nuisance parameters: they are
 inferred jointly with $f_-$ but only matter through their effect on it. The noise level $\sigma$ (below) is
@@ -183,7 +182,7 @@ It is largest on resonance, where the drop is the contrast $C$,
   \label{eq:snr}
 \end{equation}
 the contrast over the noise, the single number by which a line is labeled. All SNR values in this paper follow
-Eq.~\eqref{eq:snr}. It neglects the mirror line: its tail raises the on-resonance depth to
+Eq.~\eqref{eq:snr}. It neglects the $f_+$ line: its tail raises the on-resonance depth to
 $C[1+\gamma^2/(\gamma^2+4\delta_Z^2)]$, so $C/\sigma$ is the $\delta_Z\gg\gamma$ limit of the on-resonance SNR.
 % Code convention differs: the code's SNR label is contrast_total/sigma with contrast_total = 2C, so a run
 % labeled SNR = x has C/sigma = x/2 here (and I* 4x smaller than the label suggests). Convert every
