@@ -46,11 +46,25 @@ def _true_params(run_result: RunResult) -> list[float]:
     return [float(v) for v in ts.model.spec.pack_params(ts.typed_parameters)]
 
 
+def _posterior_cdf_phys(belief: Any, primary: str, xs_phys: np.ndarray) -> np.ndarray:
+    """Weighted posterior CDF of ``primary`` at physical values ``xs_phys``, shape: (n,) -> (n,).
+
+    ``belief.marginal_cdf`` works in the unit cube (particles are stored in ``[0, 1]`` over ``physical_param_bounds``),
+    so the physical query points are mapped through the parameter's bounds first. Raises for a belief without
+    ``physical_param_bounds`` (no mapping to read).
+    """
+    lo, hi = belief.physical_param_bounds[primary]
+    if not hi > lo:
+        raise ValueError(f"Degenerate bounds for {primary!r}: {(lo, hi)}")
+    xs_unit = (np.asarray(xs_phys, dtype=np.float64) - lo) / (hi - lo)
+    return np.asarray(belief.marginal_cdf(primary, xs_unit), dtype=np.float64)
+
+
 def _pit(run_result: RunResult, primary: str, snapshot_index: int) -> float:
     """Posterior CDF of ``primary`` at its true value after snapshot ``snapshot_index`` (0-based)."""
     truth = float(run_result.true_signal.get_param_value(primary))
-    cdf = run_result.snapshots[snapshot_index].belief.marginal_cdf(primary, np.array([truth], dtype=np.float64))
-    return float(np.asarray(cdf, dtype=np.float64).reshape(-1)[0])
+    belief = run_result.snapshots[snapshot_index].belief
+    return float(_posterior_cdf_phys(belief, primary, np.array([truth]))[0])
 
 
 def _sweep_information(run_result: RunResult, primary: str, grid_phys: np.ndarray) -> float:
@@ -87,7 +101,7 @@ def _far_columns(
     edges = np.array([truth - FAR_FWHM * fwhm_phys, truth + FAR_FWHM * fwhm_phys])
     mass = []
     for i in idx:
-        cdf = np.asarray(snapshots[i - 1].belief.marginal_cdf(primary, edges), dtype=float)
+        cdf = _posterior_cdf_phys(snapshots[i - 1].belief, primary, edges)
         mass.append(1.0 - float(cdf[1] - cdf[0]))
     return share, float(np.mean(mass))
 

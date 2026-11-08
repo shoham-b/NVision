@@ -8198,7 +8198,7 @@ function main() {
                 const rows = strategies.map(st => {
                     const its = by.get(st).filter(i => !i.unavailable);
                     const label = escapeHtml(_shortStratLabel(st));
-                    if (!its.length) return `<tr><td style="padding:2px 12px 2px 0">${label}</td><td colspan="9" style="color:#94a3b8">${escapeHtml(by.get(st)[0].unavailable)}</td></tr>`;
+                    if (!its.length) return `<tr><td style="padding:2px 12px 2px 0">${label}</td><td colspan="10" style="color:#94a3b8">${escapeHtml(by.get(st)[0].unavailable)}</td></tr>`;
                     const ft = (i) => i.fit_true, fc = (i) => i.fit_claimed;
                     const q = med(its, i => ft(i) && ft(i).q), qc = med(its, i => fc(i) && fc(i).q);
                     const fitted = its.filter(i => ft(i) && ft(i).q != null).length;
@@ -8208,6 +8208,7 @@ function main() {
                         td(g(med(its, i => i.R_true['1']))) + td(g(med(its, i => i.R_true['30']))) +
                         td(q == null ? '–' : `${g(q)} <span style="color:#94a3b8">[${g(qLo)}, ${g(qHi)}]</span>`) +
                         td(g(med(its, i => ft(i) && ft(i).n0), 3)) +
+                        td(g(med(its, i => i.q_direct_all))) +
                         td(g(qc)) + td(q != null && qc != null ? g(qc / q) : '–') +
                         td(`${pct(med(its, i => i.coverage_at_stop.within_1))} / ${pct(med(its, i => i.coverage_at_stop.within_2))}`) +
                         td(g(med(its, i => i.sensitivity_ratio))) + '</tr>';
@@ -8219,6 +8220,7 @@ function main() {
                     th('R(1)', 'Mean-square bound ratio after 1 measurement. The bound is on the worst-placed resonance, so a uniform average sits near 1/(pi/sqrt3)^2 = 0.30 before any measurement, then rises toward 1 only as n I* >> J0') +
                     th('R(30)', 'Same after 30 measurements (a dash when fewer than 90% of the repeats were still running)') +
                     th('q [95%]', 'Fraction of I* the measurements carried, late-run fit of 1/MSE = q I* (n - n0); bootstrap interval over repeats (median over use cases). Not clipped: a value above 1 is a defect') +
+                    th('q direct', 'Mean g^2 / max g^2 over all the measurements (stored stage sensitivity efficiency), no fit: the share of I* the measurements actually carry, i.e. placement. The q column is the same share as read from the error decay; the gap between the two is inference, heavy tails and nuisance parameters, not placement') +
                     th('n0', 'Measurements lost before the steady information growth (negative = growth slower than linear from zero in the window)') +
                     th('q (claimed)', 'The same fit on the claimed sigma: the rate the locator thinks it gains') +
                     th('q claimed / q', 'Above 1 = the claimed uncertainty falls faster than the true error (overconfidence)') +

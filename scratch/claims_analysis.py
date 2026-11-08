@@ -41,6 +41,11 @@ def _med(runs: list[dict], key: str) -> float | None:
     return float(np.median(v)) if v else None
 
 
+def _med_vals(v: list) -> float | None:
+    v = [x for x in v if x is not None]
+    return float(np.median(v)) if v else None
+
+
 def analyse(runs: list[dict]) -> dict:
     j0, j0v, imax = _med(runs, "stage_prior_info"), _med(runs, "stage_prior_info_var"), _med(runs, "stage_fisher_star")
     window, fwhm, tau = _med(runs, "stage_window_phys"), _med(runs, "stage_fwhm_true_phys"), _med(runs, "stage_tau_phys")
@@ -75,7 +80,7 @@ def analyse(runs: list[dict]) -> dict:
         for name, a in (("true", err), ("claimed", unc)):
             f = claims.fit_strategy_numbers(grid, a, imax, n_min=n_min)
             out[f"fit_{name}"] = {"q": f.q, "q_ci": f.q_ci, "n0": f.n0, "n0_ci": f.n0_ci, "window": [f.n_lo, f.n_hi],
-                                  "points": f.points, "why": f.why}
+                                  "points": f.points, "why": f.why, "q_halves": f.q_halves}
         out["sens_ratio"] = claims.sensitivity_ratio(grid, err, imax, n_min=n_min)
     else:
         out["fit_true"] = out["fit_claimed"] = None
@@ -108,6 +113,16 @@ def analyse(runs: list[dict]) -> dict:
     i_stop = min(int(np.searchsorted(grid, np.median([r["series"]["s"][-1] for r in runs]))), grid.size - 1)
     col = err[:, i_stop][np.isfinite(err[:, i_stop])]
     out["rms_over_median_at_stop"] = float(np.sqrt(np.mean(col**2)) / np.median(col)) if col.size >= 10 else None
+    def _direct(row: dict, stages: tuple[int, ...]) -> float | None:
+        num = den = 0.0
+        for k in stages:
+            eff, steps = row.get(f"stage{k}_sens_eff"), row.get(f"stage{k}_steps")
+            if eff is not None and steps:
+                num, den = num + eff * steps, den + steps
+        return num / den if den else None
+
+    out["q_direct_all"] = _med_vals([_direct(r["row"], (1, 2, 3)) for r in runs])
+    out["q_direct_refine"] = _med_vals([_direct(r["row"], (3,)) for r in runs])
     out["measurements_median"] = _med(runs, "measurements")
     out["stopped_median"] = float(np.median([r["series"]["s"][-1] for r in runs]))
     out["censored_share"] = float(np.mean([r["row"].get("failure_reason") == "max_steps" for r in runs]))

@@ -223,7 +223,12 @@ def elimination_mean_curve(n: np.ndarray, window: float, dd: float, imax: float)
 # --------------------------------------------------------------------------------------------------------------
 @dataclass(frozen=True)
 class StrategyFit:
-    """Late-run fit ``1/MSE = q Imax (n - n0)`` (Eq. strategy-numbers). ``q`` and ``n0`` are ``None`` with a ``why``."""
+    """Late-run fit ``1/MSE = q Imax (n - n0)`` (Eq. strategy-numbers). ``q`` and ``n0`` are ``None`` with a ``why``.
+
+    ``q_halves``: ``q`` of the first and second half of the fit window; the fit is reported only when their bootstrap
+    intervals overlap (``1/MSE`` linear in ``n``), so a window that has not reached the late regime says so instead of
+    giving a number (the halves stay visible then).
+    """
 
     q: float | None
     n0: float | None
@@ -233,6 +238,12 @@ class StrategyFit:
     n_hi: int | None
     points: int
     why: str | None = None
+    q_halves: tuple[float, float] | None = None
+
+
+# Each half of the fit window needs this many grid steps for the linearity gate.
+HALF_MIN_POINTS = 3
+LINEARITY_SLACK = 1e-6
 
 
 def _wls_inverse_mse(n: np.ndarray, mse: np.ndarray) -> tuple[float, float]:
@@ -252,40 +263,16 @@ def _window(n: np.ndarray, err: np.ndarray, n_min: float) -> np.ndarray:
     return (alive_fraction(err) >= ALIVE_MIN) & (np.asarray(n) >= n_min)
 
 
-def fit_strategy_numbers(
-    n: np.ndarray,
-    err: np.ndarray,
-    imax: float,
-    *,
-    n_min: float,
-    bootstrap: int = BOOTSTRAP_SAMPLES,
-    seed: int = BOOTSTRAP_SEED,
-) -> StrategyFit:
-    """``(n0, q)`` of ``err`` (true error, or the claimed uncertainty for the claimed twin): claim iii.
-
-    ``err``: ``(n_repeats, n_grid)`` Hz. The fit line is ``1/mean(err^2)`` against ``n`` over the grid steps with
-    ``n >= n_min`` and >= ``ALIVE_MIN`` of the repeats running (stopped runs leave, never held). ``q = slope / imax``
-    is **not** clipped to 1: ``q > 1`` is overconfidence (when ``err`` is the claimed sigma) or a defect in ``imax``.
-    ``n0 = -intercept / slope``. The bootstrap resamples repeats with a fixed seed, on the same window.
-    """
-    if not imax > 0:
-        raise ValueError(f"imax must be positive, got {imax}")
-    n = np.asarray(n, dtype=float)
-    sel = _window(n, err, n_min)
-    if sel.sum() < MIN_FIT_POINTS:
-        return StrategyFit(
-            None, None, None, None, None, None, int(sel.sum()),
-            f"{int(sel.sum())} grid steps from n >= {n_min:g} with >= 90% of repeats running (need {MIN_FIT_POINTS}): "
-            "runs stop before the late regime",
-        )  # fmt: skip
+def _fit_on(
+    n: np.ndarray, err: np.ndarray, sel: np.ndarray, imax: float, bootstrap: int, seed: int
+) -> tuple[float, float, tuple[float, float] | None, tuple[float, float] | None] | None:
+    """``(q, n0, q_ci, n0_ci)`` of the window ``sel`` (bool, shape (n_grid,)); ``None`` when ``1/MSE`` does not grow."""
     mse = np.nanmean(err[:, sel] ** 2, axis=0)
     if not np.all(mse > 0):
         raise ValueError("zero mean-square error in the fit window")
     a, b = _wls_inverse_mse(n[sel], mse)
     if not b > 0:
-        return StrategyFit(None, None, None, None, int(n[sel][0]), int(n[sel][-1]), int(sel.sum()),
-                           "1/MSE does not grow with n in the window (no information gain)")  # fmt: skip
-    q, n0 = b / imax, -a / b
+        return None
     q_ci = n0_ci = None
     if bootstrap > 0:
         rng = np.random.default_rng(seed)
@@ -305,7 +292,69 @@ def fit_strategy_numbers(
         if len(qs) >= 20:
             q_ci = (float(np.percentile(qs, 2.5)), float(np.percentile(qs, 97.5)))
             n0_ci = (float(np.percentile(n0s, 2.5)), float(np.percentile(n0s, 97.5)))
-    return StrategyFit(q, n0, q_ci, n0_ci, int(n[sel][0]), int(n[sel][-1]), int(sel.sum()))
+    return b / imax, -a / b, q_ci, n0_ci
+
+
+def fit_strategy_numbers(
+    n: np.ndarray,
+    err: np.ndarray,
+    imax: float,
+    *,
+    n_min: float,
+    bootstrap: int = BOOTSTRAP_SAMPLES,
+    seed: int = BOOTSTRAP_SEED,
+) -> StrategyFit:
+    """``(n0, q)`` of ``err`` (true error, or the claimed uncertainty for the claimed twin): claim iii.
+
+    ``err``: ``(n_repeats, n_grid)`` Hz. The fit line is ``1/mean(err^2)`` against ``n`` over the grid steps with
+    ``n >= n_min`` and >= ``ALIVE_MIN`` of the repeats running (stopped runs leave, never held). ``q = slope / imax``
+    is **not** clipped to 1: ``q > 1`` is overconfidence (when ``err`` is the claimed sigma) or a defect in ``imax``.
+    ``n0 = -intercept / slope``. The bootstrap resamples repeats with a fixed seed, on the same window.
+
+    **Linearity gate.** ``q`` is the slope of a straight line, which means something only in the late regime where
+    ``1/MSE`` is linear in ``n``. The window is split in two halves, each fitted with its own bootstrap interval; if the
+    intervals do not overlap (or a half has fewer than ``HALF_MIN_POINTS`` steps, so linearity cannot be tested) no
+    ``q`` is returned, only ``q_halves`` and a ``why``.
+    """
+    if not imax > 0:
+        raise ValueError(f"imax must be positive, got {imax}")
+    n = np.asarray(n, dtype=float)
+    sel = _window(n, err, n_min)
+    if sel.sum() < MIN_FIT_POINTS:
+        return StrategyFit(
+            None, None, None, None, None, None, int(sel.sum()),
+            f"{int(sel.sum())} grid steps from n >= {n_min:g} with >= 90% of repeats running (need {MIN_FIT_POINTS}): "
+            "runs stop before the late regime",
+        )  # fmt: skip
+    lo, hi, points = int(n[sel][0]), int(n[sel][-1]), int(sel.sum())
+    full = _fit_on(n, err, sel, imax, bootstrap, seed)
+    if full is None:
+        return StrategyFit(None, None, None, None, lo, hi, points,
+                           "1/MSE does not grow with n in the window (no information gain)")  # fmt: skip
+    idx = np.where(sel)[0]
+    half = idx.size // 2
+    halves = []
+    for part in (idx[:half], idx[half:]):
+        if part.size < HALF_MIN_POINTS:
+            return StrategyFit(None, None, None, None, lo, hi, points,
+                               f"window of {points} steps is too short to test that 1/MSE is linear in n")  # fmt: skip
+        mask = np.zeros(sel.size, dtype=bool)
+        mask[part] = True
+        halves.append(_fit_on(n, err, mask, imax, bootstrap, seed))
+    if any(h is None for h in halves):
+        return StrategyFit(None, None, None, None, lo, hi, points,
+                           "1/MSE does not grow with n in one half of the window")  # fmt: skip
+    (q1, _, ci1, _), (q2, _, ci2, _) = halves
+    q_halves = (float(q1), float(q2))
+    if ci1 is not None and ci2 is not None:
+        slack = LINEARITY_SLACK * max(abs(q1), abs(q2))
+        if max(ci1[0], ci2[0]) > min(ci1[1], ci2[1]) + slack:
+            return StrategyFit(None, None, None, None, lo, hi, points,
+                               f"not linear: q of the two halves of the window differ ({q1:.3g} vs {q2:.3g}, "
+                               "bootstrap intervals do not overlap): the late regime is not reached",
+                               q_halves)  # fmt: skip
+    q, n0, q_ci, n0_ci = full
+    return StrategyFit(q, n0, q_ci, n0_ci, lo, hi, points, None, q_halves)
 
 
 def information_rate_curve(n: np.ndarray, err: np.ndarray, imax: float) -> np.ndarray:

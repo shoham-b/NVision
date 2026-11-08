@@ -203,3 +203,20 @@ def test_analyse_use_case_recovers_known_parameters_and_reports_missing_columns(
     assert out["pit"] is None and "PIT" in out["missing_columns"]  # recorded only by newer runs
     assert out["coverage"][100]["within_1"] == 1.0  # claimed == true error: always within one sigma
     assert analyse_use_case(rows[:3])["unavailable"]
+
+
+def test_linearity_gate_refuses_a_curved_window_but_accepts_a_line() -> None:
+    """1/MSE ~ n^1.6 (information growth accelerating: the late regime not reached) gives no q, only the halves."""
+    curved = _repeats((IMAX * 0.05 * GRID**1.6) ** -0.5, 30)
+    fit = claims.fit_strategy_numbers(GRID, curved, IMAX, n_min=20)
+    assert fit.q is None
+    assert "not linear" in (fit.why or "")
+    assert fit.q_halves is not None
+    assert fit.q_halves[1] > fit.q_halves[0]
+    line = _repeats((0.2 * IMAX * (GRID - 3.0)).clip(min=1e-9) ** -0.5, 30)
+    ok = claims.fit_strategy_numbers(GRID, line, IMAX, n_min=20)
+    assert ok.q == pytest.approx(0.2, rel=1e-6)
+    assert ok.q_halves == pytest.approx((0.2, 0.2), rel=1e-6)
+    short = claims.fit_strategy_numbers(GRID, line, IMAX, n_min=float(GRID[-4]))
+    assert short.q is None
+    assert "too short" in (short.why or "")

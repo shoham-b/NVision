@@ -90,12 +90,30 @@ def analyse_use_case(rows: list[dict[str, Any]]) -> dict[str, Any]:
             f = claims.fit_strategy_numbers(grid, arr, imax, n_min=n_min)
             out[f"fit_{name}"] = {
                 "q": f.q, "q_ci": f.q_ci, "n0": f.n0, "n0_ci": f.n0_ci, "n_lo": f.n_lo, "n_hi": f.n_hi,
-                "points": f.points, "why": f.why,
+                "points": f.points, "why": f.why, "q_halves": f.q_halves,
             }  # fmt: skip
         out["sensitivity_ratio"] = claims.sensitivity_ratio(grid, err, imax, n_min=n_min)
         ft = out["fit_true"]
         if tau and ft["q"]:
             out["predicted_cost"] = claims.predicted_cost(ft["n0"], ft["q"], imax, tau)
+
+    # The direct, fit-free measure of "measurements carry q Imax": the mean efficiency g^2/max g^2 of the stored
+    # stage metrics (stage_k_sens_eff, weighted by stage_k_steps), i.e. the information the measurements carry
+    # about the true parameter; not affected by the belief's inference, heavy tails, or the fit window.
+    def _direct(c: dict[str, Any], stages: tuple[int, ...]) -> float | None:
+        num = den = 0.0
+        for k in stages:
+            eff, steps = c.get(f"stage{k}_sens_eff"), c.get(f"stage{k}_steps")
+            if eff is not None and steps:
+                num, den = num + eff * steps, den + steps
+        return num / den if den else None
+
+    out["q_direct_all"] = _med([_direct(c, (1, 2, 3)) for c in cmp])
+    out["q_direct_refine"] = _med([_direct(c, (3,)) for c in cmp])
+    # Heavy tails: rms over median of the true error at the median stop step (1.48 for a Gaussian |error|).
+    i_stop = min(int(np.searchsorted(grid, np.median([r["series"]["s"][-1] for r in runs]))), grid.size - 1)
+    col = err[:, i_stop][np.isfinite(err[:, i_stop])]
+    out["rms_over_median_at_stop"] = float(np.sqrt(np.mean(col**2)) / np.median(col)) if col.size >= 10 else None
     gate = np.array([c.get("refine_start_step") or math.nan for c in cmp], dtype=float)
     cov = claims.coverage_curve(err, unc, gate, grid)
     out["coverage"] = {}
