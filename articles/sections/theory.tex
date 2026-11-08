@@ -134,13 +134,9 @@ resonance, and Eq.~\eqref{eq:rabi} at $t=t_\pi$ gives (Appendix~\ref{app:odmr})
   P_{-1}^{\pi}(\Delta)=\frac{\Omega^2}{\Omega_{\rm gen}^2}\,\sin^2\!\Big(\frac{\pi}{2}\,\frac{\Omega_{\rm gen}}{\Omega}\Big).
   \label{eq:pulsed}
 \end{equation}
-This line is not a Lorentzian. Its half width, $0.80\,\Omega=0.40/t_\pi$, is the Fourier (time--bandwidth) limit of
-the pulse: a pulse of duration $t_\pi$ contains frequencies spread over about $1/t_\pi$, so a longer pulse gives a
-narrower line. Its side lobes, the first 12\% of the depth, are a hazard for a search: a lobe is a dip where there is
-no resonance. The narrowing stops at $t_\pi\sim T_2^*$, where the spread of the transition frequency from one
-repetition to the next, of width $\sim1/T_2^*$, washes out the lobes and sets the width, a width fixed by the spin
-itself rather than by the laser or microwave power. The laser readout then sets only the depth of the line, the
-contrast $C$ (Appendix~\ref{app:odmr}).
+This line is not a Lorentzian. Its width is the Fourier limit of the pulse, $\sim1/t_\pi$, down to $\sim1/T_2^*$,
+where the spread of the transition frequency sets it, and it has side lobes up to 12\% of the depth: dips where there
+is no resonance, a hazard for a search (Appendix~\ref{app:odmr}).
 
 % Code: NVCenterPulsedDriveModel (spectra/nv_center_drive.py) evaluates Eq. (rabi) at the pulse time with the
 % Gaussian T2* average; NVCenterCWDriveModel broadens with MW power only, gamma = gamma_0 sqrt(1 + s_MW),
@@ -154,16 +150,11 @@ excited-state level anticrossing the nitrogen nuclear spin is polarized into a s
 one line remains, and its fixed offset $A_\parallel m_I$ is absorbed into $f_-$. When the line is much wider than
 the hyperfine spacing, $\Gamma\gg|A_\parallel|$, the lines merge into one.
 
-\emph{The second transition.} The spectrum is mirror symmetric about $D$, so the drive window is placed below $D$
-and holds the lower transition only. The tail of the upper one, at $f_+=f_-+2\delta_Z$, adds
-$C\gamma^2/[\gamma^2+(f-f_+)^2]$ inside the window: at the line center a fraction $\gamma^2/(\gamma^2+4\delta_Z^2)$
-of the contrast $C$, i.e.\ 20\% at $\delta_Z=\gamma$ and below 1\% for $\delta_Z\gtrsim5\gamma$.
-Equation~\eqref{eq:signal} assumes $\delta_Z\gg\gamma$. Small Zeeman shifts, where the tails of the two lines overlap, are a separate problem and outside
-the scope of this work.
-
-$f_-$ is the parameter of interest. The width $\Gamma$ and the contrast $C$ are nuisance parameters: they are
-inferred jointly with $f_-$ but only matter through their effect on it. The noise level $\sigma$ (below) is
-inferred as well.
+Equation~\eqref{eq:signal} also leaves out the $f_+$ line. The drive window lies below $D$ and holds $f_-$ only, but
+the tail of the $f_+$ line, $2\delta_Z$ higher, adds $C\gamma^2/[\gamma^2+(f-f_+)^2]$ inside it: at $f_-$ a fraction
+$\gamma^2/(\gamma^2+4\delta_Z^2)$ of the contrast $C$, i.e.\ 20\% at $\delta_Z=\gamma$ and below 1\% for
+$\delta_Z\gtrsim5\gamma$. Equation~\eqref{eq:signal} assumes $\delta_Z\gg\gamma$; small Zeeman shifts, where the two
+lines overlap, are outside the scope of this work.
 
 \emph{Noise.} Each reading of the normalized PL is noisy. Its floor is photon shot noise: a reading that collects
 $N_{\rm ph}$ photons on average off resonance has a relative standard deviation $N_{\rm ph}^{-1/2}$, and slightly
@@ -187,7 +178,7 @@ It is largest on resonance, where the drop is the contrast $C$,
   \label{eq:snr}
 \end{equation}
 the contrast over the noise, the single number by which a line is labeled. All SNR values in this paper follow
-Eq.~\eqref{eq:snr}. It neglects the mirror line: its tail raises the on-resonance depth to
+Eq.~\eqref{eq:snr}. It neglects the $f_+$ line: its tail raises the on-resonance depth to
 $C[1+\gamma^2/(\gamma^2+4\delta_Z^2)]$, so $C/\sigma$ is the $\delta_Z\gg\gamma$ limit of the on-resonance SNR.
 % Code convention differs: the code's SNR label is contrast_total/sigma with contrast_total = 2C, so a run
 % labeled SNR = x has C/sigma = x/2 here (and I* 4x smaller than the label suggests). Convert every
@@ -213,32 +204,26 @@ parameters, is the mean outcome, and Eq.~\eqref{eq:noise} gives the spread about
 A measurement at drive frequency $x$ returns one number $y$, the normalized PL averaged over its $k$ shots. The
 model predicts the signal $\mu(x;\theta,\phi)$, and by Eq.~\eqref{eq:noise} $y$ scatters about it with variance
 $\sigma^2/k$, the same whatever $\theta$ is. The likelihood $\mathcal L(\theta)=p(y\mid x,\theta)$ is the probability of that outcome
-if the dip is at $\theta$; for Gaussian scatter $\ln\mathcal L=-k\,(y-\mu)^2/2\sigma^2+{\rm const}$. How much one
-measurement at $x$ tells about $\theta$ is its Fisher information. It asks how strongly an outcome points at
-$\theta$: take how fast $\ln\mathcal L$ changes with $\theta$, square it, and average over the outcomes $y$ the measurement
-could return. The rate of change is
+if the dip is at $\theta$. For the Gaussian scatter of Eq.~\eqref{eq:noise},
 \begin{equation*}
-  \frac{\partial\ln\mathcal L}{\partial\theta}
-  =\underbrace{\frac{k\,(y-\mu)}{\sigma^2}}_{\substack{\text{how far }y\text{ lies}\\\text{from the prediction}}}\,
-  \underbrace{\frac{\partial \mu(x;\theta,\phi)}{\partial\theta}}_{g(x),\ \text{slope}},
+  \mathcal L(\theta)=\sqrt{\frac{k}{2\pi\sigma^2}}\,\exp\!\Big[-\frac{k\,\big(y-\mu(x;\theta,\phi)\big)^2}{2\sigma^2}\Big].
 \end{equation*}
-the slope $g(x)$ being how fast the predicted signal moves when $\theta$ moves. Squaring and averaging over $y$,
+
+How much one measurement at $x$ tells about $\theta$ is its Fisher information defined as
 \begin{equation}
   \begin{aligned}
   \underbrace{I(x)}_{\substack{\text{information}\\\text{at }x}}
-  &=\Big\langle\Big(\frac{\partial\ln\mathcal L}{\partial\theta}\Big)^{\!2}\Big\rangle_{\!y}\\
-  &=\Big(\frac{k\,g(x)}{\sigma^2}\Big)^{\!2}\,\underbrace{\big\langle(y-\mu)^2\big\rangle_y}_{\sigma^2/k}\\[2pt]
-  &=\frac{\overbrace{k}^{\text{shots}}\ \overbrace{g(x)^2}^{\text{slope}^2}}
-  {\underbrace{\sigma^2}_{\text{shot variance}}}.
+  &=\Big\langle\Big(\frac{\partial\ln\mathcal L}{\partial\theta}\Big)^{\!2}\Big\rangle_{\!y}
+  =\Big\langle\Big(\frac{k\,(y-\mu)}{\sigma^2}\,\frac{\partial\mu}{\partial\theta}\Big)^{\!2}\Big\rangle_{\!y}\\[2pt]
+  &=\Big(\frac{k}{\sigma^2}\,\frac{\partial\mu}{\partial\theta}\Big)^{\!2}\,
+  \underbrace{\big\langle(y-\mu)^2\big\rangle_y}_{\sigma^2/k}\\[2pt]
+  &=\frac{\overbrace{k}^{\text{shots}}}{\underbrace{\sigma^2}_{\text{shot variance}}}
+  \overbrace{\Big(\frac{\partial\mu(x;\theta,\phi)}{\partial\theta}\Big)^{\!2}}^{\text{slope}^2},
   \end{aligned}
   \label{eq:fisher}
 \end{equation}
-The noise enters only through its variance, and the line shape only through the slope $g$.
-A shift $\delta\theta$ moves the mean outcome by $g\,\delta\theta$, and it is resolved once that exceeds the noise
-$\sigma/\sqrt k$. The smallest shift a measurement at $x$ resolves is therefore $\delta\theta_{\min}(x)=\sigma/(\sqrt
-k\,|g(x)|)$, and $I(x)=1/\delta\theta_{\min}(x)^2$. It grows linearly with $k$, and at
-the shot-noise limit, $\sigma^2=1/N_{\rm ph}$, with the total number of photons $kN_{\rm ph}$ collected at that
-drive frequency, which no averaging scheme can beat.
+the average running over the outcomes $y$ the measurement could return, and the slope $\partial\mu/\partial\theta$
+being how fast the predicted signal moves when $\theta$ moves.
 
 For the Lorentzian of Eq.~\eqref{eq:signal} the slope vanishes on resonance, where the dip is flat, and on the
 baseline far from it: a measurement at the bottom of the dip or far outside it says almost nothing about where the
@@ -486,16 +471,16 @@ bound, and that they differ before that.
 
 \paragraph{Refine.} Once the dip is located, the posterior of $\theta$ is a single peak, narrow compared with the
 line. Fix the drive frequency $x$ and ask how the signal there depends on where the dip is. Moving the dip by a small
-amount changes the signal in proportion, at the rate $g(x)$, so over the narrow range of $\theta$ that the posterior
-allows, $\mu(x;\theta)\approx\mu(x;\hat\theta)+g(x)(\theta-\hat\theta)$. The spread of the predicted signal is then
-$\sigma_{\rm pred}(x)=|g(x)|\,\sigma_\theta$, whatever the shape of the peak, and the right side of
-Eq.~\eqref{eq:eig-var} becomes $\tfrac12\ln(1+I(x)\,\sigma_\theta^2)$ with $I(x)=k\,g(x)^2/\sigma^2$ the Fisher
-information of Eq.~\eqref{eq:fisher}: the rule measures where $I(x)$ is largest, at the steepest slope. With enough
+amount changes the signal in proportion, at the rate $\partial\mu/\partial\theta$, so over the narrow range of
+$\theta$ that the posterior allows, $\mu(x;\theta)\approx\mu(x;\hat\theta)+(\partial\mu/\partial\theta)(\theta-\hat\theta)$.
+The spread of the predicted signal is then $\sigma_{\rm pred}(x)=|\partial\mu/\partial\theta|\,\sigma_\theta$,
+whatever the shape of the peak, and the right side of Eq.~\eqref{eq:eig-var} becomes
+$\tfrac12\ln(1+I(x)\,\sigma_\theta^2)$ with $I(x)$ the Fisher information of Eq.~\eqref{eq:fisher}: the rule measures where $I(x)$ is largest, at the steepest slope. With enough
 data the peak also becomes Gaussian, of variance $\sigma_\theta^2\approx1/J_n$ \cite{vandervaart1998}. The predicted
 signal is then Gaussian too, Eq.~\eqref{eq:eig-var} is an equality, and
 \begin{equation}
   \begin{aligned}
-  \mathrm{EIG}(x)&=\tfrac12\ln\Big(1+\underbrace{\frac{k\,g(x)^2}{\sigma^2}}_{I(x)}\,
+  \mathrm{EIG}(x)&=\tfrac12\ln\Big(1+\underbrace{\frac{k}{\sigma^2}\Big(\frac{\partial\mu}{\partial\theta}\Big)^{\!2}}_{I(x)}\,
   \underbrace{\sigma_\theta^2}_{1/J_n}\Big)\\
   &=\tfrac12\ln\frac{\overbrace{J_n+I(x)}^{\text{after}}}{\underbrace{J_n}_{\text{before}}}
   =\ln\frac{\sigma_{\theta,\rm before}}{\sigma_{\theta,\rm after}}.
@@ -568,11 +553,11 @@ at the steepest slope and gains, per measurement, Eq.~\eqref{eq:istar},
 A sweep spreads its measurements uniformly over the window, so the information it gains per step is the window
 average of Eq.~\eqref{eq:fisher}, taken over the drive frequency in the window (not over the prior),
 \begin{equation}
-  I_{\rm sweep}=\frac{1}{W}\int I(x)\,dx=\frac{k}{\sigma^2W}\int g(x)^2\,dx=\frac{\pi}{2}\,
+  I_{\rm sweep}=\frac{1}{W}\int I(x)\,dx=\frac{k}{\sigma^2W}\int\Big(\frac{\partial\mu}{\partial\theta}\Big)^{\!2}dx=\frac{\pi}{2}\,
   \frac{k\,C^2}{\sigma^2\,\Gamma\,W},
   \label{eq:sweep-info}
 \end{equation}
-using $\int g^2\,du=\pi C^2/(4\gamma)=\pi C^2/(2\Gamma)$ for the Lorentzian, valid for $W\gg\Gamma$. Both are
+using $\int(\partial\mu/\partial\theta)^2\,du=\pi C^2/(4\gamma)=\pi C^2/(2\Gamma)$ for the Lorentzian, valid for $W\gg\Gamma$. Both are
 $\propto kC^2/\sigma^2$; they differ in the width factor, $1/\Gamma^2$ against $1/(\Gamma W)$, because the sweep
 spends only a fraction of order $\Gamma/W$ of its measurements on the line.
 
