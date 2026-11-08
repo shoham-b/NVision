@@ -587,8 +587,12 @@ fraction $q\le1$ of $I_{\rm max}$, $I_{\rm max}$ is replaced by $qI_{\rm max}$ i
 by $1/\sqrt q$, i.e.\ $\eta/\sqrt q$.
 
 \paragraph{Sensitivity over a run.} Read off a run of length $T$, the product $\sigma_B(T)\sqrt T$ is not yet this
-constant: during the search the error barely falls and the product grows as $\sqrt T$, and after detection it
-approaches $\eta$ from above, with an excess that falls as $1/T$ (\SM{sm:speedup}).
+constant. At the bound, $\sigma_{f_-}^{-2}=J_0+(T/t_m)\,I_{\rm max}$, so
+\begin{equation*}
+  \sigma_B\sqrt T=\frac{1}{\gamma_e}\,\frac{\sqrt T}{\sqrt{J_0+(T/t_m)\,I_{\rm max}}}\;\longrightarrow\;\eta ,
+\end{equation*}
+which grows as $\sqrt T$ while the prior information $J_0$ dominates and tends to $\eta$ once the data dominate. A
+real strategy reaches the same constant; its search offset $n_0$ only changes how (\SM{sm:speedup}).
 
 \paragraph{Bandwidth (whole run).} A field reading is useful once its error reaches the target
 $\sigma_{\rm tgt}$; the time needed, $T(\sigma_{\rm tgt})=t_m\,[n_0+\sigma_{\rm tgt}^{-2}/(qI_{\rm max})]$ by
