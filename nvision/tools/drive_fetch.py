@@ -28,7 +28,10 @@ def parse_drive_folder_id(url_or_id: str) -> str:
 
 
 def fetch_drive_folder(url_or_id: str, dest: Path, remote: str = "gdrive") -> Path:
-    """``rclone copy`` the Drive folder into *dest* (created if needed); return *dest*.
+    """``rclone sync`` the Drive folder into *dest* (created if needed); return *dest*.
+
+    *dest* is a mirror: a file deleted on Drive is deleted from it too. (``rclone copy`` kept such files, so a
+    removed bad run was still counted in the lab statistics.) Only *dest* is ever modified, never Drive.
 
     Raises ``RuntimeError`` when rclone is missing or fails (e.g. the remote's login expired).
     """
@@ -37,7 +40,7 @@ def fetch_drive_folder(url_or_id: str, dest: Path, remote: str = "gdrive") -> Pa
     if rclone is None:
         raise RuntimeError("rclone is not on PATH; install it and configure a Drive remote (rclone config)")
     dest.mkdir(parents=True, exist_ok=True)
-    cmd = [rclone, "copy", f"{remote}:", str(dest), "--drive-root-folder-id", folder_id, "--stats-one-line", "-v"]
+    cmd = [rclone, "sync", f"{remote}:", str(dest), "--drive-root-folder-id", folder_id, "--stats-one-line", "-v"]
     for pattern in _EXCLUDES:
         cmd += ["--exclude", pattern]
     result = subprocess.run(cmd, check=False)
