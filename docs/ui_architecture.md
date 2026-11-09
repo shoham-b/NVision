@@ -11,12 +11,12 @@ The UI shows the article's quantities under shorter labels; the full table is in
 * **σ in plots and tables** is the **claimed uncertainty** $\hat\sigma_N$ (weighted particle standard deviation), not a 68 % interval before the posterior is Gaussian. The Sanity view tests whether it is honest (1σ / 2σ / 3σ coverage); end-of-run accuracy is deliberately not shown.
 * **SNR** on every axis and button is the code label `contrast_total / noise σ`, i.e. twice the article's $C/\sigma$ (`contrast_total` $= 2C$).
 * **Bound** in the Information view is the van Trees bound (prior information J₀ plus n·I*); the stage-oracle column names still say `fisher_star` / CRLB.
-* **Stages** are search / focus / refine. The article calls the middle regime *localize*.
+* **Stages** are search / localize / refine, as in the article (the underlying field names still say `focus_found_step`, `stage2_*`).
 * **Dip found** (`dip_detected_step`) is the dip test at `NVISION_DIP_P_FA`; **focus found** (`focus_found_step`) is the claimed-uncertainty drop. They are different markers.
 
 ## Known deviations (UI vs. article)
 
-* Stage *focus* here is *localize* in the article, and its boundaries come from the claimed uncertainty, not from the detection step.
+* The *localize* stage's boundaries come from the claimed uncertainty, not from the detection step.
 * Chart labels say "σ" and "CRLB"/"Fisher" where the article says $\hat\sigma_N$ and van Trees bound; the labels were not renamed.
 * The article's tracking (Gaussian prior) runs are not simulated; the UI's J₀ switch (4π²/W² vs 1/σ₀²) supports both, only the global-search case has data.
 

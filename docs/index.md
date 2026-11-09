@@ -15,7 +15,7 @@ Welcome to the NVision documentation.
 -   [CLI Reference & Usage](cli_reference.md)
 -   [Caching & Interruption Salvaging](caching.md)
 -   [Deferred Graph Generation (graph workers, `nv graphs`)](graph_queue.md)
--   [Locator comparison: sweeps, Smart-Sweep/Smart-SBED, search/focus/refine stages, known deviations from the article](locator_comparison.md)
+-   [Locator comparison: sweeps, Smart-Sweep/Smart-SBED, search/localize/refine stages, known deviations from the article](locator_comparison.md)
 -   [Evaluation metrics: what to measure per stage, and the rules that keep it meaningful](evaluation_metrics.md)
 -   [Classmethod Pattern](classmethod_pattern.md)
 -   [Amplitude Reparametrization (contrast → contrast_total)](contrast_reparametrization.md)

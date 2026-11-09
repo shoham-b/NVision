@@ -25,7 +25,7 @@ uses the names on the right. Docs describing the algorithm use the article's ter
 | van Trees bound | CRLB / `stage_fisher_star`, `stage_prior_info` (see [evaluation metrics](evaluation_metrics.md)) | The bound with prior information $J_0$; the code historically says "CRLB". |
 | dip test | `find_dips` (`belief/dip_detection.py`), `NVISION_DIP_P_FA` | Boxcar score over measured stretches, Bonferroni threshold. |
 | falsification probe | exploration step in SBED `_acquire` (`EXPLORE_PROBABILITY_*`) | Measures the middle of the widest unmeasured gap. |
-| search / localize / refine | search / focus / refine (`focus_found_step`, `refine_start_step`, `stage{1,2,3}_*`) | The article's *localize* is the code's *focus* stage; see Known deviations in [locator comparison](locator_comparison.md). |
+| search / localize / refine | search / localize / refine (persisted fields keep the old name: `focus_found_step`, `refine_start_step`, `stage{1,2,3}_*`) | Same names. The middle stage was called *focus* before; the *focus window / focus sections* (`FocusRegion`) are a different thing and keep their name. See Known deviations in [locator comparison](locator_comparison.md). |
 | SimpleSweep, Smart-Sweep | `SimpleSweep-<k>perFWHM`, `Smart-Sweep` | $\Gamma_0$ = FWHM of the prior-mean line; SimpleSweep spacing $\Gamma_0/p$, $p = 2,3,4$. |
 | Bayesian SBED | `Bayesian-SBED` | |
 

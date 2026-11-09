@@ -113,7 +113,7 @@ def generate_attempt_metrics(
         milestone_data = calculate_zeeman_metrics(run_result, primary_param=primary_param)
         for k, v in milestone_data.items():
             metrics_serialized[k] = _maybe_finite(v)
-        # Search / focus / refine stages, detected the same way for every locator (see metrics/stages.py).
+        # Search / localize / refine stages, detected the same way for every locator (see metrics/stages.py).
         stage_metrics = compute_stage_metrics(run_result)
         for k, v in stage_metrics.items():
             metrics_serialized[k] = v if isinstance(v, str) else _maybe_finite(v)
