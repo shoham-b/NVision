@@ -4,8 +4,8 @@
 % =====================================================================
 
 This section supports Sec.~\ref{sec:global}: why the van Trees bound does not apply to a uniform window, the
-Ziv--Zakai bound that replaces it, the two search bounds, the data limit of a uniform window, and the conditions
-under which van Trees applies again after detection. Throughout, $\bar\sigma_\theta^2(n)=\mathbb E[(\hat\theta_n-\theta)^2]$ is averaged over the noise
+Ziv--Zakai bound that replaces it, the two search bounds, and the conditions under which van Trees applies again
+after detection. Throughout, $\bar\sigma_\theta^2(n)=\mathbb E[(\hat\theta_n-\theta)^2]$ is averaged over the noise
 and over $\theta$ uniform on the window of width $W$.
 
 \paragraph{Why the window breaks van Trees.} For a prior density $p(\theta)$, the van Trees inequality
@@ -117,7 +117,7 @@ $1/(1-2t/W)=a/(a-1)$, so the exponent is $-a$ and
 \begin{equation*}
   \bar\sigma_\theta^2(n)\ \ge\ \frac{W^2}{4a^2}\,e^{-a}=\frac{W^2}{8e}\,\frac{e^{-n\bar\kappa}}{(1+\ln2+n\bar\kappa)^2},
 \end{equation*}
-the first term of Eq.~\eqref{eq:search-bound}. It keeps the rate $e^{-n\bar\kappa}$ and holds at every $n$. Computed
+which is Eq.~\eqref{eq:search-bound}. It keeps the rate $e^{-n\bar\kappa}$ and holds at every $n$. Computed
 numerically, it lies within a factor $1.03$ of the bound maximized over $t$ for $n\bar\kappa\le1$, and within $1.5$
 for $n\bar\kappa\le50$. The fixed choice $t=W/4$ gives the simpler $W^2e^{-2n\bar\kappa}/64$, but at half the rate.
 The search therefore takes at least of order $1/\bar\kappa$ measurements, Eq.~\eqref{eq:search-cost}. The bound has
@@ -126,22 +126,6 @@ position must raise its detection threshold with the number of positions to keep
 $\ln(W/\Delta d)$ more. A sequential test, which drops a position as soon as it looks like the baseline, does not
 \cite{malloy2014}. At high SNR $1/\bar\kappa$ falls below $W/\Delta d$, one measurement per probe position, and the
 finite-reach bound above is the one that binds.
-
-\paragraph{Data limit for a uniform window.} The second term of Eq.~\eqref{eq:search-bound} brings van Trees back
-through a smooth prior that the uniform window contains. Let $w=2W/m$ with $m\ge2$ an integer, and place $m-1$ bumps
-$b_j(\theta)=\cos^2[\pi(\theta-c_j)/w]$ on $|\theta-c_j|\le w/2$, centered at $c_j=(j+1)\,w/2$,
-$j=0,\dots,m-2$. Neighbors are a $\cos^2$ and a $\sin^2$ of the same argument where they overlap, so
-$\sum_jb_j\le1$ on the window. Each bump, normalized, is a density $q_j=(2/w)\,b_j$ with Fisher information
-$J(q_j)=4\pi^2/w^2=\pi^2m^2/W^2$, and it vanishes at its edges. Hence the uniform density
-$1/W\ge\sum_j(w/2W)\,q_j$, with total weight $(m-1)\,w/2W=1-1/m$. The mean squared error of any estimator is linear
-in the prior, so under the window it is at least $1-1/m$ times its average under the $q_j$, and van Trees bounds each
-of these:
-\begin{equation*}
-  \bar\sigma_\theta^2(n)\ \ge\ \Big(1-\frac1m\Big)\Big(\frac{\pi^2m^2}{W^2}+nI_{\rm max}\Big)^{-1}.
-\end{equation*}
-This holds for adaptive strategies too, since van Trees needs only that each measurement carries at most
-$I_{\rm max}$. Maximized over $m$, it is the second term of Eq.~\eqref{eq:search-bound}, and it tends to
-$(nI_{\rm max})^{-1}$ at large $n$. Both terms bound the same quantity, so their maximum does as well.
 
 \paragraph{Restarting van Trees after detection.} Let $\tau$ be the step at which a run declares the dip found,
 decided from the run's own data and never from the true $\theta$. Given the data up to $\tau$, the posterior is the

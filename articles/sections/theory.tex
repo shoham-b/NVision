@@ -316,21 +316,19 @@ dip could be, a measurement tells them apart by at most
   \bar\kappa=\frac1W\int\frac{k\,s(d;\theta)^2}{2\sigma^2}\,d\theta=\frac{\pi\gamma\,k\,\mathrm{SNR}^2}{4W} .
 \end{equation*}
 The fraction of runs that have not yet located the dip therefore falls no faster than about $e^{-n\bar\kappa}$
-\cite{garivier2019}. Together with the data limit, this bounds the mean error of any strategy, adaptive or not, at
-any SNR and every $n$ (\SM{sm:prior}):
+\cite{garivier2019}, which bounds the mean error of any strategy, adaptive or not, at any SNR and every $n$
+(\SM{sm:prior}):
 \begin{equation}
-  \bar\sigma_\theta^2(n)\ \ge\ \max\bigg\{\frac{W^2}{8e}\,\frac{e^{-n\bar\kappa}}{(1+\ln2+n\bar\kappa)^2}\,,\
-  \max_{m\ge2}\frac{1-1/m}{\pi^2m^2/W^2+nI_{\rm max}}\bigg\},
+  \bar\sigma_\theta^2(n)\ \ge\ \frac{W^2}{8e}\,\frac{e^{-n\bar\kappa}}{(1+\ln2+n\bar\kappa)^2} .
   \label{eq:search-bound}
 \end{equation}
-with $m$ an integer. The first term is the search. It stays of the order of the prior until $n\bar\kappa$ is of order
-one, so any strategy needs at least about
+The bound stays of the order of the prior until $n\bar\kappa$ is of order one, so any strategy needs at least about
 \begin{equation}
   n_{\rm search}\ \gtrsim\ \frac{1}{\bar\kappa}=\frac{8}{\pi}\,\frac{W}{\Gamma}\,\frac{1}{k\,\mathrm{SNR}^2}
   \label{eq:search-cost}
 \end{equation}
-measurements to find the dip. The second term is the data limit of a uniform window, which tends to
-$(nI_{\rm max})^{-1}$ once $nI_{\rm max}W^2\gg1$. The sequential test above finds the dip after a number of measurements of the
+measurements to find the dip. It bounds the search only; once the dip is found, the bound that takes over is
+van Trees, restarted at detection. The sequential test above finds the dip after a number of measurements of the
 order of Eq.~\eqref{eq:search-cost}, so at low SNR the bound is tight up to a constant. At high SNR
 Eq.~\eqref{eq:search-cost} allows less than one measurement per line width, which no strategy can take: with
 $\Delta d\approx\Gamma$, $1/\bar\kappa$ exceeds $W/\Delta d$ only for $k\,\mathrm{SNR}^2<8/\pi$, an SNR of about
