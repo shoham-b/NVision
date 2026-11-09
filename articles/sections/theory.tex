@@ -306,8 +306,8 @@ logarithm \cite{malloy2014}. A Bayesian strategy goes further: its posterior com
 positions, which the tails of the dip reach as well, and lowers the weight of a position with each outcome that looks
 like the baseline instead of excluding it at once.
 
-No strategy can search faster than a bound of the same kind as Ziv--Zakai, which compares a dip at $\theta$ with a
-world that has no dip at all. How well one measurement tells the two
+How fast any strategy can search is limited by a bound of the same kind as Ziv--Zakai, which compares a dip at
+$\theta$ with a world that has no dip at all. How well one measurement tells the two
 apart is the Kullback--Leibler divergence between its outcomes in the two worlds (Sec.~\ref{sec:eig}),
 $k\,s(d;\theta)^2/2\sigma^2$ for a dip of depth $s(d;\theta)$ at the drive frequency: the squared SNR of the drop it
 would see. In the world without a dip the strategy's choices cannot depend on $\theta$, so, averaged over where the
@@ -316,7 +316,7 @@ dip could be, a measurement tells them apart by at most
   \bar\kappa=\frac1W\int\frac{k\,s(d;\theta)^2}{2\sigma^2}\,d\theta=\frac{\pi\gamma\,k\,\mathrm{SNR}^2}{4W} .
 \end{equation*}
 The fraction of runs that have not yet located the dip therefore falls no faster than about $e^{-n\bar\kappa}$
-\cite{garivier2019}, which bounds the mean error of any strategy, adaptive or not, at any SNR and every $n$
+\cite{garivier2019}. This bounds the mean error of any strategy, adaptive or not, at any SNR and every $n$
 (\SM{sm:prior}):
 \begin{equation}
   \bar\sigma_\theta^2(n)\ \ge\ \frac{W^2}{8e}\,\frac{e^{-n\bar\kappa}}{(1+\ln2+n\bar\kappa)^2} .
@@ -327,13 +327,14 @@ The bound stays of the order of the prior until $n\bar\kappa$ is of order one, s
   n_{\rm search}\ \gtrsim\ \frac{1}{\bar\kappa}=\frac{8}{\pi}\,\frac{W}{\Gamma}\,\frac{1}{k\,\mathrm{SNR}^2}
   \label{eq:search-cost}
 \end{equation}
-measurements to find the dip. It bounds the search only; once the dip is found, the bound that takes over is
-van Trees, restarted at detection. The sequential test above finds the dip after a number of measurements of the
-order of Eq.~\eqref{eq:search-cost}, so at low SNR the bound is tight up to a constant. At high SNR
+measurements to find the dip. The bound matters only during the search; once the dip is found, the bound that
+takes over is van Trees, restarted at detection. The sequential test above needs a number of measurements of the
+order of Eq.~\eqref{eq:search-cost} \cite{malloy2014}, so at low SNR the search cost is reached up to a constant
+factor. At high SNR
 Eq.~\eqref{eq:search-cost} allows less than one measurement per line width, which no strategy can take: with
 $\Delta d\approx\Gamma$, $1/\bar\kappa$ exceeds $W/\Delta d$ only for $k\,\mathrm{SNR}^2<8/\pi$, an SNR of about
-$1.6$ at $k=1$. Above it the first term of Eq.~\eqref{eq:search-mean}, exact for a dip of finite reach, is the
-tighter bound, and the elimination model meets it. Before the dip is found, no strategy knows where to look, and none
+$1.6$ at $k=1$. Above it, the bound for a dip of finite reach, the first term of
+Eq.~\eqref{eq:search-mean}, lies higher during the search, and the elimination model meets it. Before the dip is found, no strategy knows where to look, and none
 gains more per measurement than the window average.
 
 \paragraph{After detection.} Once the dip is found, the posterior is a single smooth peak around it, shaped by the
