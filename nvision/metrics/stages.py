@@ -4,7 +4,7 @@ A search for a resonance whose other parameters are already known passes through
 
 1. **search** -- until the claimed uncertainty of the primary parameter has dropped to ``FOCUS_SIGMA_DROP`` of
    its first value: the data have started to localise the dip.
-2. **focus** -- from then until the primary parameter is known well enough that the locator's aim point is
+2. **localize** -- from then until the primary parameter is known well enough that the locator's aim point is
    within the near-optimal region (claimed uncertainty ``<= eps``, see below).
 3. **refine** -- from there to the end of the run, each measurement gaining (nearly) the maximum
    (Cramer-Rao) information.
@@ -63,7 +63,7 @@ measurement's information about ``theta`` alone is the diagonal term, an upper b
 Oracle per stage
 ----------------
 Each stage is also compared with the fewest measurements any locator could need, from the same truth-side Fisher
-information: ``I* = max g^2 / sigma^2`` per step. Focus ends at the precision ``eps`` where eta stays >= ``1 - delta``
+info: ``I* = max g^2 / sigma^2`` per step. Localize ends at the precision ``eps`` where eta stays >= ``1 - delta``
 (half-width of that region around the best point), so its bound is ``(eps^-2 - J0) / I*`` with ``J0`` the
 information the primary parameter's prior already holds (its inverse variance) -- a window is a prior, not free;
 refine ends at the stop target ``tau``, so its bound is ``(tau^-2 - eps^-2) / I*`` (refine starts at precision
@@ -109,7 +109,7 @@ _ORACLE_DURATION_RATIOS = np.geomspace(
     RABI_PER_AMP_BOUNDS[0] / RABI_PER_AMP_BOUNDS[1], RABI_PER_AMP_BOUNDS[1] / RABI_PER_AMP_BOUNDS[0], 17
 )
 
-STAGE_NAMES: tuple[str, str, str] = ("search", "focus", "refine")
+STAGE_NAMES: tuple[str, str, str] = ("search", "localize", "refine")
 
 # Every key compute_stage_metrics returns (the results-row columns).
 STAGE_METRIC_KEYS: tuple[str, ...] = (
@@ -193,7 +193,7 @@ def _optimum_tolerance_phys(grid_phys: np.ndarray, g2: np.ndarray, best: float) 
     ``grid_phys``, ``g2``: shape (n_grid,), drive frequency (Hz) and squared sensitivity on it. This is how far the
     locator may aim from the optimum and still measure at eta >= 1 - delta (0.15 gamma for a Lorentzian HWHM gamma).
     A locator error eps in the primary parameter moves the aim point by eps (the dip shifts one to one), so it is
-    also the primary-parameter precision at which focus ends.
+    also the primary-parameter precision at which localize ends.
     """
     floor = (1.0 - REFINE_INFO_LOSS) * best
     i = int(np.argmax(g2))
@@ -381,7 +381,7 @@ def compute_stage_metrics(run_result: RunResult) -> dict[str, Any]:
 
     * ``stage_fisher_star``: ``I*`` (Hz^-2 per step), the mean over steps.
     * ``stage_eps_target_phys``: ``eps`` (Hz), how far from the best point a measurement may sit and still have
-      eta >= 1 - delta; the precision at which focus ends (``None`` for drive-controlled models).
+      eta >= 1 - delta; the precision at which localize ends (``None`` for drive-controlled models).
     * ``stage_tau_phys``: the stop target tau (Hz), the claimed-sigma threshold the run stops on.
     * ``stage_fwhm_true_phys`` (``None`` for drive-controlled models, whose width depends on the drive),
       ``stage_prior_fwhm_phys`` (the prior's mean FWHM), ``stage_window_phys`` (the drive-frequency range) and
@@ -470,7 +470,7 @@ def compute_stage_metrics(run_result: RunResult) -> dict[str, Any]:
         if span is None:
             continue
         first, final = span
-        n_in_stage = final - first + 1  # 0 when refine starts right after the focus
+        n_in_stage = final - first + 1  # 0 when refine starts right after the localize stage
         start, end = unc_trace[max(first - 1, 0)], unc_trace[max(final, first - 1, 0)]
         out[f"stage{k}_steps"] = n_in_stage
         out[f"stage{k}_unc_start"] = _finite_or_none(start)
@@ -688,7 +688,7 @@ def _add_oracle_metrics(
         out["stage2_oracle_steps"] = _finite_or_none(oracle2)
         if out["stage2_steps"]:
             out["stage2_efficiency"] = _finite_or_none(oracle2 / out["stage2_steps"])
-    # Refine starts at precision eps (the focus oracle's endpoint), so the two oracles chain to the whole-run bound.
+    # Refine starts at precision eps (the localize oracle's endpoint), so the two oracles chain to the whole-run bound.
     if tau is not None and sens.eps_phys is not None and out["stage3_steps"] is not None:
         oracle3 = max(0.0, float(tau) ** -2 - sens.eps_phys**-2) / fisher_star
         out["stage3_oracle_steps"] = _finite_or_none(oracle3)

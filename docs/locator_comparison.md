@@ -156,7 +156,7 @@ per-step belief snapshots:
 
 1. **search** -- up to the measurement after which `belief.current_dips()` (the deterministic `find_dips`) first
    reports a dip = *focus found*;
-2. **focus** -- until the measurements gain (nearly) the Cramer-Rao-optimal information every step = *max information*;
+2. **localize** -- until the measurements gain (nearly) the Cramer-Rao-optimal information every step = *max information*;
 3. **refine** -- the rest.
 
 **Fisher-information efficiency.** A measurement at drive frequency $x$ (drive $d$, $k$ shots) carries
@@ -205,9 +205,10 @@ shows them.
 
 ## Known deviations (docs/code vs. article)
 
-- **Stage names and boundaries.** The article's regimes are *search* (dip not yet found), *localize* (from the first
-  detection of the dip until the strategy locks onto it) and *refine* (Gaussian, Fisher-limited tail). The code's middle
-  stage is called *focus* (`focus_found_step`, `stage2_*`) and its boundaries are decided from the claimed uncertainty
+- **Stage boundaries and field names.** The stage names now match the article: *search* (dip not yet found), *localize*
+  (from the first detection of the dip until the strategy locks onto it) and *refine* (Gaussian, Fisher-limited tail).
+  Only the labels were renamed: the persisted fields keep the old name (`focus_found_step`, `stage2_*`, the `focus_found` /
+  `focus_step` columns of `nv compare`), so no re-run is needed. The boundaries are decided from the claimed uncertainty
   (0.7 drop, then within the tolerance), not from the dip-test detection, which is its own marker `dip_detected_step`.
 - **Bound.** The article judges runs against the van Trees bound with prior information $J_0$; the stage oracle on this page
   is the CRLB-style $I^* = k\max g^2/\sigma^2$ (no prior). `stage_prior_info` carries $J_0$; see

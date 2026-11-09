@@ -1,4 +1,4 @@
-"""``nv compare`` -- compare locators stage by stage (search / focus / refine) from a finished run."""
+"""``nv compare`` -- compare locators stage by stage (search / localize / refine) from a finished run."""
 
 from __future__ import annotations
 
@@ -41,7 +41,7 @@ def compare(
     ] = None,
     csv: Annotated[Path | None, typer.Option("--csv", help="Also write the table to this CSV file")] = None,
 ) -> None:
-    """Compare every locator on the same footing: accuracy, and each search/focus/refine stage.
+    """Compare every locator on the same footing: accuracy, and each search/localize/refine stage.
 
     Stages are detected identically for every locator from its per-step belief (see docs/locator_comparison.md).
     """

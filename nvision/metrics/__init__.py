@@ -1,7 +1,7 @@
 """NVision metrics package: per-run metrics computed identically for every locator.
 
 Per-step series (:mod:`nvision.metrics.series`), convergence milestones (:mod:`nvision.metrics.milestones`),
-the search/focus/refine stage decomposition (:mod:`nvision.metrics.stages`) and the stage-by-stage
+the search/localize/refine stage decomposition (:mod:`nvision.metrics.stages`) and the stage-by-stage
 locator comparison table (:mod:`nvision.metrics.compare`).
 """
 
