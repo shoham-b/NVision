@@ -220,18 +220,18 @@ function labPlotHead(title, help, id) {
         <span style="margin-left:auto; font-weight:normal;"><button type="button" data-dl="${id}" data-fmt="png" style="${btn}">Download PNG</button><button type="button" data-dl="${id}" data-fmt="svg" style="${btn}">SVG</button></span></h3>`;
 }
 
-// Downloads the plot as a clean, titled, white-background figure. The export is smaller (1100 px wide, rendered at 3x) with bigger
+// Downloads the plot as a clean, titled, white-background figure. The export is compact (square plot area, rendered at 3x) with bigger
 // fonts, so text is large relative to the graph; margins and legend position are rescaled for the bigger text, then restored.
 function wireLabDownloads(id, filename, title) {
     document.querySelectorAll(`button[data-dl="${id}"]`).forEach((b) => {
         b.onclick = async () => {
             const gd = document.getElementById(id);
             const k = 20 / gd.layout.font.size;  // text scale-up for the export
-            const rows = Number(gd.dataset.rows), plotH = 380, bottom = Math.round(k * (70 + 24 * rows)), top = 70;
+            const rows = Number(gd.dataset.rows), plotH = 700, bottom = Math.round(k * (70 + 24 * rows)), top = 70;
             const orig = { 'font.size': gd.layout.font.size, 'margin.t': gd.layout.margin.t, 'margin.b': gd.layout.margin.b, 'margin.l': gd.layout.margin.l, 'legend.y': gd.layout.legend.y, 'title.text': '', paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)' };
             await Plotly.relayout(gd, { 'font.size': 20, 'title.text': title, 'title.font.size': 26, 'title.x': 0.02, 'margin.t': top, 'margin.b': bottom, 'margin.l': 80, 'legend.y': -(k * 60 / plotH), paper_bgcolor: '#ffffff', plot_bgcolor: '#ffffff' });
             try {
-                await Plotly.downloadImage(gd, { format: b.dataset.fmt, filename, width: 1100, height: top + plotH + bottom, scale: 3 });
+                await Plotly.downloadImage(gd, { format: b.dataset.fmt, filename, width: 80 + plotH + 10, height: top + plotH + bottom, scale: 3 });
             } finally {
                 await Plotly.relayout(gd, orig);
             }
