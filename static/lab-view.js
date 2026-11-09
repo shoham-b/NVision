@@ -168,8 +168,8 @@ async function renderLabStudy(container, name) {
     data.windows.forEach((r) => {
         const c = data.curves[String(r.window_mhz)];
         const name = `${r.window_mhz} MHz`;
-        const claimedColor = next(), fitColor = next();
-        const spreadColor = claimedColor; // same tone as claimed; only solid vs dashed tells them apart
+        const claimedColor = next();
+        const spreadColor = claimedColor, fitColor = claimedColor; // one colour per window; solid = claimed, dashed = spread, dotted = fit
         const band = (group) => [
             { x: c.step, y: c.claimed_q75, mode: 'lines', line: { width: 0 }, hoverinfo: 'skip', showlegend: false, legendgroup: group },
             { x: c.step, y: c.claimed_q25, mode: 'lines', line: { width: 0 }, fill: 'tonexty', fillcolor: claimedColor + '26', hoverinfo: 'skip', showlegend: false, legendgroup: group },
