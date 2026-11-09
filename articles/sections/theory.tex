@@ -58,8 +58,7 @@ origin, the line has a single effective width, and we take it as a Lorentzian of
 at half maximum $\Gamma=2\gamma$. Optical and microwave broadening are not modeled separately: they enter only
 through $\Gamma$, which is inferred with the line.
 
-\emph{From the spectrum to one line.} Two conditions reduce the spectrum to the single line we model. The first
-concerns the hyperfine structure. Every N-V center contains one of two nitrogen isotopes: $^{14}$N ($I=1$,
+\emph{From the spectrum to one line.} Every N-V center contains one of two nitrogen isotopes: $^{14}$N ($I=1$,
 $|A_\parallel|=2.15$~MHz) at 99.6\% natural abundance, which splits each transition into a triplet, or $^{15}$N
 ($I=1/2$, $|A_\parallel|=3.03$~MHz) in isotopically enriched or implanted samples, which splits it into a doublet
 \cite{felton2009}. The structure is always present, but the lines of a transition act as one when they merge,
@@ -71,13 +70,8 @@ one of the two, so each transition gives a single dip, and the normalized PL exp
 \end{equation}
 with contrast $C$, the depth of each dip at its resonance.
 
-The second condition concerns the two dips, $f_+-f_-=2\delta_Z$ apart. We work with fields that separate them well,
-\begin{equation}
-  \delta_Z\gg\gamma ,
-  \label{eq:separated}
-\end{equation}
-so that near $f_-$ the tail of the $f_+$ dip is negligible, the drive couples only $m_s=0$ and $m_s=-1$, and
-Eq.~\eqref{eq:signal-both} reduces to the single line
+For $\delta_Z\gg\gamma$ the tail of the $f_+$ dip is negligible near $f_-$, the drive there couples only $m_s=0$ and
+$m_s=-1$, and Eq.~\eqref{eq:signal-both} reduces to the single line
 \begin{equation}
   \mu(f)=1-C\,\frac{\gamma^2}{\gamma^2+(f-f_-)^2}.
   \label{eq:signal}
