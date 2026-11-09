@@ -4,8 +4,8 @@
 % =====================================================================
 
 This section supports Sec.~\ref{sec:global}: why the van Trees bound does not apply to a uniform window, the
-Ziv--Zakai bound that replaces it, the two search bounds, and the conditions under which van Trees applies again
-after detection. Throughout, $\bar\sigma_\theta^2(n)=\mathbb E[(\hat\theta_n-\theta)^2]$ is averaged over the noise
+Ziv--Zakai bound that replaces it, the two search bounds, the reach of a measurement and the best probe spacing,
+the posterior at detection, and the conditions under which van Trees applies again after detection. Throughout, $\bar\sigma_\theta^2(n)=\mathbb E[(\hat\theta_n-\theta)^2]$ is averaged over the noise
 and over $\theta$ uniform on the window of width $W$.
 
 \paragraph{Why the window breaks van Trees.} For a prior density $p(\theta)$, the van Trees inequality
@@ -82,7 +82,7 @@ $\int F(1-F)\,dx\ge L\int_0^1u(1-u)\,du=L/6$, with equality only when $U$ is an 
 \begin{equation*}
   \bar\sigma_\theta^2(n)\ \ge\ \frac{L^3}{12\,W}\ \ge\ \frac{(W-n\Delta d)^3}{12\,W},
 \end{equation*}
-the first term of Eq.~\eqref{eq:search-mean}. The elimination model, which probes contiguously from one edge, meets
+Eq.~\eqref{eq:search-mean}. The elimination model, which probes contiguously from one edge, meets
 it: no strategy searches a window faster in this limit. A strategy that probes in a scattered order leaves $U$ in
 pieces, and its mean error at the same $n$ is larger.
 
@@ -115,25 +115,78 @@ of runs whose estimate is still more than $t$ from the dip is
 The search therefore takes at least of order $1/\bar\kappa$ measurements, Eq.~\eqref{eq:search-cost}. The bound has
 no factor $\ln(W/\Gamma)$, and none is needed. A strategy that averages a fixed number of shots at every probe
 position must raise its detection threshold with the number of positions to keep false alarms rare, and pays about
-$\ln(W/\Delta d)$ more. A sequential test, which drops a position as soon as it looks like the baseline, does not
+$\ln(W/\Delta d)$ more, Eq.~\eqref{eq:sm-fixed-cost} below. A sequential test, which drops a position as soon as it looks like the baseline, does not
 \cite{malloy2014}. At high SNR $1/\bar\kappa$ falls below $W/\Delta d$, one measurement per probe position, and the
 finite-reach bound above is the one that binds.
+
+\paragraph{The reach of a measurement.} The finite-reach bound treats the dip as invisible beyond its probe cell.
+The probe spacing $\Delta d$ must make that true: a dip anywhere in a cell, even at its edge, a distance
+$\Delta d/2$ from the probe, must be detected, while none of the $M=W/\Delta d$ cells on the baseline may be taken
+for a dip. A probe declares a dip when its drop exceeds a threshold of $z_\alpha$ noise standard deviations
+$\sigma/\sqrt k$. For Gaussian noise the largest of $M$ baseline draws is about $\sqrt{2\ln M}$, so keeping false
+alarms rare needs $z_\alpha\approx\sqrt{2\ln M}$. A dip at the cell edge is
+$C\gamma^2/[\gamma^2+(\Delta d/2)^2]=C/[1+(\Delta d/\Gamma)^2]$ deep, and is missed with a small probability only if
+its drop exceeds the threshold by a further $z_\beta$. With $z=z_\alpha+z_\beta$,
+\begin{equation}
+  \frac{\sqrt k\,\mathrm{SNR}}{1+(\Delta d/\Gamma)^2}\ \ge\ z
+  \quad\Longrightarrow\quad
+  \Delta d=\Gamma\sqrt{\frac{\sqrt k\,\mathrm{SNR}}{z}-1}.
+  \label{eq:sm-reach}
+\end{equation}
+A single measurement detects anything only for $\sqrt k\,\mathrm{SNR}>z$. The reach is below the line width for
+$\sqrt k\,\mathrm{SNR}<2z$, where only the core of the dip stands out, and above it at higher SNR, where the
+Lorentzian tails do too and a measurement rules out more than a line width. The change-of-measure bound uses the
+Lorentzian itself and does not depend on this choice.
+
+\paragraph{The best spacing.} At lower SNR a probe repeats $m$ measurements at the same drive frequency, which
+multiplies $k$ by $m$ in Eq.~\eqref{eq:sm-reach}. More repeats widen the reach and so need fewer probes; the search
+costs $m\,W/\Delta d$ measurements. With $a=\sqrt k\,\mathrm{SNR}/z$ and $u=\sqrt m\,a$, the cost per unit of window
+is
+\begin{equation*}
+  \frac{m}{\Delta d}=\frac{1}{\Gamma\,a^2}\,\frac{u^2}{\sqrt{u-1}},
+\end{equation*}
+smallest at $u=4/3$, with $m$ treated as continuous. The best probe then averages just enough for the drop at
+$\sqrt m\,\sqrt k\,\mathrm{SNR}=\tfrac43z$, and the best spacing is
+\begin{equation*}
+  \Delta d_{\rm opt}=\frac{\Gamma}{\sqrt3}\approx0.58\,\Gamma,
+\end{equation*}
+below the line width: it pays to see only the core of the dip and to take more probes. A spacing wider than
+$\Gamma/\sqrt3$ is the best choice only when a single measurement already has $a>4/3$, so that $m=1$ and
+$\Delta d$ follows from Eq.~\eqref{eq:sm-reach}. At the optimum the search costs
+\begin{equation}
+  n_{\rm fixed}=\frac{16\sqrt3}{9}\,\frac{W}{\Gamma}\,\frac{z^2}{k\,\mathrm{SNR}^2}
+  \approx1.2\,z^2\,\frac{1}{\bar\kappa},
+  \label{eq:sm-fixed-cost}
+\end{equation}
+with $1/\bar\kappa$ the change-of-measure bound, Eq.~\eqref{eq:search-cost}. With $z^2\approx2\ln M$ this is about
+$2.4\ln(W/\Delta d)$ times the bound: the factor that a sequential test avoids.
+
+\paragraph{The detection posterior.} Let the detecting measurement be at the center $d$ of its cell, with the dip
+uniform over the cell; we neglect the weak information that the non-detection at the previous probe carries about the
+near edge of the cell. The outcome $y$ of the measurement, and with it any detection rule applied to $y$, depends on
+$\theta$ only through $|\theta-d|$. The posterior is then symmetric about $d$ and $\mathbb E[\theta\mid y]=d$ for
+every $y$, so by the law of total variance
+\begin{equation*}
+  \mathbb E\big[\mathrm{Var}(\theta\mid y)\big]=\mathrm{Var}(\theta)-\mathrm{Var}\big(\mathbb E[\theta\mid y]\big)
+  =\frac{\Delta d^2}{12}-0 ,
+\end{equation*}
+exactly, at any SNR. The depth of the drop changes only the shape of the posterior. At high SNR it fixes
+$|\theta-d|$ to within about $I(\theta)^{-1/2}$, with $I(\theta)$ the Fisher information of Eq.~\eqref{eq:fisher}
+of the detecting measurement, and the posterior is two narrow peaks at $d\pm|\theta-d|$.
 
 \paragraph{Restarting van Trees after detection.} Let $\tau$ be the step at which a run declares the dip found,
 decided from the run's own data and never from the true $\theta$. Given the data up to $\tau$, the posterior is the
 prior of the remaining measurements, and van Trees applied to them, then averaged over runs, gives
 $\bar\sigma_\theta^2(n)\ge\mathbb E[(J_\tau+(n-\tau)I_{\rm max})^{-1}]$ with $J_\tau$ the Fisher information of that
-posterior. After a detection the posterior is a smooth peak, shaped by the likelihood of the measurements that saw
-the dip, so $J_\tau$ is finite and close to its inverse variance. The window edges still cut it off, but where it
-holds a negligible fraction of its mass, so smoothing them changes the bound by a negligible amount. The elimination
-model idealizes the detection posterior as uniform over one step and uses its inverse variance, $12/\Delta d^2$;
-that is a model value, which by Table~\ref{tab:sm-prior} with $W$ replaced by $\Delta d$ lies within a few percent of
-the best achievable error. The bound is on the error expected given the run's history; the posterior variance of a
-single run may fluctuate slightly below it.
-
-\paragraph{Finite reach of a Lorentzian.} The finite-reach bound treats the dip as invisible beyond its probe cell.
-A Lorentzian dip at distance $\delta$ is still $C\gamma^2/(\gamma^2+\delta^2)$ deep, so one measurement of $k$ shots
-shows it at $z$ standard deviations out to $\delta\approx\gamma\sqrt{\sqrt k\,\mathrm{SNR}/z}$, a reach that grows
-with the SNR. At very high SNR a measurement thus rules out more than a line width, and $\Delta d$ in the
-finite-reach bound must be taken as this reach. The change-of-measure bound uses the Lorentzian itself and holds as
-it is.
+posterior. Right after detection the two mirror peaks make $J_\tau$ of order $I(\theta)$, far above
+$12/\Delta d^2$, while the error is $\Delta d/\sqrt{12}$: the restarted bound is valid but loose until the side is
+known. The elimination model therefore restarts with the value that matches the error, $J_0=12/\Delta d^2$, a
+model value rather than a bound. The measurement that resolves the side is placed at the steepest slope of one of
+the two peaks: if that is the true one it adds $I_{\rm max}$, as the model assumes; if not, it sees little of the dip
+and adds less, but still tells the side. Once the side is known the posterior is a single peak of variance about
+$(I(\theta)+I_{\rm max})^{-1}$, and the restarted bound is tight; the model, which keeps $12/\Delta d^2$ and
+discards $I(\theta)$, is conservative from then on, by an amount that ranges from nothing for a dip right under the
+probe, where $I(\theta)\approx0$, to $I_{\rm max}$ for one on its flank. The window edges still cut the posterior
+off, but where it holds a negligible fraction of its mass, so smoothing them changes the bound by a negligible
+amount. The bound is on the error expected given the run's history; the posterior variance of a single run may
+fluctuate slightly below it.
