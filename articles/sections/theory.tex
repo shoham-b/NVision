@@ -295,9 +295,19 @@ before the first detection looks like the baseline, so any strategy, adaptive or
 order of probes, and two positions are told apart once either of them has been probed. The bound is then smallest when
 the probed part of the window is contiguous, and equals the first term of Eq.~\eqref{eq:search-mean} (\SM{sm:prior}).
 
-At lower SNR one measurement in the dip no longer reveals it. Averaging a few shots per probe until the drop is
-clear brings back the same model, with each step costing that many shots. The limit now comes from a bound of the same
-kind, which compares a dip at $\theta$ with a world that has no dip at all. How well one measurement tells the two
+\paragraph{Search at lower SNR.} At lower SNR one measurement in the dip no longer reveals it, and the elimination
+model needs repeats: a probe position is excluded only once enough shots there look like the baseline. Each step is
+then a detection, with a miss and a false alarm at every position. Averaging the same number of shots at every
+position keeps false alarms rare over all $W/\Delta d$ positions only by raising the threshold with their number,
+which costs about $\ln(W/\Delta d)$ times more shots. A sequential test spends its shots where they are needed: it
+drops a position as soon as it looks like the baseline and measures again only where the outcome is ambiguous. It
+pays the price of a rare false alarm once, at the position of the dip, and for a large window it removes the
+logarithm \cite{malloy2014}. A Bayesian strategy goes further: its posterior combines the outcomes at neighboring
+positions, which the tails of the dip reach as well, and lowers the weight of a position with each outcome that looks
+like the baseline instead of excluding it at once.
+
+No strategy can search faster than a bound of the same kind as Ziv--Zakai, which compares a dip at $\theta$ with a
+world that has no dip at all. How well one measurement tells the two
 apart is the Kullback--Leibler divergence between its outcomes in the two worlds (Sec.~\ref{sec:eig}),
 $k\,s(d;\theta)^2/2\sigma^2$ for a dip of depth $s(d;\theta)$ at the drive frequency: the squared SNR of the drop it
 would see. In the world without a dip the strategy's choices cannot depend on $\theta$, so, averaged over where the
@@ -305,19 +315,28 @@ dip could be, a measurement tells them apart by at most
 \begin{equation*}
   \bar\kappa=\frac1W\int\frac{k\,s(d;\theta)^2}{2\sigma^2}\,d\theta=\frac{\pi\gamma\,k\,\mathrm{SNR}^2}{4W} .
 \end{equation*}
-The fraction of runs that have not yet located the dip therefore falls no faster than about $e^{-n\bar\kappa}$, and
-any strategy needs at least about
+The fraction of runs that have not yet located the dip therefore falls no faster than about $e^{-n\bar\kappa}$
+\cite{garivier2019}. Together with the data limit, this bounds the mean error of any strategy, adaptive or not, at
+any SNR and every $n$ (\SM{sm:prior}):
+\begin{equation}
+  \bar\sigma_\theta^2(n)\ \ge\ \max\bigg\{\frac{W^2}{8e}\,\frac{e^{-n\bar\kappa}}{(1+\ln2+n\bar\kappa)^2}\,,\
+  \max_{m\ge2}\frac{1-1/m}{\pi^2m^2/W^2+nI_{\rm max}}\bigg\},
+  \label{eq:search-bound}
+\end{equation}
+with $m$ an integer. The first term is the search. It stays of the order of the prior until $n\bar\kappa$ is of order
+one, so any strategy needs at least about
 \begin{equation}
   n_{\rm search}\ \gtrsim\ \frac{1}{\bar\kappa}=\frac{8}{\pi}\,\frac{W}{\Gamma}\,\frac{1}{k\,\mathrm{SNR}^2}
   \label{eq:search-cost}
 \end{equation}
-measurements \cite{garivier2019} (\SM{sm:prior}). Averaging a fixed number of shots at every probe costs about
-$\ln(W/\Delta d)$ times more: the detection threshold must rise with the number of probe positions to keep false
-alarms rare. A sequential test, which drops a position as soon as it looks like the baseline and spends more shots
-only on ambiguous ones, avoids most of that factor \cite{malloy2014}, so at low SNR an adaptive strategy can search
-faster than repeated averaging. At high SNR Eq.~\eqref{eq:search-cost} allows less than one measurement per probe,
-which no strategy can take, and the elimination bound takes over. Before the dip is found, no strategy knows where to look, and none gains more per
-measurement than the window average.
+measurements to find the dip. The second term is the data limit of a uniform window, which tends to
+$(nI_{\rm max})^{-1}$ once $nI_{\rm max}W^2\gg1$. The sequential test above finds the dip after a number of measurements of the
+order of Eq.~\eqref{eq:search-cost}, so at low SNR the bound is tight up to a constant. At high SNR
+Eq.~\eqref{eq:search-cost} allows less than one measurement per line width, which no strategy can take: with
+$\Delta d\approx\Gamma$, $1/\bar\kappa$ exceeds $W/\Delta d$ only for $k\,\mathrm{SNR}^2<8/\pi$, an SNR of about
+$1.6$ at $k=1$. Above it the first term of Eq.~\eqref{eq:search-mean}, exact for a dip of finite reach, is the
+tighter bound, and the elimination model meets it. Before the dip is found, no strategy knows where to look, and none
+gains more per measurement than the window average.
 
 \paragraph{After detection.} Once the dip is found, the posterior is a single smooth peak around it, shaped by the
 measurements that saw the dip, and the problem has become tracking (Sec.~\ref{sec:prior}) with that posterior as the
