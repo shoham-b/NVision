@@ -168,8 +168,8 @@ async function renderLabStudy(container, name) {
     data.windows.forEach((r) => {
         const c = data.curves[String(r.window_mhz)];
         const name = `${r.window_mhz} MHz`;
-        const claimedColor = next(), fitColor = next();
-        const spreadColor = claimedColor; // same tone as claimed; only solid vs dashed tells them apart
+        const claimedColor = next();
+        const spreadColor = claimedColor, fitColor = claimedColor; // one colour per window; solid = claimed, dashed = spread, dotted = fit
         const band = (group) => [
             { x: c.step, y: c.claimed_q75, mode: 'lines', line: { width: 0 }, hoverinfo: 'skip', showlegend: false, legendgroup: group },
             { x: c.step, y: c.claimed_q25, mode: 'lines', line: { width: 0 }, fill: 'tonexty', fillcolor: claimedColor + '26', hoverinfo: 'skip', showlegend: false, legendgroup: group },
@@ -184,14 +184,22 @@ async function renderLabStudy(container, name) {
         fitTraces.push(...band(name + 'f'), claimed(name + 'f'),
             { x: c.step, y: c.step.map((n) => infoSigma(n, fit)), mode: 'lines', line: { color: fitColor, width: 3, dash: 'dot' }, name: `${name} fit (I=${fit.I.toPrecision(2)}/meas, n0=${fit.n0})`, legendgroup: name + 'f' });
     });
-    const sigmaLayout = () => ({
-        margin: { t: 10, r: 10, b: 50, l: 60 }, hovermode: 'x unified', font: { size: 13 },
-        xaxis: { title: 'measurement step', type: 'log', gridcolor: '#eeeeee' },
-        yaxis: { title: 'σ (MHz)', type: 'log', gridcolor: '#eeeeee' },
-        legend: { orientation: 'h', y: -0.25 },
-    });
-    Plotly.newPlot('lab-spread', spreadTraces, sigmaLayout(), { responsive: true, displaylogo: false });
-    Plotly.newPlot('lab-fit', fitTraces, sigmaLayout(), { responsive: true, displaylogo: false });
+    // The legend sits under the axis title and needs room for every entry: size the bottom margin and the plot height from the
+    // number of legend rows (spread: two entries per row, fit: one long entry per row), so it never overlaps the plot or the axis title.
+    const sigmaPlot = (id, traces, perRow) => {
+        const rows = Math.ceil(traces.filter((t) => t.showlegend !== false).length / perRow);
+        const bottom = 70 + 24 * rows, plotH = 330;
+        const el = document.getElementById(id);
+        el.style.height = `${plotH + bottom + 10}px`;
+        Plotly.newPlot(id, traces, {
+            margin: { t: 10, r: 10, b: bottom, l: 60 }, hovermode: 'x unified', font: { size: 13 },
+            xaxis: { title: { text: 'measurement step', standoff: 8 }, type: 'log', gridcolor: '#eeeeee' },
+            yaxis: { title: 'σ (MHz)', type: 'log', gridcolor: '#eeeeee' },
+            legend: { orientation: 'h', yanchor: 'top', y: -(60 / plotH) },
+        }, { responsive: true, displaylogo: false });
+    };
+    sigmaPlot('lab-spread', spreadTraces, 2);
+    sigmaPlot('lab-fit', fitTraces, 1);
     wireLabDownloads('lab-spread', 'claimed-sigma-vs-spread', 'Claimed σ vs across-run spread');
     wireLabDownloads('lab-fit', 'claimed-sigma-vs-fit', 'Claimed σ vs fit');
     const w = data.windows;
