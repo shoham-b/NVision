@@ -35,11 +35,13 @@
 
 % ---------------------------------------------------------------------
 % SKELETON (2026-11-02). Story spine agreed with the authors:
-%   every strategy's uncertainty is read against the information budget
-%   J(N) = J_0 + sum_n I(x_n); the bound has two limits (prior width at
-%   small N, unbiased CRLB at large N); a wide window shows three regimes
-%   because the information per measurement is ~0 until the dip is found
-%   (elimination model, agreed).
+%   tracking is read against van Trees, J(N) = J_0^track + sum_n I(x_n), with two
+%   limits (prior width at small N, unbiased CRLB at large N). A global search
+%   cannot be: J_0^global = inf, and the information per measurement is ~0 until
+%   the dip is found. Its search is bounded by Ziv-Zakai, reached by the
+%   elimination model (high SNR), with a change-of-measure bound at any SNR; this
+%   bounds only the MEAN over runs. After a run's own detection, van Trees
+%   restarts and bounds each run (agreed 2026-11-09).
 % Scope agreed: Bayesian SBED against the sweep ladder (SimpleSweep k=2,3,4).
 %   Smart-Sweep and Smart-SBED are the author's private experiments: keep them out of the
 %   article. Drive control: outlook at most.

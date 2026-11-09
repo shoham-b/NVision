@@ -40,7 +40,8 @@ best established heuristics \cite{hentschel2010,fiderer2021,guo2026}. Informatio
 benchmarks in Hamiltonian learning: the Bayesian Cram\'er--Rao bound certifies how close an SMC estimator comes to
 the best precision for the measurements it has chosen \cite{granade2012}. The same kind of bound, the van Trees
 inequality \cite{vantrees1968,gill1995}, has been tested, for a regular prior, against the measured error of a
-photonic interferometer, which it captures when few photons are available \cite{daurelio2022}. In simulations of iterative single-molecule
+photonic interferometer, which it captures when few photons are available, together with the Ziv--Zakai bound
+\cite{zivzakai1969,bell1997}, which also holds for a prior with hard edges \cite{daurelio2022}. In simulations of iterative single-molecule
 localization, where each measurement is placed using the previous estimate, it has been used to compare placement
 strategies \cite{kalisvaart2022}. Such a bound has not yet been applied to
 the ODMR search as a whole, starting from nothing more than the search window. It would give a strategy-independent
@@ -51,9 +52,10 @@ sweep, including its expected growth as the line occupies a smaller fraction of 
 
 Here we derive this limit for the ODMR search and use it to analyze SBED and drive-frequency sweeps for
 continuous-wave (CW) ODMR. The limit follows from Bayesian estimation theory with the search window as
-the prior \cite{vantrees1968,gill1995}, and the information it counts is the same quantity that SBED maximizes. It
-covers the whole run: finding the resonance, narrowing in on it and refining the estimate are regimes of a single
-bound rather than separate mechanisms. The same bound gives
+the prior: a Ziv--Zakai bound \cite{zivzakai1969,bell1997} for finding the resonance, where the window's hard edges
+leave the van Trees bound empty, and the van Trees bound \cite{vantrees1968,gill1995} once it is found, where the
+information it counts is the same quantity that SBED maximizes. Together they cover the whole run: finding the
+resonance, narrowing in on it and refining the estimate are parts of one curve rather than separate mechanisms. The same bound gives
 the speedup over a sweep: for a precise target it is approximately the ratio of the window width to the linewidth,
 independent of the signal-to-noise ratio, which explains its growth with the window. It also recovers the standard
 CW-ODMR sensitivity as the refine limit, reached only by a strategy that measures at the steepest slope of the line,
