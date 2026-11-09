@@ -186,7 +186,7 @@ async function renderLabStudy(container, name) {
     });
     // The legend sits under the axis title and needs room for every entry: size the bottom margin and the plot height from the
     // number of legend rows (spread: two entries per row, fit: one long entry per row), so it never overlaps the plot or the axis title.
-    const sigmaPlot = (id, traces, perRow) => {
+    const sigmaPlot = (id, traces, perRow, filename, title) => {
         const rows = Math.ceil(traces.filter((t) => t.showlegend !== false).length / perRow);
         const bottom = 70 + 24 * rows, plotH = 330;
         const el = document.getElementById(id);
@@ -197,10 +197,15 @@ async function renderLabStudy(container, name) {
             xaxis: { title: { text: 'measurement step', standoff: 8 }, type: 'log', gridcolor: '#eeeeee' },
             yaxis: { title: 'σ (MHz)', type: 'log', gridcolor: '#eeeeee' },
             legend: { orientation: 'h', yanchor: 'top', y: -(60 / plotH) },
-        }, { responsive: true, displaylogo: false });
+        }, {
+            responsive: true, displaylogo: false,
+            // The built-in camera button would save the on-screen plot as is: replace it with the same pretty export as the buttons above.
+            modeBarButtonsToRemove: ['toImage'],
+            modeBarButtonsToAdd: [{ name: 'Download figure (PNG)', icon: Plotly.Icons.camera, click: () => labExport(id, filename, title, 'png') }],
+        });
     };
-    sigmaPlot('lab-spread', spreadTraces, 2);
-    sigmaPlot('lab-fit', fitTraces, 1);
+    sigmaPlot('lab-spread', spreadTraces, 2, 'claimed-sigma-vs-spread', 'Claimed σ vs across-run spread');
+    sigmaPlot('lab-fit', fitTraces, 1, 'claimed-sigma-vs-fit', 'Claimed σ vs fit');
     wireLabDownloads('lab-spread', 'claimed-sigma-vs-spread', 'Claimed σ vs across-run spread');
     wireLabDownloads('lab-fit', 'claimed-sigma-vs-fit', 'Claimed σ vs fit');
     const w = data.windows;
@@ -222,20 +227,26 @@ function labPlotHead(title, help, id) {
 
 // Downloads the plot as a clean, titled, white-background figure. The export is compact (plot area about 5:4, rendered at 3x) with bigger
 // fonts, so text is large relative to the graph; margins and legend position are rescaled for the bigger text, then restored.
-function wireLabDownloads(id, filename, title) {
-    document.querySelectorAll(`button[data-dl="${id}"]`).forEach((b) => {
-        b.onclick = async () => {
+async function labExport(id, filename, title, fmt) {
+    {
+        {
             const gd = document.getElementById(id);
             const k = 20 / gd.layout.font.size;  // text scale-up for the export
             const rows = Number(gd.dataset.rows), plotW = 800, plotH = 640, bottom = Math.round(k * (70 + 24 * rows)), top = 70;
             const orig = { 'font.size': gd.layout.font.size, 'margin.t': gd.layout.margin.t, 'margin.b': gd.layout.margin.b, 'margin.l': gd.layout.margin.l, 'legend.y': gd.layout.legend.y, 'title.text': '', paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)' };
             await Plotly.relayout(gd, { 'font.size': 20, 'title.text': title, 'title.font.size': 26, 'title.x': 0.02, 'margin.t': top, 'margin.b': bottom, 'margin.l': 80, 'legend.y': -(k * 60 / plotH), paper_bgcolor: '#ffffff', plot_bgcolor: '#ffffff' });
             try {
-                await Plotly.downloadImage(gd, { format: b.dataset.fmt, filename, width: 80 + plotW + 10, height: top + plotH + bottom, scale: 3 });
+                await Plotly.downloadImage(gd, { format: fmt, filename, width: 80 + plotW + 10, height: top + plotH + bottom, scale: 3 });
             } finally {
                 await Plotly.relayout(gd, orig);
             }
-        };
+        }
+    }
+}
+
+function wireLabDownloads(id, filename, title) {
+    document.querySelectorAll(`button[data-dl="${id}"]`).forEach((b) => {
+        b.onclick = () => labExport(id, filename, title, b.dataset.fmt);
     });
 }
 
