@@ -190,6 +190,7 @@ async function renderLabStudy(container, name) {
         const rows = Math.ceil(traces.filter((t) => t.showlegend !== false).length / perRow);
         const bottom = 70 + 24 * rows, plotH = 330;
         const el = document.getElementById(id);
+        el.dataset.rows = rows;
         el.style.height = `${plotH + bottom + 10}px`;
         Plotly.newPlot(id, traces, {
             margin: { t: 10, r: 10, b: bottom, l: 60 }, hovermode: 'x unified', font: { size: 13 },
@@ -219,16 +220,20 @@ function labPlotHead(title, help, id) {
         <span style="margin-left:auto; font-weight:normal;"><button type="button" data-dl="${id}" data-fmt="png" style="${btn}">Download PNG</button><button type="button" data-dl="${id}" data-fmt="svg" style="${btn}">SVG</button></span></h3>`;
 }
 
-// Downloads the plot as a clean, titled, white-background figure (the title is added only for the export).
+// Downloads the plot as a clean, titled, white-background figure. The export is compact (plot area about 5:4, rendered at 3x) with bigger
+// fonts, so text is large relative to the graph; margins and legend position are rescaled for the bigger text, then restored.
 function wireLabDownloads(id, filename, title) {
     document.querySelectorAll(`button[data-dl="${id}"]`).forEach((b) => {
         b.onclick = async () => {
             const gd = document.getElementById(id);
-            await Plotly.relayout(gd, { 'title.text': title, 'title.x': 0.02, 'margin.t': 50, paper_bgcolor: '#ffffff', plot_bgcolor: '#ffffff' });
+            const k = 20 / gd.layout.font.size;  // text scale-up for the export
+            const rows = Number(gd.dataset.rows), plotW = 800, plotH = 640, bottom = Math.round(k * (70 + 24 * rows)), top = 70;
+            const orig = { 'font.size': gd.layout.font.size, 'margin.t': gd.layout.margin.t, 'margin.b': gd.layout.margin.b, 'margin.l': gd.layout.margin.l, 'legend.y': gd.layout.legend.y, 'title.text': '', paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)' };
+            await Plotly.relayout(gd, { 'font.size': 20, 'title.text': title, 'title.font.size': 26, 'title.x': 0.02, 'margin.t': top, 'margin.b': bottom, 'margin.l': 80, 'legend.y': -(k * 60 / plotH), paper_bgcolor: '#ffffff', plot_bgcolor: '#ffffff' });
             try {
-                await Plotly.downloadImage(gd, { format: b.dataset.fmt, filename, width: 1400, height: 800, scale: 2 });
+                await Plotly.downloadImage(gd, { format: b.dataset.fmt, filename, width: 80 + plotW + 10, height: top + plotH + bottom, scale: 3 });
             } finally {
-                await Plotly.relayout(gd, { 'title.text': '', 'margin.t': 10, paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)' });
+                await Plotly.relayout(gd, orig);
             }
         };
     });
