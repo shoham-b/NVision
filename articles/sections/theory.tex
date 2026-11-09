@@ -25,10 +25,7 @@ The ground state is a spin 1. With a static field $B_z$ along the N-V axis, its 
   \label{eq:hamiltonian}
 \end{equation}
 written in frequency units ($h=1$), with $D\approx2.87$~GHz the zero-field splitting, $\gamma_e\approx28$~GHz/T the electron gyromagnetic ratio, and
-$A_\parallel$ the axial hyperfine coupling to the nitrogen nuclear spin $I$. Every N-V center contains one of two
-nitrogen isotopes: $^{14}$N ($I=1$, $|A_\parallel|=2.15$~MHz) at 99.6\% natural abundance, or $^{15}$N ($I=1/2$,
-$|A_\parallel|=3.03$~MHz) in isotopically enriched or implanted samples \cite{felton2009}, so the hyperfine coupling
-is always present. The eigenstates are the product states
+$A_\parallel$ the axial hyperfine coupling to the nitrogen nuclear spin $I$. The eigenstates are the product states
 $|m_s,m_I\rangle$, and the magnetic-dipole transitions $m_s=0\to\pm1$, which conserve $m_I$, lie at
 \begin{equation}
   f_\pm(m_I)=D\pm\left(\delta_Z+A_\parallel m_I\right),\qquad \delta_Z=\gamma_e B_z ,
@@ -36,8 +33,11 @@ $|m_s,m_I\rangle$, and the magnetic-dipole transitions $m_s=0\to\pm1$, which con
 \end{equation}
 where the Zeeman shift $\delta_Z$ is the distance of each transition from $D$: the field moves the two transitions
 apart, symmetrically about $D$. The hyperfine
-term splits each of them further into $2I+1$ lines, one per nuclear projection $m_I$, spaced by $|A_\parallel|$:
-a triplet for $^{14}$N and a doublet for $^{15}$N. Whether these lines are resolved depends on the linewidth.
+term splits each of them further into $2I+1$ lines, one per nuclear projection $m_I$, spaced by $|A_\parallel|$.
+Every N-V center contains one of two nitrogen isotopes: $^{14}$N ($I=1$, $|A_\parallel|=2.15$~MHz) at 99.6\%
+natural abundance, which gives a triplet, or $^{15}$N ($I=1/2$, $|A_\parallel|=3.03$~MHz) in isotopically enriched
+or implanted samples, which gives a doublet \cite{felton2009}. The hyperfine structure is therefore always present;
+whether its lines are resolved depends on the linewidth.
 
 An ODMR measurement sets the microwave drive frequency $f$ and records the PL, normalized to its off-resonance
 level. At $f=f_\pm$ the drive is resonant with the $m_s=0\to\pm1$ transition: it transfers population from
