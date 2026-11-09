@@ -1,34 +1,139 @@
 % =====================================================================
-\section{The window in the van Trees bound}
+\section{Bounds for a global search}
 \label{sm:prior}
 % =====================================================================
 
-For a prior density $p(\theta)$, the van Trees inequality \cite{vantrees1968,gill1995} bounds the mean squared error
-of any estimator, averaged over the prior, by
+This section supports Sec.~\ref{sec:global}: why the van Trees bound does not apply to a uniform window, the
+Ziv--Zakai bound that replaces it, the two search bounds, and the conditions under which van Trees applies again
+after detection. Throughout, $\bar\sigma_\theta^2(n)=\mathbb E[(\hat\theta_n-\theta)^2]$ is averaged over the noise
+and over $\theta$ uniform on the window of width $W$.
+
+\paragraph{Why the window breaks van Trees.} For a prior density $p(\theta)$, the van Trees inequality
+\cite{vantrees1968,gill1995} bounds the mean squared error of any estimator by
 \begin{equation*}
-  \sigma_\theta^2(n)\ \ge\ \big(J(p)+nI_{\rm max}\big)^{-1},\qquad
+  \bar\sigma_\theta^2(n)\ \ge\ \big(J(p)+nI_{\rm max}\big)^{-1},\qquad
   J(p)=\int\frac{p'(\theta)^2}{p(\theta)}\,d\theta .
 \end{equation*}
-For a Gaussian prior $J(p)=\sigma_0^{-2}$, the value used for tracking. A uniform window drops from $1/W$ to zero at
-its edges, so $J(p)$ is infinite and the inequality reduces to $\sigma_\theta\ge0$: true, but empty. The inverse
-variance $12/W^2$ cannot simply take its place, since $J(p)\ge1/\mathrm{Var}(\theta)$ with equality only for a
-Gaussian: for a signal linear in $\theta$, $(12/W^2+nI_{\rm max})^{-1/2}$ is the error of the best linear estimator, which an
-estimator can reach and the best estimator beats, so it is not a lower bound.
+A uniform window drops from $1/W$ to zero at its edges, so $J(p)$ is infinite and the inequality reduces to
+$\bar\sigma_\theta\ge0$: true, but empty. The inverse variance $12/W^2$ cannot simply take its place, since
+$J(p)\ge1/\mathrm{Var}(\theta)$ with equality only for a Gaussian. For a signal linear in $\theta$,
+$(12/W^2+nI_{\rm max})^{-1/2}$ is the error of the best \emph{linear} estimator, which the best estimator beats.
+Table~\ref{tab:sm-prior} gives the size of the effect, computed numerically for a measurement
+$y=\theta+\varepsilon$ with $\varepsilon$ Gaussian of variance $1/(nI_{\rm max})$: the best estimator lies up to
+$4.4\%$ below the additive curve, around $nI_{\rm max}W^2\approx100$, and the two agree at both ends.
 
-\paragraph{Worst-placed resonance.} Instead of the prior, weight the positions in the window by
-$\rho(v)=(2/W)\cos^2(\pi v/W)$, with $v$ the distance from the center. Of all densities confined to the window this one
-has the least Fisher information, $J(\rho)=4\pi^2/W^2$ \cite{gill1995}. The van Trees inequality then bounds the mean
-squared error averaged with the weight $\rho$, and the worst-placed resonance is at least as bad as any such average,
-which gives Eq.~\eqref{eq:vantrees} for a global search. The prior itself stays uniform; $\rho$ is only a step in the
-argument. For a signal linear in $\theta$ the worst-placed
-resonance starts at $W/2$, $\pi$ times above the bound, and the bound is tight at large $n$: with $m=\sqrt{nI_{\rm max}}\,W/2$
-the half width in units of the measurement error, the best worst-case mean squared error is $(nI_{\rm max})^{-1}(1-\pi^2/m^2)$
-to order $m^{-2}$, with this same $\cos^2$ density as the least favorable one \cite{bickel1981}, and the bound agrees
-with this to that order.
+\begin{table}[h]
+\centering
+\caption{Linear signal, uniform window. Ratio of two curves to the root of the best achievable mean squared error,
+$\bar\sigma_{\rm best}$, as a function of the measured information $nI_{\rm max}W^2$. Additive: the van Trees form
+with $J_0=12/W^2$, $(12/W^2+nI_{\rm max})^{-1/2}$. ZZ: the Ziv--Zakai bound, Eq.~\eqref{eq:sm-zz-linear}.}
+\label{tab:sm-prior}
+\begin{tabular}{lccccccc}
+\hline
+$nI_{\rm max}W^2$ & 1 & 10 & 30 & 100 & 300 & $10^3$ & $10^4$\\
+\hline
+additive$/\bar\sigma_{\rm best}$ & 0.999 & 1.009 & 1.032 & 1.044 & 1.036 & 1.024 & 1.009\\
+ZZ$/\bar\sigma_{\rm best}$ & 0.932 & 0.923 & 0.956 & 0.980 & 0.990 & 0.995 & 0.998\\
+\hline
+\end{tabular}
+\end{table}
 
-\paragraph{Average over the window.} This argument does not cover the error averaged over a uniformly placed
-resonance, which is what the runs report. For a signal linear in $\theta$ the best achievable average error can be
-computed numerically. It lies above the bound until $nI_{\rm max}W^2\approx400$, by a factor that starts at
-$\pi/\sqrt3\approx1.8$ at $n=0$ and falls below $1.1$ by $nI_{\rm max}W^2\approx80$, that is $n\approx2\,n_c$. From
-$nI_{\rm max}W^2\approx400$, $n\approx10\,n_c$, it lies below the bound, by at most about $1\%$ in $\sigma$, an effect that vanishes as $n$ grows. The cause
-is the hard edge: the posterior of a resonance close to an edge is cut off there, so it is slightly easier to locate.
+\paragraph{The Ziv--Zakai bound.} The Ziv--Zakai bound \cite{zivzakai1969,bell1997} turns estimation into a set of
+binary decisions. Let $P_{\min}(\theta,\theta+h)$ be the smallest error probability of any test that decides, from
+the data, between a dip at $\theta$ and one at $\theta+h$, the two being equally likely a priori. Then
+\begin{equation}
+  \bar\sigma_\theta^2(n)\ \ge\ \frac12\int_0^\infty h\;\mathcal V\{G(h)\}\,dh ,
+  \label{eq:sm-zz}
+\end{equation}
+\begin{equation*}
+  G(h)=\int\big[p(\theta)+p(\theta+h)\big]\,P_{\min}(\theta,\theta+h)\,d\theta ,
+\end{equation*}
+where $\mathcal V$ (valley filling) replaces a function of $h$ by the smallest nonincreasing function above it.
+Dropping $\mathcal V$ only lowers the right-hand side, so the bound stays valid without it. The bound needs no
+derivative of $p$. Before any measurement no test does better than a guess, $P_{\min}=\tfrac12$, and for the uniform
+prior the inner integral is $(W-h)/W$, so
+\begin{equation*}
+  \bar\sigma_\theta^2(0)\ \ge\ \frac12\int_0^W h\,\frac{W-h}{W}\,dh=\frac{W^2}{12},
+\end{equation*}
+which is Eq.~\eqref{eq:prior}: the bound starts at the true prior error. For the linear signal,
+$P_{\min}=Q\big(h\sqrt{nI_{\rm max}}/2\big)$ with $Q$ the Gaussian tail, which falls with $h$, and
+\begin{equation}
+  \bar\sigma_\theta^2(n)\ \ge\ \int_0^W h\Big(1-\frac hW\Big)\,Q\Big(\frac{h\sqrt{nI_{\rm max}}}{2}\Big)\,dh ,
+  \label{eq:sm-zz-linear}
+\end{equation}
+which tends to $1/(nI_{\rm max})$ once $nI_{\rm max}W^2\gg1$, the data limit of Eq.~\eqref{eq:vantrees}. It lies within $8\%$ of the best achievable error at every $n$
+(Table~\ref{tab:sm-prior}).
+
+\paragraph{Search with a dip of finite reach.} Take the high-SNR idealization of the elimination model: a
+measurement at $d$ reports the dip, without error, if and only if the dip lies within the probe cell of width
+$\Delta d$ around $d$, and reports the baseline otherwise. Before its first detection every outcome of a run is the
+baseline, whatever $\theta$ is, so any strategy, adaptive or not, has measured at a sequence $d_1,\dots,d_n$ fixed
+in advance up to that point: each choice depends only on outcomes that are all the same. These $n$ probes cover a set
+$C_n$ of measure at most $n\Delta d$; let $U$ be the rest of the window, of measure $L\ge W-n\Delta d$. If both
+$\theta$ and $\theta+h$ lie in $U$, the data are the same under the two hypotheses and $P_{\min}=\tfrac12$. Keeping
+only these pairs and dropping $\mathcal V$, Eq.~\eqref{eq:sm-zz} gives
+\begin{equation*}
+  \bar\sigma_\theta^2(n)\ \ge\ \frac{1}{2W}\int_0^\infty h\,\big|U\cap(U-h)\big|\,dh
+  =\frac{L^2}{4W}\,\mathbb E\,|X-Y| ,
+\end{equation*}
+with $X,Y$ independent and uniform on $U$. With $F$ their distribution function,
+$\mathbb E|X-Y|=2\int F(1-F)\,dx$, and since $F$ grows by at most $dx/L$ over a step $dx$,
+$\int F(1-F)\,dx\ge L\int_0^1u(1-u)\,du=L/6$, with equality only when $U$ is an interval. Hence
+\begin{equation*}
+  \bar\sigma_\theta^2(n)\ \ge\ \frac{L^3}{12\,W}\ \ge\ \frac{(W-n\Delta d)^3}{12\,W},
+\end{equation*}
+the first term of Eq.~\eqref{eq:search-mean}. The elimination model, which probes contiguously from one edge, meets
+it: no strategy searches a window faster in this limit. A strategy that probes in a scattered order leaves $U$ in
+pieces, and its mean error at the same $n$ is larger.
+
+\paragraph{Search at any SNR.} At lower SNR a single measurement no longer decides, and the argument above no longer
+applies, since an adaptive strategy now branches on noisy outcomes. A change-of-measure argument
+\cite{garivier2019} bounds it instead. Let $P_\theta$ be the law of all the data of a run with the dip at $\theta$,
+and $P_0$ the law with no dip at all, the strategy being the same. In each measurement the outcome is Gaussian with
+variance $\sigma^2/k$ and mean shifted by the dip depth at the drive frequency,
+$s(d;\theta)=C\gamma^2/[\gamma^2+(d-\theta)^2]$. Each drive frequency $d_i$ is chosen from the past outcomes by the
+same rule under both laws, so the chain rule of the Kullback--Leibler divergence gives, for adaptive strategies too,
+\begin{equation*}
+  D_{\rm KL}(P_0\,\|\,P_\theta)=\mathbb E_0\Big[\sum_{i=1}^{n}\frac{k\,s(d_i;\theta)^2}{2\sigma^2}\Big].
+\end{equation*}
+The expectation is under $P_0$, where the choices cannot depend on $\theta$. Averaged over $\theta$ uniform on the
+window, and using $\int s(d;\theta)^2\,d\theta\le C^2\pi\gamma/2$ for every $d$,
+\begin{equation*}
+  \frac1W\int D_{\rm KL}(P_0\,\|\,P_\theta)\,d\theta\ \le\ n\bar\kappa,\qquad
+  \bar\kappa=\frac{\pi\gamma\,k\,\mathrm{SNR}^2}{4W}.
+\end{equation*}
+Now let $A_\theta$ be the event $|\hat\theta_n-\theta|\le t$, with probabilities $p_0(\theta)=P_0(A_\theta)$ and
+$p_\theta=P_\theta(A_\theta)$. Under $P_0$ the estimate does not depend on $\theta$, so the average of $p_0(\theta)$
+over the window is at most $2t/W$. By data processing and the joint convexity of the binary divergence
+$\mathrm{kl}(p,q)=p\ln\frac pq+(1-p)\ln\frac{1-p}{1-q}$, the averages $\bar p_0$ and $\bar p$ satisfy
+$\mathrm{kl}(\bar p_0,\bar p)\le n\bar\kappa$. With $\mathrm{kl}(p,q)\ge(1-p)\ln\frac{1}{1-q}-\ln2$, the fraction
+of runs whose estimate is still more than $t$ from the dip is
+\begin{equation*}
+  1-\bar p\ \ge\ \exp\!\Big(-\frac{n\bar\kappa+\ln2}{1-2t/W}\Big),
+  \qquad \bar\sigma_\theta^2(n)\ \ge\ t^2\,(1-\bar p).
+\end{equation*}
+The search therefore takes at least of order $1/\bar\kappa$ measurements, Eq.~\eqref{eq:search-cost}. The bound has
+no factor $\ln(W/\Gamma)$, and none is needed. A strategy that averages a fixed number of shots at every probe
+position must raise its detection threshold with the number of positions to keep false alarms rare, and pays about
+$\ln(W/\Delta d)$ more. A sequential test, which drops a position as soon as it looks like the baseline, does not
+\cite{malloy2014}. At high SNR $1/\bar\kappa$ falls below $W/\Delta d$, one measurement per probe position, and the
+finite-reach bound above is the one that binds.
+
+\paragraph{Restarting van Trees after detection.} Let $\tau$ be the step at which a run declares the dip found,
+decided from the run's own data and never from the true $\theta$. Given the data up to $\tau$, the posterior is the
+prior of the remaining measurements, and van Trees applied to them, then averaged over runs, gives
+$\bar\sigma_\theta^2(n)\ge\mathbb E[(J_\tau+(n-\tau)I_{\rm max})^{-1}]$ with $J_\tau$ the Fisher information of that
+posterior. After a detection the posterior is a smooth peak, shaped by the likelihood of the measurements that saw
+the dip, so $J_\tau$ is finite and close to its inverse variance. The window edges still cut it off, but where it
+holds a negligible fraction of its mass, so smoothing them changes the bound by a negligible amount. The elimination
+model idealizes the detection posterior as uniform over one step and uses its inverse variance, $12/\Delta d^2$;
+that is a model value, which by Table~\ref{tab:sm-prior} with $W$ replaced by $\Delta d$ lies within a few percent of
+the best achievable error. The bound is on the error expected given the run's history; the posterior variance of a
+single run may fluctuate slightly below it.
+
+\paragraph{Finite reach of a Lorentzian.} The finite-reach bound treats the dip as invisible beyond its probe cell.
+A Lorentzian dip at distance $\delta$ is still $C\gamma^2/(\gamma^2+\delta^2)$ deep, so one measurement of $k$ shots
+shows it at $z$ standard deviations out to $\delta\approx\gamma\sqrt{\sqrt k\,\mathrm{SNR}/z}$, a reach that grows
+with the SNR. At very high SNR a measurement thus rules out more than a line width, and $\Delta d$ in the
+finite-reach bound must be taken as this reach. The change-of-measure bound uses the Lorentzian itself and holds as
+it is.
