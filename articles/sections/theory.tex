@@ -32,12 +32,9 @@ $|m_s,m_I\rangle$, and the magnetic-dipole transitions $m_s=0\to\pm1$, which con
   \label{eq:transitions}
 \end{equation}
 where the Zeeman shift $\delta_Z$ is the distance of each transition from $D$: the field moves the two transitions
-apart, symmetrically about $D$. The hyperfine
-term splits each of them further into $2I+1$ lines, one per nuclear projection $m_I$, spaced by $|A_\parallel|$.
-Every N-V center contains one of two nitrogen isotopes: $^{14}$N ($I=1$, $|A_\parallel|=2.15$~MHz) at 99.6\%
-natural abundance, which gives a triplet, or $^{15}$N ($I=1/2$, $|A_\parallel|=3.03$~MHz) in isotopically enriched
-or implanted samples, which gives a doublet \cite{felton2009}. The hyperfine structure is therefore always present;
-whether its lines are resolved depends on the linewidth.
+apart, symmetrically about $D$. The hyperfine term splits each transition further into $2I+1$ lines, one per
+nuclear projection $m_I$, spaced by $|A_\parallel|$; we return to it below, when we reduce the spectrum to a single
+line.
 
 An ODMR measurement sets the microwave drive frequency $f$ and records the PL, normalized to its off-resonance
 level. At $f=f_\pm$ the drive is resonant with the $m_s=0\to\pm1$ transition: it transfers population from
@@ -58,17 +55,24 @@ the angular Rabi frequency $\Omega_R=2\pi\Omega$ of the drive, the steady-state 
 At weak drive the laser sets the width, at strong drive
 the microwave. The spin bath also spreads the transition frequency itself, by $\sim1/T_2^*$; this adds a Gaussian
 broadening to the Lorentzian, and it sets the width once both powers are low (\SM{sm:cw-pumping}). Whatever its
-origin, each transition gives one dip of a single effective width, taken here as a Lorentzian: the normalized PL
-expected at drive frequency $f$ is
+origin, the line has a single effective width, and we take it as a Lorentzian of half width $\gamma$ and full width
+at half maximum $\Gamma=2\gamma$. Optical and microwave broadening are not modeled separately: they enter only
+through $\Gamma$, which is inferred with the line.
+
+\emph{From the spectrum to one line.} Two conditions reduce the spectrum to the single line we model. The first
+concerns the hyperfine structure. Every N-V center contains one of two nitrogen isotopes: $^{14}$N ($I=1$,
+$|A_\parallel|=2.15$~MHz) at 99.6\% natural abundance, which splits each transition into a triplet, or $^{15}$N
+($I=1/2$, $|A_\parallel|=3.03$~MHz) in isotopically enriched or implanted samples, which splits it into a doublet
+\cite{felton2009}. The structure is always present, but the lines of a transition act as one when they merge,
+$\Gamma\gg|A_\parallel|$, or when the nuclear spin is polarized into a single $m_I$ \cite{jacques2009}. We assume
+one of the two, so each transition gives a single dip, and the normalized PL expected at drive frequency $f$ is
 \begin{equation}
   \mu(f)=1-C\,\frac{\gamma^2}{\gamma^2+(f-f_-)^2}-C\,\frac{\gamma^2}{\gamma^2+(f-f_+)^2},
   \label{eq:signal-both}
 \end{equation}
-with contrast $C$, the depth of each dip at its resonance, half width $\gamma$ of Eq.~\eqref{eq:linewidth} and full
-width at half maximum $\Gamma=2\gamma$. Optical and microwave broadening are not modeled separately: they enter only
-through the single linewidth $\Gamma$, which is inferred with the line.
+with contrast $C$, the depth of each dip at its resonance.
 
-The two dips are $f_+-f_-=2\delta_Z$ apart. We work with fields that separate them well,
+The second condition concerns the two dips, $f_+-f_-=2\delta_Z$ apart. We work with fields that separate them well,
 \begin{equation}
   \delta_Z\gg\gamma ,
   \label{eq:separated}
@@ -82,9 +86,6 @@ Eq.~\eqref{eq:signal-both} reduces to the single line
 We model only this transition, the one measured in our setup (Sec.~\ref{sec:setup}); $f_+$ is its mirror image
 about $D$. With the zero-field splitting $D$ treated as a known constant, $f_-$ carries the field,
 $D-f_-=\delta_Z=\gamma_e B_z$, and an uncertainty in $f_-$ is the same uncertainty in the Zeeman shift.
-
-Equation~\eqref{eq:signal} is a single line. It holds when the hyperfine lines merge, $\Gamma\gg|A_\parallel|$, or
-when the nuclear spin is polarized into one $m_I$ \cite{jacques2009}.
 
 \emph{Noise.} Each reading of the normalized PL is noisy. Its floor is photon shot noise: a reading that collects
 $N_{\rm ph}$ photons on average off resonance has a relative standard deviation $N_{\rm ph}^{-1/2}$, and slightly
