@@ -71,3 +71,18 @@ def test_matlab_command_loads_a_local_folder_and_skips_sweeps_on_request(tmp_pat
     assert result.exit_code == 0, result.output
     assert "Skipped 1 raw sweep file(s)" in result.output
     assert (tmp_path / "art" / "labs" / "src" / "convergence_statistics").is_dir()
+
+
+def test_fetch_mirrors_drive_so_deleted_files_disappear(monkeypatch, tmp_path):
+    """`rclone copy` kept files removed on Drive (a deleted bad run kept feeding the statistics); `sync` mirrors."""
+    import subprocess
+
+    from nvision.tools import drive_fetch
+
+    calls: list[list[str]] = []
+    monkeypatch.setattr(drive_fetch.shutil, "which", lambda _: "rclone")
+    monkeypatch.setattr(
+        drive_fetch.subprocess, "run", lambda cmd, check: calls.append(cmd) or subprocess.CompletedProcess(cmd, 0)
+    )
+    drive_fetch.fetch_drive_folder("a" * 33, tmp_path / "dest")
+    assert calls[0][1] == "sync"

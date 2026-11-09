@@ -63,37 +63,29 @@ async function renderLabSync(bar) {
 }
 
 
-// sigma(n) = 1/sqrt(J0 + I*max(n - n0, 0)): J0 = information at the prior (plateau sigma = 1/sqrt(J0)), I = information per
-// measurement (1/MHz^2) once the search is over, n0 = step at which information starts to accumulate.
+// sigma(n) = 1/sqrt(J0 + I*max(n - n0, 0)): J0 = 1/variance of the initial window (NOT fitted; a uniform window of width W has
+// variance W^2/12, so J0 = 12/W^2 in 1/MHz^2), I = information per measurement (1/MHz^2) once the search is over, n0 = step
+// at which information starts to accumulate.
+const windowJ0 = (windowMhz) => 12 / (windowMhz * windowMhz);
 const infoSigma = (n, f) => 1 / Math.sqrt(f.J0 + f.I * Math.max(n - f.n0, 0));
 
-// Fit infoSigma to a curve (steps n >= 1, sigma > 0): grid over n0, Nelder-Mead on (log J0, log I) for each, minimising
-// sum (log sigma_k - log infoSigma(n_k))^2 with every step weighted equally (a 1/n weight left the late steps off by up to 5x).
-function fitInfoCurve(steps, sigma) {
+// Fit I and n0 of infoSigma to a curve (steps n >= 1, sigma > 0) with J0 fixed: grid over n0, golden-section search on log I for
+// each, minimising sum (log sigma_k - log infoSigma(n_k))^2 with every step weighted equally.
+function fitInfoCurve(steps, sigma, J0) {
     const stride = Math.max(1, Math.ceil(steps.length / 100));  // uniform subsample keeps the equal weight per step
     const pts = steps.map((n, k) => [n, sigma[k]]).filter(([n, s], k) => n > 0 && s > 0 && k % stride === 0);
-    const last = pts[pts.length - 1][0], s0 = pts[0][1], s1 = pts[pts.length - 1][1];
+    const last = pts[pts.length - 1][0];
     let overall = null;
     for (let n0 = 0; n0 <= last / 2; n0 += Math.max(1, Math.round(last / 60))) {
-        const cost = ([lj, li]) => pts.reduce((a, [n, s]) => a + (Math.log(s) + 0.5 * Math.log(Math.exp(lj) + Math.exp(li) * Math.max(n - n0, 0))) ** 2, 0);
-        const I0 = Math.max((1 / (s1 * s1) - 1 / (s0 * s0)) / Math.max(last - n0, 1), 1e-12), lj0 = Math.log(1 / (s0 * s0));
-        let simplex = [[lj0, Math.log(I0)], [lj0 + 1, Math.log(I0)], [lj0, Math.log(I0) + 1]].map((x) => ({ x, f: cost(x) }));
-        for (let it = 0; it < 100; it++) {
-            simplex.sort((u, v) => u.f - v.f);
-            const [best, , worst] = simplex;
-            const cen = [0, 1].map((d) => (simplex[0].x[d] + simplex[1].x[d]) / 2);
-            const move = (k) => { const x = cen.map((c, d) => c + k * (worst.x[d] - c)); return { x, f: cost(x) }; };
-            const refl = move(-1);
-            if (refl.f < best.f) { const ex = move(-2); simplex[2] = ex.f < refl.f ? ex : refl; }
-            else if (refl.f < simplex[1].f) simplex[2] = refl;
-            else {
-                const con = move(0.5);
-                if (con.f < worst.f) simplex[2] = con;
-                else simplex = simplex.map((v, k) => (k === 0 ? v : { x: v.x.map((c, d) => best.x[d] + 0.5 * (c - best.x[d])) })).map((v) => ({ x: v.x, f: v.f ?? cost(v.x) }));
-            }
+        const cost = (li) => pts.reduce((acc, [n, s]) => acc + (Math.log(s) + 0.5 * Math.log(J0 + Math.exp(li) * Math.max(n - n0, 0))) ** 2, 0);
+        let lo = Math.log(J0) - 20, hi = Math.log(J0) + 10;
+        const g = (Math.sqrt(5) - 1) / 2;
+        for (let it = 0; it < 80; it++) {
+            const m1 = hi - g * (hi - lo), m2 = lo + g * (hi - lo);
+            if (cost(m1) < cost(m2)) hi = m2; else lo = m1;
         }
-        simplex.sort((u, v) => u.f - v.f);
-        if (overall === null || simplex[0].f < overall.f) overall = { f: simplex[0].f, J0: Math.exp(simplex[0].x[0]), I: Math.exp(simplex[0].x[1]), n0 };
+        const li = (lo + hi) / 2, f = cost(li);
+        if (overall === null || f < overall.f) overall = { f, J0, I: Math.exp(li), n0 };
     }
     return overall;
 }
@@ -163,41 +155,59 @@ async function renderLabStudy(container, name) {
         <p style="color:#475569; font-size:0.85em;">No ground truth exists for real data: error is measured against the reference, so the across-run std also contains any real drift of the resonance between runs. Read "Spread ÷ claimed σ" as an upper bound on miscalibration: the runs disagree with each other by that many times the σ each one claims.</p>
         ${focusTable}
         <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(420px, 1fr)); gap:1em;">
-            <div><h3 style="margin:0 0 0.3em; font-size:1em;">Claimed σ vs across-run spread <span tabindex="0" class="help-icon-visible" title="Solid: median self-reported posterior std (band: quartiles). Dashed: how far the runs' posterior means scatter from each other at that step (std across runs; not an error against a known truth). Dashed above solid means the runs disagree more than they claim. Both include only runs still measuring at that step.">?</span> <label style="font-weight:normal; font-size:0.85em; margin-left:0.8em;"><input type="checkbox" id="lab-show-spread" checked> show spread (dashed)</label> <label style="font-weight:normal; font-size:0.85em; margin-left:0.8em;"><input type="checkbox" id="lab-show-guide" checked> fit σ = 1/√(J0 + I·(n − n0)) (dotted)</label></h3><div id="lab-sigma" style="height:420px"></div></div>
+            <div>${labPlotHead('Claimed σ vs across-run spread', "Solid: median self-reported posterior std (band: quartiles). Dashed: how far the runs' posterior means scatter from each other at that step (std across runs; not an error against a known truth). Dashed above solid means the runs disagree more than they claim. Both include only runs still measuring at that step.", 'lab-spread')}<div id="lab-spread" style="height:420px"></div></div>
+            <div>${labPlotHead('Claimed σ vs fit', 'Solid: median self-reported posterior std. Dotted: whole-curve fit σ = 1/√(J0 + I·(n − n0)) with J0 = 12/W² fixed from the initial window of width W (not fitted), I the information per measurement and n0 the step where information starts accruing.', 'lab-fit')}<div id="lab-fit" style="height:420px"></div></div>
             <div><h3 style="margin:0 0 0.3em; font-size:1em;">Steps to convergence <span tabindex="0" class="help-icon-visible" title="Median number of measurements until the run's own stop rule fired, with the interquartile range, per drive_freq window.">?</span></h3><div id="lab-steps" style="height:420px"></div></div>
         </div>`;
     await ensurePlotly();
-    const traces = [];
-    data.windows.forEach((r, i) => {
+    // Every legend entry gets its own colour (window x series), so no two lines share a hue.
+    const palette = ['#2563eb', '#dc2626', '#059669', '#d97706', '#7c3aed', '#db2777', '#0891b2', '#65a30d', '#475569'];
+    let ci = 0;
+    const next = () => palette[ci++ % palette.length];
+    const spreadTraces = [], fitTraces = [];
+    data.windows.forEach((r) => {
         const c = data.curves[String(r.window_mhz)];
-        const color = colors[i % colors.length];
         const name = `${r.window_mhz} MHz`;
-        traces.push({ x: c.step, y: c.claimed_q75, mode: 'lines', line: { width: 0 }, hoverinfo: 'skip', showlegend: false, legendgroup: name });
-        traces.push({ x: c.step, y: c.claimed_q25, mode: 'lines', line: { width: 0 }, fill: 'tonexty', fillcolor: color + '22', hoverinfo: 'skip', showlegend: false, legendgroup: name });
-        // Whole-curve fit of the claimed median to sigma = 1/sqrt(J0 + I*max(n - n0, 0)) (see infoSigma): J0 prior information, I = information
+        const claimedColor = next();
+        const spreadColor = claimedColor, fitColor = claimedColor; // one colour per window; solid = claimed, dashed = spread, dotted = fit
+        const band = (group) => [
+            { x: c.step, y: c.claimed_q75, mode: 'lines', line: { width: 0 }, hoverinfo: 'skip', showlegend: false, legendgroup: group },
+            { x: c.step, y: c.claimed_q25, mode: 'lines', line: { width: 0 }, fill: 'tonexty', fillcolor: claimedColor + '26', hoverinfo: 'skip', showlegend: false, legendgroup: group },
+        ];
+        // Whole-curve fit of the claimed median to sigma = 1/sqrt(J0 + I*max(n - n0, 0)) (see infoSigma): J0 = 12/W^2 fixed from the initial window (not fitted), I = information
         // per measurement (1/MHz^2). A scale a in a/sqrt(...) would be degenerate with J0 and I, so a = 1. Least squares in
         // log sigma, every step weighted equally so the end of the curve is matched.
-        const fit = fitInfoCurve(c.step, c.claimed_median);
-        traces.push({ x: c.step, y: c.claimed_median, mode: 'lines', line: { color, width: 2 }, name: `${name} claimed (I=${fit.I.toPrecision(2)}/meas, J0=${fit.J0.toPrecision(2)}, n0=${fit.n0})`, legendgroup: name });
-        traces.push({ x: c.step, y: c.step.map((n) => infoSigma(n, fit)), mode: 'lines', line: { color, width: 3, dash: 'dot' }, hoverinfo: 'skip', showlegend: false, legendgroup: name, meta: 'guide' });
-        traces.push({ x: c.actual_step, y: c.across_run_std, mode: 'lines', line: { color, width: 2, dash: 'dash' }, name: `${name} spread`, legendgroup: name, meta: 'spread' });
+        const fit = fitInfoCurve(c.step, c.claimed_median, windowJ0(r.window_mhz));
+        const claimed = (group) => ({ x: c.step, y: c.claimed_median, mode: 'lines', line: { color: claimedColor, width: 2.5 }, name: `${name} claimed σ`, legendgroup: group });
+        spreadTraces.push(...band(name + 's'), claimed(name + 's'),
+            { x: c.actual_step, y: c.across_run_std, mode: 'lines', line: { color: spreadColor, width: 2.5, dash: 'dash' }, name: `${name} across-run spread`, legendgroup: name + 's' });
+        fitTraces.push(...band(name + 'f'), claimed(name + 'f'),
+            { x: c.step, y: c.step.map((n) => infoSigma(n, fit)), mode: 'lines', line: { color: fitColor, width: 3, dash: 'dot' }, name: `${name} fit (I=${fit.I.toPrecision(2)}/meas, n0=${fit.n0})`, legendgroup: name + 'f' });
     });
-    Plotly.newPlot('lab-sigma', traces, {
-        margin: { t: 10, r: 10, b: 50, l: 60 }, hovermode: 'x unified',
-        xaxis: { title: 'measurement step', type: 'log', gridcolor: '#eeeeee' },
-        yaxis: { title: 'σ (MHz)', type: 'log', gridcolor: '#eeeeee' },
-        legend: { orientation: 'h', y: -0.25 },
-    }, { responsive: true });
-    // Hiding the dashed traces lets the y axis autorange onto the claimed curves, so their late -1/2 slope is readable.
-    document.getElementById('lab-show-spread').addEventListener('change', (e) => {
-        const idx = traces.map((t, k) => (t.meta === 'spread' ? k : -1)).filter((k) => k >= 0);
-        Plotly.restyle('lab-sigma', { visible: e.target.checked }, idx);
-        Plotly.relayout('lab-sigma', { 'yaxis.autorange': true });
-    });
-    document.getElementById('lab-show-guide').addEventListener('change', (e) => {
-        const idx = traces.map((t, k) => (t.meta === 'guide' ? k : -1)).filter((k) => k >= 0);
-        Plotly.restyle('lab-sigma', { visible: e.target.checked }, idx);
-    });
+    // The legend sits under the axis title and needs room for every entry: size the bottom margin and the plot height from the
+    // number of legend rows (spread: two entries per row, fit: one long entry per row), so it never overlaps the plot or the axis title.
+    const sigmaPlot = (id, traces, perRow, filename, title) => {
+        const rows = Math.ceil(traces.filter((t) => t.showlegend !== false).length / perRow);
+        const bottom = 70 + 24 * rows, plotH = 330;
+        const el = document.getElementById(id);
+        el.dataset.rows = rows;
+        el.style.height = `${plotH + bottom + 10}px`;
+        Plotly.newPlot(id, traces, {
+            margin: { t: 10, r: 10, b: bottom, l: 60 }, hovermode: 'x unified', font: { size: 13 },
+            xaxis: { title: { text: 'measurement step', standoff: 8 }, type: 'log', gridcolor: '#eeeeee' },
+            yaxis: { title: 'σ (MHz)', type: 'log', gridcolor: '#eeeeee' },
+            legend: { orientation: 'h', yanchor: 'top', y: -(60 / plotH) },
+        }, {
+            responsive: true, displaylogo: false,
+            // The built-in camera button would save the on-screen plot as is: replace it with the same pretty export as the buttons above.
+            modeBarButtonsToRemove: ['toImage'],
+            modeBarButtonsToAdd: [{ name: 'Download figure (PNG)', icon: Plotly.Icons.camera, click: () => labExport(id, filename, title, 'png') }],
+        });
+    };
+    sigmaPlot('lab-spread', spreadTraces, 2, 'claimed-sigma-vs-spread', 'Claimed σ vs across-run spread');
+    sigmaPlot('lab-fit', fitTraces, 1, 'claimed-sigma-vs-fit', 'Claimed σ vs fit');
+    wireLabDownloads('lab-spread', 'claimed-sigma-vs-spread', 'Claimed σ vs across-run spread');
+    wireLabDownloads('lab-fit', 'claimed-sigma-vs-fit', 'Claimed σ vs fit');
     const w = data.windows;
     Plotly.newPlot('lab-steps', [{
         x: w.map((r) => `${r.window_mhz} MHz`), y: w.map((r) => r.steps_median), type: 'bar', marker: { color: colors[0] },
@@ -206,6 +216,38 @@ async function renderLabStudy(container, name) {
         margin: { t: 10, r: 10, b: 50, l: 60 },
         xaxis: { title: 'drive_freq window' }, yaxis: { title: 'measurements to converge', gridcolor: '#eeeeee' },
     }, { responsive: true });
+}
+
+// Heading + help icon + PNG/SVG download buttons for one lab plot (wired by wireLabDownloads).
+function labPlotHead(title, help, id) {
+    const btn = 'font-size:0.8em; padding:0.15em 0.7em; margin-left:0.4em; border:1px solid #cbd5e1; border-radius:999px; background:#fff; color:#334155; cursor:pointer;';
+    return `<h3 style="margin:0 0 0.3em; font-size:1em; display:flex; align-items:center; gap:0.3em;">${title} <span tabindex="0" class="help-icon-visible" title="${help.replace(/"/g, '&quot;')}">?</span>
+        <span style="margin-left:auto; font-weight:normal;"><button type="button" data-dl="${id}" data-fmt="png" style="${btn}">Download PNG</button><button type="button" data-dl="${id}" data-fmt="svg" style="${btn}">SVG</button></span></h3>`;
+}
+
+// Downloads the plot as a clean, titled, white-background figure. The export is compact (plot area about 5:4, rendered at 3x) with bigger
+// fonts, so text is large relative to the graph; margins and legend position are rescaled for the bigger text, then restored.
+async function labExport(id, filename, title, fmt) {
+    {
+        {
+            const gd = document.getElementById(id);
+            const k = 20 / gd.layout.font.size;  // text scale-up for the export
+            const rows = Number(gd.dataset.rows), plotW = 800, plotH = 640, bottom = Math.round(k * (70 + 24 * rows)), top = 70;
+            const orig = { 'font.size': gd.layout.font.size, 'margin.t': gd.layout.margin.t, 'margin.b': gd.layout.margin.b, 'margin.l': gd.layout.margin.l, 'legend.y': gd.layout.legend.y, 'title.text': '', paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)' };
+            await Plotly.relayout(gd, { 'font.size': 20, 'title.text': title, 'title.font.size': 26, 'title.x': 0.02, 'margin.t': top, 'margin.b': bottom, 'margin.l': 80, 'legend.y': -(k * 60 / plotH), paper_bgcolor: '#ffffff', plot_bgcolor: '#ffffff' });
+            try {
+                await Plotly.downloadImage(gd, { format: fmt, filename, width: 80 + plotW + 10, height: top + plotH + bottom, scale: 3 });
+            } finally {
+                await Plotly.relayout(gd, orig);
+            }
+        }
+    }
+}
+
+function wireLabDownloads(id, filename, title) {
+    document.querySelectorAll(`button[data-dl="${id}"]`).forEach((b) => {
+        b.onclick = () => labExport(id, filename, title, b.dataset.fmt);
+    });
 }
 
 // One Plotly graph of claimed σ (MHz) against measurement step for the files picked in #lab-sigma-files, for the

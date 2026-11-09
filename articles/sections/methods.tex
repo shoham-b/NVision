@@ -74,12 +74,12 @@ unmeasured, SBED instead measures the middle of the widest unmeasured gap, a fal
 \label{sec:protocol}
 
 \paragraph{What the claimed uncertainty is.} The particle filter reports $\hat\sigma_N$, Eq.~\eqref{eq:sigma-hat}: a moment of the
-posterior, defined at every $N$. Its run average is compared with the bound from the first measurement on
-(Sec.~\ref{sec:budget}). What fails before the posterior is Gaussian
+posterior, defined at every $N$. During the search its average over runs is compared with the search bound, and
+after a run's own detection the run is compared with van Trees restarted there (Sec.~\ref{sec:global}). What fails before the posterior is Gaussian
 (Sec.~\ref{sec:eig}) is the usual reading of $\hat\sigma_N$: with a uniform window or several live
 candidates it is not a 68\% interval, and the posterior entropy is below $\tfrac12\ln(2\pi e\,\hat\sigma_N^2)$, so
 information gains, per-step gains as variance ratios, and coverage at Gaussian quantiles are only meaningful in the
-data regime. We therefore (i) compare $\hat\sigma_N$ with the bound as a run average at all $N$, (ii) test coverage,
+data regime. We therefore (i) compare $\hat\sigma_N$ with the search bound only as an average over runs, (ii) test coverage,
 the true error against $\hat\sigma_N$, only once the posterior is Gaussian, or with quantiles of the particle
 distribution itself, and (iii) keep this separate from miscalibration of the particle filter, which makes
 $\hat\sigma_N$ too small at any $N$.
@@ -94,11 +94,12 @@ use cases are summarized by the median over them.
 \paragraph{Metrics.} The accuracy at the end of a run is not a quality metric: every run stops once its claimed
 uncertainty is below the ceiling, so its final error mostly reflects the ceiling. We report instead whether the
 claimed uncertainty is honest, through its coverage, the share of runs whose true error lies within $\hat\sigma_N$
-and within $2\hat\sigma_N$; how close each strategy comes to the bound of Eq.~\eqref{eq:vantrees}, through the ratio
-of the bound to the mean squared true error at each $N$; and the cost, the number of measurements after which the
-true error stays below a target. Each run is also read against the bound through its information rate, the growth of
-$\hat\sigma_N^{-2}$ per measurement in units of $I_{\rm max}$, Eq.~\eqref{eq:istar}; a rate above 1 means the claimed
-uncertainty fell faster than the data allow. Measurements to stop are compared only between strategies whose claimed
+and within $2\hat\sigma_N$; how close each strategy comes to the bounds of Sec.~\ref{sec:global}, through the ratio of
+the search bound, the first term of Eq.~\eqref{eq:search-mean}, to the mean squared true error over runs during the
+search, and through each run's gap to its restarted van Trees curve after its detection; and the cost, the number of
+measurements after which the true error stays below a target. After its detection each run is also read through its
+information rate, the growth of $\hat\sigma_N^{-2}$ per measurement in units of $I_{\rm max}$, Eq.~\eqref{eq:istar};
+a rate above 1 means the claimed uncertainty fell faster than the data allow. Measurements to stop are compared only between strategies whose claimed
 uncertainty is equally honest.
 
 \subsection{Experimental setup}

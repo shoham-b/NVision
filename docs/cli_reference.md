@@ -108,7 +108,7 @@ Add the lab's MATLAB data and sync it now. `SOURCE` is a Google Drive folder lin
 single `.mat` file. It is remembered in `<dir>/labs/sources.json`. `nv serve` never syncs by itself; to pick up
 later changes run `nv matlab --dir <dir>` with no `SOURCE`, or press **Sync now** on any lab page (it runs that in a
 subprocess, log in `<dir>/labs/sync.log`). A sync downloads only the files missing or changed on the Drive
-(`rclone copy`) and processes only new or changed files: a file's kind is remembered by size and mtime, and a raw sweep is redone only when its file
+(`rclone sync`: a file deleted on Drive is deleted from the local mirror too) and processes only new or changed files: a file's kind is remembered by size and mtime, and a raw sweep is redone only when its file
 changes, when the processing version (`PROCESSING_VERSION` in `nvision/tools/lab_sources.py`) is bumped, or when it
 failed last time. Failures (an expired rclone login, an unreadable file, a sweep that crashed) are listed on the
 lab page.

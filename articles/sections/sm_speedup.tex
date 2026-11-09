@@ -9,10 +9,10 @@ the main text follow, and the course of the sensitivity over a run.
 
 \paragraph{Sweep.} Where a sweep measures does not depend on what it has learned, so its expected information grows
 at the constant rate $I_{\rm sweep}$ of Eq.~\eqref{eq:sweep-info} from its first measurement, and the van Trees bound
-for the sweep is $\sigma_\theta\approx(\sigma_0^{-2}+nI_{\rm sweep})^{-1/2}$. This has the same $n^{-1/2}$ form as the refine
+for the sweep is $\sigma_\theta\approx\big((\sigma_0^{\rm global})^{-2}+nI_{\rm sweep}\big)^{-1/2}$. This has the same $n^{-1/2}$ form as the refine
 regime of an adaptive strategy; the two differ in the rate, $I_{\rm sweep}$ against $I_{\rm max}$. A single sweep
 reaches this bound only once its posterior has one peak. Until the scan has passed over the dip it learns only that
-the dip is not where it has looked, so its error, like that of an adaptive run, stays near $\sigma_0$ and then drops
+the dip is not where it has looked, so its error, like that of an adaptive run, stays near $\sigma_0^{\rm global}$ and then drops
 when the dip is resolved, after about one pass of the window, or several at low SNR. What the sweep lacks is the
 phase after that: an adaptive strategy moves its measurements onto the slope, so its rate rises from about
 $I_{\rm sweep}$ to $I_{\rm max}$, while the sweep keeps spending a fraction of order $\Gamma/W$ of its measurements on
@@ -25,7 +25,7 @@ $I_{\rm max}$ per measurement. Let $\sigma_{\rm tgt}$ (Hz) be the target precisi
 which a run is considered done. The number of measurements to reach it is
 \begin{equation}
   \begin{aligned}
-  N_{\rm sweep}(\sigma_{\rm tgt})&=\frac{\sigma_{\rm tgt}^{-2}-\sigma_0^{-2}}{I_{\rm sweep}},\\
+  N_{\rm sweep}(\sigma_{\rm tgt})&=\frac{\sigma_{\rm tgt}^{-2}-(\sigma_0^{\rm global})^{-2}}{I_{\rm sweep}},\\
   N_{\rm ad}(\sigma_{\rm tgt})&=n_d+\frac{\sigma_{\rm tgt}^{-2}-12/\Delta d^2}{I_{\rm max}},
   \end{aligned}
   \label{eq:n-to-target}
@@ -52,7 +52,7 @@ through the window.
 
 \paragraph{Sensitivity as a function of time.} Eq.~\eqref{eq:sensitivity} is a limit. Read off a run of length $T$,
 the product $\eta(T)=\sigma_B(T)\sqrt T$ also carries the search, and its expected course follows from the error
-curve of Sec.~\ref{sec:budget} with $n=T/t_m$. During the search the error barely falls, Eq.~\eqref{eq:elimination},
+curve of Sec.~\ref{sec:global} with $n=T/t_m$. During the search the error barely falls, Eq.~\eqref{eq:elimination},
 so the product grows,
 \begin{equation*}
   \eta(T)=\frac{1}{\gamma_e}\,\frac{W-(T/t_m)\Delta d}{\sqrt{12}}\,\sqrt T\;\propto\;\sqrt T,\qquad T<n_d t_m .
@@ -69,9 +69,10 @@ excess falls as $1/T$ (Fig.~\ref{fig:sensitivity-time}). A run therefore reports
 $\epsilon$ of $\eta$ only once $T\gtrsim n_e t_m/2\epsilon$, i.e.\ after about $50\,n_e$ measurements for 1\%. For any
 strategy described by $(n_0,q)$, Eq.~\eqref{eq:strategy-numbers} gives the same form,
 $\eta(T)\approx(\eta/\sqrt q)\,(1-n_0t_m/T)^{-1/2}$: $q$ sets the floor and $n_0$ how slowly it is reached. The
-unbiased Cram\'er--Rao bound $(nI_{\rm max})^{-1/2}$ is the constant $\eta$ at all $T$; the van Trees bound, which
-includes the prior, lies below it and rises to it as $\sqrt T$ while $T\lesssim n_c t_m$, but no strategy can follow it
-there, since $J_0$ belongs to the window and not to any measurement.
+unbiased Cram\'er--Rao bound $(nI_{\rm max})^{-1/2}$ is the constant $\eta$ at all $T$. In tracking, the van Trees
+bound, which includes the prior, lies below it and rises to it as $\sqrt T$ while $T\lesssim n_c t_m$. In a global
+search no strategy follows such a curve, since before the dip is found its measurements carry no Fisher information;
+the search bound of Sec.~\ref{sec:global} holds there instead, and $\eta(T)$ follows the course above.
 
 \begin{figure}[t]
 \centering
