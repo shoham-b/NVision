@@ -58,12 +58,12 @@ origin, the line has a single effective width, and we take it as a Lorentzian of
 at half maximum $\Gamma=2\gamma$. Optical and microwave broadening are not modeled separately: they enter only
 through $\Gamma$, which is inferred with the line.
 
-\emph{From the spectrum to one line.} Every N-V center contains one of two nitrogen isotopes: $^{14}$N ($I=1$,
+\emph{Signal.} Every N-V center contains one of two nitrogen isotopes: $^{14}$N ($I=1$,
 $|A_\parallel|=2.15$~MHz) at 99.6\% natural abundance, which splits each transition into a triplet, or $^{15}$N
 ($I=1/2$, $|A_\parallel|=3.03$~MHz) in isotopically enriched or implanted samples, which splits it into a doublet
-\cite{felton2009}. The structure is always present, but the lines of a transition act as one when they merge,
-$\Gamma\gg|A_\parallel|$, or when the nuclear spin is polarized into a single $m_I$ \cite{jacques2009}. We assume
-one of the two, so each transition gives a single dip, and the normalized PL expected at drive frequency $f$ is
+\cite{felton2009}. The structure is always present, but the hyperfine lines of a transition merge into one dip when
+$\Gamma\gg|A_\parallel|$, and only one of them remains when the nuclear spin is polarized into a single $m_I$
+\cite{jacques2009}. We assume one of the two, so each transition gives a single dip, and the normalized PL expected at drive frequency $f$ is
 \begin{equation}
   \mu(f)=1-C\,\frac{\gamma^2}{\gamma^2+(f-f_-)^2}-C\,\frac{\gamma^2}{\gamma^2+(f-f_+)^2},
   \label{eq:signal-both}
@@ -71,7 +71,7 @@ one of the two, so each transition gives a single dip, and the normalized PL exp
 with contrast $C$, the depth of each dip at its resonance.
 
 For $\delta_Z\gg\gamma$ the tail of the $f_+$ dip is negligible near $f_-$, the drive there couples only $m_s=0$ and
-$m_s=-1$, and Eq.~\eqref{eq:signal-both} reduces to the single line
+$m_s=-1$, and Eq.~\eqref{eq:signal-both} reduces to the $f_-$ dip alone,
 \begin{equation}
   \mu(f)=1-C\,\frac{\gamma^2}{\gamma^2+(f-f_-)^2}.
   \label{eq:signal}
