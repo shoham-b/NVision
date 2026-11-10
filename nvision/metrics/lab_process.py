@@ -8,12 +8,15 @@ stop would have fired. Output matches what :func:`nvision.metrics.lab_study.lab_
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import numpy as np
 import polars as pl
 import scipy.io as sio
 from scipy.io.matlab import MatReadError
+
+from nvision.metrics.lab_search_fit import fit_search_curve
 
 _Z95 = 1.959963984540054
 
@@ -118,6 +121,10 @@ def write_statistics(runs: list[dict], out_dir: Path) -> Path:
                 "q75PosteriorStdMHz": np.quantile(stds, 0.75, axis=0),
             }
         ).write_csv(out_dir / f"window{window}MHz_self_reported_std_vs_step.csv")
+        # Search-phase model fitted to the median claimed sigma, once here so serving only reads it.
+        fit = fit_search_curve(np.median(stds, axis=0), window_mhz=float(window))
+        fit["model"] = fit["model"].tolist()
+        (out_dir / f"window{window}MHz_search_fit.json").write_text(json.dumps(fit))
         pl.DataFrame(
             {
                 "measurementStep": steps,

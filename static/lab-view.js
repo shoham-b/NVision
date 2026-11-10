@@ -156,7 +156,7 @@ async function renderLabStudy(container, name) {
         ${focusTable}
         <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(420px, 1fr)); gap:1em;">
             <div>${labPlotHead('Claimed σ vs across-run spread', "Solid: median self-reported posterior std (band: quartiles). Dashed: how far the runs' posterior means scatter from each other at that step (std across runs; not an error against a known truth). Dashed above solid means the runs disagree more than they claim. Both include only runs still measuring at that step.", 'lab-spread')}<div id="lab-spread" style="height:420px"></div></div>
-            <div>${labPlotHead('Claimed σ vs fit', 'Solid: median self-reported posterior std. Dotted: whole-curve fit σ = 1/√(J0 + I·(n − n0)) with J0 = 12/W² fixed from the initial window of width W (not fitted), I the information per measurement and n0 the step where information starts accruing.', 'lab-fit')}<div id="lab-fit" style="height:420px"></div></div>
+            <div>${labPlotHead('Claimed σ vs fit', 'Solid: median self-reported posterior std. Dotted: the article\'s search-phase model (elimination search over the window W, then information I per measurement), fitted to the median at import with W fixed and the reach Δd and I free. Folders imported before the fit existed show the older fit σ = 1/√(J0 + I·(n − n0)) instead.', 'lab-fit')}<div id="lab-fit" style="height:420px"></div></div>
             <div><h3 style="margin:0 0 0.3em; font-size:1em;">Steps to convergence <span tabindex="0" class="help-icon-visible" title="Median number of measurements until the run's own stop rule fired, with the interquartile range, per drive_freq window.">?</span></h3><div id="lab-steps" style="height:420px"></div></div>
         </div>`;
     await ensurePlotly();
@@ -177,12 +177,16 @@ async function renderLabStudy(container, name) {
         // Whole-curve fit of the claimed median to sigma = 1/sqrt(J0 + I*max(n - n0, 0)) (see infoSigma): J0 = 12/W^2 fixed from the initial window (not fitted), I = information
         // per measurement (1/MHz^2). A scale a in a/sqrt(...) would be degenerate with J0 and I, so a = 1. Least squares in
         // log sigma, every step weighted equally so the end of the curve is matched.
-        const fit = fitInfoCurve(c.step, c.claimed_median, windowJ0(r.window_mhz));
+        // Folders imported with `nv matlab` carry the article's search-phase model fitted at import (c.search_fit); older ones keep this fit.
+        const sf = c.search_fit;
+        const fit = sf ? null : fitInfoCurve(c.step, c.claimed_median, windowJ0(r.window_mhz));
         const claimed = (group) => ({ x: c.step, y: c.claimed_median, mode: 'lines', line: { color: claimedColor, width: 2.5 }, name: `${name} claimed σ`, legendgroup: group });
         spreadTraces.push(...band(name + 's'), claimed(name + 's'),
             { x: c.actual_step, y: c.across_run_std, mode: 'lines', line: { color: spreadColor, width: 2.5, dash: 'dash' }, name: `${name} across-run spread`, legendgroup: name + 's' });
         fitTraces.push(...band(name + 'f'), claimed(name + 'f'),
-            { x: c.step, y: c.step.map((n) => infoSigma(n, fit)), mode: 'lines', line: { color: fitColor, width: 3, dash: 'dot' }, name: `${name} fit (I=${fit.I.toPrecision(2)}/meas, n0=${fit.n0})`, legendgroup: name + 'f' });
+            sf
+                ? { x: c.step, y: sf.model, mode: 'lines', line: { color: fitColor, width: 3, dash: 'dot' }, name: `${name} search model (Δd=${sf.delta_d_mhz.toPrecision(2)} MHz, I=${sf.i_max_per_mhz2.toPrecision(2)}/MHz², rms ln ${sf.rms_log.toPrecision(2)})`, legendgroup: name + 'f' }
+                : { x: c.step, y: c.step.map((n) => infoSigma(n, fit)), mode: 'lines', line: { color: fitColor, width: 3, dash: 'dot' }, name: `${name} fit (I=${fit.I.toPrecision(2)}/meas, n0=${fit.n0})`, legendgroup: name + 'f' });
     });
     // The legend sits under the axis title and needs room for every entry: size the bottom margin and the plot height from the
     // number of legend rows (spread: two entries per row, fit: one long entry per row), so it never overlaps the plot or the axis title.

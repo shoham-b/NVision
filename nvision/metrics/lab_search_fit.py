@@ -35,18 +35,19 @@ def search_model_sigma(steps: np.ndarray, window: float, delta_d: float, i_max: 
     return np.sqrt(search + found)
 
 
-def fit_search_curve(sigma: np.ndarray) -> dict:
+def fit_search_curve(sigma: np.ndarray, window_mhz: float | None = None) -> dict:
     """Fit the model to a claimed-sigma history, least squares on log sigma.
 
-    *sigma*: shape (n_steps,), MHz, claimed sigma after step 1..n_steps, all positive. The window is the prior spread
-    of Eq. ``prior``, ``W = sqrt(12) * sigma[0]``. Returns ``window_mhz``, ``delta_d_mhz``, ``i_max_per_mhz2``,
+    *sigma*: shape (n_steps,), MHz, claimed sigma after step 1..n_steps, all positive. *window_mhz*: the search
+    window ``W`` when known (the drive window of a lab run); otherwise the prior spread of Eq. ``prior``,
+    ``W = sqrt(12) * sigma[0]``. Returns ``window_mhz``, ``delta_d_mhz``, ``i_max_per_mhz2``,
     ``rms_log`` (rms of ``ln(model/data)``) and ``model``, shape (n_steps,), MHz. Raises if the fit fails.
     """
     sigma = np.asarray(sigma, dtype=float)
     if sigma.ndim != 1 or sigma.size < 3 or not np.all(sigma > 0):
         raise ValueError("sigma must be a positive 1-D history of at least 3 steps")
     steps = np.arange(1, sigma.size + 1, dtype=float)
-    window = float(np.sqrt(12.0) * sigma[0])
+    window = float(np.sqrt(12.0) * sigma[0]) if window_mhz is None else float(window_mhz)
     log_data = np.log(sigma)
 
     def residual(p: np.ndarray) -> np.ndarray:
@@ -55,14 +56,15 @@ def fit_search_curve(sigma: np.ndarray) -> dict:
     # Late-time sigma ~ 1/sqrt(n i_max) fixes the i_max start; the reach starts at a tenth of the window.
     i0 = 1.0 / (sigma[-1] ** 2 * steps[-1])
     best = None
-    for dd0 in (0.5, 0.1, 0.02):
-        res = least_squares(
-            residual,
-            x0=np.log([dd0 * window, i0]),
-            bounds=(np.log([window / 1000.0, 1e-12]), np.log([window, 1e12])),
-        )
-        if res.success and (best is None or res.cost < best.cost):
-            best = res
+    for dd0 in (0.5, 0.2, 0.1, 0.05, 0.02, 0.01):
+        for i_scale in (0.3, 1.0, 3.0):
+            res = least_squares(
+                residual,
+                x0=np.log([dd0 * window, i0 * i_scale]),
+                bounds=(np.log([window / 1000.0, 1e-12]), np.log([window, 1e12])),
+            )
+            if res.success and (best is None or res.cost < best.cost):
+                best = res
     if best is None:
         raise RuntimeError("search-phase fit did not converge")
     delta_d, i_max = float(np.exp(best.x[0])), float(np.exp(best.x[1]))
