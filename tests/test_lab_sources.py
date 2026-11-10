@@ -154,6 +154,16 @@ def test_sigma_curves_in_mhz_with_reference_lines_and_old_records_none():
         **_run(0.5),
         "sigma_history": hist,
         "lab_curve_fit": {"sigmas": {"zeeman_shift": 3e4, "zero_field_freq": 0.0}, "at_bound": []},
+        "search_fit": {
+            "zeeman_shift": {
+                "window_mhz": 13.8,
+                "delta_d_mhz": 1.0,
+                "i_max_per_mhz2": 5.0,
+                "rms_log": 0.1,
+                "model": [4, 2, 1],
+            },
+            "zero_field_freq": None,
+        },
     }
     held = {**_run(0.5), "sigma_history": hist}
     held["holdout"] = {**held["holdout"], "ref_zero_field_freq_sigma": 1e4, "ref_zero_field_freq_at_bound": 1}
@@ -162,8 +172,14 @@ def test_sigma_curves_in_mhz_with_reference_lines_and_old_records_none():
     curves = payload_of([rec])["groups"][0]["rows"][0]["sigma_curves"]
     assert curves["steps"] == [1, 2, 3]
     assert curves["all_zeeman_shift"] == pytest.approx([4.0, 2.0, 1.0])
-    assert len(curves["searchfit_zeeman_shift"]) == 3
-    assert curves["searchfit_zeeman_shift_params"]["window_mhz"] == pytest.approx(12**0.5 * 4.0)
+    assert curves["searchfit_zeeman_shift"] == [4, 2, 1]
+    assert curves["searchfit_zeeman_shift_params"] == {
+        "window_mhz": 13.8,
+        "delta_d_mhz": 1.0,
+        "i_max_per_mhz2": 5.0,
+        "rms_log": 0.1,
+    }
+    assert curves["searchfit_zero_field_freq"] is None
     assert curves["ref_zeeman_shift"] == pytest.approx(0.02)
     assert curves["lab_zeeman_shift"] == pytest.approx(0.03)
     assert curves["ref_zero_field_freq"] is None  # reference fit sat on a bound

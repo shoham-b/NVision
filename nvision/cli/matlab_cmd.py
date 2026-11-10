@@ -21,6 +21,7 @@ import polars as pl
 import typer
 
 from nvision.cli.app_instance import app
+from nvision.metrics.lab_search_fit import fit_search_curve
 from nvision.models.locator import Locator
 from nvision.tools.paths import ARTIFACTS_ROOT
 from nvision.tools.utils import NVISION_RNG_SEED
@@ -701,6 +702,17 @@ def _matlab_run_one(
         name: [float(snap.belief.uncertainty()[name]) for snap in run_result.snapshots]
         for name in ("zeeman_shift", "zero_field_freq")
     }
+    # Fit of the article's search-phase error model to that history (MHz), done here once so serving only reads it.
+    # A fixed parameter reports sigma 0 throughout: nothing to fit.
+    record["search_fit"] = {}
+    for name, hist_hz in record["sigma_history"].items():
+        hist_mhz = np.asarray(hist_hz, dtype=float) / 1e6
+        if np.all(hist_mhz > 0):
+            fit = fit_search_curve(hist_mhz)
+            fit["model"] = fit["model"].tolist()
+            record["search_fit"][name] = fit
+        else:
+            record["search_fit"][name] = None
 
     if not no_ui:
         gen_name = f"MATLAB:{run_name}"
