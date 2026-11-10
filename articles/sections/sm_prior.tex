@@ -112,6 +112,14 @@ of runs whose estimate is still more than $t$ from the dip is
   1-\bar p\ \ge\ \exp\!\Big(-\frac{n\bar\kappa+\ln2}{1-2t/W}\Big),
   \qquad \bar\sigma_\theta^2(n)\ \ge\ t^2\,(1-\bar p).
 \end{equation*}
+This holds for every $0<t<W/2$. With $a=1+\ln2+n\bar\kappa$, the choice $t=W/2a$ gives
+$1/(1-2t/W)=a/(a-1)$, so the exponent is $-a$ and
+\begin{equation*}
+  \bar\sigma_\theta^2(n)\ \ge\ \frac{W^2}{4a^2}\,e^{-a}=\frac{W^2}{8e}\,\frac{e^{-n\bar\kappa}}{(1+\ln2+n\bar\kappa)^2},
+\end{equation*}
+which is Eq.~\eqref{eq:search-bound}. It keeps the rate $e^{-n\bar\kappa}$ and holds at every $n$. Computed
+numerically, it lies within a factor $1.03$ of the bound maximized over $t$ for $n\bar\kappa\le1$, and within $1.42$
+for $n\bar\kappa\le50$. The fixed choice $t=W/4$ gives the simpler $W^2e^{-2n\bar\kappa}/64$, but at half the rate.
 The search therefore takes at least of order $1/\bar\kappa$ measurements, Eq.~\eqref{eq:search-cost}. The bound has
 no factor $\ln(W/\Gamma)$, and none is needed. A strategy that averages a fixed number of shots at every probe
 position must raise its detection threshold with the number of positions to keep false alarms rare, and pays about

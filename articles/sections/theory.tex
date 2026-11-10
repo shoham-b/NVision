@@ -364,15 +364,26 @@ Any strategy therefore needs at least about
   n_{\rm search}\ \gtrsim\ \frac{1}{\bar\kappa}=\frac{8}{\pi}\,\frac{W}{\Gamma}\,\frac{1}{k\,\mathrm{SNR}^2}
   \label{eq:search-cost}
 \end{equation}
-measurements \cite{garivier2019} (\SM{sm:prior}).
+measurements \cite{garivier2019}. The same comparison bounds the mean error itself, for any strategy, adaptive or
+not, at any SNR and every $n$ (\SM{sm:prior}):
+\begin{equation}
+  \bar\sigma_\theta^2(n)\ \ge\ \frac{W^2}{8e}\,\frac{e^{-n\bar\kappa}}{(1+\ln2+n\bar\kappa)^2} .
+  \label{eq:search-bound}
+\end{equation}
+It stays of the order of the prior until $n\bar\kappa$ is of order one, and it matters only during the search; once
+the dip is found, van Trees restarted at detection takes over.
 
-Averaging the same number of shots at every probe costs a factor of order $\ln(W/\Delta d)$ more than this, even
-with the best $\Delta d$: the detection threshold must rise with the number of probes to keep noise on the baseline
-from being taken for a dip (\SM{sm:prior}). A sequential test, which drops a position as soon as it
-looks like the baseline and spends more shots only on ambiguous ones, avoids most of that factor
-\cite{malloy2014}, so at low SNR an adaptive strategy can search faster than repeated averaging. At high SNR
-Eq.~\eqref{eq:search-cost} allows less than one measurement per probe, which no strategy can take, and the
-elimination bound takes over. Before the dip is found, no strategy knows where to look, and none gains more per
+With repeats, each step of the elimination model is a detection, with a miss and a false alarm at every probe.
+Averaging the same number of shots at every probe costs a factor of order $\ln(W/\Delta d)$ more than
+Eq.~\eqref{eq:search-cost}, even with the best $\Delta d$: the detection threshold must rise with the number of
+probes to keep noise on the baseline from being taken for a dip (\SM{sm:prior}). A sequential test spends its shots
+where they are needed: it drops a position as soon as it looks like the baseline and measures again only where the
+outcome is ambiguous, so it needs strong evidence only to confirm a dip. It avoids most of the factor
+\cite{malloy2014}, so at low SNR an adaptive strategy can search faster than repeated averaging. A Bayesian strategy
+goes further: its posterior combines the outcomes at neighboring positions, which the tails of the dip reach as well,
+and lowers the weight of a position with each outcome that looks like the baseline instead of excluding it at once.
+At high SNR Eq.~\eqref{eq:search-cost} allows less than one measurement per probe, which no strategy can take,
+and the elimination bound, Eq.~\eqref{eq:search-mean}, takes over. Before the dip is found, no strategy knows where to look, and none gains more per
 measurement than the window average.
 
 \begin{figure}[t]
@@ -436,8 +447,8 @@ the model; once a measurement lands in the dip the posterior collapses onto it; 
 strategy measures at the steepest slope and reaches the data limit (Sec.~\ref{sec:eig}). The model is therefore a
 picture of a Bayesian run, not a prediction of its step counts: at low SNR one measurement no longer reveals the dip,
 $n_d$ grows, and localize spreads over many measurements. The runs are read against the bounds rather than the
-model: during the search through their mean, Eqs.~\eqref{eq:search-mean}--\eqref{eq:search-cost}, which hold for any
-strategy, and after each run's own detection against Eq.~\eqref{eq:vantrees} restarted there.
+model: during the search through their mean, against Eq.~\eqref{eq:search-mean} at high SNR and
+Eqs.~\eqref{eq:search-cost}--\eqref{eq:search-bound} at any SNR, which hold for any strategy, and after each run's own detection against Eq.~\eqref{eq:vantrees} restarted there.
 
 \subsection{Information gained per measurement}
 \label{sec:eig}
