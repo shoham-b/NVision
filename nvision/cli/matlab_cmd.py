@@ -387,9 +387,12 @@ def sync_source(
     for folder, folder_files in by_folder.items():
         rel = folder.relative_to(base)
         stats_dir = label_dir / rel / "convergence_statistics"
-        # A folder processed before window_focus.csv existed is redone (the lab's own summaries never get one).
-        has_focus = (stats_dir / "window_focus.csv").exists() or (stats_dir / "window_summary.csv").exists()
-        if not index.folder_changed(folder_files, base) and stats_dir.exists() and has_focus:
+        # A folder processed before window_focus.csv or the search-phase fit existed is redone (the lab's own
+        # summaries never get either).
+        own_summary = (stats_dir / "window_summary.csv").exists()
+        has_focus = (stats_dir / "window_focus.csv").exists() or own_summary
+        has_search_fit = any(stats_dir.glob("window*MHz_search_fit.json")) or own_summary
+        if not index.folder_changed(folder_files, base) and stats_dir.exists() and has_focus and has_search_fit:
             continue
         own = folder / "convergence_statistics"
         try:
