@@ -22,6 +22,7 @@ from dataclasses import dataclass
 import numpy as np
 from scipy.optimize import curve_fit
 
+from nvision.metrics.lab_search_fit import fit_search_curve
 from nvision.spectra.numba_kernels import nv_center_zeeman_lorentzian_eval
 from nvision.spectra.nv_center import _check_hyperfine
 
@@ -239,6 +240,15 @@ def _sigma_curves(full: dict, held: dict, ref: dict) -> dict | None:
     out: dict = {"steps": list(range(1, len(full["sigma_history"]["zeeman_shift"]) + 1))}
     for param in HOLDOUT_PARAMS:
         out[f"all_{param}"] = [_mhz(s) for s in full["sigma_history"][param]]
+        sigma_all = np.asarray(out[f"all_{param}"], dtype=float)
+        # A fixed parameter has sigma 0 throughout: nothing to fit.
+        if np.all(sigma_all > 0):
+            fit = fit_search_curve(sigma_all)
+            out[f"searchfit_{param}"] = fit.pop("model").tolist()
+            out[f"searchfit_{param}_params"] = fit
+        else:
+            out[f"searchfit_{param}"] = None
+            out[f"searchfit_{param}_params"] = None
         out[f"even_{param}"] = [_mhz(s) for s in held["sigma_history"][param]]
         sigma_ref = ref[f"ref_{param}_sigma"]
         out[f"ref_{param}"] = None if sigma_ref == 0.0 or ref.get(f"ref_{param}_at_bound") else _mhz(sigma_ref)

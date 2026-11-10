@@ -269,6 +269,11 @@ function renderLabSigmaGraph(files) {
             traces.push(
                 { x: c.steps, y: c[`all_${param}`], mode: 'lines', line: { color, width: 2 }, name: `${label}SBED, all sweeps`, legendgroup: f.id },
                 { x: c.steps, y: c[`even_${param}`], mode: 'lines', line: { color, width: 2, dash: 'dash' }, name: `${label}SBED, even sweeps`, legendgroup: f.id },
+                ...(c[`searchfit_${param}`] ? [{
+                    x: c.steps, y: c[`searchfit_${param}`], mode: 'lines', line: { color, width: 2, dash: 'longdash' },
+                    name: `${label}search-model fit (Δd ${c[`searchfit_${param}_params`].delta_d_mhz.toPrecision(2)} MHz, rms ln ${c[`searchfit_${param}_params`].rms_log.toPrecision(2)})`,
+                    legendgroup: f.id,
+                }] : []),
                 ...hline(c[`ref_${param}`], 'odd-sweep fit σ', 'dot'),
                 ...hline(c[`lab_${param}`], 'lab averaged sweep fit σ', 'dashdot'),
             );

@@ -162,6 +162,8 @@ def test_sigma_curves_in_mhz_with_reference_lines_and_old_records_none():
     curves = payload_of([rec])["groups"][0]["rows"][0]["sigma_curves"]
     assert curves["steps"] == [1, 2, 3]
     assert curves["all_zeeman_shift"] == pytest.approx([4.0, 2.0, 1.0])
+    assert len(curves["searchfit_zeeman_shift"]) == 3
+    assert curves["searchfit_zeeman_shift_params"]["window_mhz"] == pytest.approx(12**0.5 * 4.0)
     assert curves["ref_zeeman_shift"] == pytest.approx(0.02)
     assert curves["lab_zeeman_shift"] == pytest.approx(0.03)
     assert curves["ref_zero_field_freq"] is None  # reference fit sat on a bound
