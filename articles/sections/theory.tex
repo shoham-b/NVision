@@ -47,15 +47,17 @@ environment adds its own relaxation rate $1/T_1$ to the first and its dephasing 
 populations relax at $\Gamma_1=\Gamma_p+1/T_1$ and the coherence at $\Gamma_2=\Gamma_c+1/T_2$. With these rates, and
 the angular Rabi frequency $\Omega_R=2\pi\Omega$ of the drive, the steady-state line is a Lorentzian
 (\SM{sm:cw-pumping}), of half width \cite{dreau2011}
-\begin{equation}
-  \gamma=\frac{1}{2\pi}\sqrt{\Gamma_2^2+\Omega_R^2\,\frac{\Gamma_2}{\Gamma_1}} .
-  \label{eq:linewidth}
-\end{equation}
+    \begin{equation}
+      \gamma=\frac{1}{2\pi}\sqrt{\Gamma_2^2+\Omega_R^2\,\frac{\Gamma_2}{\Gamma_1}} .
+      \label{eq:linewidth}
+    \end{equation}
 At weak drive the laser sets the width, at strong drive
-the microwave. The spin bath also spreads the transition frequency itself, by $\sim1/T_2^*$ adding a Gaussian
-broadening to the Lorentzian, and it sets the width once both powers are low (\SM{sm:cw-pumping}). Whatever its
-origin, the line has a single effective width, and we take it as a Lorentzian of half width $\gamma$ and full width
-at half maximum $\Gamma=2\gamma$. Optical and microwave broadening are not modeled separately: they enter only
+the microwave. Eq.~\eqref{eq:linewidth} does not contain $T_2^*$: the spin bath does not add a decay rate but
+spreads the transition frequency itself, with standard deviation $\sigma_\xi=1/(\sqrt2\,\pi T_2^*)$. Averaged over
+this spread, the Lorentzian becomes a Voigt profile, and once both powers are low the Gaussian sets the width
+(\SM{sm:cw-pumping}). When $T_2^*$ is long enough that $\sigma_\xi\ll\gamma$, the Gaussian is negligible and the line
+stays a Lorentzian. We assume this regime and take the line as a Lorentzian of half width $\gamma$ and full width at
+half maximum $\Gamma=2\gamma$. Optical and microwave broadening are not modeled separately: they enter only
 through $\Gamma$, which is inferred with the line.
 
 \emph{Signal.} Every N-V center contains one of two nitrogen isotopes: $^{14}$N ($I=1$,
@@ -277,8 +279,7 @@ $J_\tau=12/\Delta d^2$, and after detection simply takes the data limit, each la
   \end{aligned}
   \label{eq:after-detection}
 \end{equation}
-In localize
-a strategy has not yet locked onto the dip, its posterior may still have several peaks, and its error lies above
+In localize a strategy has not yet locked onto the dip, its posterior may still have several peaks, and its error lies above
 this curve; refine starts when its error runs parallel to it.
 
 \paragraph{Mean over runs.} Where a run detects depends only on where its dip lies, so averaged over the prior the
