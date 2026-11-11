@@ -110,16 +110,31 @@ Kullback--Leibler divergence. Ziv--Zakai with a pairwise divergence would need t
 and one at $\theta+h$, which for an adaptive strategy depends on where it chose to measure in each world; without a
 dip those choices do not depend on $\theta$, and the evidence can be averaged over the window. The price is looser
 constants: at high SNR the Ziv--Zakai bound above is exact, and this one is not. Let $P_\theta$ be the law of all the data of a run with the dip at $\theta$,
-and $P_0$ the law with no dip at all, the strategy being the same. In each measurement the outcome is Gaussian with
-variance $\sigma^2/k$ and mean shifted by the dip depth at the drive frequency,
-$s(d;\theta)=C\gamma^2/[\gamma^2+(d-\theta)^2]$, so that $s/\sigma$ is the local $\mathrm{SNR}(d)$ of
-Eq.~\eqref{eq:snr-local} for a dip at $\theta$. Each drive frequency $d_i$ is chosen from the past outcomes by the
-same rule under both laws, so the chain rule of the Kullback--Leibler divergence gives, for adaptive strategies too,
+and $P_0$ the law with no dip at all, the strategy being the same. By Eq.~\eqref{eq:noise}, a measurement at drive
+frequency $d$ returns
 \begin{equation*}
-  D_{\rm KL}(P_0\,\|\,P_\theta)=\mathbb E_0\Big[\sum_{i=1}^{n}\frac{k\,s(d_i;\theta)^2}{2\sigma^2}\Big].
+  y\sim\mathcal N\big(1,\ \sigma^2/k\big)\ \ \text{(no dip)},\qquad
+  y\sim\mathcal N\big(1-s(d;\theta),\ \sigma^2/k\big)\ \ \text{(dip at $\theta$)},
 \end{equation*}
-Each term is the divergence of one measurement, for two Gaussians of equal variance the squared shift of the mean
-over twice the variance. The expectation is under $P_0$, where the choices cannot depend on $\theta$. Averaged over
+with $s(d;\theta)=1-\mu(d;\theta)=C\gamma^2/[\gamma^2+(d-\theta)^2]$ the depth of the dip at $d$, so that
+$s/\sigma$ is the local $\mathrm{SNR}(d)$ of Eq.~\eqref{eq:snr-local}. The log of the ratio of the two densities is
+\begin{equation*}
+  \ln\frac{\mathcal N(y;1,\sigma^2/k)}{\mathcal N(y;1-s,\sigma^2/k)}
+  =\frac{k}{2\sigma^2}\Big[\big(y-1+s\big)^2-\big(y-1\big)^2\Big]
+  =\frac{k}{2\sigma^2}\Big[2s\,(y-1)+s^2\Big],
+\end{equation*}
+and its mean under the no-dip law, where $\mathbb E_0[y-1]=0$, is the Kullback--Leibler divergence of one
+measurement,
+\begin{equation*}
+  D_{\rm KL}\big(\mathcal N(1,\sigma^2/k)\,\big\|\,\mathcal N(1-s,\sigma^2/k)\big)=\frac{k\,s(d;\theta)^2}{2\sigma^2}
+  =\frac{k\,\mathrm{SNR}(d)^2}{2}.
+\end{equation*}
+Each drive frequency $d_i$ is chosen from the past outcomes by the same rule under both laws, so by the chain rule
+of the divergence the terms of the $n$ measurements add, for adaptive strategies too,
+\begin{equation*}
+  D_{\rm KL}(P_0\,\|\,P_\theta)=\mathbb E_0\Big[\sum_{i=1}^{n}\frac{k\,s(d_i;\theta)^2}{2\sigma^2}\Big],
+\end{equation*}
+the expectation being under $P_0$, where the choices cannot depend on $\theta$. Averaged over
 $\theta$ uniform on the window, at any $d$ one measurement adds at most
 \begin{equation*}
   \begin{aligned}
