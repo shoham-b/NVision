@@ -313,7 +313,7 @@ Checking every place thus takes about
   n_{\rm search}\ \gtrsim\ \overbrace{\frac{8}{\pi}}^{\text{Lorentzian}}\,\frac{W}{\Gamma}\,\frac{1}{k\,\mathrm{SNR}^2}
   \label{eq:search-cost}
 \end{equation}
-measurements, the factor $8/\pi$ coming from the Lorentzian shape of the dip. Adaptivity does not help here: before
+measurements. Adaptivity does not help here: before
 the dip is found a strategy does not know which place to check. A rigorous version holds for any strategy, adaptive
 or not, and bounds the mean error at every $n$ \cite{garivier2019} (\SM{sm:prior}). At high SNR
 Eq.~\eqref{eq:search-cost} allows less than one measurement per place, and Eq.~\eqref{eq:search-mean} is the bound
@@ -341,9 +341,9 @@ its measurements carry (Sec.~\ref{sec:speedup}).
 % Wide window W = 20 Gamma (20 steps), dip found at n_d = 10 (half the steps); the vertical segment is the detection.
 % Regimes of the wide window: search shaded, localize = the detection step, refine = the tail.
 \fill[gray!15] (axis cs:1,2e-3) rectangle (axis cs:10,10);
-\node[font=\scriptsize, align=center] at (axis cs:3.2,0.012) {search\\(mean over runs)};
+\node[font=\scriptsize, align=center] at (axis cs:3.2,0.012) {search};
 \node[font=\scriptsize, anchor=east] at (axis cs:9.6,0.6) {localize};
-\node[font=\scriptsize, align=center] at (axis cs:250,0.035) {refine\\(per run)};
+\node[font=\scriptsize, align=center] at (axis cs:250,0.035) {refine};
 \addplot[thick, domain=1:10, samples=40] {(20 - x)/sqrt(12)};
 \addlegendentry{$W=20\,\Gamma$}
 \addplot[thick, forget plot] coordinates {(10, 2.8868) (10, 0.28868)};
@@ -361,17 +361,12 @@ its measurements carry (Sec.~\ref{sec:speedup}).
   {sqrt(2.963e-4*ln((12 + 168.75*x)/(12 + 168.75*(x - 20))))};
 \end{loglogaxis}
 \end{tikzpicture}
-\caption{Schematic of the three regimes of an adaptive strategy, drawn with the elimination model,
-Eqs.~\eqref{eq:elimination}--\eqref{eq:mean-curve}; a Bayesian adaptive strategy follows the same profile, with
-a less sharp localize step. Illustrative values (SNR 10, $k=1$, reach $\Delta d=\Gamma$). Black: single runs, solid for a wide window,
-$W=20\,\Gamma$, with the dip found halfway through, dashed for a narrow one, $W=2\,\Gamma$, found at the first step;
-dotted: unbiased Cram\'er--Rao bound $(nI_{\rm max})^{-1/2}$. The wide-window run shows a search plateau (shaded), a
-localize cliff at detection (vertical segment) and the $-\tfrac12$ refine tail; the narrow window shows no plateau.
-Gray: the root of the mean squared error over runs of the wide window, Eq.~\eqref{eq:mean-curve}, which stays near
-the prior until most of the window is covered, because the runs that have not yet found the dip dominate it; each run
-drops at its own $n_d$. During the search only this mean is bounded, while after detection each run is read on its own,
-against van Trees with its own posterior as the prior. All curves start near the prior width $\sigma_0^{\rm global}=W/\sqrt{12}$ and tend to the
-data limit at large $n$. Simulated and measured runs are shown against the bounds in Sec.~\ref{sec:results}.}
+\caption{Schematic of the three regimes, drawn with the elimination model,
+Eqs.~\eqref{eq:elimination}--\eqref{eq:mean-curve}, for SNR 10, $k=1$ and reach $\Delta d=\Gamma$. Black solid: one
+run in a wide window, $W=20\,\Gamma$, that finds the dip halfway through; the regime labels refer to it. Black
+dashed: a narrow window, $W=2\,\Gamma$, where the dip is found at the first step. Gray: the root of the mean squared
+error over runs of the wide window, Eq.~\eqref{eq:mean-curve}. Dotted: the data limit $(nI_{\rm max})^{-1/2}$. All
+curves start at the prior width $\sigma_0^{\rm global}=W/\sqrt{12}$.}
 \label{fig:budget}
 \end{figure}
 
