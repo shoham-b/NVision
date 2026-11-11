@@ -367,12 +367,13 @@ not yet probed, so the bound equals Eq.~\eqref{eq:search-mean}, and the eliminat
 (\SM{sm:prior}).
 
 At lower SNR a single measurement no longer shows the dip, and a second bound takes over, which counts evidence
-instead. A measurement at $d$ is evidence for a dip at $\theta$ in proportion to the squared drop it would see there,
-$s(d;\theta)=1-\mu(d;\theta)$, over the noise variance, and a run has located the dip only once this evidence has
-added up to order one. Before the dip is found a strategy does not know where it is, so what one measurement can
-contribute is the average over the window, whatever $d$ it picks,
+instead. A measurement at $d$ is evidence for a dip at $\theta$ in proportion to the squared signal-to-noise ratio
+it would see there, $k\,\mathrm{SNR}(d)^2/2$ with $\mathrm{SNR}(d)$ of Eq.~\eqref{eq:snr-local} for a dip at
+$f_-=\theta$, and a run has located the dip only once this evidence has added up to order one. Before the dip is
+found a strategy does not know where it is, so what one measurement can contribute is the average over the window,
+whatever $d$ it picks,
 \begin{equation*}
-  \frac1W\int\frac{k\,s(d;\theta)^2}{2\sigma^2}\,d\theta\ \le\ \bar\kappa=\frac{\pi\gamma\,k\,\mathrm{SNR}^2}{4W}.
+  \frac1W\int\frac{k\,\mathrm{SNR}(d)^2}{2}\,d\theta\ \le\ \bar\kappa=\frac{\pi\gamma\,k\,\mathrm{SNR}^2}{4W}.
 \end{equation*} Any strategy, adaptive or not, therefore needs at least about
 \begin{equation}
   n_{\rm search}\ \gtrsim\ \frac{1}{\bar\kappa}=\frac{8}{\pi}\,\frac{W}{\Gamma}\,\frac{1}{k\,\mathrm{SNR}^2}

@@ -112,7 +112,8 @@ dip those choices do not depend on $\theta$, and the evidence can be averaged ov
 constants: at high SNR the Ziv--Zakai bound above is exact, and this one is not. Let $P_\theta$ be the law of all the data of a run with the dip at $\theta$,
 and $P_0$ the law with no dip at all, the strategy being the same. In each measurement the outcome is Gaussian with
 variance $\sigma^2/k$ and mean shifted by the dip depth at the drive frequency,
-$s(d;\theta)=C\gamma^2/[\gamma^2+(d-\theta)^2]$. Each drive frequency $d_i$ is chosen from the past outcomes by the
+$s(d;\theta)=C\gamma^2/[\gamma^2+(d-\theta)^2]$, so that $s/\sigma$ is the local $\mathrm{SNR}(d)$ of
+Eq.~\eqref{eq:snr-local} for a dip at $\theta$. Each drive frequency $d_i$ is chosen from the past outcomes by the
 same rule under both laws, so the chain rule of the Kullback--Leibler divergence gives, for adaptive strategies too,
 \begin{equation*}
   D_{\rm KL}(P_0\,\|\,P_\theta)=\mathbb E_0\Big[\sum_{i=1}^{n}\frac{k\,s(d_i;\theta)^2}{2\sigma^2}\Big].
