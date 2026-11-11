@@ -4,9 +4,10 @@
 % =====================================================================
 
 This section supports Sec.~\ref{sec:global}: why the van Trees bound does not apply to a uniform window, the
-Ziv--Zakai bound that replaces it, the two search bounds, the reach of a measurement and the best probe spacing,
-the posterior at detection, and the conditions under which van Trees applies again after detection. Throughout, $\bar\sigma_\theta^2(n)=\mathbb E[(\hat\theta_n-\theta)^2]$ is averaged over the noise
-and over $\theta$ uniform on the window of width $W$.
+elimination model in detail, the Ziv--Zakai bound that replaces it, the two search bounds, the reach of a measurement and the best probe spacing,
+the posterior at detection, and the conditions under which van Trees applies again after detection. Throughout,
+$\bar\sigma_\theta^2(n)$ is the mean squared error of Eq.~\eqref{eq:bayes-mse}, averaged over the noise and over
+$\theta$ uniform on the window of width $W$.
 
 \paragraph{Why the window breaks van Trees.} For a prior density $p(\theta)$, the van Trees inequality
 \cite{vantrees1968,gill1995} bounds the mean squared error of any estimator by
@@ -21,6 +22,51 @@ $(12/W^2+nI_{\rm max})^{-1/2}$ is the error of the best \emph{linear} estimator,
 Table~\ref{tab:sm-prior} gives the size of the effect, computed numerically for a measurement
 $y=\theta+\varepsilon$ with $\varepsilon$ Gaussian of variance $1/(nI_{\rm max})$: the best estimator lies up to
 $4.4\%$ below the additive curve, around $nI_{\rm max}W^2\approx100$, and the two agree at both ends.
+
+For the dip the additive form fails more deeply, since it credits every measurement with $I_{\rm max}$. Its
+crossover would then be
+\begin{equation*}
+  n_c=\frac{12/W^2}{I_{\rm max}}=\frac{64}{9}\,\frac{(\Gamma/W)^2}{k\,\mathrm{SNR}^2}
+  \;\overset{W\gg\Gamma}{\ll}\;1,
+\end{equation*}
+putting the data limit at the first measurement. But $I_{\rm max}$ is reached only once the dip has been found; a
+measurement on the baseline carries $I(d)\approx0$.
+
+\paragraph{The elimination model in detail.} Put the window at $[f_{\min},f_{\min}+W]$. The model probes at
+\begin{equation*}
+  d_j=f_{\min}+\big(j-\tfrac12\big)\Delta d,\qquad j=1,\dots,W/\Delta d,
+\end{equation*}
+so that step $j$ covers the cell $[f_{\min}+(j-1)\Delta d,\,f_{\min}+j\Delta d]$ and the cells tile the window
+without gaps or overlap; closer spacing repeats work, and wider spacing lets the dip slip between the probes. The
+best $\Delta d$ is found below. The detecting measurement is at the center $d_{n_d}$ of its cell, and the dip is
+equally likely anywhere in it, $|\theta-d_{n_d}|\le\Delta d/2$: when the reach is wider than the line, the dip is
+often detected through its side. Taking $d_{n_d}$ as the estimate, the mean squared error at detection is
+\begin{equation*}
+  \sigma_\theta^2(n_d\mid n_d)=\int_{-\Delta d/2}^{\Delta d/2}\frac{v^2}{\Delta d}\,dv=\frac{\Delta d^2}{12},
+\end{equation*}
+at any SNR.
+
+For the mean over runs, take $f_{\min}=0$. A dip at $\theta$ is found at step $n_d=\lceil\theta/\Delta d\rceil$.
+After $n$ steps a dip at $\theta>n\Delta d$ is not yet found, and its run estimates the center of the window left,
+$(W+n\Delta d)/2$. These runs enter the mean of Eq.~\eqref{eq:bayes-mse} with the prior density $1/W$ over the part
+not yet searched; with $v=\theta-(W+n\Delta d)/2$,
+\begin{equation*}
+  \sigma_{\rm search}^2(n)=\int_{n\Delta d}^{W}\frac1W\Big(\theta-\frac{W+n\Delta d}{2}\Big)^{\!2}d\theta
+  =\frac1W\int_{-(W-n\Delta d)/2}^{(W-n\Delta d)/2}v^2\,dv=\frac{(W-n\Delta d)^3}{12\,W},
+\end{equation*}
+which is Eq.~\eqref{eq:search-mean}. A run that has found the dip has an error no larger than at detection,
+$\sigma_\theta^2(n\mid n_d)\le J_\tau^{-1}=\Delta d^2/12$, so
+\begin{equation*}
+  \sigma_{\rm found}^2(n)\ \le\ \frac{n\Delta d}{W}\,\frac{\Delta d^2}{12}\ \le\ \frac{\Delta d^2}{12},
+\end{equation*}
+and therefore, as long as $(W-n\Delta d)^3\gg W\Delta d^2$,
+\begin{equation*}
+  \bar\sigma_\theta^2(n)\ \simeq\ \sigma_{\rm search}^2(n),\qquad
+  \frac{1}{\bar\sigma_\theta^2(n)}\ \simeq\ \frac{12\,W}{(W-n\Delta d)^3}.
+\end{equation*}
+The inverse grows by more with each step as the window left shrinks, not by a fixed amount per measurement. Once the
+window is covered, $n\ge W/\Delta d$, $\sigma_{\rm search}^2=0$, the sum of Eq.~\eqref{eq:found-mean} runs to
+$W/\Delta d$, and $\bar\sigma_\theta^2(n)\to1/(nI_{\rm max})$ as $n\to\infty$.
 
 \begin{table}[h]
 \centering
@@ -39,19 +85,29 @@ ZZ$/\bar\sigma_{\rm best}$ & 0.932 & 0.923 & 0.956 & 0.980 & 0.990 & 0.995 & 0.9
 \end{table}
 
 \paragraph{The Ziv--Zakai bound.} The Ziv--Zakai bound \cite{zivzakai1969,bell1997} turns estimation into a set of
-binary decisions. Let $P_{\min}(\theta,\theta+h)$ be the smallest error probability of any test that decides, from
-the data, between a dip at $\theta$ and one at $\theta+h$, the two being equally likely a priori. Then
+binary decisions. Take two positions a distance $h$ apart, $\theta$ and $\theta+h$, equally likely a priori, and let
+$P_{\min}(\theta,\theta+h)$ be the smallest probability of a wrong decision that any test on the data can reach
+between a dip at one and a dip at the other. Two steps give the bound. First, for the error $e=\hat\theta_n-\theta$
+of any estimate,
+\begin{equation*}
+  \bar\sigma_\theta^2(n)=\mathbb E\big[e^2\big]=\frac12\int_0^\infty h\,\Pr\big(|e|\ge h/2\big)\,dh ,
+\end{equation*}
+which follows from $e^2=\int_0^{2|e|}(h/2)\,dh$, the average running over $\theta$ and the noise as in
+Eq.~\eqref{eq:bayes-mse}. Second, the estimate is itself a test: decide for whichever of $\theta$ and $\theta+h$ lies
+closer to $\hat\theta_n$. This test errs only if the estimate misses the true position by at least $h/2$, and no test
+errs less often than $P_{\min}$, so
+\begin{equation*}
+  \Pr\big(|e|\ge h/2\big)\ \ge\ G(h)=\int\big[p(\theta)+p(\theta+h)\big]\,P_{\min}(\theta,\theta+h)\,d\theta .
+\end{equation*}
+Together,
 \begin{equation}
-  \bar\sigma_\theta^2(n)\ \ge\ \frac12\int_0^\infty h\;\mathcal V\{G(h)\}\,dh ,
+  \bar\sigma_\theta^2(n)\ \ge\ \frac12\int_0^\infty h\,G(h)\,dh .
   \label{eq:sm-zz}
 \end{equation}
-\begin{equation*}
-  G(h)=\int\big[p(\theta)+p(\theta+h)\big]\,P_{\min}(\theta,\theta+h)\,d\theta ,
-\end{equation*}
-where $\mathcal V$ (valley filling) replaces a function of $h$ by the smallest nonincreasing function above it.
-Dropping $\mathcal V$ only lowers the right-hand side, so the bound stays valid without it. The bound needs no
-derivative of $p$. Before any measurement no test does better than a guess, $P_{\min}=\tfrac12$, and for the uniform
-prior the inner integral is $(W-h)/W$, so
+Pairs that the data cannot tell apart thus add to the error in proportion to their distance. The original bound
+also replaces $G$ by the smallest nonincreasing function above it, which can only raise the right-hand side; we do
+not need it. The bound needs no derivative of $p$, so the edges of the window do not break it. Before any
+measurement no test does better than a guess, $P_{\min}=\tfrac12$, and for the uniform prior $G(h)=(W-h)/W$, so
 \begin{equation*}
   \bar\sigma_\theta^2(0)\ \ge\ \frac12\int_0^W h\,\frac{W-h}{W}\,dh=\frac{W^2}{12},
 \end{equation*}
@@ -71,7 +127,12 @@ baseline, whatever $\theta$ is, so any strategy, adaptive or not, has measured a
 in advance up to that point: each choice depends only on outcomes that are all the same. These $n$ probes cover a set
 $C_n$ of measure at most $n\Delta d$; let $U$ be the rest of the window, of measure $L\ge W-n\Delta d$. If both
 $\theta$ and $\theta+h$ lie in $U$, the data are the same under the two hypotheses and $P_{\min}=\tfrac12$. Keeping
-only these pairs and dropping $\mathcal V$, Eq.~\eqref{eq:sm-zz} gives
+only these pairs, with $p=1/W$,
+\begin{equation*}
+  G(h)\ \ge\ \frac2W\cdot\frac12\,\big|U\cap(U-h)\big|=\frac{\big|U\cap(U-h)\big|}{W},
+\end{equation*}
+where $|U\cap(U-h)|$ is the measure of the positions $\theta$ with both $\theta$ and $\theta+h$ in $U$, and
+Eq.~\eqref{eq:sm-zz} gives
 \begin{equation*}
   \bar\sigma_\theta^2(n)\ \ge\ \frac{1}{2W}\int_0^\infty h\,\big|U\cap(U-h)\big|\,dh
   =\frac{L^2}{4W}\,\mathbb E\,|X-Y| ,
@@ -87,20 +148,51 @@ it: no strategy searches a window faster in this limit. A strategy that probes i
 pieces, and its mean error at the same $n$ is larger.
 
 \paragraph{Search at any SNR.} At lower SNR a single measurement no longer decides, and the argument above no longer
-applies, since an adaptive strategy now branches on noisy outcomes. A change-of-measure argument
-\cite{garivier2019} bounds it instead. Let $P_\theta$ be the law of all the data of a run with the dip at $\theta$,
-and $P_0$ the law with no dip at all, the strategy being the same. In each measurement the outcome is Gaussian with
-variance $\sigma^2/k$ and mean shifted by the dip depth at the drive frequency,
-$s(d;\theta)=C\gamma^2/[\gamma^2+(d-\theta)^2]$. Each drive frequency $d_i$ is chosen from the past outcomes by the
-same rule under both laws, so the chain rule of the Kullback--Leibler divergence gives, for adaptive strategies too,
+applies, since an adaptive strategy now branches on noisy outcomes. The main text counts the places to check and the
+measurements each needs, Eq.~\eqref{eq:search-cost}; a change-of-measure argument \cite{garivier2019} makes that
+count rigorous for every strategy. It rests on the same idea as the Ziv--Zakai bound, a binary test, but the
+alternative to a dip at $\theta$ is now no dip at all, and the information for telling them apart, the detection information, is counted by the
+Kullback--Leibler divergence. Ziv--Zakai with a pairwise divergence would need the information between a dip at $\theta$
+and one at $\theta+h$, which for an adaptive strategy depends on where it chose to measure in each world; without a
+dip those choices do not depend on $\theta$, and the information can be averaged over the window. The price is looser
+constants: at high SNR the Ziv--Zakai bound above is exact, and this one is not. Let $P_\theta$ be the law of all the data of a run with the dip at $\theta$,
+and $P_0$ the law with no dip at all, the strategy being the same. By Eq.~\eqref{eq:noise}, a measurement at drive
+frequency $d$ returns
 \begin{equation*}
-  D_{\rm KL}(P_0\,\|\,P_\theta)=\mathbb E_0\Big[\sum_{i=1}^{n}\frac{k\,s(d_i;\theta)^2}{2\sigma^2}\Big].
+  y\sim\mathcal N\big(1,\ \sigma^2/k\big)\ \ \text{(no dip)},\qquad
+  y\sim\mathcal N\big(1-s(d;\theta),\ \sigma^2/k\big)\ \ \text{(dip at $\theta$)},
 \end{equation*}
-The expectation is under $P_0$, where the choices cannot depend on $\theta$. Averaged over $\theta$ uniform on the
-window, and using $\int s(d;\theta)^2\,d\theta\le C^2\pi\gamma/2$ for every $d$,
+with $s(d;\theta)=1-\mu(d;\theta)=C\gamma^2/[\gamma^2+(d-\theta)^2]$ the depth of the dip at $d$, so that
+$s/\sigma$ is the local $\mathrm{SNR}(d)$ of Eq.~\eqref{eq:snr-local}. The log of the ratio of the two densities is
 \begin{equation*}
-  \frac1W\int D_{\rm KL}(P_0\,\|\,P_\theta)\,d\theta\ \le\ n\bar\kappa,\qquad
-  \bar\kappa=\frac{\pi\gamma\,k\,\mathrm{SNR}^2}{4W}.
+  \ln\frac{\mathcal N(y;1,\sigma^2/k)}{\mathcal N(y;1-s,\sigma^2/k)}
+  =\frac{k}{2\sigma^2}\Big[\big(y-1+s\big)^2-\big(y-1\big)^2\Big]
+  =\frac{k}{2\sigma^2}\Big[2s\,(y-1)+s^2\Big],
+\end{equation*}
+and its mean under the no-dip law, where $\mathbb E_0[y-1]=0$, is the Kullback--Leibler divergence of one
+measurement,
+\begin{equation*}
+  D_{\rm KL}\big(\mathcal N(1,\sigma^2/k)\,\big\|\,\mathcal N(1-s,\sigma^2/k)\big)=\frac{k\,s(d;\theta)^2}{2\sigma^2}
+  =\frac{k\,\mathrm{SNR}(d)^2}{2}.
+\end{equation*}
+Each drive frequency $d_i$ is chosen from the past outcomes by the same rule under both laws, so by the chain rule
+of the divergence the terms of the $n$ measurements add, for adaptive strategies too,
+\begin{equation*}
+  D_{\rm KL}(P_0\,\|\,P_\theta)=\mathbb E_0\Big[\sum_{i=1}^{n}\frac{k\,s(d_i;\theta)^2}{2\sigma^2}\Big],
+\end{equation*}
+the expectation being under $P_0$, where the choices cannot depend on $\theta$. Averaged over
+$\theta$ uniform on the window, at any $d$ one measurement adds at most
+\begin{equation*}
+  \begin{aligned}
+  \frac1W\int\frac{k\,s(d;\theta)^2}{2\sigma^2}\,d\theta
+  &\ \le\ \frac{k\,C^2\gamma^4}{2\sigma^2W}\int_{-\infty}^{\infty}\frac{dv}{(\gamma^2+v^2)^2}\\
+  &=\frac{k\,C^2\gamma^4}{2\sigma^2W}\,\frac{\pi}{2\gamma^3}=\frac{\pi\gamma\,k\,\mathrm{SNR}^2}{4W}=\bar\kappa,
+  \end{aligned}
+\end{equation*}
+with $v=d-\theta$, the integral over the whole line bounding the one over the window. $\bar\kappa$ is thus the
+largest detection information, averaged over where the dip could be, that one measurement can carry during the search. Hence
+\begin{equation*}
+  \frac1W\int D_{\rm KL}(P_0\,\|\,P_\theta)\,d\theta\ \le\ n\bar\kappa .
 \end{equation*}
 Now let $A_\theta$ be the event $|\hat\theta_n-\theta|\le t$, with probabilities $p_0(\theta)=P_0(A_\theta)$ and
 $p_\theta=P_\theta(A_\theta)$. Under $P_0$ the estimate does not depend on $\theta$, so the average of $p_0(\theta)$
@@ -114,17 +206,24 @@ of runs whose estimate is still more than $t$ from the dip is
 \end{equation*}
 This holds for every $0<t<W/2$. With $a=1+\ln2+n\bar\kappa$, the choice $t=W/2a$ gives
 $1/(1-2t/W)=a/(a-1)$, so the exponent is $-a$ and
-\begin{equation*}
-  \bar\sigma_\theta^2(n)\ \ge\ \frac{W^2}{4a^2}\,e^{-a}=\frac{W^2}{8e}\,\frac{e^{-n\bar\kappa}}{(1+\ln2+n\bar\kappa)^2},
-\end{equation*}
-which is Eq.~\eqref{eq:search-bound}. It keeps the rate $e^{-n\bar\kappa}$ and holds at every $n$. Computed
+\begin{equation}
+  \bar\sigma_\theta^2(n)\ \ge\ \frac{W^2}{4a^2}\,e^{-a}=\frac{W^2}{8e}\,\frac{e^{-n\bar\kappa}}{(1+\ln2+n\bar\kappa)^2}.
+  \label{eq:search-bound}
+\end{equation}
+It keeps the rate $e^{-n\bar\kappa}$ and holds at every $n$. Computed
 numerically, it lies within a factor $1.03$ of the bound maximized over $t$ for $n\bar\kappa\le1$, and within $1.42$
 for $n\bar\kappa\le50$. The fixed choice $t=W/4$ gives the simpler $W^2e^{-2n\bar\kappa}/64$, but at half the rate.
-The search therefore takes at least of order $1/\bar\kappa$ measurements, Eq.~\eqref{eq:search-cost}. The bound has
+The search therefore takes at least of order
+$1/\bar\kappa=(8/\pi)(W/\Gamma)/(k\,\mathrm{SNR}^2)$ measurements, the count of Eq.~\eqref{eq:search-cost} made
+rigorous for every strategy. The bound has
 no factor $\ln(W/\Gamma)$, and none is needed. A strategy that averages a fixed number of shots at every probe
 position must raise its detection threshold with the number of positions to keep false alarms rare, and pays about
-$\ln(W/\Delta d)$ more, Eq.~\eqref{eq:sm-fixed-cost} below. A sequential test, which drops a position as soon as it looks like the baseline, does not
-\cite{malloy2014}. At high SNR $1/\bar\kappa$ falls below $W/\Delta d$, one measurement per probe position, and the
+$\ln(W/\Delta d)$ more, Eq.~\eqref{eq:sm-fixed-cost} below. A sequential test spends its shots where they are
+needed: it drops a position as soon as it looks like the baseline and measures again only where the outcome is
+ambiguous, so it needs strong evidence only to confirm a dip, and avoids most of the factor \cite{malloy2014}. A
+Bayesian strategy goes further: its posterior combines the outcomes at neighboring positions, which the tails of the
+dip reach as well, and lowers the weight of a position with each outcome that looks like the baseline instead of
+excluding it at once. At high SNR $1/\bar\kappa$ falls below $W/\Delta d$, one measurement per probe position, and the
 finite-reach bound above is the one that binds.
 
 \paragraph{The reach of a measurement.} The finite-reach bound treats the dip as invisible beyond its probe cell.
@@ -186,9 +285,11 @@ of the detecting measurement, and the posterior is two narrow peaks at $d\pm|\th
 decided from the run's own data and never from the true $\theta$. Given the data up to $\tau$, the posterior is the
 prior of the remaining measurements, and van Trees applied to them, then averaged over runs, gives
 $\bar\sigma_\theta^2(n)\ge\mathbb E[(J_\tau+(n-\tau)I_{\rm max})^{-1}]$ with $J_\tau$ the Fisher information of that
-posterior. Right after detection the two mirror peaks make $J_\tau$ of order $I(\theta)$, far above
+posterior. $J_\tau$ is finite: every likelihood is the Gaussian of Eq.~\eqref{eq:noise}, which depends on $\theta$ only
+through the Lorentzian $\mu(d;\theta)$ and so changes smoothly as $\theta$ moves, and the posterior has
+none of the hard edges of the idealized cell. Right after detection the two mirror peaks make $J_\tau$ of order $I(\theta)$, far above
 $12/\Delta d^2$, while the error is $\Delta d/\sqrt{12}$: the restarted bound is valid but loose until the side is
-known. The elimination model therefore restarts with the value that matches the error, $J_0=12/\Delta d^2$, a
+known. The elimination model therefore restarts with the value that matches the error, $J_\tau=12/\Delta d^2$, a
 model value rather than a bound. The measurement that resolves the side is placed at the steepest slope of one of
 the two peaks: if that is the true one it adds $I_{\rm max}$, as the model assumes; if not, it sees little of the dip
 and adds less, but still tells the side. Once the side is known the posterior is a single peak of variance about

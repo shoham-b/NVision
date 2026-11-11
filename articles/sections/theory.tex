@@ -303,7 +303,7 @@ The mean squared error of the model is the sum,
   \bar\sigma_\theta^2(n)=\sigma_{\rm search}^2(n)+\sigma_{\rm found}^2(n),\qquad n\le W/\Delta d ,
   \label{eq:mean-curve}
 \end{equation}
-2the reference for the error of a strategy averaged over runs (Sec.~\ref{sec:results}). The runs that found the dip
+the reference for the error of a strategy averaged over runs (Sec.~\ref{sec:results}). The runs that found the dip
 add at most $\Delta d^2/12$, so the mean stays near the prior until most of the window is covered, later than a
 typical run finds its dip, and then tends to $1/(nI_{\rm max})$ (\SM{sm:prior}).
 
@@ -322,7 +322,7 @@ a signal-to-noise ratio $\sqrt{mk}\,\mathrm{SNR}$, which reaches order one after
 Checking every place thus takes about
 \begin{equation}
   n_{\rm search}\ \gtrsim\ \overbrace{\frac{8}{\pi}}^{\text{Lorentzian coefficient}}\,\frac{W}{\Gamma}\,\frac{1}{k\,\mathrm{SNR}^2}
-      \label{eq:search-cost}
+  \label{eq:search-cost}
 \end{equation}
 measurements. Adaptivity does not help here: before
 the dip is found a strategy does not know which place to check. A rigorous version holds for any strategy, adaptive
