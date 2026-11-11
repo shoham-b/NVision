@@ -270,10 +270,14 @@ again from detection, for each run, with $J_0=J_\tau$ (\SM{sm:prior}). The cell 
 its all-or-nothing detection, so the model takes for $J_\tau$ the inverse of its error at detection,
 $J_\tau=12/\Delta d^2$, and after detection simply takes the data limit, each later measurement adding $I_{\rm max}$:
 \begin{equation}
-  \sigma_\theta^2(n\mid n_d)=\big(J_\tau+(n-n_d)\,I_{\rm max}\big)^{-1},\qquad n\ge n_d .
+  \begin{aligned}
+  \sigma_\theta^2(n\mid n_d)&=\big(J_\tau+(n-n_d)\,I_{\rm max}\big)^{-1},\qquad n\ge n_d\\
+  &\xrightarrow[\;n\,\gg\,n_d\;]{\;(n-n_d)I_{\rm max}\,\gg\,J_\tau\;}\
+  \underbrace{\frac{1}{nI_{\rm max}}}_{\text{Cram\'er--Rao}} .
+  \end{aligned}
   \label{eq:after-detection}
 \end{equation}
-It reaches the unbiased Cram\'er--Rao bound $(nI_{\rm max})^{-1}$ once $(n-n_d)I_{\rm max}\gg J_\tau$. In localize
+In localize
 a strategy has not yet locked onto the dip, its posterior may still have several peaks, and its error lies above
 this curve; refine starts when its error runs parallel to it.
 
