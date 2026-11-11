@@ -12,11 +12,9 @@ resolution \cite{balasubramanian2008,maze2008}, and are now used in settings ran
 biology \cite{doherty2013nv,rondin2014,degen2017}.
 
 The most widely used readout is optically detected magnetic
-resonance (ODMR): the photoluminescence of the center is recorded while a microwave drive is stepped uniformly through a
+resonance (ODMR): the photoluminescence of the N-V is recorded while a microwave drive is swept uniformly through a
 search window, the range of drive frequencies in which the spin resonance can lie, and the field is read from the
-position of the resonance. Every point of this scan, a sweep, takes time, so the number of measurements needed to locate
-the resonance to a given precision sets both the sensitivity and the bandwidth of the magnetometer. It matters most
-where the scan is repeated, as when a time-varying field is tracked \cite{haim2025} or a field is imaged with a
+position of the resonance. Locating it with fewer measurements matters most where the scan is repeated, as when a time-varying field is tracked \cite{haim2025} or a field is imaged with a
 spectrum recorded at every pixel \cite{lesage2013,levine2019}.
 
 Locating the resonance is an instance of Hamiltonian learning: the parameters of a quantum system's Hamiltonian are
@@ -53,10 +51,12 @@ Here we derive this limit for the ODMR search and use it to analyze SBED and dri
 continuous-wave (CW) ODMR. Taking a uniform prior over the search window, the limit bounds the mean squared error averaged
 over every position the resonance can take in the window, so it states the uncertainty to expect after a given
 number of measurements, not only a curve to compare strategies with. It has two parts. While the resonance is still
-being searched for, no strategy can yet place its measurements on the line, and for a uniform prior the
-van Trees bound is empty; a Ziv--Zakai bound \cite{zivzakai1969,bell1997} then limits the error by how often the data
-cannot yet tell one position from another. Once the resonance is found, the van Trees bound
-\cite{vantrees1968,gill1995} applies, and the information it counts is the same quantity that SBED maximizes.
+being searched for, no strategy can yet place its measurements on the line, so adapting them to past data gains
+little; this is the regime in which non-adaptive designs, such as compressed sensing \cite{haim2025}, can compete with
+adaptive ones. For a uniform prior the van Trees bound is empty here, and a Ziv--Zakai bound
+\cite{zivzakai1969,bell1997} limits the error by how often the data cannot yet tell one position from another. Once
+the resonance is found, adaptivity pays: the van Trees bound \cite{vantrees1968,gill1995} applies, and the
+information it counts is the same quantity that SBED maximizes.
 Together they cover the whole run: finding the
 resonance, narrowing in on it and refining the estimate are parts of one curve rather than separate mechanisms. The same bound gives
 the speedup over a sweep: for a precise target it is approximately the ratio of the window width to the linewidth,
