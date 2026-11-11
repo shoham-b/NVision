@@ -358,20 +358,12 @@ grows by more with each step as the window left shrinks, not by a fixed amount p
 covered, $n\ge W/\Delta d$, $\sigma_{\rm search}^2=0$ and only the runs that found the dip are left, with the sum in
 Eq.~\eqref{eq:found-mean} running to $W/\Delta d$; it tends to $1/(nI_{\rm max})$ as $n\to\infty$.
 
-\paragraph{A lower bound on the search.} The elimination model is one strategy. To show that at high SNR no other
-strategy searches faster, we need a lower bound on the mean error over the uniform window, and van Trees gives none.
-The Ziv--Zakai bound \cite{zivzakai1969,bell1997} needs no derivative of the prior and has been used for priors with
-hard edges for this reason \cite{daurelio2022}. It bounds the mean error by how well the data tell apart pairs of
-positions: if no test on the data can tell a dip at $\theta$ from one at $\theta+h$, which is to say the smallest
-probability $P_{\min}(\theta,\theta+h)$ of mistaking one for the other is $\tfrac12$, the pair adds of order $h^2$ to
-the error (the bound is written out in \SM{sm:prior}).
-This is the bound that matches elimination, which is itself a statement about such pairs: two positions that both
-lie in the window left give the same data, so $P_{\min}=\tfrac12$ for them. Before any measurement every pair is
-like that, and the bound gives Eq.~\eqref{eq:prior} exactly. Before its first detection every outcome of a run looks
-like the baseline, so any strategy, adaptive or not, is up to that point a fixed order of probes. The pairs it
-cannot tell apart are those that both lie in the unprobed part, at least $W-n\Delta d$ long, and the bound is
-smallest when that part is a single interval, where it equals Eq.~\eqref{eq:search-mean} (\SM{sm:prior}). The
-elimination model meets it, so no strategy searches the window faster in this limit.
+\paragraph{A lower bound on the search.} To show that at high SNR no strategy searches faster than the elimination
+model, we use the Ziv--Zakai bound \cite{zivzakai1969,bell1997}, which, unlike van Trees, holds for a prior with
+hard edges \cite{daurelio2022}. It bounds the mean error by how well the data tell apart pairs of positions, and
+before its first detection no strategy, adaptive or not, can tell apart two positions in the part of the window it
+has not yet probed. The bound then equals Eq.~\eqref{eq:search-mean}, which the elimination model meets
+(\SM{sm:prior}).
 
 \paragraph{Search at lower SNR.} At lower SNR one measurement in the dip no longer reveals it. Averaging a few shots
 per probe until the drop is clear brings back the same model, with each step costing that many shots. The limit now
