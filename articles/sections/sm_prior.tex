@@ -5,8 +5,9 @@
 
 This section supports Sec.~\ref{sec:global}: why the van Trees bound does not apply to a uniform window, the
 Ziv--Zakai bound that replaces it, the two search bounds, the reach of a measurement and the best probe spacing,
-the posterior at detection, and the conditions under which van Trees applies again after detection. Throughout, $\bar\sigma_\theta^2(n)=\mathbb E[(\hat\theta_n-\theta)^2]$ is averaged over the noise
-and over $\theta$ uniform on the window of width $W$.
+the posterior at detection, and the conditions under which van Trees applies again after detection. Throughout,
+$\bar\sigma_\theta^2(n)$ is the mean squared error of Eq.~\eqref{eq:bayes-mse}, averaged over the noise and over
+$\theta$ uniform on the window of width $W$.
 
 \paragraph{Why the window breaks van Trees.} For a prior density $p(\theta)$, the van Trees inequality
 \cite{vantrees1968,gill1995} bounds the mean squared error of any estimator by
@@ -39,19 +40,29 @@ ZZ$/\bar\sigma_{\rm best}$ & 0.932 & 0.923 & 0.956 & 0.980 & 0.990 & 0.995 & 0.9
 \end{table}
 
 \paragraph{The Ziv--Zakai bound.} The Ziv--Zakai bound \cite{zivzakai1969,bell1997} turns estimation into a set of
-binary decisions. Let $P_{\min}(\theta,\theta+h)$ be the smallest error probability of any test that decides, from
-the data, between a dip at $\theta$ and one at $\theta+h$, the two being equally likely a priori. Then
+binary decisions. Take two positions a distance $h$ apart, $\theta$ and $\theta+h$, equally likely a priori, and let
+$P_{\min}(\theta,\theta+h)$ be the smallest probability of a wrong decision that any test on the data can reach
+between a dip at one and a dip at the other. Two steps give the bound. First, for the error $e=\hat\theta_n-\theta$
+of any estimate,
+\begin{equation*}
+  \bar\sigma_\theta^2(n)=\mathbb E\big[e^2\big]=\frac12\int_0^\infty h\,\Pr\big(|e|\ge h/2\big)\,dh ,
+\end{equation*}
+which follows from $e^2=\int_0^{2|e|}(h/2)\,dh$, the average running over $\theta$ and the noise as in
+Eq.~\eqref{eq:bayes-mse}. Second, the estimate is itself a test: decide for whichever of $\theta$ and $\theta+h$ lies
+closer to $\hat\theta_n$. This test errs only if the estimate misses the true position by at least $h/2$, and no test
+errs less often than $P_{\min}$, so
+\begin{equation*}
+  \Pr\big(|e|\ge h/2\big)\ \ge\ G(h)=\int\big[p(\theta)+p(\theta+h)\big]\,P_{\min}(\theta,\theta+h)\,d\theta .
+\end{equation*}
+Together,
 \begin{equation}
-  \bar\sigma_\theta^2(n)\ \ge\ \frac12\int_0^\infty h\;\mathcal V\{G(h)\}\,dh ,
+  \bar\sigma_\theta^2(n)\ \ge\ \frac12\int_0^\infty h\,G(h)\,dh .
   \label{eq:sm-zz}
 \end{equation}
-\begin{equation*}
-  G(h)=\int\big[p(\theta)+p(\theta+h)\big]\,P_{\min}(\theta,\theta+h)\,d\theta ,
-\end{equation*}
-where $\mathcal V$ (valley filling) replaces a function of $h$ by the smallest nonincreasing function above it.
-Dropping $\mathcal V$ only lowers the right-hand side, so the bound stays valid without it. The bound needs no
-derivative of $p$. Before any measurement no test does better than a guess, $P_{\min}=\tfrac12$, and for the uniform
-prior the inner integral is $(W-h)/W$, so
+Pairs that the data cannot tell apart thus add to the error in proportion to their distance. The original bound
+also replaces $G$ by the smallest nonincreasing function above it, which can only raise the right-hand side; we do
+not need it. The bound needs no derivative of $p$, so the edges of the window do not break it. Before any
+measurement no test does better than a guess, $P_{\min}=\tfrac12$, and for the uniform prior $G(h)=(W-h)/W$, so
 \begin{equation*}
   \bar\sigma_\theta^2(0)\ \ge\ \frac12\int_0^W h\,\frac{W-h}{W}\,dh=\frac{W^2}{12},
 \end{equation*}
@@ -71,7 +82,12 @@ baseline, whatever $\theta$ is, so any strategy, adaptive or not, has measured a
 in advance up to that point: each choice depends only on outcomes that are all the same. These $n$ probes cover a set
 $C_n$ of measure at most $n\Delta d$; let $U$ be the rest of the window, of measure $L\ge W-n\Delta d$. If both
 $\theta$ and $\theta+h$ lie in $U$, the data are the same under the two hypotheses and $P_{\min}=\tfrac12$. Keeping
-only these pairs and dropping $\mathcal V$, Eq.~\eqref{eq:sm-zz} gives
+only these pairs, with $p=1/W$,
+\begin{equation*}
+  G(h)\ \ge\ \frac2W\cdot\frac12\,\big|U\cap(U-h)\big|=\frac{\big|U\cap(U-h)\big|}{W},
+\end{equation*}
+where $|U\cap(U-h)|$ is the measure of the positions $\theta$ with both $\theta$ and $\theta+h$ in $U$, and
+Eq.~\eqref{eq:sm-zz} gives
 \begin{equation*}
   \bar\sigma_\theta^2(n)\ \ge\ \frac{1}{2W}\int_0^\infty h\,\big|U\cap(U-h)\big|\,dh
   =\frac{L^2}{4W}\,\mathbb E\,|X-Y| ,
