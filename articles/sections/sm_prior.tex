@@ -103,8 +103,9 @@ it: no strategy searches a window faster in this limit. A strategy that probes i
 pieces, and its mean error at the same $n$ is larger.
 
 \paragraph{Search at any SNR.} At lower SNR a single measurement no longer decides, and the argument above no longer
-applies, since an adaptive strategy now branches on noisy outcomes. A change-of-measure argument
-\cite{garivier2019} bounds it instead. It rests on the same idea as the Ziv--Zakai bound, a binary test, but the
+applies, since an adaptive strategy now branches on noisy outcomes. The main text counts the places to check and the
+measurements each needs, Eq.~\eqref{eq:search-cost}; a change-of-measure argument \cite{garivier2019} makes that
+count rigorous for every strategy. It rests on the same idea as the Ziv--Zakai bound, a binary test, but the
 alternative to a dip at $\theta$ is now no dip at all, and the information for telling them apart, the detection information, is counted by the
 Kullback--Leibler divergence. Ziv--Zakai with a pairwise divergence would need the information between a dip at $\theta$
 and one at $\theta+h$, which for an adaptive strategy depends on where it chose to measure in each world; without a
@@ -160,13 +161,16 @@ of runs whose estimate is still more than $t$ from the dip is
 \end{equation*}
 This holds for every $0<t<W/2$. With $a=1+\ln2+n\bar\kappa$, the choice $t=W/2a$ gives
 $1/(1-2t/W)=a/(a-1)$, so the exponent is $-a$ and
-\begin{equation*}
-  \bar\sigma_\theta^2(n)\ \ge\ \frac{W^2}{4a^2}\,e^{-a}=\frac{W^2}{8e}\,\frac{e^{-n\bar\kappa}}{(1+\ln2+n\bar\kappa)^2},
-\end{equation*}
-which is Eq.~\eqref{eq:search-bound}. It keeps the rate $e^{-n\bar\kappa}$ and holds at every $n$. Computed
+\begin{equation}
+  \bar\sigma_\theta^2(n)\ \ge\ \frac{W^2}{4a^2}\,e^{-a}=\frac{W^2}{8e}\,\frac{e^{-n\bar\kappa}}{(1+\ln2+n\bar\kappa)^2}.
+  \label{eq:search-bound}
+\end{equation}
+It keeps the rate $e^{-n\bar\kappa}$ and holds at every $n$. Computed
 numerically, it lies within a factor $1.03$ of the bound maximized over $t$ for $n\bar\kappa\le1$, and within $1.42$
 for $n\bar\kappa\le50$. The fixed choice $t=W/4$ gives the simpler $W^2e^{-2n\bar\kappa}/64$, but at half the rate.
-The search therefore takes at least of order $1/\bar\kappa$ measurements, Eq.~\eqref{eq:search-cost}. The bound has
+The search therefore takes at least of order
+$1/\bar\kappa=(8/\pi)(W/\Gamma)/(k\,\mathrm{SNR}^2)$ measurements, the count of Eq.~\eqref{eq:search-cost} made
+rigorous for every strategy. The bound has
 no factor $\ln(W/\Gamma)$, and none is needed. A strategy that averages a fixed number of shots at every probe
 position must raise its detection threshold with the number of positions to keep false alarms rare, and pays about
 $\ln(W/\Delta d)$ more, Eq.~\eqref{eq:sm-fixed-cost} below. A sequential test spends its shots where they are
