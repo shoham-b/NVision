@@ -239,8 +239,14 @@ of the uniform prior,
   \label{eq:prior}
 \end{equation}
 Eq.~\eqref{eq:vantrees} cannot describe what follows. The uniform prior steps from $1/W$ to zero at the edges of the
-window, so its Fisher information is infinite and the bound reduces to $\bar\sigma_\theta\ge0$. And the bound credits
-every measurement with $I_{\rm max}$, while a measurement on the baseline carries $I(d)\approx0$ (\SM{sm:prior}).
+window, where $p'$ diverges, so its information is infinite and the bound says nothing,
+\begin{equation*}
+  \begin{aligned}
+  J_0^{\rm global}&=\int\frac{p'(\theta)^2}{p(\theta)}\,d\theta=\infty\\
+  \Longrightarrow\quad\bar\sigma_\theta(n)&\ \ge\ \big(J_0^{\rm global}+nI_{\rm max}\big)^{-1/2}=0 .
+  \end{aligned}
+\end{equation*}
+And the bound credits every measurement with $I_{\rm max}$, while a measurement on the baseline carries $I(d)\approx0$ (\SM{sm:prior}).
 What such a measurement contributes instead is \emph{elimination}: it rules out the part of the window where a dip
 would have shown.
 
@@ -310,7 +316,7 @@ about $W/\Gamma$ places to check. At each place the drop must stand out from the
 a signal-to-noise ratio $\sqrt{mk}\,\mathrm{SNR}$, which reaches order one after $m\approx1/(k\,\mathrm{SNR}^2)$.
 Checking every place thus takes about
 \begin{equation}
-  n_{\rm search}\ \gtrsim\ \overbrace{\frac{8}{\pi}}^{\text{Lorentzian}}\,\frac{W}{\Gamma}\,\frac{1}{k\,\mathrm{SNR}^2}
+  n_{\rm search}\ \gtrsim\ \overbrace{\frac{8}{\pi}}^{\text{Lorentzian coefficient}}\,\frac{W}{\Gamma}\,\frac{1}{k\,\mathrm{SNR}^2}
   \label{eq:search-cost}
 \end{equation}
 measurements. Adaptivity does not help here: before
