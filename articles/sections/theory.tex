@@ -283,24 +283,32 @@ error is that of the uniform cell,
 \begin{equation*}
   \sigma_\theta^2(n_d\mid n_d)=\int_{-\Delta d/2}^{\Delta d/2}\frac{v^2}{\Delta d}\,dv=\frac{\Delta d^2}{12},
 \end{equation*}
-at any SNR. The model describes finding the dip, not what follows, so after detection it simply takes the data
-limit, each later measurement adding $I_{\rm max}$:
+at any SNR.
+
+Detection turns the search into tracking (Sec.~\ref{sec:prior}): the posterior at detection takes the place of the
+prior, and its information $J_\tau$ takes the place of $J_0$. In a real run $J_\tau$ is finite. Each likelihood is
+the Gaussian of Eq.~\eqref{eq:noise}, which depends on $\theta$ only through the Lorentzian $\mu(d;\theta)$ and so
+changes smoothly as $\theta$ moves; no outcome cuts the window off sharply, and the posterior, a product of such
+factors, has no edges. Eq.~\eqref{eq:vantrees} then applies again from detection, to each run given what it has
+measured, with $J_0=J_\tau$; the detection must be decided from the run's own data, never from the true $\theta$
+(\SM{sm:prior}). The cell of the model is an idealization whose hard edges come from its all-or-nothing detection,
+and like the uniform window it has no finite Fisher information. The model therefore takes for $J_\tau$ the inverse
+of its error at detection,
+\begin{equation*}
+  J_\tau=\frac{12}{\Delta d^2},
+\end{equation*}
+a value that matches the error rather than the information of a real posterior, which right after detection is
+larger (\SM{sm:prior}).
+The model describes finding the dip, not what follows, so after detection it simply takes the data limit, each later
+measurement adding $I_{\rm max}$:
 \begin{equation}
-  \sigma_\theta^2(n\mid n_d)=\Big(\frac{12}{\Delta d^2}+(n-n_d)\,I_{\rm max}\Big)^{-1},\qquad n\ge n_d .
+  \sigma_\theta^2(n\mid n_d)=\big(J_\tau+(n-n_d)\,I_{\rm max}\big)^{-1},\qquad n\ge n_d ,
   \label{eq:after-detection}
 \end{equation}
-This is the model's curve, not a bound: $12/\Delta d^2$ is the inverse of its error at detection, and a uniform
-cell, like the uniform window, has no finite Fisher information. The cell is an idealization, though: its hard edges
-come from the all-or-nothing detection of the model. In a real run each likelihood is the Gaussian of
-Eq.~\eqref{eq:noise}, which depends on $\theta$ only through the Lorentzian $\mu(d;\theta)$ and so changes smoothly
-as $\theta$ moves; no outcome cuts the window off sharply. The posterior at detection, a product of such factors,
-has no edges either, and its information $J_\tau$ is finite. From there the problem is tracking
-(Sec.~\ref{sec:prior}) with that posterior as the prior, and Eq.~\eqref{eq:vantrees} applies again with
-$J_0=J_\tau$, to each run given what it has measured; the detection must be decided from the run's own data, never
-from the true $\theta$ (\SM{sm:prior}). Both the model curve and this bound reach the unbiased Cram\'er--Rao bound
-$(nI_{\rm max})^{-1}$ once $(n-n_d)I_{\rm max}$ outweighs the information at detection. In localize a strategy has
-not yet locked onto the dip, its posterior may still have several peaks, and its error lies above the curve; refine
-starts when its error runs parallel to it.
+which is Eq.~\eqref{eq:vantrees} restarted at detection. It reaches the unbiased Cram\'er--Rao bound
+$(nI_{\rm max})^{-1}$ once $(n-n_d)I_{\rm max}\gg J_\tau$. In localize a strategy has not yet locked onto the dip,
+its posterior may still have several peaks, and its error lies above this curve; refine starts when its error runs
+parallel to it.
 
 \paragraph{Mean over runs.} Where a run detects depends only on where its dip lies. To average over that, put the
 window at $[0,W]$ with the steps starting at $0$. A dip at $\theta$ is found at step $n_d=\lceil\theta/\Delta d\rceil$.
@@ -333,7 +341,7 @@ and the mean squared error of the model is the sum of the two groups of runs,
 It is the reference for the error of a strategy averaged over runs (Sec.~\ref{sec:results}).
 
 During the search the runs still searching dominate. A run that has found the dip has an error no larger than at
-detection, $\sigma_\theta^2(n\mid n_d)\le\Delta d^2/12$, so
+detection, $\sigma_\theta^2(n\mid n_d)\le J_\tau^{-1}=\Delta d^2/12$, so
 \begin{equation*}
   \sigma_{\rm found}^2(n)\ \le\ \frac{n\Delta d}{W}\,\frac{\Delta d^2}{12}\ \le\ \frac{\Delta d^2}{12},
 \end{equation*}

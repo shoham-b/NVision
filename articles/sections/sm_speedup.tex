@@ -26,12 +26,12 @@ which a run is considered done. The number of measurements to reach it is
 \begin{equation}
   \begin{aligned}
   N_{\rm sweep}(\sigma_{\rm tgt})&=\frac{\sigma_{\rm tgt}^{-2}-(\sigma_0^{\rm global})^{-2}}{I_{\rm sweep}},\\
-  N_{\rm ad}(\sigma_{\rm tgt})&=n_d+\frac{\sigma_{\rm tgt}^{-2}-12/\Delta d^2}{I_{\rm max}},
+  N_{\rm ad}(\sigma_{\rm tgt})&=n_d+\frac{\sigma_{\rm tgt}^{-2}-J_\tau}{I_{\rm max}},
   \end{aligned}
   \label{eq:n-to-target}
 \end{equation}
 where the adaptive count follows the elimination model, Eqs.~\eqref{eq:elimination}--\eqref{eq:after-detection}:
-$n_d$ measurements to detect the dip, after which the information starts at $12/\Delta d^2$ and grows by
+$n_d$ measurements to detect the dip, after which the information starts at $J_\tau=12/\Delta d^2$ and grows by
 $I_{\rm max}$ per measurement until it reaches $\sigma_{\rm tgt}^{-2}$. The sweep count uses the averaged rate, so it
 holds for targets that take more than one pass of the window. The speedup is
 $R(\sigma_{\rm tgt})=N_{\rm sweep}/N_{\rm ad}$. For a precise target the refine terms dominate and $R$ tends to
@@ -42,7 +42,7 @@ low SNR) and target is given by Eq.~\eqref{eq:n-to-target}.
 \paragraph{Bandwidth.} The time to reach the target is $t_m$ times $N_{\rm ad}(\sigma_{\rm tgt})$, $n_d$ measurements
 to find the dip and the rest to refine it:
 \begin{equation}
-  T(\sigma_{\rm tgt})=t_m\Big[n_d+\frac{\sigma_{\rm tgt}^{-2}-12/\Delta d^2}{I_{\rm max}}\Big].
+  T(\sigma_{\rm tgt})=t_m\Big[n_d+\frac{\sigma_{\rm tgt}^{-2}-J_\tau}{I_{\rm max}}\Big].
   \label{eq:bandwidth}
 \end{equation}
 For a tight target the refine term dominates, $T\approx t_m\sigma_{\rm tgt}^{-2}/I_{\rm max}$, which is the sensitivity
