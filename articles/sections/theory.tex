@@ -289,6 +289,18 @@ limit, each later measurement adding $I_{\rm max}$:
   \sigma_\theta^2(n\mid n_d)=\Big(\frac{12}{\Delta d^2}+(n-n_d)\,I_{\rm max}\Big)^{-1},\qquad n\ge n_d .
   \label{eq:after-detection}
 \end{equation}
+This is the model's curve, not a bound: $12/\Delta d^2$ is the inverse of its error at detection, and a uniform
+cell, like the uniform window, has no finite Fisher information. The cell is an idealization, though: its hard edges
+come from the all-or-nothing detection of the model. In a real run each likelihood is the Gaussian of
+Eq.~\eqref{eq:noise}, which depends on $\theta$ only through the Lorentzian $\mu(d;\theta)$ and so changes smoothly
+as $\theta$ moves; no outcome cuts the window off sharply. The posterior at detection, a product of such factors,
+has no edges either, and its information $J_\tau$ is finite. From there the problem is tracking
+(Sec.~\ref{sec:prior}) with that posterior as the prior, and Eq.~\eqref{eq:vantrees} applies again with
+$J_0=J_\tau$, to each run given what it has measured; the detection must be decided from the run's own data, never
+from the true $\theta$ (\SM{sm:prior}). Both the model curve and this bound reach the unbiased Cram\'er--Rao bound
+$(nI_{\rm max})^{-1}$ once $(n-n_d)I_{\rm max}$ outweighs the information at detection. In localize a strategy has
+not yet locked onto the dip, its posterior may still have several peaks, and its error lies above the curve; refine
+starts when its error runs parallel to it.
 
 \paragraph{Mean over runs.} Where a run detects depends only on where its dip lies. To average over that, put the
 window at $[0,W]$ with the steps starting at $0$. A dip at $\theta$ is found at step $n_d=\lceil\theta/\Delta d\rceil$.
@@ -337,19 +349,6 @@ inverse,
 grows by more with each step as the window left shrinks, not by a fixed amount per measurement. Once the window is
 covered, $n\ge W/\Delta d$, $\sigma_{\rm search}^2=0$ and only the runs that found the dip are left, with the sum in
 Eq.~\eqref{eq:found-mean} running to $W/\Delta d$; it tends to $1/(nI_{\rm max})$ as $n\to\infty$.
-
-\paragraph{After detection.} Eq.~\eqref{eq:after-detection} is the model's curve, not a bound: $12/\Delta d^2$ is
-the inverse of its error at detection, and a uniform cell, like the uniform window, has no finite Fisher
-information. The cell is an idealization, though: its hard edges come from the all-or-nothing detection of the
-model. In a real run each likelihood is the Gaussian of Eq.~\eqref{eq:noise}, which depends on $\theta$ only through
-the Lorentzian $\mu(d;\theta)$ and so changes smoothly as $\theta$ moves; no outcome cuts the window off sharply. The
-posterior at detection, a product of such factors, has no edges either, and its information $J_\tau$ is finite. From there the
-problem is tracking (Sec.~\ref{sec:prior}) with that posterior as the prior, and Eq.~\eqref{eq:vantrees} applies
-again with $J_0=J_\tau$, to each run given what it has measured; the detection must be decided from the run's own
-data, never from the true $\theta$ (\SM{sm:prior}). Both the model curve and this bound reach the unbiased
-Cram\'er--Rao bound $(nI_{\rm max})^{-1}$ once $(n-n_d)I_{\rm max}$ outweighs the information at detection. In
-localize a strategy has not yet locked onto the dip, its posterior may still have several peaks, and its error lies
-above the curve; refine starts when its error runs parallel to it.
 
 \paragraph{A lower bound on the search.} The elimination model is one strategy. To show that at high SNR no other
 strategy searches faster, we need a lower bound on the mean error over the uniform window, and van Trees gives none.
