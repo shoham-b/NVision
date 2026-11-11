@@ -305,31 +305,38 @@ searched, $n\Delta d<\theta<W$; with $v=\theta-(W+n\Delta d)/2$, the distance fr
   \end{aligned}
   \label{eq:search-mean}
 \end{equation}
-A dip at $\theta<n\Delta d$ has been found at one of the steps $n_d\le n$, each with probability $\Delta d/W$ and
-with the variance of Eq.~\eqref{eq:after-detection}. The mean squared error of the model is the sum of the two,
+A dip at $\theta<n\Delta d$ has already been found, at step $n_d=\lceil\theta/\Delta d\rceil\le n$. Each step finds
+the dip in a fraction $\Delta d/W$ of the runs, and from then on their error follows Eq.~\eqref{eq:after-detection}.
+Their share of the mean is
 \begin{equation}
-  \begin{aligned}
-  \bar\sigma_\theta^2(n)&=\overbrace{\frac{(W-n\Delta d)^3}{12\,W}}^{\sigma_{\rm search}^2(n)}\\
-  &\quad+\overbrace{\frac{\Delta d}{W}\sum_{n_d=1}^{n}\Big(\frac{12}{\Delta d^2}+(n-n_d)\,I_{\rm max}\Big)^{-1}}
-  ^{\frac{\Delta d}{W}\sum_{n_d}\sigma_\theta^2(n\mid n_d),\ \text{runs that found the dip}},
-  \end{aligned}
+  \sigma_{\rm found}^2(n)=\sum_{n_d=1}^{n}\underbrace{\frac{\Delta d}{W}}_{\text{found at }n_d}\,
+  \underbrace{\sigma_\theta^2(n\mid n_d)}_{\text{Eq.~\eqref{eq:after-detection}}} ,
+  \label{eq:found-mean}
+\end{equation}
+and the mean squared error of the model is the sum of the two groups of runs,
+\begin{equation}
+  \bar\sigma_\theta^2(n)=\sigma_{\rm search}^2(n)+\sigma_{\rm found}^2(n),\qquad n\le W/\Delta d .
   \label{eq:mean-curve}
 \end{equation}
-for $n\le W/\Delta d$. It is the reference for the error of a strategy averaged over runs (Sec.~\ref{sec:results}).
-Each term of the sum is at most $\Delta d^2/12$, so the second term is at most $(n\Delta d/W)\,\Delta d^2/12$, and
-during the search the runs still searching dominate,
+It is the reference for the error of a strategy averaged over runs (Sec.~\ref{sec:results}).
+
+During the search the runs still searching dominate. A run that has found the dip has an error no larger than at
+detection, $\sigma_\theta^2(n\mid n_d)\le\Delta d^2/12$, so
 \begin{equation*}
-  \bar\sigma_\theta^2(n)\ \simeq\ \frac{(W-n\Delta d)^3}{12\,W},\qquad (W-n\Delta d)^3\gg W\Delta d^2 :
+  \sigma_{\rm found}^2(n)\ \le\ \frac{n\Delta d}{W}\,\frac{\Delta d^2}{12}\ \le\ \frac{\Delta d^2}{12},
 \end{equation*}
-the mean stays near the prior until most of the window is excluded, later than a typical run finds its dip. In
-inverse variance, $12W/(W-n\Delta d)^3$, it gains more per step as the window left shrinks, not a fixed amount per
-measurement. Once the window is covered, $n\ge W/\Delta d$, only the runs that found the dip are left,
+and therefore, as long as $(W-n\Delta d)^3\gg W\Delta d^2$,
 \begin{equation*}
-  \begin{aligned}
-  \bar\sigma_\theta^2(n)&=\frac{\Delta d}{W}\sum_{n_d=1}^{W/\Delta d}\Big(\frac{12}{\Delta d^2}+(n-n_d)\,I_{\rm max}\Big)^{-1}\\
-  &\xrightarrow{\ n\to\infty\ }\ \frac{1}{nI_{\rm max}} .
-  \end{aligned}
+  \bar\sigma_\theta^2(n)\ \simeq\ \sigma_{\rm search}^2(n)=\frac{(W-n\Delta d)^3}{12\,W}.
 \end{equation*}
+The mean stays near the prior until most of the window is excluded, later than a typical run finds its dip. Its
+inverse,
+\begin{equation*}
+  \frac{1}{\bar\sigma_\theta^2(n)}\ \simeq\ \frac{12\,W}{(W-n\Delta d)^3},
+\end{equation*}
+grows by more with each step as the window left shrinks, not by a fixed amount per measurement. Once the window is
+covered, $n\ge W/\Delta d$, $\sigma_{\rm search}^2=0$ and only the runs that found the dip are left, with the sum in
+Eq.~\eqref{eq:found-mean} running to $W/\Delta d$; it tends to $1/(nI_{\rm max})$ as $n\to\infty$.
 
 \paragraph{After detection.} Eq.~\eqref{eq:after-detection} is the model's curve, not a bound: $12/\Delta d^2$ is
 the inverse of its error at detection, and a uniform cell, like the uniform window, has no finite Fisher
