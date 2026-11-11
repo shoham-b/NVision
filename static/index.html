@@ -238,6 +238,10 @@
                 </div>
             </div>
             <div id="hl-whole-table" style="margin:1em 0; overflow-x:auto;"></div>
+            <div style="margin:1em 0; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px;">
+                <h3 style="margin-left:10px;">Article claims <span tabindex="0" class="help-icon-visible" title="Each quantitative claim of the article, measured on the run-averaged curves of the selection (docs/evaluation_metrics.md, Testing the article's claims). R = bound squared over the mean-square error (the bound says R at most 1); (n0, q) = late-run fit of 1/MSE = q I* (n - n0) over the steps where at least 90% of the repeats still run (stopped runs leave and are never held), with a bootstrap interval over repeats; coverage = share of runs with |error| within 1 and 2 claimed sigma at the stop (nominal 68% and 95%, below = overconfident); eta ratio = measured sensitivity over the article's eta. A dash means the stored data cannot give the number. Median over the selected use cases.">?</span></h3>
+                <div id="hl-claims" style="overflow-x:auto;"></div>
+            </div>
             <div style="display:flex; flex-wrap:wrap; gap:1.5em; margin-top:1em;">
                 <div style="flex:1 1 46%; min-width:420px; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:10px;">
                     <h3 style="margin-left:10px;">Claimed uncertainty vs measurements <span tabindex="0" class="help-icon-visible" title="Median claimed uncertainty of the primary parameter after each measurement, with the interquartile band over repeats. Dashed = the bound (J₀ + n·I*)^(-1/2) from the run's own start. Lower and further left = converges faster.">?</span></h3>

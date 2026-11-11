@@ -24,6 +24,7 @@ from nvision.cache import CacheBridge
 from nvision.cache.hashing import stable_config_hash
 from nvision.cache.locator_keys import MIN_VIEWABLE_CACHE_SCHEMA_VERSION, combination_base_cache_config
 from nvision.gui.report import _STATIC_DIR, render_index_html
+from nvision.metrics.claim_columns import CLAIM_COLUMN_KEYS
 from nvision.runner.cache import _decompress_text
 from nvision.sim.combinations import SWEEP_SPACING_DIVISORS, CombinationGrid
 from nvision.sim.defaults import PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS
@@ -221,6 +222,8 @@ _COMPARE_FIELDS = (
     "stage3_oracle_steps",
     "stage3_efficiency",
     "stage3_wasted_share",
+    # The columns the article's claims need (nvision/metrics/claim_columns.py).
+    *CLAIM_COLUMN_KEYS,
 )
 
 
@@ -398,6 +401,23 @@ def _add_lab_study_route(app: FastAPI, lab_dirs: list[Path], run_dir: Path) -> N
             return lab_study_payload(labs[name])
         except (ValueError, OSError) as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+def _add_claims_route(app: FastAPI, scan_fields: Any) -> None:
+    """``/api/claims``: the article-claim numbers (nvision/metrics/claims_report.py) per use case and locator for the
+    given generator(s)/noise(s), comma-separated. Read-only: computed from the stored per-step series that
+    ``scan_fields`` (the ``/api/scan-fields`` handler) serves. Module-level to keep build_app's complexity down."""
+    from nvision.metrics.claims_report import analyse_use_case
+
+    @app.get("/api/claims")
+    def claims_endpoint(generator: str, noise: str) -> list[dict]:
+        grouped: dict[tuple[str, str, str], list[dict]] = {}
+        for row in scan_fields(generator, noise):
+            grouped.setdefault((row["generator"], row["noise"], row["strategy"]), []).append(row)
+        return [
+            {"generator": g, "noise": n, "strategy": st, **analyse_use_case(group)}
+            for (g, n, st), group in sorted(grouped.items())
+        ]
 
 
 def build_app(cache_dir: Path, run_dir: Path, lab_dirs: list[Path] | None = None) -> FastAPI:
@@ -680,6 +700,8 @@ def build_app(cache_dir: Path, run_dir: Path, lab_dirs: list[Path] | None = None
             return out
         finally:
             bridge.close()
+
+    _add_claims_route(app, scan_fields)
 
     def _clear_caches() -> None:
         with lock:
