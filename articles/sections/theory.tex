@@ -156,9 +156,8 @@ can,
 \end{equation}
 with $\mathrm{SNR}=C/\sigma$ of Eq.~\eqref{eq:snr}. The best place to measure is thus the flank of the dip, not its
 center, and the information there grows as $(\mathrm{SNR}/\Gamma)^2$: a deeper or a narrower line is equally
-valuable. $I_{\rm max}$ assumes the nuisance parameters (width, contrast) are
-known; with free nuisances it is an upper bound on the usable information. The nuisances are inferred along with
-$\theta$ but are not the subject of this work.
+valuable. $I_{\rm max}$ treats the width $\Gamma$ and the contrast $C$ as known; inferring them as well can only
+lower it.
 
 Measurements are independent given $\theta$, so their Fisher information adds: $n$ measurements at
 $d_1,\dots,d_n$ carry
@@ -211,10 +210,7 @@ not the uncertainty a strategy claims. The bound holds for this average over $\t
 estimate that leans on the prior can do better than the bound at some $\theta$, near the center of the prior, only by
 doing worse at others. For a signal linear in $\theta$ the bound is reached exactly; for the dip it holds at every
 $n$ and is reached once the estimate is within the line.
-The bound, like all those below, treats the width $\Gamma$ and the contrast $C$ as known. Inferring them as well can
-only add to the uncertainty in $\theta$, but it adds nothing when the measurements are placed symmetrically on the two
-sides of the dip: there the effect of a shift of $\theta$ on the data is uncorrelated with that of a change of
-$\Gamma$ or $C$, so the Fisher information has no cross terms between them.
+Like all the bounds below, it treats $\Gamma$ and $C$ as known.
 
 The curve has two limits, set by how the information of the measurements compares with that of the prior. While
 $nI_{\rm max}\ll J_0$, it stays at the prior, $\sigma_{\rm vT}\approx\sigma_0^{\rm track}$: the measurements have not yet added
