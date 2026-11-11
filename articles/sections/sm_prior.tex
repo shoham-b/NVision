@@ -186,7 +186,8 @@ of the detecting measurement, and the posterior is two narrow peaks at $d\pm|\th
 decided from the run's own data and never from the true $\theta$. Given the data up to $\tau$, the posterior is the
 prior of the remaining measurements, and van Trees applied to them, then averaged over runs, gives
 $\bar\sigma_\theta^2(n)\ge\mathbb E[(J_\tau+(n-\tau)I_{\rm max})^{-1}]$ with $J_\tau$ the Fisher information of that
-posterior. Right after detection the two mirror peaks make $J_\tau$ of order $I(\theta)$, far above
+posterior. $J_\tau$ is finite: every likelihood is Gaussian in $y$ and so smooth in $\theta$, and the posterior has
+none of the hard edges of the idealized cell. Right after detection the two mirror peaks make $J_\tau$ of order $I(\theta)$, far above
 $12/\Delta d^2$, while the error is $\Delta d/\sqrt{12}$: the restarted bound is valid but loose until the side is
 known. The elimination model therefore restarts with the value that matches the error, $J_0=12/\Delta d^2$, a
 model value rather than a bound. The measurement that resolves the side is placed at the steepest slope of one of
