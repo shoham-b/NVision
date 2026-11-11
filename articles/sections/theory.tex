@@ -370,11 +370,14 @@ At lower SNR a single measurement no longer shows the dip, and a second bound ta
 instead. A measurement at $d$ is evidence for a dip at $\theta$ in proportion to the squared signal-to-noise ratio
 it would see there, $k\,\mathrm{SNR}(d)^2/2$ with $\mathrm{SNR}(d)$ of Eq.~\eqref{eq:snr-local} for a dip at
 $f_-=\theta$, and a run has located the dip only once this evidence has added up to order one. Before the dip is
-found a strategy does not know where it is, so what one measurement can contribute is the average over the window,
-whatever $d$ it picks,
+found a strategy does not know where it is, so what one measurement can contribute is the average over the window.
+We call the largest value of that average, over all drive frequencies $d$, $\bar\kappa$: the evidence one
+measurement can carry about the position of the dip during the search,
 \begin{equation*}
   \frac1W\int\frac{k\,\mathrm{SNR}(d)^2}{2}\,d\theta\ \le\ \bar\kappa=\frac{\pi\gamma\,k\,\mathrm{SNR}^2}{4W}.
-\end{equation*} Any strategy, adaptive or not, therefore needs at least about
+\end{equation*}
+It is the evidence $k\,\mathrm{SNR}^2/2$ of a measurement right on the dip times $\pi\gamma/2W$, the share of the
+window the dip covers. Any strategy, adaptive or not, therefore needs at least about
 \begin{equation}
   n_{\rm search}\ \gtrsim\ \frac{1}{\bar\kappa}=\frac{8}{\pi}\,\frac{W}{\Gamma}\,\frac{1}{k\,\mathrm{SNR}^2}
   \label{eq:search-cost}
