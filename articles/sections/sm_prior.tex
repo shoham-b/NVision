@@ -106,7 +106,10 @@ pieces, and its mean error at the same $n$ is larger.
 applies, since an adaptive strategy now branches on noisy outcomes. A change-of-measure argument
 \cite{garivier2019} bounds it instead. It rests on the same idea as the Ziv--Zakai bound, a binary test, but the
 alternative to a dip at $\theta$ is now no dip at all, and the evidence for telling them apart is counted by the
-Kullback--Leibler divergence. Let $P_\theta$ be the law of all the data of a run with the dip at $\theta$,
+Kullback--Leibler divergence. Ziv--Zakai with a pairwise divergence would need the evidence between a dip at $\theta$
+and one at $\theta+h$, which for an adaptive strategy depends on where it chose to measure in each world; without a
+dip those choices do not depend on $\theta$, and the evidence can be averaged over the window. The price is looser
+constants: at high SNR the Ziv--Zakai bound above is exact, and this one is not. Let $P_\theta$ be the law of all the data of a run with the dip at $\theta$,
 and $P_0$ the law with no dip at all, the strategy being the same. In each measurement the outcome is Gaussian with
 variance $\sigma^2/k$ and mean shifted by the dip depth at the drive frequency,
 $s(d;\theta)=C\gamma^2/[\gamma^2+(d-\theta)^2]$. Each drive frequency $d_i$ is chosen from the past outcomes by the
