@@ -382,7 +382,7 @@ Eq.~\eqref{eq:search-cost} allows less than one measurement per place, and Eq.~\
 that holds.
 
 \paragraph{Reading the bounds.} The bounds differ in what their mean averages over. The search bounds,
-Eqs.~\eqref{eq:search-mean} and \eqref{eq:search-bound}, average over $\theta$ anywhere in the window, so they
+Eq.~\eqref{eq:search-mean} and its low-SNR counterpart (\SM{sm:prior}), average over $\theta$ anywhere in the window, so they
 constrain only the mean over runs; a single run, which drops at its own $n_d$, says nothing against them. After
 detection each run is read on its own, and the slope of its error gives the fraction $q\le1$ of $I_{\rm max}$ that
 its measurements carry (Sec.~\ref{sec:speedup}).
@@ -449,7 +449,7 @@ strategy measures at the steepest slope and reaches the data limit (Sec.~\ref{se
 picture of a Bayesian run, not a prediction of its step counts: at low SNR one measurement no longer reveals the dip,
 $n_d$ grows, and localize spreads over many measurements. The runs are read against the bounds rather than the
 model: during the search through their mean, against Eq.~\eqref{eq:search-mean} at high SNR and
-Eqs.~\eqref{eq:search-cost}--\eqref{eq:search-bound} at any SNR, which hold for any strategy, and after each run's own detection against Eq.~\eqref{eq:vantrees} with that run's posterior as the prior.
+the rigorous form of Eq.~\eqref{eq:search-cost} at any SNR (\SM{sm:prior}), which holds for any strategy, and after each run's own detection against Eq.~\eqref{eq:vantrees} with that run's posterior as the prior.
 
 \subsection{Information gained per measurement}
 \label{sec:eig}
