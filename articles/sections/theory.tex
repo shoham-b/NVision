@@ -358,59 +358,47 @@ grows by more with each step as the window left shrinks, not by a fixed amount p
 covered, $n\ge W/\Delta d$, $\sigma_{\rm search}^2=0$ and only the runs that found the dip are left, with the sum in
 Eq.~\eqref{eq:found-mean} running to $W/\Delta d$; it tends to $1/(nI_{\rm max})$ as $n\to\infty$.
 
-\paragraph{A lower bound on the search.} To show that at high SNR no strategy searches faster than the elimination
-model, we use the Ziv--Zakai bound \cite{zivzakai1969,bell1997}, which, unlike van Trees, holds for a prior with
-hard edges \cite{daurelio2022}. It bounds the mean error by how well the data tell apart pairs of positions, and
-before its first detection no strategy, adaptive or not, can tell apart two positions in the part of the window it
-has not yet probed. The bound then equals Eq.~\eqref{eq:search-mean}, which the elimination model meets
-(\SM{sm:prior}).
+\paragraph{A lower bound on the search.} The elimination model is one strategy; to show that no strategy searches
+faster, we need a lower bound on the mean error over the uniform window, and van Trees gives none. Both bounds we use
+rest on one idea: a run cannot locate the dip better than its data can tell apart where the dip might be, and before
+the dip is found no strategy, adaptive or not, knows where to look. They differ in what the two alternatives are.
 
-\paragraph{Search at lower SNR.} At lower SNR one measurement in the dip no longer reveals it. Averaging a few shots
-per probe until the drop is clear brings back the same model, with each step costing that many shots. The limit now
-comes from comparing a world with the dip at $\theta$ with a world that has no dip at all: a run has located the dip
-only once its data tell these two worlds apart. In both worlds a measurement at $d$ returns $y$ with variance
-$\sigma^2/k$; the dip shifts its mean by its depth at the drive frequency, $s(d;\theta)=1-\mu(d;\theta)$ of
-Eq.~\eqref{eq:signal}. How well one measurement tells the two worlds apart is the
-Kullback--Leibler divergence between its outcomes (Sec.~\ref{sec:eig}), for two Gaussians of equal variance the
-squared shift over twice the variance, $k\,s(d;\theta)^2/2\sigma^2$. In the world without a dip the strategy's choice
-of $d$ cannot depend on $\theta$, so averaged over where the dip could be, at any $d$, a measurement tells them apart
-by at most
+At high SNR a measurement either sees the dip or does not, and the alternatives are two positions of the dip, at
+$\theta$ and at $\theta+h$. The Ziv--Zakai bound \cite{zivzakai1969,bell1997} bounds the mean error by how well the
+data tell such pairs apart, and unlike van Trees it holds for a prior with hard edges \cite{daurelio2022}. Before its
+first detection no strategy can tell apart two positions in the part of the window it has not yet probed, and the
+bound then equals Eq.~\eqref{eq:search-mean}, which the elimination model meets (\SM{sm:prior}).
+
+At lower SNR one measurement in the dip no longer reveals it. Averaging a few shots per probe until the drop is clear
+brings back the same model, with each step costing that many shots. A measurement now adds only a little evidence,
+and the alternatives are a dip at $\theta$ and no dip at all: a run has located the dip only once its data
+tell these two worlds apart. How well they are told apart is measured by the Kullback--Leibler divergence between
+the outcomes in the two worlds (Sec.~\ref{sec:eig}): it adds over the measurements, adaptive or not, and until it
+reaches order one no test on the data can tell the worlds apart. In the world without a dip the strategy's choice of
+drive frequency cannot depend on $\theta$, so averaged over where the dip could be, one measurement adds at most
 \begin{equation*}
-  \begin{aligned}
-  \bar\kappa&=\frac1W\int\frac{k\,s(d;\theta)^2}{2\sigma^2}\,d\theta
-  =\frac{k\,C^2\gamma^4}{2\sigma^2W}\int_{-\infty}^{\infty}\frac{dv}{(\gamma^2+v^2)^2}\\
-  &=\frac{k\,C^2\gamma^4}{2\sigma^2W}\,\frac{\pi}{2\gamma^3}=\frac{\pi\gamma\,k\,\mathrm{SNR}^2}{4W},
-  \end{aligned}
+  \bar\kappa=\frac{\pi\gamma\,k\,\mathrm{SNR}^2}{4W},
 \end{equation*}
-with $v=d-\theta$, the integral over the whole line bounding the one over the window. The divergences of
-independent measurements add, so after $n$ measurements the two worlds are told apart by at most $n\bar\kappa$ on
-average, and the fraction of runs that have not yet located the dip falls no faster than about $e^{-n\bar\kappa}$.
-Any strategy therefore needs at least about
+the evidence of the dip spread over the window (\SM{sm:prior}). Any strategy therefore needs at least about
 \begin{equation}
   n_{\rm search}\ \gtrsim\ \frac{1}{\bar\kappa}=\frac{8}{\pi}\,\frac{W}{\Gamma}\,\frac{1}{k\,\mathrm{SNR}^2}
   \label{eq:search-cost}
 \end{equation}
-measurements \cite{garivier2019}. The same comparison bounds the mean error itself, for any strategy, adaptive or
-not, at any SNR and every $n$ (\SM{sm:prior}):
+measurements \cite{garivier2019}, and its mean error obeys, at any SNR and every $n$,
 \begin{equation}
   \bar\sigma_\theta^2(n)\ \ge\ \frac{W^2}{8e}\,\frac{e^{-n\bar\kappa}}{(1+\ln2+n\bar\kappa)^2} .
   \label{eq:search-bound}
 \end{equation}
 It stays of the order of the prior until $n\bar\kappa$ is of order one, and it matters only during the search; once
-the dip is found, van Trees with the run's own posterior as the prior takes over.
+the dip is found, van Trees with the run's own posterior as the prior takes over. At high SNR
+Eq.~\eqref{eq:search-cost} allows less than one measurement per probe, which no strategy can take, and the
+elimination bound, Eq.~\eqref{eq:search-mean}, takes over.
 
-With repeats, each step of the elimination model is a detection, with a miss and a false alarm at every probe.
-Averaging the same number of shots at every probe costs a factor of order $\ln(W/\Delta d)$ more than
-Eq.~\eqref{eq:search-cost}, even with the best $\Delta d$: the detection threshold must rise with the number of
-probes to keep noise on the baseline from being taken for a dip (\SM{sm:prior}). A sequential test spends its shots
-where they are needed: it drops a position as soon as it looks like the baseline and measures again only where the
-outcome is ambiguous, so it needs strong evidence only to confirm a dip. It avoids most of the factor
-\cite{malloy2014}, so at low SNR an adaptive strategy can search faster than repeated averaging. A Bayesian strategy
-goes further: its posterior combines the outcomes at neighboring positions, which the tails of the dip reach as well,
-and lowers the weight of a position with each outcome that looks like the baseline instead of excluding it at once.
-At high SNR Eq.~\eqref{eq:search-cost} allows less than one measurement per probe, which no strategy can take,
-and the elimination bound, Eq.~\eqref{eq:search-mean}, takes over. Before the dip is found, no strategy knows where to look, and none gains more per
-measurement than the window average.
+The bound holds for every strategy, but not every strategy reaches it. Averaging the same number of shots at every
+probe pays a factor of about $\ln(W/\Delta d)$ more: its detection threshold must rise with the number of probes to
+keep noise on the baseline from being taken for a dip. A sequential test, which drops a position as soon as it looks
+like the baseline, avoids most of that factor \cite{malloy2014}, so at low SNR an adaptive strategy can search faster
+than repeated averaging (\SM{sm:prior}).
 
 \paragraph{Reading the bounds.} The bounds differ in what their mean averages over. The search bounds,
 Eqs.~\eqref{eq:search-mean} and \eqref{eq:search-bound}, average over $\theta$ anywhere in the window, so they

@@ -104,7 +104,9 @@ pieces, and its mean error at the same $n$ is larger.
 
 \paragraph{Search at any SNR.} At lower SNR a single measurement no longer decides, and the argument above no longer
 applies, since an adaptive strategy now branches on noisy outcomes. A change-of-measure argument
-\cite{garivier2019} bounds it instead. Let $P_\theta$ be the law of all the data of a run with the dip at $\theta$,
+\cite{garivier2019} bounds it instead. It rests on the same idea as the Ziv--Zakai bound, a binary test, but the
+alternative to a dip at $\theta$ is now no dip at all, and the evidence for telling them apart is counted by the
+Kullback--Leibler divergence. Let $P_\theta$ be the law of all the data of a run with the dip at $\theta$,
 and $P_0$ the law with no dip at all, the strategy being the same. In each measurement the outcome is Gaussian with
 variance $\sigma^2/k$ and mean shifted by the dip depth at the drive frequency,
 $s(d;\theta)=C\gamma^2/[\gamma^2+(d-\theta)^2]$. Each drive frequency $d_i$ is chosen from the past outcomes by the
@@ -112,11 +114,19 @@ same rule under both laws, so the chain rule of the Kullback--Leibler divergence
 \begin{equation*}
   D_{\rm KL}(P_0\,\|\,P_\theta)=\mathbb E_0\Big[\sum_{i=1}^{n}\frac{k\,s(d_i;\theta)^2}{2\sigma^2}\Big].
 \end{equation*}
-The expectation is under $P_0$, where the choices cannot depend on $\theta$. Averaged over $\theta$ uniform on the
-window, and using $\int s(d;\theta)^2\,d\theta\le C^2\pi\gamma/2$ for every $d$,
+Each term is the divergence of one measurement, for two Gaussians of equal variance the squared shift of the mean
+over twice the variance. The expectation is under $P_0$, where the choices cannot depend on $\theta$. Averaged over
+$\theta$ uniform on the window, at any $d$ one measurement adds at most
 \begin{equation*}
-  \frac1W\int D_{\rm KL}(P_0\,\|\,P_\theta)\,d\theta\ \le\ n\bar\kappa,\qquad
-  \bar\kappa=\frac{\pi\gamma\,k\,\mathrm{SNR}^2}{4W}.
+  \begin{aligned}
+  \bar\kappa&=\frac1W\int\frac{k\,s(d;\theta)^2}{2\sigma^2}\,d\theta
+  \ \le\ \frac{k\,C^2\gamma^4}{2\sigma^2W}\int_{-\infty}^{\infty}\frac{dv}{(\gamma^2+v^2)^2}\\
+  &=\frac{k\,C^2\gamma^4}{2\sigma^2W}\,\frac{\pi}{2\gamma^3}=\frac{\pi\gamma\,k\,\mathrm{SNR}^2}{4W},
+  \end{aligned}
+\end{equation*}
+with $v=d-\theta$, the integral over the whole line bounding the one over the window. Hence
+\begin{equation*}
+  \frac1W\int D_{\rm KL}(P_0\,\|\,P_\theta)\,d\theta\ \le\ n\bar\kappa .
 \end{equation*}
 Now let $A_\theta$ be the event $|\hat\theta_n-\theta|\le t$, with probabilities $p_0(\theta)=P_0(A_\theta)$ and
 $p_\theta=P_\theta(A_\theta)$. Under $P_0$ the estimate does not depend on $\theta$, so the average of $p_0(\theta)$
@@ -139,8 +149,12 @@ for $n\bar\kappa\le50$. The fixed choice $t=W/4$ gives the simpler $W^2e^{-2n\ba
 The search therefore takes at least of order $1/\bar\kappa$ measurements, Eq.~\eqref{eq:search-cost}. The bound has
 no factor $\ln(W/\Gamma)$, and none is needed. A strategy that averages a fixed number of shots at every probe
 position must raise its detection threshold with the number of positions to keep false alarms rare, and pays about
-$\ln(W/\Delta d)$ more, Eq.~\eqref{eq:sm-fixed-cost} below. A sequential test, which drops a position as soon as it looks like the baseline, does not
-\cite{malloy2014}. At high SNR $1/\bar\kappa$ falls below $W/\Delta d$, one measurement per probe position, and the
+$\ln(W/\Delta d)$ more, Eq.~\eqref{eq:sm-fixed-cost} below. A sequential test spends its shots where they are
+needed: it drops a position as soon as it looks like the baseline and measures again only where the outcome is
+ambiguous, so it needs strong evidence only to confirm a dip, and avoids most of the factor \cite{malloy2014}. A
+Bayesian strategy goes further: its posterior combines the outcomes at neighboring positions, which the tails of the
+dip reach as well, and lowers the weight of a position with each outcome that looks like the baseline instead of
+excluding it at once. At high SNR $1/\bar\kappa$ falls below $W/\Delta d$, one measurement per probe position, and the
 finite-reach bound above is the one that binds.
 
 \paragraph{The reach of a measurement.} The finite-reach bound treats the dip as invisible beyond its probe cell.
