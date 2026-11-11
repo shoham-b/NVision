@@ -366,18 +366,20 @@ edges \cite{daurelio2022}, turns this into a bound on the mean error. No strateg
 not yet probed, so the bound equals Eq.~\eqref{eq:search-mean}, and the elimination model meets it
 (\SM{sm:prior}).
 
-At lower SNR a single measurement no longer shows the dip, and a second bound takes over, which counts evidence
-instead. A measurement at $d$ is evidence for a dip at $\theta$ in proportion to the squared signal-to-noise ratio
-it would see there, $k\,\mathrm{SNR}(d)^2/2$ with $\mathrm{SNR}(d)$ of Eq.~\eqref{eq:snr-local} for a dip at
-$f_-=\theta$, and a run has located the dip only once this evidence has added up to order one. Before the dip is
-found a strategy does not know where it is, so what one measurement can contribute is the average over the window.
-We call the largest value of that average, over all drive frequencies $d$, $\bar\kappa$: the evidence one
-measurement can carry about the position of the dip during the search,
+At lower SNR a single measurement no longer shows the dip, and a second bound takes over, which counts
+\emph{detection information}: how much a measurement tells a dip at $\theta$ apart from no dip at all, in nats. It
+is the Kullback--Leibler divergence between the outcomes in the two cases \cite{garivier2019}, not the Fisher
+information of Sec.~\ref{sec:fisher}, which measures how well a dip already seen is located. For a measurement at
+$d$ it is $k\,\mathrm{SNR}(d)^2/2$, with $\mathrm{SNR}(d)$ of Eq.~\eqref{eq:snr-local} for a dip at $f_-=\theta$
+(\SM{sm:prior}), and a run has located the dip only once it has gathered detection information of order one. Before
+the dip is found a strategy does not know where it is, so what one measurement can gather is the average over the
+window. We call the largest value of that average, over all drive frequencies $d$, $\bar\kappa$: the detection
+information per measurement during the search,
 \begin{equation*}
   \frac1W\int\frac{k\,\mathrm{SNR}(d)^2}{2}\,d\theta\ \le\ \bar\kappa=\frac{\pi\gamma\,k\,\mathrm{SNR}^2}{4W}.
 \end{equation*}
-It is the evidence $k\,\mathrm{SNR}^2/2$ of a measurement right on the dip times $\pi\gamma/2W$, the share of the
-window the dip covers. Any strategy, adaptive or not, therefore needs at least about
+It is the detection information $k\,\mathrm{SNR}^2/2$ of a measurement right on the dip times $\pi\gamma/2W$, the
+share of the window the dip covers. Any strategy, adaptive or not, therefore needs at least about
 \begin{equation}
   n_{\rm search}\ \gtrsim\ \frac{1}{\bar\kappa}=\frac{8}{\pi}\,\frac{W}{\Gamma}\,\frac{1}{k\,\mathrm{SNR}^2}
   \label{eq:search-cost}
