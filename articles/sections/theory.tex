@@ -366,24 +366,25 @@ edges \cite{daurelio2022}, turns this into a bound on the mean error. No strateg
 not yet probed, so the bound equals Eq.~\eqref{eq:search-mean}, and the elimination model meets it
 (\SM{sm:prior}).
 
-At lower SNR a measurement no longer shows the dip, and the question becomes whether the data tell a dip at
-$\theta$ from no dip at all. The evidence for that, the Kullback--Leibler divergence (Sec.~\ref{sec:eig}), adds over
-the measurements. The world without a dip is the reference because there the strategy's choices cannot depend on
-$\theta$, adaptive or not, so averaged over the window each measurement adds at most $\bar\kappa=\pi\gamma\,k\,\mathrm{SNR}^2/4W$ (\SM{sm:prior}). Any strategy therefore
-needs at least about
+At lower SNR a single measurement no longer shows the dip, and a second bound takes over, which counts evidence
+instead. A measurement at $d$ is evidence for a dip at $\theta$ in proportion to the squared drop it would see there,
+$s(d;\theta)=1-\mu(d;\theta)$, over the noise variance, and a run has located the dip only once this evidence has
+added up to order one. Before the dip is found a strategy does not know where it is, so what one measurement can
+contribute is the average over the window, whatever $d$ it picks,
+\begin{equation*}
+  \frac1W\int\frac{k\,s(d;\theta)^2}{2\sigma^2}\,d\theta\ \le\ \bar\kappa=\frac{\pi\gamma\,k\,\mathrm{SNR}^2}{4W}.
+\end{equation*} Any strategy, adaptive or not, therefore needs at least about
 \begin{equation}
   n_{\rm search}\ \gtrsim\ \frac{1}{\bar\kappa}=\frac{8}{\pi}\,\frac{W}{\Gamma}\,\frac{1}{k\,\mathrm{SNR}^2}
   \label{eq:search-cost}
 \end{equation}
-measurements \cite{garivier2019}, and its mean error obeys, at every $n$,
+measurements to find the dip, and its mean error stays near the prior until then \cite{garivier2019},
 \begin{equation}
-  \bar\sigma_\theta^2(n)\ \ge\ \frac{W^2}{8e}\,\frac{e^{-n\bar\kappa}}{(1+\ln2+n\bar\kappa)^2},
+  \bar\sigma_\theta^2(n)\ \ge\ \frac{W^2}{8e}\,\frac{e^{-n\bar\kappa}}{(1+\ln2+n\bar\kappa)^2}
   \label{eq:search-bound}
 \end{equation}
-which stays near the prior until $n\bar\kappa\sim1$. At high SNR Eq.~\eqref{eq:search-cost} allows less than one
-measurement per probe, and Eq.~\eqref{eq:search-mean} takes over. Averaging the same number of shots at every probe
-falls short of the bound by a factor of about $\ln(W/\Delta d)$, since its threshold must rise with the number of
-probes to avoid false alarms; a sequential test avoids most of it \cite{malloy2014} (\SM{sm:prior}).
+(\SM{sm:prior}). At high SNR Eq.~\eqref{eq:search-cost} allows less than one measurement per probe, and
+Eq.~\eqref{eq:search-mean} is the bound that holds.
 
 \paragraph{Reading the bounds.} The bounds differ in what their mean averages over. The search bounds,
 Eqs.~\eqref{eq:search-mean} and \eqref{eq:search-bound}, average over $\theta$ anywhere in the window, so they
