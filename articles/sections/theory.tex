@@ -238,125 +238,63 @@ of the uniform prior,
   \bar\sigma_\theta^2(0)=\big(\sigma_0^{\rm global}\big)^2=\frac{W^2}{12}.
   \label{eq:prior}
 \end{equation}
-
-Eq.~\eqref{eq:vantrees} cannot describe what follows, for two reasons. First, the uniform prior steps from $1/W$ to
-zero at the edges of the window, where $p'$ diverges, so
-\begin{equation*}
-  \begin{aligned}
-  J_0^{\rm global}&=\int\frac{p'(\theta)^2}{p(\theta)}\,d\theta=\infty\\
-  \Longrightarrow\quad\bar\sigma_\theta(n)&\ \ge\ \big(J_0^{\rm global}+nI_{\rm max}\big)^{-1/2}=0 .
-  \end{aligned}
-\end{equation*}
-Second, even with the inverse variance $12/W^2$ in its place, the bound
-credits every measurement with $I_{\rm max}$, and its crossover,
-\begin{equation*}
-  n_c=\frac{12/W^2}{I_{\rm max}}=\frac{64}{9}\,\frac{(\Gamma/W)^2}{k\,\mathrm{SNR}^2}
-  \;\overset{W\gg\Gamma}{\ll}\;1,
-\end{equation*}
-would put the data limit at the first measurement. But $I_{\rm max}$ is reached only once the dip has been found: a
-measurement on the baseline carries $I(d)\approx0$. What such a measurement
-contributes instead is \emph{elimination}: it rules out the part of the window where a dip would have shown.
+Eq.~\eqref{eq:vantrees} cannot describe what follows. The uniform prior steps from $1/W$ to zero at the edges of the
+window, so its Fisher information is infinite and the bound reduces to $\bar\sigma_\theta\ge0$. And the bound credits
+every measurement with $I_{\rm max}$, while a measurement on the baseline carries $I(d)\approx0$ (\SM{sm:prior}).
+What such a measurement contributes instead is \emph{elimination}: it rules out the part of the window where a dip
+would have shown.
 
 \paragraph{Elimination model.} Let the SNR be so high that a single measurement shows a dip within its reach
-$\Delta d$ of the drive frequency, and none further away; the optimal $\Delta d$ is calculated in \SM{sm:prior}. The
-elimination model steps through the window from one edge, spaced by this reach, since closer spacing repeats work
-and wider spacing lets the dip slip between them,
-\begin{equation*}
-  d_j=f_{\min}+\big(j-\tfrac12\big)\Delta d,\qquad j=1,\dots,W/\Delta d,
-\end{equation*}
-so that step $j$ covers the cell $[f_{\min}+(j-1)\Delta d,\,f_{\min}+j\Delta d]$ and the cells tile the window
-without gaps or overlap. In one run, after $n$ measurements without a dip, the resonance is known only to lie in
-the part of the window not yet excluded, and the posterior is uniform there, so the error of that run is
+$\Delta d$ of the drive frequency, and none further away. The elimination model steps through the window from one
+edge, spaced by this reach, so that each step covers a cell of width $\Delta d$ (\SM{sm:prior}). After $n$ steps
+without a dip, the dip is equally likely anywhere in the part of the window not yet covered, so the error of that
+run is
 \begin{equation}
   \sigma_\theta(n)=\frac{\overbrace{W-n\Delta d}^{\text{window left}}}{\sqrt{12}},\qquad n<n_d,
   \label{eq:elimination}
 \end{equation}
-where $n_d\le W/\Delta d$ is the step that finds the dip.
-
-The detecting measurement is taken at the center $d_{n_d}$ of its cell, and the dip is equally likely anywhere in it,
-\begin{equation*}
-  d_{n_d}-\tfrac12\Delta d\ \le\ \theta\ \le\ d_{n_d}+\tfrac12\Delta d .
-\end{equation*}
-It infers the resonance rather than sitting on it: when the reach is wider than the line, the dip is often detected
-through its side, up to $\Delta d/2$ from the drive frequency. Taking $d_{n_d}$ as the estimate, the mean squared
-error is that of the uniform cell,
-\begin{equation*}
-  \sigma_\theta^2(n_d\mid n_d)=\int_{-\Delta d/2}^{\Delta d/2}\frac{v^2}{\Delta d}\,dv=\frac{\Delta d^2}{12},
-\end{equation*}
-at any SNR.
+where $n_d\le W/\Delta d$ is the step that finds the dip. At that step the dip is equally likely anywhere in the cell
+of the detecting measurement, and the error is that of the cell, $\Delta d/\sqrt{12}$.
 
 Detection turns the search into tracking (Sec.~\ref{sec:prior}): the posterior at detection takes the place of the
-prior, and its information $J_\tau$ takes the place of $J_0$. In a real run $J_\tau$ is finite. Each likelihood is
-the Gaussian of Eq.~\eqref{eq:noise}, which depends on $\theta$ only through the Lorentzian $\mu(d;\theta)$ and so
-changes smoothly as $\theta$ moves; no outcome cuts the window off sharply, and the posterior, a product of such
-factors, has no edges. Eq.~\eqref{eq:vantrees} then applies again from detection, to each run given what it has
-measured, with $J_0=J_\tau$; the detection must be decided from the run's own data, never from the true $\theta$
-(\SM{sm:prior}). The cell of the model is an idealization whose hard edges come from its all-or-nothing detection,
-and like the uniform window it has no finite Fisher information. The model therefore takes for $J_\tau$ the inverse
-of its error at detection,
-\begin{equation*}
-  J_\tau=\frac{12}{\Delta d^2},
-\end{equation*}
-a value that matches the error rather than the information of a real posterior, which right after detection is
-larger (\SM{sm:prior}).
-The model describes finding the dip, not what follows, so after detection it simply takes the data limit, each later
-measurement adding $I_{\rm max}$:
+prior, and its information $J_\tau$ takes the place of $J_0$. This is why van Trees applies again. Each likelihood is
+the Gaussian of Eq.~\eqref{eq:noise}, which changes smoothly as $\theta$ moves, so in a real run the posterior has no
+hard edges and $J_\tau$ is finite, unlike the information of the uniform window. Eq.~\eqref{eq:vantrees} then holds
+again from detection, for each run, with $J_0=J_\tau$ (\SM{sm:prior}). The cell of the model keeps the hard edges of
+its all-or-nothing detection, so the model takes for $J_\tau$ the inverse of its error at detection,
+$J_\tau=12/\Delta d^2$, and after detection simply takes the data limit, each later measurement adding $I_{\rm max}$:
 \begin{equation}
-  \sigma_\theta^2(n\mid n_d)=\big(J_\tau+(n-n_d)\,I_{\rm max}\big)^{-1},\qquad n\ge n_d ,
+  \sigma_\theta^2(n\mid n_d)=\big(J_\tau+(n-n_d)\,I_{\rm max}\big)^{-1},\qquad n\ge n_d .
   \label{eq:after-detection}
 \end{equation}
-which is Eq.~\eqref{eq:vantrees} restarted at detection. It reaches the unbiased Cram\'er--Rao bound
-$(nI_{\rm max})^{-1}$ once $(n-n_d)I_{\rm max}\gg J_\tau$. In localize a strategy has not yet locked onto the dip,
-its posterior may still have several peaks, and its error lies above this curve; refine starts when its error runs
-parallel to it.
+It reaches the unbiased Cram\'er--Rao bound $(nI_{\rm max})^{-1}$ once $(n-n_d)I_{\rm max}\gg J_\tau$. In localize
+a strategy has not yet locked onto the dip, its posterior may still have several peaks, and its error lies above
+this curve; refine starts when its error runs parallel to it.
 
-\paragraph{Mean over runs.} Where a run detects depends only on where its dip lies. To average over that, put the
-window at $[0,W]$ with the steps starting at $0$. A dip at $\theta$ is found at step $n_d=\lceil\theta/\Delta d\rceil$.
-After $n$ steps a dip at $\theta>n\Delta d$ is not yet found, and its run estimates the center of the window left,
-$(W+n\Delta d)/2$, so its squared error is $\big(\theta-(W+n\Delta d)/2\big)^2$. These runs enter the mean of
-Eq.~\eqref{eq:bayes-mse} with the prior density $p(\theta)=1/W$, integrated over the part of the window not yet
-searched, $n\Delta d<\theta<W$; with $v=\theta-(W+n\Delta d)/2$, the distance from the center of that part,
+\paragraph{Mean over runs.} Where a run detects depends only on where its dip lies, so averaged over the prior the
+runs split in two. After $n$ steps a fraction $(W-n\Delta d)/W$ of them is still searching, each with the error of
+Eq.~\eqref{eq:elimination}, and these contribute
 \begin{equation}
-  \begin{aligned}
-  \sigma_{\rm search}^2(n)&=\int_{n\Delta d}^{W}\frac1W\Big(\theta-\frac{W+n\Delta d}{2}\Big)^{\!2}d\theta\\
-  &=\frac1W\int_{-(W-n\Delta d)/2}^{(W-n\Delta d)/2}v^2\,dv\\
-  &=\underbrace{\frac{W-n\Delta d}{W}}_{\text{fraction searching}}\,
-  \underbrace{\frac{(W-n\Delta d)^2}{12}}_{\sigma_\theta^2(n),\ \text{Eq.~\eqref{eq:elimination}}}.
-  \end{aligned}
+  \sigma_{\rm search}^2(n)=\underbrace{\frac{W-n\Delta d}{W}}_{\text{fraction searching}}\,
+  \underbrace{\frac{(W-n\Delta d)^2}{12}}_{\sigma_\theta^2(n),\ \text{Eq.~\eqref{eq:elimination}}}
+  =\frac{(W-n\Delta d)^3}{12\,W}.
   \label{eq:search-mean}
 \end{equation}
-A dip at $\theta<n\Delta d$ has already been found, at step $n_d=\lceil\theta/\Delta d\rceil\le n$. Each step finds
-the dip in a fraction $\Delta d/W$ of the runs, and from then on their error follows Eq.~\eqref{eq:after-detection}.
-Their share of the mean is
+The rest found the dip at one of the steps $n_d\le n$, a fraction $\Delta d/W$ at each, and since then follow
+Eq.~\eqref{eq:after-detection},
 \begin{equation}
   \sigma_{\rm found}^2(n)=\sum_{n_d=1}^{n}\underbrace{\frac{\Delta d}{W}}_{\text{found at }n_d}\,
-  \underbrace{\sigma_\theta^2(n\mid n_d)}_{\text{Eq.~\eqref{eq:after-detection}}} ,
+  \underbrace{\sigma_\theta^2(n\mid n_d)}_{\text{Eq.~\eqref{eq:after-detection}}} .
   \label{eq:found-mean}
 \end{equation}
-and the mean squared error of the model is the sum of the two groups of runs,
+The mean squared error of the model is the sum,
 \begin{equation}
-  \bar\sigma_\theta^2(n)=\sigma_{\rm search}^2(n)+\sigma_{\rm found}^2(n),\qquad n\le W/\Delta d .
+  \bar\sigma_\theta^2(n)=\sigma_{\rm search}^2(n)+\sigma_{\rm found}^2(n),\qquad n\le W/\Delta d ,
   \label{eq:mean-curve}
 \end{equation}
-It is the reference for the error of a strategy averaged over runs (Sec.~\ref{sec:results}).
-
-During the search the runs still searching dominate. A run that has found the dip has an error no larger than at
-detection, $\sigma_\theta^2(n\mid n_d)\le J_\tau^{-1}=\Delta d^2/12$, so
-\begin{equation*}
-  \sigma_{\rm found}^2(n)\ \le\ \frac{n\Delta d}{W}\,\frac{\Delta d^2}{12}\ \le\ \frac{\Delta d^2}{12},
-\end{equation*}
-and therefore, as long as $(W-n\Delta d)^3\gg W\Delta d^2$,
-\begin{equation*}
-  \bar\sigma_\theta^2(n)\ \simeq\ \sigma_{\rm search}^2(n)=\frac{(W-n\Delta d)^3}{12\,W}.
-\end{equation*}
-The mean stays near the prior until most of the window is excluded, later than a typical run finds its dip. Its
-inverse,
-\begin{equation*}
-  \frac{1}{\bar\sigma_\theta^2(n)}\ \simeq\ \frac{12\,W}{(W-n\Delta d)^3},
-\end{equation*}
-grows by more with each step as the window left shrinks, not by a fixed amount per measurement. Once the window is
-covered, $n\ge W/\Delta d$, $\sigma_{\rm search}^2=0$ and only the runs that found the dip are left, with the sum in
-Eq.~\eqref{eq:found-mean} running to $W/\Delta d$; it tends to $1/(nI_{\rm max})$ as $n\to\infty$.
+the reference for the error of a strategy averaged over runs (Sec.~\ref{sec:results}). The runs that found the dip
+add at most $\Delta d^2/12$, so the mean stays near the prior until most of the window is covered, later than a
+typical run finds its dip, and then tends to $1/(nI_{\rm max})$ (\SM{sm:prior}).
 
 \paragraph{A lower bound on the search.} No strategy can locate the dip better than its data tell apart where the
 dip might be, and before the dip is found none, adaptive or not, knows where to look. At high SNR a measurement

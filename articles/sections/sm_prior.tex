@@ -4,7 +4,7 @@
 % =====================================================================
 
 This section supports Sec.~\ref{sec:global}: why the van Trees bound does not apply to a uniform window, the
-Ziv--Zakai bound that replaces it, the two search bounds, the reach of a measurement and the best probe spacing,
+elimination model in detail, the Ziv--Zakai bound that replaces it, the two search bounds, the reach of a measurement and the best probe spacing,
 the posterior at detection, and the conditions under which van Trees applies again after detection. Throughout,
 $\bar\sigma_\theta^2(n)$ is the mean squared error of Eq.~\eqref{eq:bayes-mse}, averaged over the noise and over
 $\theta$ uniform on the window of width $W$.
@@ -22,6 +22,51 @@ $(12/W^2+nI_{\rm max})^{-1/2}$ is the error of the best \emph{linear} estimator,
 Table~\ref{tab:sm-prior} gives the size of the effect, computed numerically for a measurement
 $y=\theta+\varepsilon$ with $\varepsilon$ Gaussian of variance $1/(nI_{\rm max})$: the best estimator lies up to
 $4.4\%$ below the additive curve, around $nI_{\rm max}W^2\approx100$, and the two agree at both ends.
+
+For the dip the additive form fails more deeply, since it credits every measurement with $I_{\rm max}$. Its
+crossover would then be
+\begin{equation*}
+  n_c=\frac{12/W^2}{I_{\rm max}}=\frac{64}{9}\,\frac{(\Gamma/W)^2}{k\,\mathrm{SNR}^2}
+  \;\overset{W\gg\Gamma}{\ll}\;1,
+\end{equation*}
+putting the data limit at the first measurement. But $I_{\rm max}$ is reached only once the dip has been found; a
+measurement on the baseline carries $I(d)\approx0$.
+
+\paragraph{The elimination model in detail.} Put the window at $[f_{\min},f_{\min}+W]$. The model probes at
+\begin{equation*}
+  d_j=f_{\min}+\big(j-\tfrac12\big)\Delta d,\qquad j=1,\dots,W/\Delta d,
+\end{equation*}
+so that step $j$ covers the cell $[f_{\min}+(j-1)\Delta d,\,f_{\min}+j\Delta d]$ and the cells tile the window
+without gaps or overlap; closer spacing repeats work, and wider spacing lets the dip slip between the probes. The
+best $\Delta d$ is found below. The detecting measurement is at the center $d_{n_d}$ of its cell, and the dip is
+equally likely anywhere in it, $|\theta-d_{n_d}|\le\Delta d/2$: when the reach is wider than the line, the dip is
+often detected through its side. Taking $d_{n_d}$ as the estimate, the mean squared error at detection is
+\begin{equation*}
+  \sigma_\theta^2(n_d\mid n_d)=\int_{-\Delta d/2}^{\Delta d/2}\frac{v^2}{\Delta d}\,dv=\frac{\Delta d^2}{12},
+\end{equation*}
+at any SNR.
+
+For the mean over runs, take $f_{\min}=0$. A dip at $\theta$ is found at step $n_d=\lceil\theta/\Delta d\rceil$.
+After $n$ steps a dip at $\theta>n\Delta d$ is not yet found, and its run estimates the center of the window left,
+$(W+n\Delta d)/2$. These runs enter the mean of Eq.~\eqref{eq:bayes-mse} with the prior density $1/W$ over the part
+not yet searched; with $v=\theta-(W+n\Delta d)/2$,
+\begin{equation*}
+  \sigma_{\rm search}^2(n)=\int_{n\Delta d}^{W}\frac1W\Big(\theta-\frac{W+n\Delta d}{2}\Big)^{\!2}d\theta
+  =\frac1W\int_{-(W-n\Delta d)/2}^{(W-n\Delta d)/2}v^2\,dv=\frac{(W-n\Delta d)^3}{12\,W},
+\end{equation*}
+which is Eq.~\eqref{eq:search-mean}. A run that has found the dip has an error no larger than at detection,
+$\sigma_\theta^2(n\mid n_d)\le J_\tau^{-1}=\Delta d^2/12$, so
+\begin{equation*}
+  \sigma_{\rm found}^2(n)\ \le\ \frac{n\Delta d}{W}\,\frac{\Delta d^2}{12}\ \le\ \frac{\Delta d^2}{12},
+\end{equation*}
+and therefore, as long as $(W-n\Delta d)^3\gg W\Delta d^2$,
+\begin{equation*}
+  \bar\sigma_\theta^2(n)\ \simeq\ \sigma_{\rm search}^2(n),\qquad
+  \frac{1}{\bar\sigma_\theta^2(n)}\ \simeq\ \frac{12\,W}{(W-n\Delta d)^3}.
+\end{equation*}
+The inverse grows by more with each step as the window left shrinks, not by a fixed amount per measurement. Once the
+window is covered, $n\ge W/\Delta d$, $\sigma_{\rm search}^2=0$, the sum of Eq.~\eqref{eq:found-mean} runs to
+$W/\Delta d$, and $\bar\sigma_\theta^2(n)\to1/(nI_{\rm max})$ as $n\to\infty$.
 
 \begin{table}[h]
 \centering
@@ -240,7 +285,8 @@ of the detecting measurement, and the posterior is two narrow peaks at $d\pm|\th
 decided from the run's own data and never from the true $\theta$. Given the data up to $\tau$, the posterior is the
 prior of the remaining measurements, and van Trees applied to them, then averaged over runs, gives
 $\bar\sigma_\theta^2(n)\ge\mathbb E[(J_\tau+(n-\tau)I_{\rm max})^{-1}]$ with $J_\tau$ the Fisher information of that
-posterior. $J_\tau$ is finite: every likelihood is Gaussian in $y$ and so smooth in $\theta$, and the posterior has
+posterior. $J_\tau$ is finite: every likelihood is the Gaussian of Eq.~\eqref{eq:noise}, which depends on $\theta$ only
+through the Lorentzian $\mu(d;\theta)$ and so changes smoothly as $\theta$ moves, and the posterior has
 none of the hard edges of the idealized cell. Right after detection the two mirror peaks make $J_\tau$ of order $I(\theta)$, far above
 $12/\Delta d^2$, while the error is $\Delta d/\sqrt{12}$: the restarted bound is valid but loose until the side is
 known. The elimination model therefore restarts with the value that matches the error, $J_\tau=12/\Delta d^2$, a
