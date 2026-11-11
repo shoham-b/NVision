@@ -199,23 +199,29 @@ $I(d)\le I_{\rm max}$ gives
   \bar\sigma_\theta(n)\ \ge\ \sigma_{\rm vT}(n)=\big(J_0+nI_{\rm max}\big)^{-1/2},
   \label{eq:vantrees}
 \end{equation}
-for any estimator, biased or not, with $J_0=J_0^{\rm track}$ in tracking. Here $\bar\sigma_\theta^2(n)=\mathbb E\big[(\hat\theta_n-\theta)^2\big]$ is the mean
-squared error (MSE) of the estimate $\hat\theta_n$ after $n$ measurements. The bar marks the average: over the noise
-of the measurements and over the true $\theta$ drawn from the prior, here the random drift since the last estimate.
-It is an error against the true $\theta$, not the uncertainty a strategy claims. For a signal linear in $\theta$ the
-bound is reached exactly; for the dip it holds at every $n$ and is reached once the estimate is within the line.
+for any estimator, biased or not, with $J_0=J_0^{\rm track}$ in tracking. Here $\bar\sigma_\theta^2(n)$ is the
+squared error of the estimate $\hat\theta_n$ after $n$ measurements, averaged over the true $\theta$ drawn from the
+prior and, for each $\theta$, over the outcomes $y_{1:n}$ of the measurements:
+\begin{equation}
+  \bar\sigma_\theta^2(n)=\int p(\theta)\,\underbrace{\mathbb E_{y_{1:n}\mid\theta}\Big[\big(\hat\theta_n(y_{1:n})-\theta\big)^2\Big]}_{\text{MSE at a fixed }\theta}\,d\theta .
+  \label{eq:bayes-mse}
+\end{equation}
+In tracking, $p(\theta)$ is the random drift since the last estimate. This is an error against the true $\theta$,
+not the uncertainty a strategy claims. The bound holds for this average over $\theta$, not for each $\theta$ alone: an
+estimate that leans on the prior can do better than the bound at some $\theta$, near the center of the prior, only by
+doing worse at others. For a signal linear in $\theta$ the bound is reached exactly; for the dip it holds at every
+$n$ and is reached once the estimate is within the line.
 The bound, like all those below, treats the width $\Gamma$ and the contrast $C$ as known. Inferring them as well can
 only add to the uncertainty in $\theta$, but it adds nothing when the measurements are placed symmetrically on the two
-sides of the dip: a shift of $\theta$ then raises the signal on one side and lowers it on the other, while a change of
-$\Gamma$ or $C$ changes both sides alike, so the data tell the two apart.
+sides of the dip: there the effect of a shift of $\theta$ on the data is uncorrelated with that of a change of
+$\Gamma$ or $C$, so the Fisher information has no cross terms between them.
 
 The curve has two limits, set by how the information of the measurements compares with that of the prior. While
 $nI_{\rm max}\ll J_0$, it stays at the prior, $\sigma_{\rm vT}\approx\sigma_0^{\rm track}$: the measurements have not yet added
-to what the prior told. An estimate in this limit leans on the prior and is biased toward its center, which is why
-its error may lie below the unbiased Cram\'er--Rao bound $(nI_{\rm max})^{-1/2}$. Once $nI_{\rm max}\gg J_0$, the
-prior is washed out and $\sigma_{\rm vT}\approx(nI_{\rm max})^{-1/2}$, the unbiased Cram\'er--Rao bound of
-Sec.~\ref{sec:fisher}, which falls with slope $-\tfrac12$ on a log--log scale and is reached only by measuring every
-time at the steepest slope. The two limits cross at $n_c=J_0/I_{\rm max}$.
+to what the prior told. The error is then smaller than $(nI_{\rm max})^{-1/2}$, the Cram\'er--Rao bound of the
+measurements alone, because the prior already holds more information than they do. Once $nI_{\rm max}\gg J_0$, the
+prior is washed out and $\sigma_{\rm vT}\approx(nI_{\rm max})^{-1/2}$, which falls as $n^{-1/2}$ and is reached only
+by measuring every time at the steepest slope. The two limits cross at $n_c=J_0/I_{\rm max}$.
 
 Any strategy therefore starts in the prior limit and, if it does well, ends in the data limit, and in between it
 must pass from one to the other. We name these regimes after what the strategy does in them: \emph{search} while it
@@ -243,7 +249,7 @@ follow a simple strategy built on elimination, return to van Trees once it has f
 strategy searches faster.
 
 \paragraph{Elimination model.} The simplest strategy built on elimination steps through the window from one edge,
-only until it finds the dip, and from then on measures only at the steepest slope. This is not a sweep, which keeps
+only until it finds the dip. This is not a sweep, which keeps
 spreading its measurements over the whole window after the dip is found (Sec.~\ref{sec:speedup}). Let the SNR be so
 high that a single measurement shows a dip within its reach $\Delta d$, the width around the drive frequency in which
 the drop cannot be mistaken for noise, and none further away. The reach is set by the SNR: it must be narrow enough
@@ -273,8 +279,9 @@ of the uniform cell,
 at any SNR. The depth changes only the shape of the posterior. At low SNR it says little, and the posterior is
 nearly flat over the cell. At high SNR it fixes the distance, and the posterior is two narrow peaks at the mirror
 positions $d_{n_d}\pm|\theta-d_{n_d}|$: the whole error is not knowing on which side of the drive frequency the dip
-lies. Localize is resolving this. One measurement at the steepest slope of one of the two peaks tells the side, and
-the model counts it, like every later one, as adding $I_{\rm max}$:
+lies. Localize is resolving this, and one more measurement, on one of the two peaks, tells the side. The model is
+about finding the dip, not about what follows, so after detection it simply takes the data limit, each measurement
+adding $I_{\rm max}$:
 \begin{equation}
   \sigma_\theta^2(n\mid n_d)=\Big(\frac{12}{\Delta d^2}+(n-n_d)\,I_{\rm max}\Big)^{-1},\qquad n\ge n_d .
   \label{eq:after-detection}
@@ -283,10 +290,12 @@ the model counts it, like every later one, as adding $I_{\rm max}$:
 \paragraph{Mean over runs.} Where a run detects depends only on where its dip lies. To average over that, put the
 window at $[0,W]$ with the steps starting at $0$. A dip at $\theta$ is found at step $n_d=\lceil\theta/\Delta d\rceil$.
 After $n$ steps a dip at $\theta>n\Delta d$ is not yet found, and its run estimates the center of the window left,
-$(W+n\Delta d)/2$. With $\theta$ uniform on the window, these runs contribute
+$(W+n\Delta d)/2$, so its squared error is $\big(\theta-(W+n\Delta d)/2\big)^2$. These runs enter the mean of
+Eq.~\eqref{eq:bayes-mse} with the prior density $p(\theta)=1/W$, integrated over the part of the window not yet
+searched, $n\Delta d<\theta<W$; with $v=\theta-(W+n\Delta d)/2$, the distance from the center of that part,
 \begin{equation}
   \begin{aligned}
-  \sigma_{\rm search}^2(n)&=\frac1W\int_{n\Delta d}^{W}\Big(\theta-\frac{W+n\Delta d}{2}\Big)^{\!2}d\theta\\
+  \sigma_{\rm search}^2(n)&=\int_{n\Delta d}^{W}\frac1W\Big(\theta-\frac{W+n\Delta d}{2}\Big)^{\!2}d\theta\\
   &=\frac1W\int_{-(W-n\Delta d)/2}^{(W-n\Delta d)/2}v^2\,dv\\
   &=\underbrace{\frac{W-n\Delta d}{W}}_{\text{fraction searching}}\,
   \underbrace{\frac{(W-n\Delta d)^2}{12}}_{\sigma_\theta^2(n),\ \text{Eq.~\eqref{eq:elimination}}}.
@@ -325,12 +334,10 @@ resolves the side.
 \paragraph{A lower bound on the search.} The elimination model is one strategy. To show that at high SNR no other
 strategy searches faster, we need a lower bound on the mean error over the uniform window, and van Trees gives none.
 The Ziv--Zakai bound \cite{zivzakai1969,bell1997} needs no derivative of the prior and has been used for priors with
-hard edges for this reason \cite{daurelio2022}. It bounds the mean error through tests between pairs of positions,
-\begin{equation*}
-  \bar\sigma_\theta^2(n)\ \ge\ \frac12\int_0^W h\int\big[p(\theta)+p(\theta+h)\big]\,P_{\min}(\theta,\theta+h)\,d\theta\,dh,
-\end{equation*}
-where $P_{\min}(\theta,\theta+h)$ is the smallest probability, over all tests on the data, of mistaking a dip at
-$\theta$ for one at $\theta+h$: positions a distance $h$ apart that the data cannot tell apart add $h$ to the error.
+hard edges for this reason \cite{daurelio2022}. It bounds the mean error by how well the data tell apart pairs of
+positions: if no test on the data can tell a dip at $\theta$ from one at $\theta+h$, which is to say the smallest
+probability $P_{\min}(\theta,\theta+h)$ of mistaking one for the other is $\tfrac12$, the pair adds of order $h^2$ to
+the error (the bound is written out in \SM{sm:prior}).
 This is the bound that matches elimination, which is itself a statement about such pairs: two positions that both
 lie in the window left give the same data, so $P_{\min}=\tfrac12$ for them. Before any measurement every pair is
 like that, and the bound gives Eq.~\eqref{eq:prior} exactly. Before its first detection every outcome of a run looks
