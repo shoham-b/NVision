@@ -96,12 +96,14 @@ class _Run:
         self.steps = np.array([series["s"][i] for i in keep], dtype=float)
         self.errs = np.array([series["e"][i] for i in keep], dtype=float)
         # The series parameter is chosen by the series exporter, not by stage_primary_param: confirm it is the
-        # zeeman_shift error through the stored final error (the series is rounded to 4 significant digits).
-        final_err = field("final_err_primary")
-        if final_err is None or not math.isclose(float(self.errs[-1]), float(final_err), rel_tol=_FINAL_ERR_REL_TOL):
+        # zeeman_shift error through the stage metrics' error after the run's last measurement (the last reached
+        # stage ends at the last step; the series is rounded to 4 significant digits). ``final_err_primary`` is not
+        # that quantity (for sweeps it is the fit's error), so it is not used.
+        last_err = next((field(f"stage{k}_err_end") for k in (3, 2, 1) if field(f"stage{k}_err_end") is not None), None)
+        if last_err is None or not math.isclose(float(self.errs[-1]), float(last_err), rel_tol=_FINAL_ERR_REL_TOL):
             raise UseCaseError(
-                f"the last point of the true-error series ({self.errs[-1]:g}) is not the stored final "
-                f"zeeman_shift error ({final_err}): the series is not the primary parameter's error"
+                f"the last point of the true-error series ({self.errs[-1]:g}) is not the stage metrics' error after "
+                f"the last measurement ({last_err}): the series is not the primary parameter's error"
             )
         true = scan.get("true_params") or {}
         self.params = dict(true.get("params") or {})

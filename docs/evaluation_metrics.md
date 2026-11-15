@@ -241,6 +241,13 @@ re-run is needed. The panels are drawn by `static/search-bounds-view.js`.
 * **Detection**: `dip_detected_step` (median, p75, share that never detected, counted at the budget so these are lower bounds) in
   units of 1/κ̄ and of W/Δd (at high SNR, 1/κ̄ < W/Δd, compare with W/(2Δd)).
 
+* **Lab data.** The functions in `search_bounds.py` take a reference centre (`abs_errors`), widths, `k` and SNR or σ as plain arguments and
+  never read the true signal, so the single-run outputs (bound curves, detection step against 1/κ̄ and W/Δd) apply to one lab run; the
+  ensemble outputs (mean err², S(n), κ_eff) need many θ. The lab could emulate θ uniform in the window by replaying recorded sweeps with a
+  randomly shifted window (not implemented, no lab wiring yet).
+* **Old SNR labels.** Rows recorded before the `snr-per-line-contrast-v1` fingerprint change (cached `368f4f5d4fdc`, current `018d00aed340`)
+  have σ = contrast_total/x for `SNR(x)`, i.e. article SNR x/2. The panel always shows the article SNR computed from σ and states when the run label differs.
+
 Reading it on the current cache (2026-11-15): the SNR × window study's drawn W is only 1.5–4.4 Γ, so the search is a few
 probe cells and the bounds are far below the measured search (κ_eff/κ̄ ≈ 0.01–0.09 for all four locators, none near 1/(1−2t/W));
 a real test of the search claim needs the larger windows. Rows of `SimpleSweep-3perFWHM` carry a stored J₀ that is not 4π²/W²

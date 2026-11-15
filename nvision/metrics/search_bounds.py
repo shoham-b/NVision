@@ -15,6 +15,16 @@ Notation (all lengths in Hz, the primary parameter being ``zeeman_shift``):
 * ``dd`` (``Delta d``): the reach of one measurement (``eq:sm-reach``), the width of the cell it rules out.
 * ``I_max``: Fisher information (Hz^-2) of one measurement at the steepest slope, the stored ``stage_fisher_star``.
 
+Truth-agnostic interface: nothing here reads the generator's true signal. The caller passes a reference centre
+(simulation: the true ``zeeman_shift``; lab: the holdout fit's centre) and gets errors from :func:`abs_errors`, plus the
+line's width ``gamma``, shots ``k`` and ``SNR`` (or the reference ``sigma``) as plain numbers. What each output needs:
+
+* single run, no ensemble over ``theta``: the bound curves (:func:`finite_reach_curve`, :func:`change_of_measure_curve`,
+  :func:`mean_curve`), :func:`kappa_bar_lorentzian`, :func:`probe_spacing`, and the detection step of one run against
+  ``1 / kappa_bar`` and ``W / dd`` (:func:`detection_summary` on one value);
+* simulation-only (they average over many ``theta`` drawn uniformly in the window): :func:`mean_squared_error`,
+  :func:`survival`, :func:`fit_kappa_eff` and the :func:`survival_floor_curve` they are compared with.
+
 Array conventions: ``n`` is a measurement count, shape ``(n_grid,)``; error matrices have shape ``(n_runs, n_grid)``.
 """
 
@@ -209,6 +219,14 @@ def mean_curve(n: np.ndarray, width_phys: float, dd_phys: float, fisher_max: flo
 
 
 # --------------------------------------------------------------------------- measured error and survival
+
+
+def abs_errors(estimates_phys: np.ndarray, reference_centre_phys: float) -> np.ndarray:
+    """``|estimate - reference centre|`` (Hz); shape (n_steps,) like ``estimates_phys``.
+
+    The reference centre is the true ``zeeman_shift`` in simulation and the holdout fit's centre on lab data.
+    """
+    return np.abs(np.asarray(estimates_phys, dtype=float) - float(reference_centre_phys))
 
 
 def align_errors(

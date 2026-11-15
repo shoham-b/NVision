@@ -132,6 +132,9 @@ function sbDetectionTable(uc) {
 
 function sbHeader(uc) {
     // Rows recorded with another prior (stored stage_prior_info is not 4π²/W²) are stale: say which locators.
+    const relabel = Math.abs(uc.snr_label - uc.snr) > 1e-6 * uc.snr
+        ? `<p style="margin:0 0 0.6em; font-size:0.85em; color:#92400e;">Run label SNR(${sbFmt(uc.snr_label, 3)}) predates the article's per-line SNR convention: its article SNR is ${sbFmt(uc.snr, 3)} (σ = ${sbFmt(uc.noise_sigma, 3)}). All numbers here use ${sbFmt(uc.snr, 3)}.</p>`
+        : '';
     const staleNames = Object.entries(uc.locators).filter(([, l]) => l.prior_info_match_share < 1).map(([n]) => sbShort(n));
     const stale = staleNames.length
         ? `<p style="margin:0 0 0.6em; font-size:0.85em; color:#92400e;">Stored prior information of ${staleNames.join(', ')} differs from 4π²/W²: those rows were recorded with another prior (a re-run refreshes them); the search metrics here do not use it.</p>`
@@ -144,7 +147,7 @@ function sbHeader(uc) {
         W = ${sbMHz(uc.width_phys)} (the zeeman_shift range the generator draws) · Γ = ${sbMHz(uc.fwhm_phys)} · SNR = ${sbFmt(uc.snr, 3)}
         (run label ${sbFmt(uc.snr_label, 3)}) · σ = ${sbFmt(uc.noise_sigma, 3)} · k = ${uc.shots} ·
         κ̄ = <b>${sbFmt(uc.kappa_bar)}</b> /meas (1/κ̄ = ${sbFmt(uc.inv_kappa_bar)}; Lorentzian closed form ${sbFmt(uc.kappa_lorentzian)}) ·
-        ${reach}${regime} · I<sub>max</sub> = ${sbFmt(uc.fisher_max)} Hz⁻²</p>${stale}`;
+        ${reach}${regime} · I<sub>max</sub> = ${sbFmt(uc.fisher_max)} Hz⁻²</p>${relabel}${stale}`;
 }
 
 async function renderSearchBounds(root, genList, noiseList, colorOf) {

@@ -195,7 +195,7 @@ def test_api_run_rejects_other_primary_and_missing_columns():
     with pytest.raises(UseCaseError, match="primary parameter"):
         _Run(entries, {"stage_primary_param": "zero_field_freq"})
     with pytest.raises(UseCaseError, match="zeeman_shift bounds"):
-        _Run(entries, {"stage_primary_param": "zeeman_shift", "final_err_primary": 1.0})
+        _Run(entries, {"stage_primary_param": "zeeman_shift", "stage3_err_end": 1.0})
     with pytest.raises(UseCaseError, match="no scan entry"):
         _Run([], {})
 
@@ -204,5 +204,10 @@ def test_api_run_rejects_series_that_is_not_the_primary_error():
     from nvision.cli.search_bounds_api import UseCaseError, _Run
 
     entries = [{"type": "scan", "series": {"s": [1], "e": [1.0]}, "true_params": {}, "metrics": {}}]
-    with pytest.raises(UseCaseError, match="not the stored final"):
-        _Run(entries, {"stage_primary_param": "zeeman_shift", "final_err_primary": 50.0})
+    with pytest.raises(UseCaseError, match="not the stage metrics"):
+        _Run(entries, {"stage_primary_param": "zeeman_shift", "stage3_err_end": 50.0})
+
+
+def test_abs_errors_against_reference_centre():
+    got = sb.abs_errors(np.array([1.0, 4.0, 2.5]), 3.0)
+    assert got.tolist() == [2.0, 1.0, 0.5]
