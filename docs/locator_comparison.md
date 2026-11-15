@@ -114,7 +114,7 @@ uncertainty ratio) for every locator on the same footing; `--filter-signal`, `--
 A quick look: `NVISION_SBED_SNR_VALUES=5 uv run nv run --run-group voigt-grid --filter-signal "span5-gs0.15" --repeats 5`.
 
 In the UI the plain sweeps appear as one "Sweep" entry; choosing it reveals a second dropdown for the spacing
-(k points per FWHM, 2-4).
+(the reference `3perFWHM` and `optimal`).
 
 ## Width and spacing
 
@@ -122,8 +122,10 @@ The width that sizes everything is the FWHM, `2 * effective_hwhm` of the **prior
 parameters, clipped to their bounds) -- never the true signal's width (`nvision/sim/locs/search_grid.py`).
 
 * A dip is seen only if several measurements fall inside it. Three points per FWHM
-  (`SWEEP_POINTS_PER_FWHM = 3`) cannot step over a dip and give `find_dips` the cluster it needs. It is derived,
-  not a tuning knob, so it is a module constant and not an env var.
+  (`SWEEP_POINTS_PER_FWHM = 3`) cannot step over a dip and keep the dip's position information within 4 % of a
+  dense grid (table below); `find_dips` is a boxcar GLRT scan and needs no minimum cluster. 3 is the **reference**
+  sweep's grid and the Smart locators' search grid, not the plain-sweep baseline's step: that is the optimal k*
+  (next section). It is derived, not a tuning knob, so it is a module constant and not an env var.
 * Smart-Sweep and Smart-SBED search the reference sweep's own grid, FWHM/3 (`COARSE_SEARCH_POINTS_PER_FWHM =
   SWEEP_POINTS_PER_FWHM`), and take each search measurement from the persisted `SimpleSweep-3perFWHM` repeat of the
   same signal (see [runner_architecture.md](runner_architecture.md)). Until the focus they therefore *are* that
@@ -136,11 +138,54 @@ parameters, clipped to their bounds) -- never the true signal's width (`nvision/
   At 7, one pass over the focus occasionally ended before the posterior allowed the refine switch (1 of 8 test
   runs), so 10 was chosen empirically (0 of 8). A grid that is fully measured is swept again at the same spacing, never refined and never an error (the stop rules end the run).
 
+### The optimal sweep step k*
+
+A plain sweep measures a uniform grid of spacing $\Gamma_0/k$ ($\Gamma_0$ the prior FWHM) and repeats whole passes
+until the stop rules fire, stopping only at the end of a pass. Two things depend on $k$.
+
+*Ripple (Poisson sum).* The Fisher information about the dip position from grid points $x_i = x_0 + i\Delta$ is
+$\sum_i g(x_i)^2$ with $g = \partial\mu/\partial x_0$. By Poisson summation
+$\Delta \sum_i g(x_i)^2 = \int g^2\,dx + 2\sum_{m\ge1}\hat{G}(m/\Delta)\cos(2\pi m\,\varphi/\Delta)$, with $\varphi$ the dip's
+offset from the grid and $\hat G$ the Fourier transform of $g^2$. For a Lorentzian $\hat G$ decays like
+$e^{-\pi\Gamma_0 m/\Delta}$ times a power, so the relative harmonic is small once $\Delta \lesssim \Gamma_0/3$.
+Information per measurement relative to a dense grid, worst / best dip offset:
+
+| k | 1 | 1.5 | 2 | 2.5 | 3 | 4 |
+|---|---|---|---|---|---|---|
+| worst | 0.13 | 0.43 | 0.71 | 0.88 | 0.96 | 1.00 |
+| best | 1.37 | 1.48 | 1.28 | 1.12 | 1.04 | 1.00 |
+
+Detection energy per measurement is flat (>= 0.97) from $k \approx 2$. Above $k \approx 2.5$, $k$ therefore changes
+the cost only through pass rounding.
+
+*Pass rounding.* One pass is $n(k) \approx k W/\Gamma_0$ measurements and the sweep stops after a whole number of
+passes, so it spends $P\,n(k)$ with $P$ an integer. A fractional $k$ lets a whole number of passes land on the
+measurement count the stop rules need; at high SNR one pass already overshoots, so a smaller $k$ (accepting some
+ripple) is cheaper.
+
+`SimpleSweep-optimal` (`nvision/sim/locs/sweep_optimal.py`) takes the minimiser over a scan of $k \in [0.5, 8]$
+(step 0.05) of
+
+$$\mathrm{cost}(k) = \frac1{N_\varphi}\sum_{\varphi} P(k,\varphi)\,n(k),\qquad P = \max(P_\mathrm{prec}, P_\mathrm{det}),$$
+
+$\varphi$ over 8 evenly spaced offsets within one step. $P_\mathrm{prec}$ is the smallest $P$ for which the
+Cramer-Rao standard deviations from $P\,F_\mathrm{pass}$ (the belief's own signal model, numerical parameter
+derivatives, the actual grid, the true noise $\sigma$) satisfy `target_params_converged` (the stop rule's ceilings and
+RMS condition). $P_\mathrm{det}$ is the smallest $P$ for which the expected boxcar score $\sqrt P\,S_1$ of the best
+`find_dips` window clears $\Phi^{-1}(1 - p_\mathrm{FA}/N_\mathrm{windows})$ (normal quantile: $\sigma$ is known).
+A $k$ with cost above `NVISION_MAX_MEASUREMENTS` $M$ is predicted not to converge within the budget; any reachable $k$
+beats it. If no $k$ is reachable, the sweep will stop at its cap of $P_\mathrm{cap} = \max(1, \lfloor M/n\rfloor)$ passes,
+so the objective becomes the expected final error there: the $k$ minimising the mean over offsets of the binding
+relative uncertainty $s^*(P_\mathrm{cap} F_\mathrm{pass})$ (the factor by which the CRLB stds must shrink for
+`target_params_converged` to accept them; precision only). Signal quantities are the belief's prior means, $\sigma$ is the true task noise (an oracle yardstick), and
+the realised $k^*$ is recorded per repeat (`sweep_k_opt`, `sweep_passes_pred`, `sweep_cost_pred`).
+
 ## Strategies
 
 | Strategy | Acquisition |
 |---|---|
-| `SimpleSweep-<k>perFWHM`, k = 2..4 | uniform grid over the whole axis with k points per FWHM (spacing FWHM/k), then a least-squares fit. k = 3 is the derived default; the rest are the spacing study |
+| `SimpleSweep-3perFWHM` | uniform grid over the whole axis with 3 points per FWHM (spacing FWHM/3), then a least-squares fit. The reference sweep: its repeats are persisted and reused by Smart-Sweep / Smart-SBED |
+| `SimpleSweep-optimal` | the same sweep at the fractional step FWHM/k* that minimises the predicted measurements of its task (previous section) |
 | `Smart-Sweep` | FWHM/3 sweep (the reference sweep's grid); once the data show a dip, sweep only inside the focus on a FWHM/10 grid, then measure at the max-information points once the refine rule fires |
 | `Bayesian-SBED` | unchanged SBED |
 | `Smart-SBED` | EIG over the not-yet-measured points of a FWHM/3 grid until a dip is found, then ordinary SBED inside the focus |
@@ -216,7 +261,8 @@ shows them.
   [evaluation metrics](evaluation_metrics.md).
 - **Smart-Sweep coarse grid.** The strategy table said FWHM/2; the article, `search_grid.py` and
   `COARSE_SEARCH_POINTS_PER_FWHM` give $\Gamma_0/3$ (corrected above).
-- **SimpleSweep spacing.** The article lists $p = 2, 3, 4$; the docs add that $k = 3$ is the derived default.
+- **SimpleSweep spacing.** The article lists $p = 2, 3, 4$; the code now runs the reference $k = 3$ and the optimal
+  fractional $k^*$ (`SimpleSweep-optimal`) instead of the $2, 3, 4$ ladder.
 - **Sweep reported estimate.** A plain sweep's reported estimate is its final fit while the claimed uncertainty comes from the
   shared belief. A known open bug (the fit returning the domain midpoint) makes sweep accuracy numbers invalid; sweep cost is unaffected.
 
@@ -229,7 +275,7 @@ enough). The Sobol locators, the Sobol baseline inside SBED runs, and the "Sobol
 
 `nv compare` has a counterpart in the results UI: the *Stages* view lists the same three tables (accuracy,
 stage boundaries, per-stage measurements and uncertainty ratio) for the selected generator(s) and noise levels,
-one row per strategy (each `SimpleSweep-<k>perFWHM` spacing is its own row). The per-run fields come from
+one row per strategy (`SimpleSweep-3perFWHM` and `SimpleSweep-optimal` are separate rows). The per-run fields come from
 `/api/scan-fields` (`compare`), and runs are filtered as in `metrics/compare.py` `usable_runs`.
 
 Manual check that UI and CLI agree on a tiny run:

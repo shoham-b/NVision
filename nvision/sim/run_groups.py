@@ -16,7 +16,8 @@ group                 generators                                  noise         
 ``all``               the two above                               the two above       each scenario's own set
 ====================  ==========================================  ==================  ===========================
 
-The locator study is SimpleSweep-<k>perFWHM (k = 2..4), Smart-Sweep, Bayesian-SBED and Smart-SBED.
+The locator study is SimpleSweep-3perFWHM (the reference sweep), SimpleSweep-optimal (the sweep at its task's
+analytically optimal step k*), Smart-Sweep, Bayesian-SBED and Smart-SBED.
 """
 
 from __future__ import annotations
@@ -26,7 +27,7 @@ from dataclasses import dataclass, replace
 from functools import lru_cache
 
 from nvision.sim import presets as sim_presets
-from nvision.sim.combinations import SWEEP_SPACING_DIVISORS
+from nvision.sim.combinations import PLAIN_SWEEP_STRATEGIES
 from nvision.sim.grid_enums import sweep_strategy_name
 from nvision.sim.locs.search_grid import SWEEP_POINTS_PER_FWHM
 
@@ -62,10 +63,11 @@ class RunGroup:
 
 _DEFAULT_SWEEP = sweep_strategy_name(SWEEP_POINTS_PER_FWHM)
 
-# The locators compared on the standard scenarios: the sweeps at several spacings (points per FWHM), the plain
-# SBED, and the two locators that search coarsely first and then work inside the focus (docs/locator_comparison.md).
+# The locators compared on the standard scenarios: the plain sweeps (the reference at 3 points per FWHM and the one at
+# the optimal step), the plain SBED, and the two locators that search coarsely first and then work inside the focus
+# (docs/locator_comparison.md).
 _LOCATOR_STUDY_STRATEGIES = [
-    *(sweep_strategy_name(k) for k in SWEEP_SPACING_DIVISORS),
+    *PLAIN_SWEEP_STRATEGIES,
     "Smart-Sweep",
     "Bayesian-SBED",
     "Smart-SBED",

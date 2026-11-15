@@ -32,6 +32,7 @@ from nvision.metrics import refine_rates as rr
 from nvision.metrics.localize import localize_bound_steps, localize_cost
 from nvision.metrics.stages import primary_sensitivity_at, primary_sensitivity_curve
 from nvision.runner.repeat_keys import repeat_seed_int, signal_repeat_key
+from nvision.sim.grid_enums import OPTIMAL_SWEEP_STRATEGY
 
 # Tolerance of the rebuilt-vs-stored stage sensitivity check (absolute, on eta in [0, 1]). SBED positions are float16
 # rescaled into the window (~1e-3 of it); a sweep's are exact (it matches to rounding).
@@ -43,13 +44,26 @@ HIST_EDGES = np.arange(-8.0, 8.0 + 1e-9, 0.2)
 # A dip of the clean signal is a local minimum at least this deep, as a share of the signal's own range.
 _DIP_DEPTH_SHARE = 0.3
 SBED = "Bayesian-SBED"
-_SWEEP_RE = re.compile(r"^SimpleSweep-(\d+)perFWHM$")
+_SWEEP_RE = re.compile(r"^SimpleSweep-(\d+(?:\.\d+)?)perFWHM$")
 
 
-def sweep_divisor(strategy: str) -> int | None:
-    """``k`` of ``SimpleSweep-{k}perFWHM`` (or its ``-fixed`` variant), ``None`` for any other strategy name."""
+def is_sweep(strategy: str) -> bool:
+    """True for the plain sweeps: ``SimpleSweep-{k}perFWHM`` and ``SimpleSweep-optimal``."""
+    return strategy == OPTIMAL_SWEEP_STRATEGY or _SWEEP_RE.match(strategy) is not None
+
+
+def sweep_divisor(strategy: str, row: dict[str, Any] | None = None) -> float | None:
+    """Grid points per prior FWHM of a sweep run, ``None`` for any other strategy.
+
+    ``k`` of ``SimpleSweep-{k}perFWHM``; for ``SimpleSweep-optimal`` the k* the run realised (``sweep_k_opt`` of its
+    results ``row``, which must then be given and carry it).
+    """
+    if strategy == OPTIMAL_SWEEP_STRATEGY:
+        if row is None or row.get("sweep_k_opt") is None:
+            raise ValueError(f"{strategy} needs the run's realised sweep_k_opt.")
+        return float(row["sweep_k_opt"])
     m = _SWEEP_RE.match(strategy)
-    return int(m.group(1)) if m else None
+    return float(m.group(1)) if m else None
 
 
 @dataclass
@@ -122,10 +136,11 @@ def _check_true_params(true_signal: Any, stored: dict[str, float]) -> None:
 
 
 def _sbed_positions_phys(scan_entry: dict[str, Any], n_steps: int, x_lo_phys: float, x_hi_phys: float) -> np.ndarray:
-    """Drive frequencies (Hz) of an SBED run; shape (n_steps,), one per measurement, in order.
+    """Drive frequencies (Hz) of a run; shape (n_steps,), one per measurement, in order.
 
-    From ``meas_drive_freq_unit`` (float32 unit coordinates, stored for every repeat of a fixed-budget run) or else
-    from the scan figure (float16 rescaled into the window; only the first ``NVISION_GRAPH_REPEATS`` repeats).
+    From ``meas_drive_freq_unit`` (float32 unit coordinates, stored for every repeat of every run since the
+    full-budget change) or else, for SBED, from the scan figure (float16 rescaled into the window; only the first
+    ``NVISION_GRAPH_REPEATS`` repeats).
     """
     from nvision.viz._f32_json import from_gz_bytes
 
@@ -205,7 +220,6 @@ def build_run_trace(
         "errs": errs[keep],
         "end": n_steps,
         "dip_step": None if row.get("dip_detected_step") is None else int(row["dip_detected_step"]),
-        # A fixed-budget run never stops early: "capped" would be true of all, so it carries no information there.
         "capped": row.get("failure_reason") == "max_steps",
         "fisher_star": float(row["stage_fisher_star"]),
         "prior_info": float(row["stage_prior_info"]),
@@ -238,10 +252,10 @@ def build_run_trace(
     if abs((x_hi - x_lo) - float(row["stage_window_phys"])) > 1e-6 * (x_hi - x_lo):
         raise ValueError("The rebuilt drive window differs from the stored one.")
 
-    k = sweep_divisor(strategy)
-    if is_sbed:
+    if is_sbed or "meas_drive_freq_unit" in scan:
         x_phys = _sbed_positions_phys(scan, n_steps, x_lo, x_hi)
-    elif k is not None:
+    elif is_sweep(strategy):
+        k = sweep_divisor(strategy, row)
         n_points = rr.sweep_n_points(x_hi - x_lo, _sweep_prior_fwhm_phys(true_signal), k)
         x_phys = rr.sweep_positions_phys(x_lo, x_hi, n_points, n_steps)
     else:
@@ -420,7 +434,7 @@ def use_case_summary(generator: str, noise: str, traces: dict[str, list[RunTrace
     q_exact = float(np.median([t.q_sweep_exact for t in placed]))
 
     locators = {s: _locator_summary(ts, i_max, taus) for s, ts in traces.items()}
-    sweeps = [s for s in locators if sweep_divisor(s) is not None]
+    sweeps = [s for s in locators if is_sweep(s)]
     out: dict[str, Any] = {
         "generator": generator,
         "noise": noise,

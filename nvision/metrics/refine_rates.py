@@ -67,13 +67,13 @@ def exact_sweep_ratio(g2_grid: np.ndarray) -> tuple[float, float]:
     return q, 1.0 / q
 
 
-def sweep_n_points(window_phys: float, fwhm_prior_phys: float, spacing_divisor: int) -> int:
+def sweep_n_points(window_phys: float, fwhm_prior_phys: float, spacing_divisor: float) -> int:
     """Points of one pass of a ``SimpleSweep-{spacing_divisor}perFWHM`` over the window (ends included).
 
     The spacing is ``fwhm_prior_phys / spacing_divisor`` (``uniform_grid_phys`` in
     :mod:`nvision.sim.locs.search_grid`), so ``n = ceil(W / spacing) + 1``.
     """
-    if not (window_phys > 0.0 and fwhm_prior_phys > 0.0 and spacing_divisor >= 1):
+    if not (window_phys > 0.0 and fwhm_prior_phys > 0.0 and spacing_divisor > 0.0):
         raise ValueError(f"Bad sweep geometry: {window_phys!r}, {fwhm_prior_phys!r}, {spacing_divisor!r}.")
     return math.ceil(window_phys / (fwhm_prior_phys / spacing_divisor)) + 1
 

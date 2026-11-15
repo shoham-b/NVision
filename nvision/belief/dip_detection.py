@@ -123,6 +123,17 @@ def min_hwhm_hz(phys_bounds: Mapping[str, tuple[float, float]]) -> float:
     raise ValueError(f"min_hwhm_hz: bounds define no 'hwhm' or 'hwhm_lorentz'; got {sorted(phys_bounds)}")
 
 
+def window_width_range_hz(
+    gamma_mean_hz: float, gamma_std_hz: float, gamma_min_hz: float, gamma_max_hz: float
+) -> tuple[float, float]:
+    """Window span range (Hz) of :func:`find_dips`: ``gamma_mean +/- 2 gamma_std``, clipped to the prior.
+
+    That interval overshoots both ends of a uniform prior (the low end even below 0); a window outside the
+    allowed widths only spends hypotheses (raising the threshold).
+    """
+    return max(gamma_min_hz, gamma_mean_hz - 2.0 * gamma_std_hz), min(gamma_max_hz, gamma_mean_hz + 2.0 * gamma_std_hz)
+
+
 def _window_scores(
     xu: np.ndarray, first: np.ndarray, end: np.ndarray, z: np.ndarray, width_lo_hz: float, width_hi_hz: float
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -250,10 +261,7 @@ def find_dips(
     baseline = float(np.percentile(ys, _BASELINE_PERCENTILE)) - percentile_offset
     z = (baseline - ys) / noise_scale
 
-    # gamma_mean +/- 2 gamma_std overshoots both ends of a uniform prior (the low end even below 0); a
-    # window outside the allowed widths only spends hypotheses (raising the threshold).
-    width_lo_hz = max(gamma_min_hz, gamma_mean_hz - 2.0 * gamma_std_hz)
-    width_hi_hz = min(gamma_max_hz, gamma_mean_hz + 2.0 * gamma_std_hz)
+    width_lo_hz, width_hi_hz = window_width_range_hz(gamma_mean_hz, gamma_std_hz, gamma_min_hz, gamma_max_hz)
     xu, first = np.unique(xs, return_index=True)  # distinct positions and their first index
     end = np.append(first[1:], len(xs))  # one past the last index of each distinct position
     score, a, b = _window_scores(xu, first, end, z, width_lo_hz, width_hi_hz)

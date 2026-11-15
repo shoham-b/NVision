@@ -5,7 +5,7 @@
 
 // More use cases than this make the request take minutes (each rebuilds a line and loads every run); ask for fewer.
 const SB_MAX_USE_CASES = 12;
-const SB_LOCATORS = ['Bayesian-SBED', 'SimpleSweep-2perFWHM', 'SimpleSweep-3perFWHM', 'SimpleSweep-4perFWHM'];
+const SB_LOCATORS = ['Bayesian-SBED', 'SimpleSweep-3perFWHM', 'SimpleSweep-optimal'];
 const SB_BOUND_STYLE = {
     finite_reach: { name: 'finite reach (W − nΔd)³/12W', color: '#b45309', dash: 'dash' },
     change_of_measure: { name: 'change of measure (eq. search-bound)', color: '#15803d', dash: 'dash' },
@@ -14,7 +14,7 @@ const SB_BOUND_STYLE = {
 
 const sbFmt = (v, digits = 3) => (v == null || !Number.isFinite(v) ? '–' : Number(v).toPrecision(digits));
 const sbEsc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
-const sbShort = (name) => name.replace('SimpleSweep-', 'Sweep ').replace('perFWHM', '/FWHM');
+const sbShort = (name) => name.replace('SimpleSweep-optimal', 'Sweep k*').replace('SimpleSweep-', 'Sweep ').replace('perFWHM', '/FWHM');
 const sbMHz = (hz) => `${(hz / 1e6).toPrecision(3)} MHz`;
 
 const sbCard = (title, help, id, height) => `

@@ -20,12 +20,11 @@ from typing import Any
 import numpy as np
 
 from nvision.metrics import search_bounds as sb
-from nvision.sim.grid_enums import sweep_strategy_name
+from nvision.sim.combinations import PLAIN_SWEEP_STRATEGIES
 from nvision.sim.presets import line_contrast
 
 # The locators the search claim is about (never the Smart-* variants).
-SEARCH_BOUND_SWEEP_SPACINGS = (2, 3, 4)
-SEARCH_BOUND_LOCATORS = ("Bayesian-SBED", *(sweep_strategy_name(k) for k in SEARCH_BOUND_SWEEP_SPACINGS))
+SEARCH_BOUND_LOCATORS = ("Bayesian-SBED", *PLAIN_SWEEP_STRATEGIES)
 PRIMARY_PARAM = "zeeman_shift"
 # Points of the measurement-count grid the curves are drawn on (log spaced, 1 .. budget).
 N_GRID_POINTS = 160

@@ -6,8 +6,8 @@
 // renderStagesTab with the current selection. Needs the live server (nv serve): a static export has no API.
 (function () {
     const SBED = 'Bayesian-SBED';
-    const SWEEPS = ['SimpleSweep-2perFWHM', 'SimpleSweep-3perFWHM', 'SimpleSweep-4perFWHM'];
-    const COLORS = { [SBED]: '#1e90ff', 'SimpleSweep-2perFWHM': '#94a3b8', 'SimpleSweep-3perFWHM': '#64748b', 'SimpleSweep-4perFWHM': '#334155' };
+    const SWEEPS = ['SimpleSweep-3perFWHM', 'SimpleSweep-optimal'];
+    const COLORS = { [SBED]: '#1e90ff', 'SimpleSweep-3perFWHM': '#64748b', 'SimpleSweep-optimal': '#334155' };
     const SNR_COLORS = ['#1e90ff', '#e05c00', '#00a878', '#9b59b6', '#e74c3c', '#f39c12'];
     const label = (s) => s.replace('Bayesian-', '').replace('SimpleSweep', 'Sweep');
     const esc = (t) => String(t).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));

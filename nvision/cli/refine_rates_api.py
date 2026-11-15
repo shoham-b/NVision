@@ -16,11 +16,11 @@ from typing import Any
 
 from fastapi import FastAPI
 
-from nvision.metrics.refine_rates_runs import SBED, build_run_trace, sweep_divisor, use_case_summary
-from nvision.sim.combinations import SWEEP_SPACING_DIVISORS, CombinationGrid, sweep_strategy_name
+from nvision.metrics.refine_rates_runs import SBED, build_run_trace, use_case_summary
+from nvision.sim.combinations import PLAIN_SWEEP_STRATEGIES, CombinationGrid
 
 # Strategies in scope: Bayesian-SBED and the three sweep spacings (never the Smart-* experiments).
-STRATEGIES: tuple[str, ...] = (SBED, *(sweep_strategy_name(k) for k in SWEEP_SPACING_DIVISORS))
+STRATEGIES: tuple[str, ...] = (SBED, *PLAIN_SWEEP_STRATEGIES)
 
 _WORKERS = 4
 
@@ -118,5 +118,4 @@ def add_refine_rates_route(
             "shots_per_measurement": 1,
             "use_cases": [c for c in cases if "locators" in c],
             "failed": [c for c in cases if "locators" not in c],
-            "sweep_divisors": [sweep_divisor(s) for s in STRATEGIES if sweep_divisor(s)],
         }

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import os
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
@@ -21,6 +22,7 @@ from nvision.sim.defaults import (
 from nvision.sim.locs.bayesian.sequential_bayesian_locator import NVISION_CONVERGENCE_PATIENCE, ConvergenceStopRules
 from nvision.sim.locs.coarse.sweep_locator import SweepingLocator
 from nvision.sim.locs.search_grid import SWEEP_POINTS_PER_FWHM, prior_fwhm_phys, uniform_grid_phys
+from nvision.sim.locs.sweep_optimal import OPTIMAL_SPACING, OptimalSweepSpacing, optimal_sweep_spacing
 from nvision.spectra.signal import SignalModel
 from nvision.tools.renamed_env import reject_renamed_env_vars
 
@@ -115,8 +117,9 @@ _FIT_FLOAT32_DIFF_STEP: float = float(os.getenv("NVISION_SWEEP_FIT_FLOAT32_DIFF_
 class GenericSweepLocator(ConvergenceStopRules, SweepingLocator):
     """Uniform grid sweep over the whole drive-frequency axis, then a least-squares model fit.
 
-    The grid spacing is the prior FWHM divided by ``spacing_divisor`` (3 by default: three points inside the
-    dip, so a dip cannot be stepped over and ``find_dips`` has the cluster it needs), where the FWHM is
+    The grid spacing is the prior FWHM divided by ``spacing_divisor`` (3 by default, the reference sweep: three
+    points inside the dip, so a dip cannot be stepped over; ``"optimal"``: the step that needs the fewest
+    measurements, see :mod:`nvision.sim.locs.sweep_optimal`), where the FWHM is
     ``2 * effective_hwhm`` of the belief's *prior* estimate -- never the true signal's width. The number of
     steps follows from that spacing and the axis width. No refocusing -- every grid point is measured -- but the
     belief is updated after each measurement, so its uncertainty can be followed step by step like any other
@@ -134,14 +137,17 @@ class GenericSweepLocator(ConvergenceStopRules, SweepingLocator):
     max_steps : int
         Upper bound on the step count (0 = none). The count itself is derived from the prior FWHM,
         ``spacing_divisor`` and the axis width; exceeding the bound raises.
-    spacing_divisor : int | None, default 3
-        Grid points per FWHM (spacing = FWHM / spacing_divisor). ``None`` selects a fixed-count sweep of exactly
-        ``max_steps`` evenly spaced points instead (for models without a hwhm prior).
+    spacing_divisor : float | "optimal" | None, default 3
+        Grid points per FWHM (spacing = FWHM / spacing_divisor); any positive finite number, fractional allowed.
+        ``"optimal"`` picks the analytically optimal ``k*`` for this belief and noise level (needs ``noise_std``,
+        the true per-measurement sigma, to be given explicitly; the realised value is then ``spacing_divisor``).
+        ``None`` selects a fixed-count sweep of exactly ``max_steps`` evenly spaced points instead (for models
+        without a hwhm prior).
     max_measurements : int, default NVISION_MAX_MEASUREMENTS
         Cap on the total measurements. The sweep repeats whole passes over the grid while they fit, so it makes
         ``max(1, max_measurements // grid points)`` passes (1 = a single pass, no averaging).
-    noise_std : float, default 0.01
-        Estimated measurement noise standard deviation.
+    noise_std : float | None, default None (0.01)
+        Estimated measurement noise standard deviation. Required with ``spacing_divisor="optimal"``.
     noise_max_dev : float | None, default None
         Pre-computed maximum noise deviation for thresholding.
     signal_min_span : float | None, default None
@@ -164,13 +170,13 @@ class GenericSweepLocator(ConvergenceStopRules, SweepingLocator):
         max_steps: int = 0,
         *,
         builder: Callable[..., AbstractMarginalDistribution] | None = None,
-        noise_std: float = 0.01,
+        noise_std: float | None = None,
         noise_max_dev: float | None = None,
         signal_min_span: float | None = None,
         signal_max_span: float | None = None,
         center_param: str | None = None,
         parameter_bounds: dict[str, tuple[float, float]] | None = None,
-        spacing_divisor: int | None = SWEEP_POINTS_PER_FWHM,
+        spacing_divisor: float | str | None = SWEEP_POINTS_PER_FWHM,
         max_measurements: int = NVISION_MAX_MEASUREMENTS,
         **kwargs: Any,
     ) -> GenericSweepLocator:
@@ -215,27 +221,39 @@ class GenericSweepLocator(ConvergenceStopRules, SweepingLocator):
         signal_model: SignalModel,
         max_steps: int,
         *,
-        noise_std: float = 0.01,
+        noise_std: float | None = None,
         noise_max_dev: float | None = None,
         signal_min_span: float | None = None,
         signal_max_span: float | None = None,
         center_param: str | None = None,
         domain_lo: float = 0.0,
         domain_hi: float = 1.0,
-        spacing_divisor: int | None = SWEEP_POINTS_PER_FWHM,
+        spacing_divisor: float | str | None = SWEEP_POINTS_PER_FWHM,
         max_measurements: int = NVISION_MAX_MEASUREMENTS,
     ):
         if max_measurements < 1:
             raise ValueError(f"max_measurements must be >= 1, got {max_measurements!r}")
-        if spacing_divisor is not None and spacing_divisor < 1:
-            raise ValueError(f"spacing_divisor must be >= 1 (or None), got {spacing_divisor!r}")
+        optimal = isinstance(spacing_divisor, str)
+        if optimal:
+            if spacing_divisor != OPTIMAL_SPACING:
+                raise ValueError(
+                    f"spacing_divisor must be a number, None or {OPTIMAL_SPACING!r}, got {spacing_divisor!r}"
+                )
+            if noise_std is None:
+                raise ValueError(f"spacing_divisor={OPTIMAL_SPACING!r} needs the true noise_std to be given.")
+        elif spacing_divisor is not None and not (
+            isinstance(spacing_divisor, int | float) and spacing_divisor > 0 and math.isfinite(spacing_divisor)
+        ):
+            raise ValueError(
+                f"spacing_divisor must be positive and finite (or None / {OPTIMAL_SPACING!r}), got {spacing_divisor!r}"
+            )
         if spacing_divisor is None and max_steps < 2:
             raise ValueError("A fixed-count sweep (spacing_divisor=None) needs max_steps >= 2.")
         super().__init__(
             belief=belief,
             signal_model=signal_model,
             max_steps=max_steps,
-            noise_std=noise_std,
+            noise_std=0.01 if noise_std is None else noise_std,
             noise_max_dev=noise_max_dev,
             signal_min_span=signal_min_span,
             signal_max_span=signal_max_span,
@@ -269,6 +287,18 @@ class GenericSweepLocator(ConvergenceStopRules, SweepingLocator):
                 f"belief drive_freq_bounds_phys {belief.drive_freq_bounds_phys} do not match this locator's "
                 f"domain ({domain_lo}, {domain_hi}); observations are unit coordinates of one range."
             )
+        # Set when ``spacing_divisor="optimal"``: the k* scan's result (k*, predicted passes and cost).
+        self.optimal_spacing: OptimalSweepSpacing | None = None
+        if optimal:
+            self.optimal_spacing = optimal_sweep_spacing(
+                belief,
+                noise_sigma_phys=float(noise_std),
+                lo_phys=domain_lo,
+                hi_phys=domain_hi,
+                max_steps=max_steps,
+                max_measurements=max_measurements,
+            )
+            spacing_divisor = self.optimal_spacing.k_opt
         self.spacing_divisor = spacing_divisor
         if spacing_divisor is None:
             # Explicit fixed-count mode: exactly max_steps evenly spaced points, no width needed.
@@ -1404,6 +1434,11 @@ class GenericSweepLocator(ConvergenceStopRules, SweepingLocator):
         # fit_failed: the sweep found no dip, so it reports no estimate (and fit_chi2_gain says how little it gained).
         res["fit_failed"] = self._fit_failed
         res["fit_chi2_gain"] = self._fit_chi2_gain if self._fit_failed else float("nan")
+        if self.optimal_spacing is not None:
+            # The step the sweep chose for this task and what the choice predicted (reported per repeat).
+            res["sweep_k_opt"] = self.optimal_spacing.k_opt
+            res["sweep_passes_pred"] = self.optimal_spacing.passes_pred
+            res["sweep_cost_pred"] = self.optimal_spacing.cost_pred
         return res
 
     def _compute_sweep_metrics(self) -> dict[str, float | int]:
