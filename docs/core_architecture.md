@@ -63,8 +63,10 @@ the inference, and $\hat\sigma_N$ means the same for all of them. All run under 
   scale. Every contiguous stretch of measured drive frequencies whose span lies in the prior range of the linewidth gets
   the boxcar score $\sum z_n/\sqrt n$; it is significant when it passes the Bonferroni threshold at family-wise
   false-alarm probability $p_{FA} = 0.1$ (`NVISION_DIP_P_FA`). Each connected run of significant stretches is one dip.
-- **Sweep family.** `SimpleSweep-<k>perFWHM` measures a uniform grid of spacing $\Gamma_0/p$, $p = 2, 3, 4$, and repeats
-  whole passes; `Smart-Sweep` sweeps at $\Gamma_0/3$ until the dip test finds a dip, then at $\Gamma_0/10$ inside the
+- **Sweep family.** `SimpleSweep-3perFWHM` (the reference) and `SimpleSweep-optimal` measure a uniform grid of spacing
+  $\Gamma_0/k$ and repeat whole passes; $k = 3$ for the reference, and the optimal sweep uses the fractional $k^*$ that
+  minimises $\overline{P(k,\varphi)}\,n(k)$, the whole passes times points per pass the stop rules need
+  ([locator comparison](locator_comparison.md)); `Smart-Sweep` sweeps at $\Gamma_0/3$ until the dip test finds a dip, then at $\Gamma_0/10$ inside the
   focus, then measures only at the maxima of $(\partial\mu/\partial\theta)^2$ at the posterior mean once the posterior expects each point to
   carry at least 90 % of the optimal information. Details: [locator comparison](locator_comparison.md).
 - **Bayesian SBED** (`nvision/sim/locs/bayesian/sbed_locator.py`). After every resampling, 800 candidate drive

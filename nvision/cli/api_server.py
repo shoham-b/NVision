@@ -25,9 +25,8 @@ from nvision.cache.hashing import stable_config_hash
 from nvision.cache.locator_keys import MIN_VIEWABLE_CACHE_SCHEMA_VERSION, combination_base_cache_config
 from nvision.gui.report import _STATIC_DIR, render_index_html
 from nvision.runner.cache import _decompress_text
-from nvision.sim.combinations import SWEEP_SPACING_DIVISORS, CombinationGrid
+from nvision.sim.combinations import PLAIN_SWEEP_STRATEGIES, CombinationGrid
 from nvision.sim.defaults import PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS
-from nvision.sim.grid_enums import sweep_strategy_name
 from nvision.tools.artifacts import _slim_manifest_entry
 from nvision.tools.json_sanitize import sanitize_non_finite
 
@@ -624,9 +623,10 @@ def build_app(cache_dir: Path, run_dir: Path, lab_dirs: list[Path] | None = None
 
     @app.get("/api/sweep-spacings")
     def sweep_spacings() -> list[str]:
-        """Strategy names of the plain-sweep spacings the current code studies (``SWEEP_SPACING_DIVISORS``).
-        The Step size view shows only these: older spacings left in the cache come from older code."""
-        return [sweep_strategy_name(k) for k in SWEEP_SPACING_DIVISORS]
+        """Strategy names of the plain sweeps the current code studies (``PLAIN_SWEEP_STRATEGIES``: the reference
+        sweep and the optimal-step sweep). The Step size view shows only these: older spacings left in the cache come
+        from older code."""
+        return list(PLAIN_SWEEP_STRATEGIES)
 
     _add_lab_study_route(app, lab_dirs or [], run_dir)
 

@@ -17,7 +17,7 @@ The yardstick is a ladder, each rung tuned before the next:
 
 | Rung | Locator | Tuned / differs by |
 |---|---|---|
-| 0 | `SimpleSweep-<k>perFWHM`, k = 2, 3, 4 | grid step (k points per **prior** FWHM); passes averaged until the stop rule fires |
+| 0 | `SimpleSweep-3perFWHM` (reference), `SimpleSweep-optimal` | grid step (k points per **prior** FWHM): 3 for the reference, the analytically optimal fractional k* of the task for `-optimal` (cost $\min_k \overline{P(k,\varphi)}\,n(k)$, see [locator comparison](locator_comparison.md)); passes averaged until the stop rule fires |
 | 1 | `Smart-Sweep` | coarse sweep, then sweep inside the dip, then the max-Fisher points |
 | 2 | `Smart-SBED` | same coarse grid as Smart-Sweep: only the acquisition after the dip is seen differs |
 | 3 | `Bayesian-SBED` | no coarse grid |
@@ -42,7 +42,9 @@ FWHM, not against those columns.
 
 **k is relative to the prior FWHM, not the true one.** The sweep spacing is FWHM_prior / k. When the prior is wide
 (e.g. prior HWHM ≈ 2.5 MHz against a true 0.5 MHz) a "k = 1" grid puts ~0.2 points per true FWHM and can step over the
-dip. k = 1 is therefore not studied; compare spacings by points per true FWHM.
+dip. k = 1 is therefore not studied (the optimal-step sweep scans k from 0.5, but its cost model prices such grids
+out); compare spacings by points per true FWHM. The realised k* of every `SimpleSweep-optimal` repeat is recorded
+(`sweep_k_opt`, with the predicted passes `sweep_passes_pred` and cost `sweep_cost_pred`).
 
 ## The Fisher oracle behind the stage metrics
 

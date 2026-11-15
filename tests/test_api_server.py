@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 
 from nvision.cache import CacheBridge
 from nvision.cli.api_server import build_app
-from nvision.sim.combinations import SWEEP_SPACING_DIVISORS
+from nvision.sim.combinations import PLAIN_SWEEP_STRATEGIES
 from nvision.sim.defaults import NVISION_SIMPLESWEEP_MAX_STEPS
 
 _MAIN_RESULT_ROW = {
@@ -376,4 +376,4 @@ def test_sweep_spacings_lists_the_studied_sweep_strategies(tmp_path):
     client = TestClient(build_app(cache_dir, static_dir))
 
     names = client.get("/api/sweep-spacings").json()
-    assert names == [f"SimpleSweep-{k}perFWHM" for k in SWEEP_SPACING_DIVISORS]
+    assert names == list(PLAIN_SWEEP_STRATEGIES) == ["SimpleSweep-3perFWHM", "SimpleSweep-optimal"]
