@@ -17,7 +17,7 @@ GENERATORS = [
 def test_voigt_compute_many_float64_matches_scalar_loop(gen_name: str):
     combo = CombinationGrid().resolve(gen_name, "Gauss(0.01)", "SimpleSweep-3perFWHM")
     assert combo is not None
-    signal = combo.generator.generate(random.Random(3))
+    signal = combo.generator.generate(random.Random(3), repeat_idx=0, n_repeats=1)
     model = signal.model
     params = signal.typed_parameters
     lo, hi = signal.get_param_bounds("zero_field_freq")

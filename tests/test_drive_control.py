@@ -150,7 +150,7 @@ def test_drive_setting_validates_range():
 
 def _experiment(gen_name: str, seed: int = 0) -> CoreExperiment:
     gen = CombinationGrid()._resolve_generators.get(gen_name) or dict(presets.drive_controlled_generators())[gen_name]
-    ts = gen.generate(random.Random(seed))
+    ts = gen.generate(random.Random(seed), repeat_idx=0, n_repeats=1)
     noise = _parse_noise("Gauss(0.01)")
     nm = noise.to_noise_signal_model()
     ts = dataclasses.replace(ts, noise_model=nm, noise_bounds=nm.spec.bounds)
@@ -176,7 +176,7 @@ def test_measure_rejects_drive_without_drive_control():
     from nvision.sim.gen.nv_center_generator import NVCenterCoreGenerator
 
     gen = NVCenterCoreGenerator()
-    ts = gen.generate(random.Random(0))
+    ts = gen.generate(random.Random(0), repeat_idx=0, n_repeats=1)
     exp = CoreExperiment(ts, None, gen.drive_freq_min_phys, gen.drive_freq_max_phys)
     assert exp.measure(0.5, random.Random(0)).drive is None
     with pytest.raises(ValueError, match="not drive-controlled"):

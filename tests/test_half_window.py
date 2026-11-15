@@ -26,7 +26,7 @@ def test_window_is_upper_half_above_zero_field_splitting():
 def test_generated_signal_is_centered_on_and_mirror_symmetric_about_zero_field_splitting(variant, hyperfine):
     """Symmetry is what makes the lower half redundant: S(D + d) == S(D - d) for every d."""
     signal = NVCenterCoreGenerator(variant=variant, hyperfine=hyperfine, with_zeeman_splitting=True).generate(
-        random.Random(1)
+        random.Random(1), repeat_idx=0, n_repeats=1
     )
     assert signal.get_param_value("zero_field_freq") == NV_ZERO_FIELD_SPLITTING_HZ
     offsets = np.linspace(0.5e6, 100e6, 25)
@@ -52,7 +52,7 @@ def test_window_grid_dip_keeps_its_left_half_maximum_inside_the_window(monkeypat
         assert pad > 0.0, name
         xs = np.linspace(gen.drive_freq_min_phys, gen.drive_freq_max_phys, 801)
         for seed in range(12):
-            signal = gen.generate(random.Random(seed))
+            signal = gen.generate(random.Random(seed), repeat_idx=0, n_repeats=1)
             assert pad <= signal.get_param_value("zeeman_shift") <= gen.zeeman_max_phys, (name, seed)
             assert signal.bounds["zeeman_shift"] == (gen.zeeman_min_phys, gen.zeeman_max_phys), (name, seed)
             ys = np.array([signal(x) for x in xs])

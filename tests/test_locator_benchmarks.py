@@ -31,7 +31,7 @@ from tests.noise import gaussian_noise
 
 
 def _make_experiment(generator, rng: random.Random, noise=None) -> CoreExperiment:
-    true_signal = generator.generate(rng)
+    true_signal = generator.generate(rng, repeat_idx=0, n_repeats=1)
     # "zero_field_freq" is always in true_signal.bounds (the domain the signal was
     # generated over), even though it's fixed (not inferred, not in
     # parameter_names) by NVCenterCoreGenerator's default -- see its docstring.

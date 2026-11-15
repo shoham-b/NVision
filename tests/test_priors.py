@@ -20,7 +20,7 @@ def test_generator_adds_gaussian_and_sin2_priors():
 
     # 1. Lorentzian variant
     gen_lor = NVCenterCoreGenerator(variant="lorentzian")
-    signal_lor = gen_lor.generate(rng)
+    signal_lor = gen_lor.generate(rng, repeat_idx=0, n_repeats=1)
 
     assert "_priors" in signal_lor.bounds
     priors_lor = signal_lor.bounds["_priors"]
@@ -42,7 +42,7 @@ def test_generator_adds_gaussian_and_sin2_priors():
 
     # With hyperfine splitting enabled, hyperfine_shift and k_np are present
     gen_lor_hyperfine_shift = NVCenterCoreGenerator(variant="lorentzian", hyperfine="n14", infer_hyperfine=True)
-    signal_lor_hyperfine_shift = gen_lor_hyperfine_shift.generate(rng)
+    signal_lor_hyperfine_shift = gen_lor_hyperfine_shift.generate(rng, repeat_idx=0, n_repeats=1)
     priors_hyperfine_shift = signal_lor_hyperfine_shift.bounds["_priors"]
     for name in ("hyperfine_shift", "hwhm", "k_np", "contrast_total"):
         assert name in priors_hyperfine_shift
@@ -50,7 +50,7 @@ def test_generator_adds_gaussian_and_sin2_priors():
     # 2. Voigt variant (default: hyperfine="unresolved", same as Lorentzian --
     # hyperfine_shift/k_np are fixed to the real N-14 constant / 1.0, not free/inferred priors)
     gen_voigt = NVCenterCoreGenerator(variant="voigt")
-    signal_voigt = gen_voigt.generate(rng)
+    signal_voigt = gen_voigt.generate(rng, repeat_idx=0, n_repeats=1)
 
     assert "_priors" in signal_voigt.bounds
     priors_voigt = signal_voigt.bounds["_priors"]
@@ -71,7 +71,7 @@ def test_generator_adds_gaussian_and_sin2_priors():
 
     # With hyperfine splitting enabled, hyperfine_shift and k_np are present
     gen_voigt_hf = NVCenterCoreGenerator(variant="voigt", hyperfine="n14", infer_hyperfine=True)
-    signal_voigt_hf = gen_voigt_hf.generate(rng)
+    signal_voigt_hf = gen_voigt_hf.generate(rng, repeat_idx=0, n_repeats=1)
     priors_voigt_hf = signal_voigt_hf.bounds["_priors"]
     for name in ("hyperfine_shift", "k_np", "hwhm_lorentz", "sigma_inhom", "contrast_total"):
         assert name in priors_voigt_hf
@@ -80,7 +80,7 @@ def test_generator_adds_gaussian_and_sin2_priors():
 def test_smc_belief_initializes_with_sin2_and_gaussian_priors():
     rng = random.Random(42)
     gen = NVCenterCoreGenerator(variant="lorentzian")
-    signal = gen.generate(rng)
+    signal = gen.generate(rng, repeat_idx=0, n_repeats=1)
 
     # Build SMC belief with generator priors. with_fixed_zero_field_freq=False: this test
     # specifically exercises the sin^2 prior on the zero_field_freq dimension, which
@@ -169,7 +169,7 @@ def test_prior_mean_offset_from_truth_is_widened_by_prior_mean_offset_sigmas():
     for seed in range(300):
         rng = random.Random(seed)
         gen = NVCenterCoreGenerator(variant="lorentzian")
-        signal = gen.generate(rng)
+        signal = gen.generate(rng, repeat_idx=0, n_repeats=1)
         mean, std = signal.bounds["_priors"]["hwhm"]
         true_hwhm = signal.typed_parameters.hwhm
         offsets_in_std.append(abs(mean - true_hwhm) / std)
@@ -193,7 +193,7 @@ def test_prior_mean_offset_from_truth_is_widened_by_prior_mean_offset_sigmas():
         for seed in range(300):
             rng = random.Random(seed)
             gen = NVCenterCoreGenerator(variant="lorentzian")
-            signal = gen.generate(rng)
+            signal = gen.generate(rng, repeat_idx=0, n_repeats=1)
             mean, std = signal.bounds["_priors"]["hwhm"]
             true_hwhm = signal.typed_parameters.hwhm
             halved_offsets.append(abs(mean - true_hwhm) / std)
@@ -216,6 +216,6 @@ def test_zeeman_shift_has_no_prior_in_any_variant():
         {"variant": "cw_drive"},
         {"variant": "pulsed_drive"},
     ):
-        signal = NVCenterCoreGenerator(**kwargs).generate(rng)
+        signal = NVCenterCoreGenerator(**kwargs).generate(rng, repeat_idx=0, n_repeats=1)
         assert "zeeman_shift" in signal.bounds, kwargs
         assert "zeeman_shift" not in signal.bounds["_priors"], kwargs

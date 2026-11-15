@@ -27,7 +27,7 @@ from nvision.sim.gen.nv_center_generator import NVCenterCoreGenerator
 
 def _signal(seed: int = 3):
     return NVCenterCoreGenerator(drive_freq_min_phys=2.6e9, drive_freq_max_phys=3.1e9, variant="lorentzian").generate(
-        random.Random(seed)
+        random.Random(seed), repeat_idx=0, n_repeats=1
     )
 
 
@@ -165,7 +165,7 @@ def test_truth_summary_reports_end_and_mean():
 def test_splitting_drift_on_a_single_dip_signal_fails_loudly():
     single = NVCenterCoreGenerator(
         drive_freq_min_phys=2.6e9, drive_freq_max_phys=3.1e9, variant="lorentzian", with_zeeman_splitting=False
-    ).generate(random.Random(0))
+    ).generate(random.Random(0), repeat_idx=0, n_repeats=1)
     spec = DriftSpec(label="f", shot_duration_s=1.0, field_mg=DriftProcess(warmup_amplitude=1.0))
     exp = CoreExperiment(
         true_signal=single,

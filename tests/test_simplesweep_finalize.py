@@ -23,7 +23,7 @@ from nvision.spectra.nv_center import NVCenterLorentzianModel
 
 def _make_experiment(rng: random.Random) -> CoreExperiment:
     gen = NVCenterCoreGenerator(drive_freq_min_phys=2.6e9, drive_freq_max_phys=3.1e9, variant="lorentzian")
-    true_signal = gen.generate(rng)
+    true_signal = gen.generate(rng, repeat_idx=0, n_repeats=1)
     # NVCenterCoreGenerator always fixes zero_field_freq (a known instrument constant,
     # not inferred -- see its docstring), so the generated model's zero_field_freq isn't
     # a free/fit parameter. This test specifically checks that GenericSweepLocator's

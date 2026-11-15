@@ -24,7 +24,7 @@ from tests.noise import gaussian_noise
 def test_bayesian_sbed_nv_updates_with_normalized_probe_and_physical_signal():
     rng = random.Random(11)
     gen = NVCenterCoreGenerator(drive_freq_min_phys=2.6e9, drive_freq_max_phys=3.1e9, variant="lorentzian")
-    true_signal = gen.generate(rng)
+    true_signal = gen.generate(rng, repeat_idx=0, n_repeats=1)
     drive_freq_min_phys, drive_freq_max_phys = true_signal.get_param_bounds("zero_field_freq")
     assert drive_freq_min_phys is not None
     exp = CoreExperiment(

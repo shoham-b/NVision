@@ -133,6 +133,7 @@ def clear_signal_experiment_cache() -> None:
     with _LOCK:
         _SIGNAL_BUNDLE_BY_KEY.clear()
         _DESERIALIZED_CACHE.clear()
+        _N_REPEATS_BY_KEY.clear()
         if _SHM_LOCK is not None:
             try:
                 with _SHM_LOCK:
@@ -143,10 +144,14 @@ def clear_signal_experiment_cache() -> None:
                 log.debug("Shared lock connection closed in clear_signal_experiment_cache: %s", exc)
 
 
+_N_REPEATS_BY_KEY: dict[str, int] = {}
+
+
 def get_shared_core_experiment(
     task: LocatorTask,
     repeat_idx: int,
     build: Callable[[random.Random], CoreExperiment],
+    n_repeats: int,
 ) -> CoreExperiment:
     """Return a :class:`CoreExperiment` with shared ``true_signal`` for this repeat.
 
@@ -163,6 +168,12 @@ def get_shared_core_experiment(
     afterwards, or one task's noise prior would leak into every other noise level's experiment.
     """
     key = signal_repeat_key(task.seed, task.generator_name, repeat_idx)
+    # The signal of repeat i depends on the total N (stratified draws) but the key does not carry N: two studies
+    # with different N must not share a signal, so fail fast instead of silently serving a wrong stratum.
+    with _LOCK:
+        seen_n = _N_REPEATS_BY_KEY.setdefault(key, n_repeats)
+    if seen_n != n_repeats:
+        raise ValueError(f"Signal {key!r} was built for n_repeats={seen_n}, now requested with n_repeats={n_repeats}.")
 
     # 1. Check local cache (lock-free)
     cached = _DESERIALIZED_CACHE.get(key)
