@@ -245,7 +245,7 @@ re-run is needed. The panels are drawn by `static/search-bounds-view.js`.
   never read the true signal, so the single-run outputs (bound curves, detection step against 1/κ̄ and W/Δd) apply to one lab run; the
   ensemble outputs (mean err², S(n), κ_eff) need many θ. The lab could emulate θ uniform in the window by replaying recorded sweeps with a
   randomly shifted window (not implemented, no lab wiring yet).
-* **Old SNR labels.** Rows recorded before the `snr-per-line-contrast-v1` fingerprint change (cached `368f4f5d4fdc`, current `018d00aed340`)
+* **Old SNR labels.** Rows recorded before the `snr-per-line-contrast-v1` fingerprint change (cached `368f4f5d4fdc`; `018d00aed340` and later use the article SNR)
   have σ = contrast_total/x for `SNR(x)`, i.e. article SNR x/2. The panel always shows the article SNR computed from σ and states when the run label differs.
 
 Reading it on the current cache (2026-11-15): the SNR × window study's drawn W is only 1.5–4.4 Γ, so the search is a few

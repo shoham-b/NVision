@@ -325,6 +325,9 @@ def physics_config_fingerprint() -> str:
         # Bumped when the SNR label became the article's C / sigma (C = contrast_total / 2): an SNR(x) run's
         # noise sigma is half of before at the same label.
         "snr-per-line-contrast-v1",
+        # Bumped when the true zeeman_shift became stratified across repeats (repeat i of N draws uniformly
+        # inside the i-th of N equal slices of the drawn range): the true signal of every repeat differs.
+        "stratified-zeeman-v1",
         NV_ZEEMAN_EDGE_PAD_FWHM,
         MIN_HWHM,
         MAX_HWHM,
