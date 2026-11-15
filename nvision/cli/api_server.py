@@ -21,9 +21,9 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from nvision.cache import CacheBridge
-from nvision.cli.refine_rates_api import add_refine_rates_route
 from nvision.cache.hashing import stable_config_hash
 from nvision.cache.locator_keys import MIN_VIEWABLE_CACHE_SCHEMA_VERSION, combination_base_cache_config
+from nvision.cli.refine_rates_api import add_refine_rates_route
 from nvision.gui.report import _STATIC_DIR, render_index_html
 from nvision.runner.cache import _decompress_text
 from nvision.sim.combinations import SWEEP_SPACING_DIVISORS, CombinationGrid
@@ -45,6 +45,7 @@ _STATIC_ASSET_NAMES = (
     "reload.js",
     "styles.css",
     "lab-view.js",
+    "refine-rates.js",
 )
 
 log = logging.getLogger("nvision.api_server")

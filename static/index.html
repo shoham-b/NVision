@@ -9,6 +9,7 @@
     <script src="plotly-utils.js"></script>
     <script src="run-status.js"></script>
     <script src="lab-view.js"></script>
+    <script src="refine-rates.js"></script>
 </head>
 <body>
 <h1>NVision results <span id="out-dir-display"></span></h1>
@@ -286,6 +287,8 @@
         </section>
         <p style="margin:1em 0 0; font-size:0.8em; color:#94a3b8;">How search cost scales with the window, SNR and line width is in the Scaling view. Whether the claimed σ is right, and which runs failed, is in the Sanity view. The bound needs runs recorded with the Fisher columns (stage_fisher_star, stage_prior_info); older runs show a dash.</p>
         </div>
+        <!-- Refine & speedup (refine-rates.js, /api/refine-rates): q_place, q_err, n0, R_inf, the speedup panels. -->
+        <div id="refine-speedup-view"></div>
     </div>
 
     <!-- ── Scaling tab: does each stage's cost follow its driver? ─────────── -->

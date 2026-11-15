@@ -7518,6 +7518,7 @@ function main() {
                 hlBindStageSelector();
                 hlApplyStageSelector();
                 if (hlStageShown === 0) renderStepSizeTab();   // Cost & search under Whole run
+                if (window.NVRefineRates) window.NVRefineRates.render(document.getElementById('refine-speedup-view'), gen, noises);
             })
             .catch(err => {
                 const view = document.getElementById('stages-view');
