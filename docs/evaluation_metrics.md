@@ -259,6 +259,12 @@ run); SBED's positions come from `meas_drive_freq_unit` or the scan figure (`mea
 SBED to about 1 % from the float16 positions), otherwise the repeat is left out and listed with the reason. Repeats that cannot
 be rebuilt are never given a fallback.
 
+`q_place` averages η over everything after the detection (localize included), while the line is fitted late, so the
+filter-loss ratio uses `q_place_window`, the median over runs of the mean η over the fitted window `[n_lo, n_hi]`
+(`q_err_over_place_window`); `q_err / q_place` is kept but mixes the two ranges. Fixed-budget combos are hidden from the
+ordinary views (the live server's combo list) and seen only by `/api/refine-rates`; `nv compare` and the parquet writer are
+not filtered (gap).
+
 **Theory references, per use case.** `q_sweep = I_sweep / I_max`: the Lorentzian closed form `8π/27 · Γ/W` and the exact
 `mean(g²) / max(g²)` over the drive window of the rebuilt true line (any shape: Voigt, a hyperfine triplet, where the
 Lorentzian form is not valid and `Γ` = `stage_fwhm_true_phys` is the single-line FWHM, not the triplet's extent); likewise

@@ -298,6 +298,14 @@ def _locator_summary(traces: list[RunTrace], i_max: float, taus: np.ndarray) -> 
     )
     window = rr.late_window(inv, [t.dip_step for t in traces if t.dip_step is not None])
     fit = None if window is None else rr.fit_rate_line(inv, i_max, window)
+    # Mean eta over the SAME measurements the rate line was fitted on, so q_err / q_place_window compares like with like
+    # (q_place also counts the localize stage, where the placement is still improving).
+    in_window = (
+        []
+        if fit is None
+        else [float(t.eta[int(fit.n_lo) - 1 : int(fit.n_hi)].mean()) for t in traces if t.eta is not None]
+    )
+    q_place_window = float(np.median(in_window)) if in_window else None
     cost = rr.cost_curve([t.steps for t in traces], [t.errs for t in traces], taus)
 
     def hist(part: str) -> dict[str, Any] | None:
@@ -327,6 +335,8 @@ def _locator_summary(traces: list[RunTrace], i_max: float, taus: np.ndarray) -> 
         "q_place_mean": float(np.mean(q_places)) if q_places else None,
         "fit": None if fit is None else fit._asdict(),
         "q_err_over_place": None if fit is None or not q_places else fit.q / float(np.median(q_places)),
+        "q_place_window": q_place_window,
+        "q_err_over_place_window": None if fit is None or not q_place_window else fit.q / q_place_window,
         "curve": {"n": n_grid, "inv_mse": inv.inv_mse},
         "cost": {"t_median": cost.t_median, "t_p75": cost.t_p75, "share": cost.share},
         "hist": {"before": hist("before"), "after": hist("after")},
