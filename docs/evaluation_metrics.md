@@ -217,7 +217,7 @@ Per step *t* (the belief after measurement *t*), in the scan entry's `series` ne
 * `z`: signed (estimate − truth) / σ̂, σ̂ = `belief.uncertainty()`. Calibrated and Gaussian ⇒ N(0, 1); this is what rule 1's coverage check wants instead of |error|.
 * `j`: Fisher information ∫ p′(θ)²/p(θ) dθ of the posterior density, Hz⁻²; `h`: the KDE bandwidth it was computed with, Hz. `g`, `j`, `h` exist only at the stored steps (see Cost).
 * `g`: negentropy ½ ln(2πe V) − H of the smoothed density (V its own variance, H its differential entropy), nats: 0 for a Gaussian, > 0 for anything else (a Gaussian maximises entropy at fixed variance). The reference is the smoothed density's own variance, not σ̂²: the KDE adds its bandwidth to the variance, so against σ̂² a Gaussian cloud would come out negative.
-* `m`: posterior mass farther than 3 true FWHM from the posterior mode (KDE argmax); `None` for drive-controlled models (no single FWHM).
+* `m`: posterior mass farther than 3 true FWHM from the posterior mode (mode of a weighted histogram with bins of FWHM/4, within FWHM/8 of the KDE's); `None` for drive-controlled models (no single FWHM).
 * `x`: 1 if measurement *t* was placed more than 3 FWHM from the mode of the belief before it (belief *t − 1*), else 0; `None` at *t* = 0. The mode is mapped to the drive axis (the visible dip sits at `zero_field_freq + zeeman_shift`) and compared with the drive frequency measured. Tests the claim that a Gaussian-EIG acquisition wastes localize measurements on residual far mass.
 
 Per run, in the results row and the API's compare fields (`_COMPARE_FIELDS`):
@@ -236,7 +236,7 @@ Per run, in the results row and the API's compare fields (`_COMPARE_FIELDS`):
 
 **Undefined steps.** A belief that no measurement has updated is a flat prior (a sweep's belief until its first flush) and has no posterior: its fields (`m`, `g`, `j`, `h`, and `x` of the next step) are `None` and the step is counted in `posterior_undefined_steps`. Any other failure raises. A run that never detects a dip (`dip_detected_step` null, e.g. a fixed-budget run with the stop rule off) has no τ fields but still has every per-step series; nothing here assumes the run ends by its stop rule (a 2500-step budget-capped SNR(1) run was checked).
 
-**Cost.** A KDE costs about 25 ms (measured: 68 s for a 2500-step SBED run when computed at every step). So `j`, `g` and `h` are computed only at the steps the stored series keeps (at most 80, the same indices as `s`) and at τ, about 2 s per run whatever its length; `z`, `m` and `x` are cheap (a weighted histogram with bins of a quarter FWHM gives the mode, within FWHM/8 of the KDE's) and cover every step. Each distinct belief is summarised once (sweeps share a belief copy across buffered steps).
+**Cost.** A KDE costs about 25 ms (68 s for a 2500-step SBED run when computed at every step), so `j`, `g` and `h` are computed only at the steps the stored series keeps (at most 80, the same indices as `s`) and at τ; `z`, `m` and `x` need no density (a weighted histogram with bins of a quarter FWHM gives the mode) and cover every step. Each distinct belief is summarised once (sweeps share a belief copy across buffered steps). Measured with three runs sharing the machine, startup included: Bayesian-SBED 190 steps 3.6 s of 34 s wall (~10 %), Bayesian-SBED at SNR(1) 2500 steps 3.0 s of 49 s, SimpleSweep 1768 steps (239 distinct beliefs) 2.8 s of 33 s.
 
 ## Rules
 

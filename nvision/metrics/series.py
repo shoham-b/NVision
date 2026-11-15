@@ -134,13 +134,8 @@ def extract_step_series(
     run_result: RunResult | None,
     param: str = "zero_field_freq",
     max_points: int = MAX_SERIES_POINTS,
-    posterior: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
-    """Build the compact per-step series for one run, or None when unavailable.
-
-    ``posterior``: the ``compute_posterior_metrics`` result of the run; when given, its per-step series (``z``, ``g``,
-    ``m``, ``j``, ``x``; see ``nvision/metrics/posterior.py``) are added, aligned with ``"s"`` and downsampled with it.
-    """
+    """Build the compact per-step series for one run, or None when unavailable."""
     if run_result is None or not run_result.snapshots:
         return None
     param = _resolve_series_param(run_result, param)
@@ -185,14 +180,6 @@ def extract_step_series(
     }
     if any(c is not None for c in crlbs):
         series["c"] = [_round_sig(crlbs[i]) for i in keep]
-    if posterior is not None:
-        if posterior["max_points"] != max_points or len(steps) != len(posterior["series"]["z"]):
-            raise ValueError("The posterior series were not built for this run's steps / max_points.")
-        if not {steps[i] - 1 for i in keep} <= set(posterior["density_steps"]):
-            raise ValueError("The stored steps are not the steps the posterior density was computed at.")
-        for key, values in posterior["series"].items():
-            if any(v is not None for v in values):
-                series[key] = [_round_sig(values[steps[i] - 1]) for i in keep]
     if any(windows):
         series["w"] = [
             [[_round_sig(lo), _round_sig(hi)] for lo, hi in windows[i]] if windows[i] else None for i in keep
@@ -201,3 +188,21 @@ def extract_step_series(
     if tau is not None:
         series["tau"] = _round_sig(tau)
     return series
+
+
+def attach_posterior_series(series: dict[str, Any], posterior: dict[str, Any]) -> None:
+    """Add the run-time posterior per-step series (``z``, ``g``, ``m``, ``j``, ``h``, ``x``) to a step series in place.
+
+    ``series``: the dict :func:`extract_step_series` built; ``posterior``: ``compute_posterior_metrics`` of the same
+    run. Values are taken at the steps of ``series["s"]`` (1-indexed). Raises ``ValueError`` if the posterior was
+    not built for those steps (the density series exist only at the steps the stored series keeps), so a mismatch
+    cannot silently drop or misalign a series.
+    """
+    steps0 = [step - 1 for step in series["s"]]
+    if posterior["max_points"] != MAX_SERIES_POINTS or max(steps0) >= len(posterior["series"]["z"]):
+        raise ValueError("The posterior series were not built for this run's steps / max_points.")
+    if not set(steps0) <= set(posterior["density_steps"]):
+        raise ValueError("The stored steps are not the steps the posterior density was computed at.")
+    for key, values in posterior["series"].items():
+        if any(v is not None for v in values):
+            series[key] = [_round_sig(values[t]) for t in steps0]

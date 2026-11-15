@@ -855,9 +855,14 @@ def generate_attempt_plots(
 
         posterior_metrics = compute_posterior_metrics(run_result, entry_base.get("stage_primary_param"), entry_base)
         try:
-            from nvision.metrics.series import _round_sig, extract_refine_series, extract_step_series
+            from nvision.metrics.series import (
+                _round_sig,
+                attach_posterior_series,
+                extract_refine_series,
+                extract_step_series,
+            )
 
-            step_series = extract_step_series(run_result, posterior=posterior_metrics)
+            step_series = extract_step_series(run_result)
             if step_series:
                 # The finalize fit (e.g. a sweep's dip fit) can land outside the
                 # belief snapshots; the series endpoint must match the reported
@@ -876,6 +881,9 @@ def generate_attempt_plots(
                 scan_entry["series"] = step_series
         except Exception:
             log.debug("Step series extraction failed for %s", attempt_slug, exc_info=True)
+        # Outside the try: a posterior series that does not line up with the stored steps must raise.
+        if scan_entry.get("series") is not None:
+            attach_posterior_series(scan_entry["series"], posterior_metrics)
 
     # Build true_params for all strategies so it can be embedded in figure meta
     # (the manifest strips it; UI reads it from fig.layout.meta.true_params)

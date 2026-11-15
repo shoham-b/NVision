@@ -12,8 +12,10 @@ Per step ``t`` (snapshot ``t`` = the belief after measurement ``t``), all in the
   its differential entropy. ``0`` for a Gaussian, ``> 0`` otherwise (a Gaussian maximises entropy at fixed variance).
   The brief's reference ``1/2 ln(2 pi e sigma_hat^2)`` is *not* used: the KDE adds the bandwidth to the variance, so
   against ``sigma_hat`` a Gaussian cloud would come out negative.
-* ``m`` (far mass): posterior mass farther than ``FAR_FWHM`` (3) true FWHM from the posterior mode (KDE argmax).
-* ``j``: Fisher information ``int p'(theta)^2 / p(theta) dtheta`` of the posterior density, Hz^-2.
+* ``m`` (far mass): posterior mass farther than ``FAR_FWHM`` (3) true FWHM from the posterior mode (mode of a
+  weighted histogram with bins of FWHM/4).
+* ``j``: Fisher information ``int p'(theta)^2 / p(theta) dtheta`` of the posterior density, Hz^-2; ``h``: the KDE
+  bandwidth it was computed with. ``g``, ``j`` and ``h`` exist only at the steps the stored series keeps and at tau.
 * ``x``: 1 if measurement ``t`` was placed farther than ``FAR_FWHM`` FWHM from the mode of the belief *before* it
   (snapshot ``t - 1``), 0 if not, ``None`` for ``t = 0`` (no belief yet) and when the parameter is not
   ``zeeman_shift`` (the only one whose drive-axis position is known: the visible dip sits at ``zero_field_freq +
@@ -23,18 +25,25 @@ Per step ``t`` (snapshot ``t`` = the belief after measurement ``t``), all in the
 posterior van Trees is restarted from (``articles/sections/sm_prior.tex``).
 
 Density estimate (:func:`posterior_density`). A weighted Gaussian KDE evaluated on a grid spanning the particle support
-(``min - 5 h`` to ``max + 5 h``, clipped to the parameter's bounds), by weighted binning then Gaussian convolution; the
+(``min - 5 h_i`` to ``max + 5 h_i``, clipped to the parameter's bounds), by weighted binning then FFT convolution; the
 derivative ``p'`` uses the derivative-of-Gaussian kernel. Edges: the density is *reflected* at the parameter bounds
 (the SMC reflects particles that leave them), by mirror padding; at an edge the support does not reach, ``p`` is ~0 and
-reflection is immaterial. Bandwidth ``h`` by the Botev-Grotowski-Kroese improved Sheather-Jones rule
-(``isj_bandwidth``), with the Kish effective sample size, *not* Silverman: Silverman's ``h ~ 1.06 sigma N^-1/5`` takes
-``sigma`` from the whole cloud, so for the two mirror peaks right after detection (peaks far narrower than their
-separation) it smooths each peak to the width of the cloud and returns ``J ~ 1/h^2``, a bandwidth artefact. ISJ solves
-a fixed-point equation on the data and resolves the peaks. The bandwidth is stored next to ``J_tau``
-(``posterior_kde_bandwidth_tau_phys``) so a
-bandwidth-limited value is visible.
+reflection is immaterial.
 
-Cost: one posterior density per step (a few ms, see ``docs/evaluation_metrics.md``), computed on every step.
+* Pilot bandwidth ``h``: the Botev-Grotowski-Kroese improved Sheather-Jones rule (``isj_bandwidth``) with the Kish
+  effective sample size, *not* Silverman: Silverman's ``h ~ 1.06 sigma N^-1/5`` takes ``sigma`` from the whole cloud, so
+  for the two mirror peaks right after detection (peaks far narrower than their separation) it smooths each peak to the
+  width of the cloud and returns ``J ~ 1/h^2``, a bandwidth artefact. ISJ solves a fixed-point equation on the data and
+  resolves the peaks.
+* Final density: sample-point adaptive (Abramson), ``h_i = h (pilot(x_i) / g)^(-1/2)`` clamped to ``[1, 100] h``,
+  because one global ``h`` tuned to narrow peaks turns a diffuse tail into spikes whose ``p'^2 / p`` inflates ``J``.
+
+J depends on the smoothing (J falls roughly as ``1 / h^2`` where h is the limiting scale), so ``J_tau`` is good to about
+a factor 2: ``posterior_kde_bandwidth_tau_phys`` is the pilot ``h`` and ``posterior_J_tau_2h_phys`` the same J with
+twice that bandwidth, and the ``h`` series shows where the bandwidth moves (``docs/evaluation_metrics.md``).
+
+Cost: a density takes ~25 ms, so ``g``, ``j``, ``h`` are computed only at the steps the stored series keeps (at most
+``MAX_SERIES_POINTS``) and at tau; ``z``, ``m``, ``x`` need no density and cover every step.
 """
 
 from __future__ import annotations
