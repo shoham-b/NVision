@@ -20,7 +20,13 @@ from nvision.models.noise import CompositeNoise, CompositeOverFrequencyNoise
 from nvision.noises import OverFrequencyGaussianNoise
 from nvision.sim import defaults as sim_defaults
 from nvision.sim import presets as sim_presets
-from nvision.sim.grid_enums import sweep_strategy_name
+from nvision.sim.grid_enums import (
+    StrategyFilter,
+    base_strategy_name,
+    is_fixed_budget,
+    is_plain_sweep,
+    sweep_strategy_name,
+)
 from nvision.sim.locs.bayesian.belief_builders import nv_center_smc_belief
 from nvision.sim.locs.bayesian.sbed_drive_locator import DriveChoosingSBEDLocator
 from nvision.sim.locs.bayesian.sbed_locator import (
@@ -422,8 +428,15 @@ class CombinationGrid:
             noise_obj = _parse_noise(noise_name)
             if noise_obj is None:
                 return None
+        base_name = base_strategy_name(strat_name)
         for s_name, s_obj in self.strategies_for(gen_name):
-            if s_name == strat_name:
+            if s_name == base_name:
+                if is_fixed_budget(strat_name):
+                    # Same locator, stop rule off: only by name, so the default grid is unchanged.
+                    has_stop_rule = base_name == StrategyFilter.BAYESIAN_SBED or is_plain_sweep(base_name)
+                    if not has_stop_rule or not isinstance(s_obj, dict) or "stop_rule" in s_obj["config"]:
+                        return None
+                    s_obj = {**s_obj, "config": {**s_obj["config"], "stop_rule": False}}
                 return Combination(
                     generator_name=gen_name,
                     generator=gen_obj,

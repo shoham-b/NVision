@@ -23,12 +23,13 @@ from fastapi.staticfiles import StaticFiles
 from nvision.cache import CacheBridge
 from nvision.cache.hashing import stable_config_hash
 from nvision.cache.locator_keys import MIN_VIEWABLE_CACHE_SCHEMA_VERSION, combination_base_cache_config
+from nvision.cli.refine_rates_api import add_refine_rates_route
 from nvision.cli.search_bounds_api import add_search_bounds_route
 from nvision.gui.report import _STATIC_DIR, render_index_html
 from nvision.runner.cache import _decompress_text
 from nvision.sim.combinations import SWEEP_SPACING_DIVISORS, CombinationGrid
 from nvision.sim.defaults import PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS
-from nvision.sim.grid_enums import sweep_strategy_name
+from nvision.sim.grid_enums import is_fixed_budget, sweep_strategy_name
 from nvision.tools.artifacts import _slim_manifest_entry
 from nvision.tools.json_sanitize import sanitize_non_finite
 
@@ -46,6 +47,7 @@ _STATIC_ASSET_NAMES = (
     "styles.css",
     "lab-view.js",
     "search-bounds-view.js",
+    "refine-rates.js",
 )
 
 log = logging.getLogger("nvision.api_server")
@@ -112,6 +114,11 @@ def _drop_unviewable_combos(combos: list[dict]) -> list[dict]:
             MIN_VIEWABLE_CACHE_SCHEMA_VERSION,
         )
     return viewable
+
+
+def _without_fixed_budget(combos: list[dict]) -> list[dict]:
+    """``combos`` minus the ``<strategy>-fixed`` variants (see :func:`_get_combos` in :func:`build_app`)."""
+    return [c for c in combos if not is_fixed_budget(c["strategy"])]
 
 
 class _NoCacheStaticFiles(StaticFiles):
@@ -424,10 +431,13 @@ def build_app(cache_dir: Path, run_dir: Path, lab_dirs: list[Path] | None = None
     cache: dict[str, Any] = {
         "manifest": None,
         "combos": None,
+        "all_combos": None,
         "generator_grid_info": None,
         # (combo_key, repeats) -> _load_combo result; keyed on the repeat count so a growing
         # combo is re-read, cleared on /api/reload so edited repeats are picked up too.
         "combo_memo": {},
+        # (generator, noise, repeat stamp) -> /api/refine-rates use-case summary; cleared on /api/reload.
+        "refine_memo": {},
     }
     # RLock, not Lock: _get_manifest holds `lock` while calling
     # _build_manifest, which calls _get_combos -- itself a `with lock:` block.
@@ -447,11 +457,16 @@ def build_app(cache_dir: Path, run_dir: Path, lab_dirs: list[Path] | None = None
             if cache["combos"] is None:
                 bridge = _bridge()
                 try:
-                    cache["combos"] = _dedupe_latest_combos(
+                    everything = _dedupe_latest_combos(
                         _drop_unviewable_combos(bridge.list_combinations_with_updated_at())
                     )
                 finally:
                     bridge.close()
+                # Fixed-budget (stop rule off) runs belong to the refine-rate study only: next to stopped runs they
+                # would show up as extra locators in every view and ranking (rule 6), so only /api/refine-rates
+                # sees them.
+                cache["all_combos"] = everything
+                cache["combos"] = _without_fixed_budget(everything)
             return cache["combos"]
 
     def _get_generator_grid_info() -> dict[str, dict]:
@@ -631,6 +646,7 @@ def build_app(cache_dir: Path, run_dir: Path, lab_dirs: list[Path] | None = None
         return [sweep_strategy_name(k) for k in SWEEP_SPACING_DIVISORS]
 
     _add_lab_study_route(app, lab_dirs or [], run_dir)
+    add_refine_rates_route(app, get_combos=_get_combos, cache=cache, make_bridge=_bridge, combo_key=_combo_key)
 
     @app.get("/api/run-rows")
     def run_rows(strategies: str) -> list[dict]:
@@ -691,6 +707,7 @@ def build_app(cache_dir: Path, run_dir: Path, lab_dirs: list[Path] | None = None
             cache["combos"] = None
             cache["generator_grid_info"] = None
             cache["combo_memo"] = {}
+            cache["refine_memo"].clear()
 
     # The lab data sync (`nv matlab`, no source) runs as a subprocess; when it exits, new MATLAB runs are in the cache.
     from nvision.tools.lab_sources import BackgroundSync

@@ -47,6 +47,8 @@ class ConvergenceStopRules:
         # configs. See resolve_primary_param.
         self._primary_param: str | None = resolve_primary_param(self.belief.model.parameter_names())
         self._is_converged: bool = False
+        # False for a fixed-budget run (``<strategy>-fixed``): the rules never fire, so the run uses its whole budget.
+        self.stop_rule_enabled: bool = True
         # Dip-scan cache: the scan is re-run at most every NVISION_DIP_SCAN_EVERY measurements (see _scanned_dips).
         self._checks_since_dip_scan: int = NVISION_DIP_SCAN_EVERY - 1  # so the first scan happens at the first check
         self._scanned_dips_cache: list = []
@@ -61,7 +63,7 @@ class ConvergenceStopRules:
         stopping rule besides the step budget. Once it has fired it stays fired, so later checks do nothing.
         """
         self._checks_since_dip_scan += 1  # one check per measurement, whether or not the scan runs
-        if self._is_converged:
+        if self._is_converged or not self.stop_rule_enabled:
             return
         # The raw belief uncertainty -- the same measure the convergence milestones are read from
         # (nvision/metrics/milestones.py), so the stop rule and the recorded milestones can never disagree.

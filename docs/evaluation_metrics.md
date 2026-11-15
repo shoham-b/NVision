@@ -252,6 +252,83 @@ Reading it on the current cache (2026-11-15): the SNR × window study's drawn W 
 probe cells and the bounds are far below the measured search (κ_eff/κ̄ ≈ 0.01–0.09 for all four locators, none near 1/(1−2t/W));
 a real test of the search claim needs the larger windows. Rows of `SimpleSweep-3perFWHM` carry a stored J₀ that is not 4π²/W²
 (older prior), flagged in the panel; nothing here reads it.
+## Refine rates and the speedup over a sweep
+
+Code: `nvision/metrics/refine_rates.py` (pure maths), `nvision/metrics/refine_rates_runs.py` (rebuilding cached runs),
+`GET /api/refine-rates` (`nvision/cli/refine_rates_api.py`), UI `static/refine-rates.js` (the "Refine & speedup" section
+at the bottom of the Information tab). Theory: `articles/sections/theory.tex`, Sec. "Speedup over a drive-frequency
+sweep". Locators in scope: Bayesian-SBED and SimpleSweep p = 2, 3, 4 (never Smart-*). It reads the cache only, so it works
+after `nv render` / `nv serve` with no re-run (it needs the live server, not a static export).
+
+After the dip is found a locator gains information about the primary parameter at `q · I_max` per measurement,
+`1 / mean(err²)(n) = q · I_max · (n − n₀)`, with `I_max` = `stage_fisher_star` (per measurement, every locator takes one
+shot per measurement: no strategy sets `n_shots`, so measurements are shots). Two different `q`:
+
+* **`q_place`** = the mean oracle efficiency η_t of the measurements after `dip_detected_step` (per run, then median and mean
+  over runs; runs with no dip, or ending at the detection, are left out and counted). Exact: it is where the locator
+  measured, judged with the true signal. Rebuilt from the cache (below).
+* **`q_err`** = slope of `1 / mean(err²)` in units of `I_max`, the information the *estimate* gained; `n₀` its intercept.
+  `q_err / q_place` is what the particle filter keeps of the information the placement offered (1 = nothing lost). The
+  fit is the least-squares line over a window `[max(median dip step, n_hi / 2), n_hi]`, `n_hi` the largest `n` where at
+  least half the repeats still run (stopped runs keep their final error); `R²` is reported with it and a poor `R²` means a
+  constant rate does not describe that locator there. The error is interpolated linearly between the ~80 stored
+  samples of a run (a step hold would lag by up to several percent of `n`, which biases `n₀`).
+
+**Fixed-budget runs** (strategies `Bayesian-SBED-fixed`, `SimpleSweep-{k}perFWHM-fixed`, run group `voigt-grid-fixed`) have
+the stop rule off (`stop_rule: False` in the locator config; `ConvergenceStopRules.stop_rule_enabled`), so every repeat measures
+the whole shared budget (`NVISION_MAX_MEASUREMENTS`; a sweep a whole number of passes of it, so 2450-2500) and has an error at
+every `n`: the fit window is then common to every run. They are reachable only by that name (`CombinationGrid.resolve`),
+never in the default grid, and are cached apart from the ordinary runs; the default behaviour and the physics fingerprint
+are untouched. They also store the measurement positions of **every** repeat (`meas_drive_freq_unit`, float32 unit
+coordinates of the drive window): ordinary SBED runs keep a scan figure, hence positions, only for the first
+`NVISION_GRAPH_REPEATS` repeats of a combo, so `q_place` of an ordinary SBED combo uses those few (the table shows
+"runs with positions / runs"). The section uses the `-fixed` variant of a locator when the use case has it and the ordinary
+run (labelled "stopped") otherwise.
+
+```
+uv run nv run --run-group voigt-grid-fixed --filter-signal gs0-hfunresolved \
+    --signal-occupancy 0.2 --signal-occupancy 0.333333 --signal-occupancy 0.5 --snr 5 --snr 10 --repeats 50
+```
+(single dip, pure Lorentzian, windows of 5, 3 and 2 FWHM, 24 combinations; drop `--filter-signal` or use
+`--filter-signal hfn14` for the triplet use cases.)
+
+**How `η` is rebuilt for a cached run** (`refine_rates_runs.build_run_trace`). The cache has no belief snapshots, so:
+the true signal is regenerated with the executor's own seed (`generator.generate(Random(repeat_seed_int(signal_repeat_key(
+seed, generator, repeat))))`) and compared with the stored `true_params` (a mismatch raises: the generator changed since the
+run); SBED's positions come from `meas_drive_freq_unit` or the scan figure (`measurements.x`, float16 rescaled into the window,
+~1e-3 of it); a sweep's from its design (its scan figure is never stored): `linspace(lo, hi, n)` repeated pass after pass with
+`n = ceil(W / (FWHM_prior / k)) + 1`, `FWHM_prior` from the generator's own prior means. `η_t = g²(x_t) / max g²` with
+`g = ∂signal/∂primary` (`stages.primary_sensitivity_at`, the function `compute_stage_metrics` uses). End-to-end check: the mean
+`η` over each stage's measurements must reproduce the stored `stage{1,2,3}_sens_eff` to 0.03 (sweeps match to rounding,
+SBED to about 1 % from the float16 positions), otherwise the repeat is left out and listed with the reason. Repeats that cannot
+be rebuilt are never given a fallback.
+
+`q_place` averages η over everything after the detection (localize included), while the line is fitted late, so the
+filter-loss ratio uses `q_place_window`, the median over runs of the mean η over the fitted window `[n_lo, n_hi]`
+(`q_err_over_place_window`); `q_err / q_place` is kept but mixes the two ranges. Fixed-budget combos are hidden from the
+ordinary views (the live server's combo list) and seen only by `/api/refine-rates`; `nv compare` and the parquet writer are
+not filtered (gap).
+
+**Theory references, per use case.** `q_sweep = I_sweep / I_max`: the Lorentzian closed form `8π/27 · Γ/W` and the exact
+`mean(g²) / max(g²)` over the drive window of the rebuilt true line (any shape: Voigt, a hyperfine triplet, where the
+Lorentzian form is not valid and `Γ` = `stage_fwhm_true_phys` is the single-line FWHM, not the triplet's extent); likewise
+`R∞ = 27/(8π) · W/Γ` and `max / mean`. Both are drawn and labelled. The steepest point of the exact sensitivity, in units of the
+true HWHM `γ` from the nearest line centre, is marked on the histogram next to the Lorentzian `±1/√3`. Line centres are the
+dips (local minima deeper than 30 % of the range) of the noise-free true signal.
+
+**Panels** (Information tab, below Whole run): the table (median over the use cases of each use case's number, rule 7: runs
+with positions, `q_place`, `q_err`, `q_err / q_place`, `n₀`, `R²`, capped share, and the two theory `q_sweep`); the cost to reach
+τ (median first passage, the share that got there in the hover, p75) with the prediction `n₀ + τ⁻² / (q_err · I_max)` dotted
+(measured cost is a median over single runs, the prediction the mean square reaching τ², so they agree only roughly); the ratio
+`T_sweep(τ) / T_SBED(τ)` with the **best sweep spacing at each target** as yardstick and `R∞` (theory, exact, measured) as
+horizontal lines; `R∞` measured against `W / Γ`, one colour per SNR, with the theory line (solid dots: `q_err(SBED) / q_err(best
+sweep)`; open: the same from `q_place`); and the histogram of `drive_freq` relative to the nearest TRUE line centre in `γ`,
+before and after `dip_detected_step` (the SBED after-detection histogram should peak at the steepest point, the sweep's is
+flat). The older cost-ladder `n₀` / `e` of the Information table are kept (median-run statistic against the bound); the new
+`n₀` / `q_err` are the mean-square version the article uses.
+
+**Stale if** the generator, the seed derivation or the sweep grid changes: the true-signal check then raises and the section
+lists the repeats. No cache or render invalidation: nothing here is stored (the `-fixed` runs are new cache entries).
 
 ## Rules
 
@@ -286,6 +363,7 @@ a real test of the search claim needs the larger windows. Rows of `SimpleSweep-3
 
 * Per-run metrics: `nvision/metrics/stages.py` (stage boundaries, η), `nvision/metrics/milestones.py` (stop step),
   `nvision/metrics/series.py` (per-step series), `nvision/metrics/compare.py` (`nv compare` tables).
+  `nvision/metrics/refine_rates.py` / `refine_rates_runs.py` (refine rates and the speedup, `/api/refine-rates`).
 * Results UI views: **Information** (the former Stages tab; scope selector Whole run / Search; **Whole run** also carries
   **Cost & search**: every locator side by side, chips to show/hide, a median-over-selection block and a block per use
   case, and cost and search vs SNR across use cases, `/api/run-rows`; the Whole run charts are the information-vs-bound

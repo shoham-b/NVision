@@ -34,7 +34,7 @@ def test_voigt_grid_group_uses_voigt_inhom_grid_and_all_locators():
 def test_former_group_names_are_strategy_subsets_of_their_scenario_group():
     sim_run_groups.clear_run_group_cache()
     listed = {g.name for g in sim_run_groups.run_groups()}
-    assert listed == {"voigt-grid", "drive-control", "all"}
+    assert listed == {"voigt-grid", "voigt-grid-fixed", "drive-control", "all"}
     expected = {
         "both-sbed": ("voigt-grid", ["Bayesian-SBED", "SimpleSweep-3perFWHM"]),
         "both-sbed-only": ("voigt-grid", ["Bayesian-SBED"]),
