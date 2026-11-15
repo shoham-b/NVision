@@ -110,5 +110,29 @@ The `docs/` directory contains permanent project documentation generated via Sph
 
 ---
 
+### 6. Writing the Article (`nvision_paper`, Overleaf)
+The article and its Supplemental Material live in Overleaf's git (project `6ad7ce739659ce1c2cf8b9b5`), which is the source of truth; `articles/` in this repo may lag behind it. Edit a clone of the Overleaf repo, not `articles/`.
+
+**Style: a great physics review article, readable by a human.**
+- **Connected prose.** Link sentences with "because", "so", "while", "however". Do not chain short fact sentences with ":" (e.g. "... not at a fixed lag after detection: the dip test fires at ...").
+- **Name things, don't chain references.** Say what a section or equation contains instead of "the posterior of the loop of Sec. II E over the unknowns of Sec. II B". A reference can follow the plain statement.
+- **Explain jargon an NV/ODMR physicist may not know** (Liu--West, plug-in estimate, family-wise threshold, boxcar, ...) with half a clause on what it does.
+- **Equations over equations-in-words.** Prefer a displayed equation, annotated with `\underbrace`/`\overbrace`/`\overset` or an arrow, to a formula spelled out in prose.
+- **Figures are explained in their captions.** The text only cites them ("Fig. 2"); how to read the curves belongs in the caption.
+- **No pointless repetition** across sections; a short reminder for clarity is fine.
+- **No signposting** ("we return to it below", "the next two paragraphs show"); state a fact where it is used.
+- **Keep private experiments out**: Smart-Sweep and Smart-SBED are not in the paper. Call the baseline "the sweep", not a code name.
+
+**Ask before changing meaning.** The author reviews every change closely. Pure wording changes are fine; anything else must be proposed and approved first: a changed claim, number or equation, removing or moving a sentence or paragraph, deciding which copy of a repeated passage survives, adding a displayed equation or new symbol, or fixing a content error you noticed. Flag content problems; do not fix them silently.
+
+**Workflow.**
+1. Clone or pull the Overleaf repo first; if the author has edited on Overleaf, start from that version.
+2. Edit; do not change numbers, `\cite`, `\label`, `\tbd{}` or `%` comments as part of a style edit. Check this by script (diff of cites, refs, numbers, comments before vs after) and report any reference you removed or replaced with words.
+3. Build `main.tex` and `supplemental.tex` (latexmk) and confirm no undefined references.
+4. Give the author a **changes PDF**: `latexdiff --flatten --type=UNDERLINE --math-markup=whole` of old vs new `main.tex` and `supplemental.tex`, compiled and merged into one PDF, plus the clean PDFs. A markdown before/after sheet is hard to review; do not use one.
+5. Push to Overleaf only after the author approves. Before pushing, fetch, and merge any new Overleaf commits (the author often edits there meanwhile); never overwrite them.
+
+---
+
 *For further details, consult code comments and referenced files above. Follow existing patterns for maximum compatibility and reproducibility.*
 
