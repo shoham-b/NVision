@@ -114,6 +114,11 @@ def _drop_unviewable_combos(combos: list[dict]) -> list[dict]:
     return viewable
 
 
+def _without_fixed_budget(combos: list[dict]) -> list[dict]:
+    """``combos`` minus the ``<strategy>-fixed`` variants (see :func:`_get_combos` in :func:`build_app`)."""
+    return [c for c in combos if not is_fixed_budget(c["strategy"])]
+
+
 class _NoCacheStaticFiles(StaticFiles):
     """StaticFiles that always disables caching — artifacts change on every run."""
 
@@ -459,13 +464,8 @@ def build_app(cache_dir: Path, run_dir: Path, lab_dirs: list[Path] | None = None
                 # would show up as extra locators in every view and ranking (rule 6), so only /api/refine-rates
                 # sees them.
                 cache["all_combos"] = everything
-                cache["combos"] = [c for c in everything if not is_fixed_budget(c["strategy"])]
+                cache["combos"] = _without_fixed_budget(everything)
             return cache["combos"]
-
-    def _get_all_combos() -> list[dict]:
-        """:func:`_get_combos` plus the fixed-budget variants (for /api/refine-rates)."""
-        _get_combos()
-        return cache["all_combos"]
 
     def _get_generator_grid_info() -> dict[str, dict]:
         """Structural swept-parameter coordinates (``grid_*`` -- variant, width,
@@ -645,7 +645,7 @@ def build_app(cache_dir: Path, run_dir: Path, lab_dirs: list[Path] | None = None
 
     _add_lab_study_route(app, lab_dirs or [], run_dir)
     add_refine_rates_route(
-        app, get_combos=_get_all_combos, make_bridge=_bridge, combo_key=_combo_key, memo=cache["refine_memo"]
+        app, get_combos=_get_combos, cache=cache, make_bridge=_bridge, combo_key=_combo_key
     )
 
     @app.get("/api/run-rows")

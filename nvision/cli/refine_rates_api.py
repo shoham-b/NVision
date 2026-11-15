@@ -75,11 +75,16 @@ def add_refine_rates_route(
     app: FastAPI,
     *,
     get_combos: Callable[[], list[dict]],
+    cache: dict,
     make_bridge: Callable[[], Any],
     combo_key: Callable[[dict], str],
-    memo: dict,
 ) -> None:
-    """Register ``GET /api/refine-rates?generator=a,b&noise=x,y``. ``memo`` is cleared by the caller on reload."""
+    """Register ``GET /api/refine-rates?generator=a,b&noise=x,y``.
+
+    ``cache`` is the server's cache dict: ``all_combos`` (every combo, ``-fixed`` too; filled by ``get_combos``)
+    and ``refine_memo`` (the use-case summaries, cleared on reload).
+    """
+    memo = cache["refine_memo"]
     lock = threading.Lock()
     grid_holder: dict[str, CombinationGrid] = {}
 
@@ -87,7 +92,8 @@ def add_refine_rates_route(
     def refine_rates(generator: str, noise: str) -> dict:
         wanted_gen, wanted_noise = set(generator.split(",")), set(noise.split(","))
         by_case: dict[tuple[str, str], dict[str, dict]] = {}
-        for c in get_combos():
+        get_combos()  # fills cache["all_combos"]
+        for c in cache["all_combos"]:
             base = base_strategy_name(c["strategy"])
             if base in STRATEGIES and c["generator"] in wanted_gen and c["noise"] in wanted_noise:
                 case = by_case.setdefault((c["generator"], c["noise"]), {})
