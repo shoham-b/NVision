@@ -242,15 +242,15 @@ def test_stratified_zeeman_fails_fast():
         gen.generate(random.Random(0), repeat_idx=3, n_repeats=3)
 
 
-def test_shared_signal_rejects_changed_total_repeats():
-    import pytest
-
+def test_shared_signal_keeps_one_stratum_per_total_repeats():
+    """Repeat 0 of a 5-repeat study and of a 7-repeat study are different strata: the cache must not share them."""
     clear_signal_experiment_cache()
     runner5, _ = _strat_runner("Gauss(0.01)", "Bayesian-SBED", 5)
     runner7, _ = _strat_runner("Gauss(0.01)", "Bayesian-SBED", 7)
-    runner5._shared_experiment_for_repeat(0)
-    with pytest.raises(ValueError, match="n_repeats=5"):
-        runner7._shared_experiment_for_repeat(0)
+    z5 = runner5._shared_experiment_for_repeat(0).true_signal.get_param_value("zeeman_shift")
+    z7 = runner7._shared_experiment_for_repeat(0).true_signal.get_param_value("zeeman_shift")
+    assert z5 != z7
+    assert runner5._shared_experiment_for_repeat(0).true_signal.get_param_value("zeeman_shift") == z5  # still cached
     clear_signal_experiment_cache()
 
 
