@@ -28,7 +28,7 @@ from nvision.gui.report import _STATIC_DIR, render_index_html
 from nvision.runner.cache import _decompress_text
 from nvision.sim.combinations import SWEEP_SPACING_DIVISORS, CombinationGrid
 from nvision.sim.defaults import PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS
-from nvision.sim.grid_enums import sweep_strategy_name
+from nvision.sim.grid_enums import is_fixed_budget, sweep_strategy_name
 from nvision.tools.artifacts import _slim_manifest_entry
 from nvision.tools.json_sanitize import sanitize_non_finite
 
@@ -424,6 +424,7 @@ def build_app(cache_dir: Path, run_dir: Path, lab_dirs: list[Path] | None = None
     cache: dict[str, Any] = {
         "manifest": None,
         "combos": None,
+        "all_combos": None,
         "generator_grid_info": None,
         # (combo_key, repeats) -> _load_combo result; keyed on the repeat count so a growing
         # combo is re-read, cleared on /api/reload so edited repeats are picked up too.
@@ -449,12 +450,22 @@ def build_app(cache_dir: Path, run_dir: Path, lab_dirs: list[Path] | None = None
             if cache["combos"] is None:
                 bridge = _bridge()
                 try:
-                    cache["combos"] = _dedupe_latest_combos(
+                    everything = _dedupe_latest_combos(
                         _drop_unviewable_combos(bridge.list_combinations_with_updated_at())
                     )
                 finally:
                     bridge.close()
+                # Fixed-budget (stop rule off) runs belong to the refine-rate study only: next to stopped runs they
+                # would show up as extra locators in every view and ranking (rule 6), so only /api/refine-rates
+                # sees them.
+                cache["all_combos"] = everything
+                cache["combos"] = [c for c in everything if not is_fixed_budget(c["strategy"])]
             return cache["combos"]
+
+    def _get_all_combos() -> list[dict]:
+        """:func:`_get_combos` plus the fixed-budget variants (for /api/refine-rates)."""
+        _get_combos()
+        return cache["all_combos"]
 
     def _get_generator_grid_info() -> dict[str, dict]:
         """Structural swept-parameter coordinates (``grid_*`` -- variant, width,
@@ -634,7 +645,7 @@ def build_app(cache_dir: Path, run_dir: Path, lab_dirs: list[Path] | None = None
 
     _add_lab_study_route(app, lab_dirs or [], run_dir)
     add_refine_rates_route(
-        app, get_combos=_get_combos, make_bridge=_bridge, combo_key=_combo_key, memo=cache["refine_memo"]
+        app, get_combos=_get_all_combos, make_bridge=_bridge, combo_key=_combo_key, memo=cache["refine_memo"]
     )
 
     @app.get("/api/run-rows")
