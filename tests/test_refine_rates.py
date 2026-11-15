@@ -1,4 +1,4 @@
-"""Refine rates and the speedup (nvision/metrics/refine_rates.py) and the fixed-budget variants."""
+"""Refine rates and the speedup (nvision/metrics/refine_rates.py), and runs measuring their whole budget."""
 
 from __future__ import annotations
 
@@ -9,8 +9,6 @@ import numpy as np
 import pytest
 
 from nvision.metrics import refine_rates as rr
-from nvision.sim.combinations import CombinationGrid
-from nvision.sim.grid_enums import base_strategy_name, fixed_budget_name, is_fixed_budget
 from nvision.sim.locs.bayesian.sequential_bayesian_locator import ConvergenceStopRules
 
 
@@ -116,22 +114,6 @@ def test_offsets_are_signed_from_the_nearest_centre():
     assert rr.offset_histogram(np.array([]), np.array([-1.0, 1.0])) is None
 
 
-def test_fixed_budget_names_and_resolution_leave_the_default_grid_alone():
-    assert fixed_budget_name("Bayesian-SBED") == "Bayesian-SBED-fixed"
-    assert is_fixed_budget("SimpleSweep-3perFWHM-fixed")
-    assert not is_fixed_budget("SimpleSweep-3perFWHM")
-    assert base_strategy_name("SimpleSweep-3perFWHM-fixed") == "SimpleSweep-3perFWHM"
-    grid = CombinationGrid()
-    gen = next(iter(grid.generators))
-    assert not any(is_fixed_budget(s) for s, _ in grid.strategies_for(gen))  # never in the default grid
-    plain = grid.resolve(gen, "Gauss(0.05)", "Bayesian-SBED")
-    fixed = grid.resolve(gen, "Gauss(0.05)", "Bayesian-SBED-fixed")
-    assert "stop_rule" not in plain.strategy["config"]
-    assert fixed.strategy["config"]["stop_rule"] is False
-    assert fixed.strategy["class"] is plain.strategy["class"]
-    assert grid.resolve(gen, "Gauss(0.05)", "Smart-SBED-fixed") is None  # only the SBED and the sweeps have one
-
-
 class _Stub(ConvergenceStopRules):
     def __init__(self):
         self.belief = SimpleNamespace(
@@ -147,12 +129,13 @@ class _Stub(ConvergenceStopRules):
         return True
 
 
-def test_the_stop_rule_can_be_switched_off_and_is_on_by_default():
-    on = _Stub()
-    on._update_stop_rules()
-    assert on._is_converged
-    off = _Stub()
-    off.stop_rule_enabled = False
-    for _ in range(5):
-        off._update_stop_rules()
-    assert not off._is_converged
+def test_the_convergence_rule_is_recorded_but_never_stops_a_run():
+    from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBayesianLocator
+
+    stub = _Stub()
+    stub._update_stop_rules()
+    assert stub._is_converged  # recorded: where the run would have stopped
+    loc = SimpleNamespace(_is_converged=True, inference_step_count=3, max_steps=10)
+    assert not SequentialBayesianLocator._acquisition_done(loc)  # the run still measures its whole budget
+    loc.inference_step_count = 10
+    assert SequentialBayesianLocator._acquisition_done(loc)

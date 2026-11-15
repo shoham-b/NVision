@@ -18,7 +18,6 @@ from fastapi import FastAPI
 
 from nvision.metrics.refine_rates_runs import SBED, build_run_trace, sweep_divisor, use_case_summary
 from nvision.sim.combinations import SWEEP_SPACING_DIVISORS, CombinationGrid, sweep_strategy_name
-from nvision.sim.grid_enums import base_strategy_name, is_fixed_budget
 
 # Strategies in scope: Bayesian-SBED and the three sweep spacings (never the Smart-* experiments).
 STRATEGIES: tuple[str, ...] = (SBED, *(sweep_strategy_name(k) for k in SWEEP_SPACING_DIVISORS))
@@ -48,7 +47,7 @@ def _use_case(
             )
             continue
         # Only SBED needs the scan figures (where it measured); a sweep's positions come from its design.
-        repeats = repo._repeats.load_repeats(key, n) if base_strategy_name(strat) == SBED else None
+        repeats = repo._repeats.load_repeats(key, n) if strat == SBED else None
         repeats = repeats or repo._repeats.load_repeats_meta(key, n) or repo._repeats.load_repeats(key, n)
         offset = int(combo.get("repeat_offset", 0))
         failed: Counter[str] = Counter()
@@ -94,12 +93,9 @@ def add_refine_rates_route(
         by_case: dict[tuple[str, str], dict[str, dict]] = {}
         get_combos()  # fills cache["all_combos"]
         for c in cache["all_combos"]:
-            base = base_strategy_name(c["strategy"])
-            if base in STRATEGIES and c["generator"] in wanted_gen and c["noise"] in wanted_noise:
-                case = by_case.setdefault((c["generator"], c["noise"]), {})
-                # The fixed-budget variant (stop rule off) is the one the fits want; the ordinary run is the fallback.
-                if base not in case or is_fixed_budget(c["strategy"]):
-                    case[base] = c
+            strat = c["strategy"]
+            if strat in STRATEGIES and c["generator"] in wanted_gen and c["noise"] in wanted_noise:
+                by_case.setdefault((c["generator"], c["noise"]), {})[strat] = c
         with lock:
             grid = grid_holder.setdefault("grid", CombinationGrid())
         bridge = make_bridge()

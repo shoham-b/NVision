@@ -120,10 +120,9 @@ class GenericSweepLocator(ConvergenceStopRules, SweepingLocator):
     ``2 * effective_hwhm`` of the belief's *prior* estimate -- never the true signal's width. The number of
     steps follows from that spacing and the axis width. No refocusing -- every grid point is measured -- but the
     belief is updated after each measurement, so its uncertainty can be followed step by step like any other
-    locator's. The grid is repeated (averaging the passes) until the stopping rules Bayesian-SBED uses
-    (:class:`ConvergenceStopRules`: every target uncertainty under its ceiling, and a dip found) has fired (the rules
-    run every step, but the sweep only stops at the end of a pass), for at most ``max_measurements`` measurements
-    (whole passes only, at least one). The reported estimate is the final fit to the averaged passes (see
+    locator's. The grid is repeated (averaging the passes) for ``max_measurements`` measurements (whole passes only,
+    at least one); the convergence rule Bayesian-SBED uses (:class:`ConvergenceStopRules`) is recorded every step but
+    does not stop the sweep. The reported estimate is the final fit to the averaged passes (see
     :meth:`finalize`).
 
     Parameters
@@ -329,11 +328,9 @@ class GenericSweepLocator(ConvergenceStopRules, SweepingLocator):
             self._update_stop_rules()
 
     def done(self) -> bool:
-        """Stop once the stopping rules fired -- at the end of a pass, so the average covers whole passes -- or
-        after ``max_passes`` passes (the ``max_measurements`` cap)."""
-        return self.step_count >= self.max_steps * self.max_passes or (
-            self._is_converged and self.step_count % self.max_steps == 0
-        )
+        """Stop after ``max_passes`` whole passes (the ``max_measurements`` cap); the convergence rule is recorded,
+        not enforced (see :class:`ConvergenceStopRules`)."""
+        return self.step_count >= self.max_steps * self.max_passes
 
     def _generate_sweep_points(self, n: int) -> NDArray[np.float64]:
         if n <= 0:

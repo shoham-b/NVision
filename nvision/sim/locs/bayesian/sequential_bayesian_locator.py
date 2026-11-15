@@ -30,10 +30,14 @@ NVISION_CONVERGENCE_PATIENCE: int = int(os.getenv("NVISION_CONVERGENCE_PATIENCE"
 
 
 class ConvergenceStopRules:
-    """The stopping rules shared by every locator that infers with an SMC belief (SBED family and the sweeps).
+    """The convergence rule shared by every locator that infers with an SMC belief (SBED family and the sweeps).
 
     Needs ``self.belief`` and ``self.step_count``; call :meth:`_init_stop_rules` once, then
     :meth:`_update_stop_rules` after each observation and read ``_is_converged``.
+
+    The rule is recorded, never enforced: every run measures its whole budget, so the error is known at every
+    measurement count and all locators are compared over the same range (docs/evaluation_metrics.md). ``_is_converged``
+    says where the run *would* have stopped.
     """
 
     def _init_stop_rules(self, convergence_threshold: float, convergence_patience_steps: int) -> None:
@@ -47,8 +51,6 @@ class ConvergenceStopRules:
         # configs. See resolve_primary_param.
         self._primary_param: str | None = resolve_primary_param(self.belief.model.parameter_names())
         self._is_converged: bool = False
-        # False for a fixed-budget run (``<strategy>-fixed``): the rules never fire, so the run uses its whole budget.
-        self.stop_rule_enabled: bool = True
         # Dip-scan cache: the scan is re-run at most every NVISION_DIP_SCAN_EVERY measurements (see _scanned_dips).
         self._checks_since_dip_scan: int = NVISION_DIP_SCAN_EVERY - 1  # so the first scan happens at the first check
         self._scanned_dips_cache: list = []
@@ -63,7 +65,7 @@ class ConvergenceStopRules:
         stopping rule besides the step budget. Once it has fired it stays fired, so later checks do nothing.
         """
         self._checks_since_dip_scan += 1  # one check per measurement, whether or not the scan runs
-        if self._is_converged or not self.stop_rule_enabled:
+        if self._is_converged:
             return
         # The raw belief uncertainty -- the same measure the convergence milestones are read from
         # (nvision/metrics/milestones.py), so the stop rule and the recorded milestones can never disagree.
@@ -219,14 +221,10 @@ class SequentialBayesianLocator(ConvergenceStopRules, Locator):
         self._check_convergence_milestones()
 
     def _acquisition_done(self) -> bool:
-        """Return whether the Bayesian acquisition phase should stop.
+        """Return whether the Bayesian acquisition phase should stop: only when the ``max_steps`` budget is exhausted.
 
-        Stops when:
-        1. Target parameters have stayed converged for ``convergence_patience_steps``
-           (``_target_params_converged``,
-           both of which require several *consecutive* or empirically-grounded
-           confirmations, not a single snapshot).
-        2. The absolute ``max_steps`` budget is exhausted.
+        The convergence rule (``_is_converged``) is recorded but does not stop the run (see
+        :class:`ConvergenceStopRules`).
 
         This used to also stop early whenever a dynamic budget estimate
         (``n_req = step_count * (crlb_zero_field_freq()/threshold)**2``, scaled by
@@ -248,7 +246,7 @@ class SequentialBayesianLocator(ConvergenceStopRules, Locator):
         converged" path -- removing this second, snapshot-only stopping path
         rather than trying to further patch its triggering condition.
         """
-        return self._is_converged or self.inference_step_count >= self.max_steps
+        return self.inference_step_count >= self.max_steps
 
     # ------------------------------------------------------------------
     # Locator interface — thin orchestrators that delegate to hooks above
@@ -267,7 +265,7 @@ class SequentialBayesianLocator(ConvergenceStopRules, Locator):
         self._observe_acquisition(obs)
 
     def done(self) -> bool:
-        """Stop when converged or step budget is exhausted."""
+        """Stop when the step budget is exhausted."""
         return self._acquisition_done()
 
     def result(self) -> dict[str, float]:

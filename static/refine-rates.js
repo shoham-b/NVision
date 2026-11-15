@@ -49,15 +49,14 @@
         const rows = [SBED, ...SWEEPS].filter((s) => cases.some((u) => u.locators[s])).map((s) => {
             const ds = cases.map((u) => u.locators[s]).filter(Boolean);
             const fits = ds.map((d) => d.fit).filter(Boolean);
-            const fixed = ds.every((d) => d.fixed_budget);
-            return `<tr><td style="padding:2px 12px 2px 0">${label(s)}${fixed ? '' : ' <span title="Stopped runs: fitted over the late part of the curve, see the help text" style="color:#b45309">(stopped)</span>'}</td>` +
+            return `<tr><td style="padding:2px 12px 2px 0">${label(s)}</td>` +
                 td(`${median(ds.map((d) => d.n_place))} / ${median(ds.map((d) => d.n_runs))}`) +
                 td(fmt(median(ds.map((d) => d.q_place_median)))) +
                 td(fmt(median(fits.map((f) => f.q)))) +
                 td(fmt(median(ds.map((d) => d.q_err_over_place)), 2)) +
                 td(fmt(median(fits.map((f) => f.n0)), 3)) +
                 td(fmt(median(fits.map((f) => f.r2)), 2)) +
-                td(fixed ? '–' : pct(median(ds.map((d) => d.capped_share)))) + '</tr>';
+                td(pct(median(ds.map((d) => d.capped_share)))) + '</tr>';
         }).join('');
         const th0 = median(cases.map((u) => u.theory.q_sweep_lorentzian)), thx = median(cases.map((u) => u.theory.q_sweep_exact));
         box.innerHTML = '<table class="metric-table" style="border-collapse:collapse;font-size:0.85em;"><thead><tr>' +
@@ -68,7 +67,7 @@
             th('q_err / q_place', 'What the particle filter keeps of the information the placement offered. 1 = nothing lost.') +
             th('n₀', 'Intercept of the same line: 1 / mean(err²) = q · I_max · (n − n₀). Measurements lost before the steady growth began.') +
             th('R²', 'How straight 1 / mean(err²) is over the fitted window. Low = the model of a constant rate does not describe this locator there; do not read q_err and n₀ off it.') +
-            th('Capped', 'Share of runs that used the whole shared budget without the stop rule firing (ordinary runs only; every fixed-budget run does).') +
+            th('Capped', 'Share of runs whose claimed uncertainty never met the convergence rule within the budget.') +
             `</tr></thead><tbody>${rows}</tbody></table>` +
             `<p style="font-size:0.8em;color:#475569;margin:0.4em 0 0;">Theory for a sweep, q_sweep = I_sweep / I_max: Lorentzian formula 8π/27 · Γ/W = <b>${fmt(th0)}</b>; exact for these line shapes, mean(g²) / max(g²) over the window = <b>${fmt(thx)}</b> (the two differ for a hyperfine triplet or a Voigt line). One shot per measurement for every locator, so the cost axis (measurements) is also shots.</p>`;
     }
@@ -181,10 +180,9 @@
             container.innerHTML = `<h2 style="margin:1.2em 0 0.4em;">Refine &amp; speedup</h2><p style="color:#94a3b8;font-size:0.9em;">No use case of the selection has Bayesian-SBED and SimpleSweep runs that can be rebuilt (fixed-drive signals only).</p>${errHtml}`;
             return;
         }
-        const fixedAll = cases.every((u) => locs(u).every((s) => u.locators[s].fixed_budget));
         container.innerHTML = '<h2 style="margin:1.2em 0 0.4em;">Refine &amp; speedup ' +
-            help('After the dip is found, an adaptive locator should gain about I_max per measurement (q → 1) by measuring at the steepest slope, a sweep only I_sweep = q_sweep · I_max (q_sweep = 8π/27 · Γ/W for a single Lorentzian), so the speedup of a precise target is R∞ = 27/(8π) · W/Γ, independent of SNR. q_place is where the locator measured (exact, from the true signal); q_err is what the estimate gained (the slope of 1 / mean(err²) in units of I_max). Their gap is the particle filter\'s loss. All from the cache: run the voigt-grid-fixed group for the cleanest fits.') + '</h2>' +
-            `<p style="margin:0 0 0.6em;font-size:0.85em;color:#475569;">${fixedAll ? 'Fixed-budget runs (stop rule off): every run has an error at every n; the line is fitted over the second half of the budget after the dip.' : '<b style="color:#b45309">Some locators are ordinary (stopped) runs</b>: a run that stopped keeps its final error and the fit uses n where at least half the repeats still run; run <code>voigt-grid-fixed</code> for fits over a common range. '}Median over ${cases.length} use case${cases.length > 1 ? 's' : ''}; cost in measurements (one shot each).</p>` +
+            help('After the dip is found, an adaptive locator should gain about I_max per measurement (q → 1) by measuring at the steepest slope, a sweep only I_sweep = q_sweep · I_max (q_sweep = 8π/27 · Γ/W for a single Lorentzian), so the speedup of a precise target is R∞ = 27/(8π) · W/Γ, independent of SNR. q_place is where the locator measured (exact, from the true signal); q_err is what the estimate gained (the slope of 1 / mean(err²) in units of I_max). Their gap is the particle filter\'s loss. Every run measures the whole budget, so the error is known at every n.') + '</h2>' +
+            `<p style="margin:0 0 0.6em;font-size:0.85em;color:#475569;">Every run measures the whole budget; the line is fitted over the late part of it, after the dip. Median over ${cases.length} use case${cases.length > 1 ? 's' : ''}; cost in measurements (one shot each).</p>` +
             errHtml +
             '<div id="rr-table" style="margin:0.6em 0; overflow-x:auto;"></div>' +
             (cases.length > 1 ? `<label style="font-size:0.85em;">Use case for the cost and histogram charts: <select id="rr-case" class="control-select">${cases.map((u, i) => `<option value="${i}">${esc(ucName(u))}</option>`).join('')}</select></label>` : '') +

@@ -326,7 +326,8 @@ def physics_config_fingerprint() -> str:
         # noise sigma is half of before at the same label.
         "snr-per-line-contrast-v1",
         # Bumped when the true zeeman_shift became stratified across repeats (repeat i of N draws uniformly
-        # inside the i-th of N equal slices of the drawn range): the true signal of every repeat differs.
+        # inside the i-th of N equal slices of the drawn range): the true signal of every repeat differs. Same
+        # bump: the convergence rule no longer stops a run, so every run measures its whole budget.
         "stratified-zeeman-v1",
         NV_ZEEMAN_EDGE_PAD_FWHM,
         MIN_HWHM,

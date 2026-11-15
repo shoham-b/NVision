@@ -31,7 +31,6 @@ import numpy as np
 from nvision.metrics import refine_rates as rr
 from nvision.metrics.stages import primary_sensitivity_at, primary_sensitivity_curve
 from nvision.runner.repeat_keys import repeat_seed_int, signal_repeat_key
-from nvision.sim.grid_enums import base_strategy_name, is_fixed_budget
 
 # Tolerance of the rebuilt-vs-stored stage sensitivity check (absolute, on eta in [0, 1]). SBED positions are float16
 # rescaled into the window (~1e-3 of it); a sweep's are exact (it matches to rounding).
@@ -48,7 +47,7 @@ _SWEEP_RE = re.compile(r"^SimpleSweep-(\d+)perFWHM$")
 
 def sweep_divisor(strategy: str) -> int | None:
     """``k`` of ``SimpleSweep-{k}perFWHM`` (or its ``-fixed`` variant), ``None`` for any other strategy name."""
-    m = _SWEEP_RE.match(base_strategy_name(strategy))
+    m = _SWEEP_RE.match(strategy)
     return int(m.group(1)) if m else None
 
 
@@ -196,13 +195,13 @@ def build_run_trace(
         "end": n_steps,
         "dip_step": None if row.get("dip_detected_step") is None else int(row["dip_detected_step"]),
         # A fixed-budget run never stops early: "capped" would be true of all, so it carries no information there.
-        "capped": row.get("failure_reason") == "max_steps" and not is_fixed_budget(strategy),
+        "capped": row.get("failure_reason") == "max_steps",
         "fisher_star": float(row["stage_fisher_star"]),
         "prior_info": float(row["stage_prior_info"]),
         "fwhm_phys": float(row["stage_fwhm_true_phys"]),
         "window_phys": float(row["stage_window_phys"]),
     }
-    is_sbed = base_strategy_name(strategy) == SBED
+    is_sbed = strategy == SBED
     if is_sbed and scan.get("plot_skipped") and "meas_drive_freq_unit" not in scan:
         return RunTrace(
             x_phys=None,
@@ -326,7 +325,6 @@ def _locator_summary(traces: list[RunTrace], i_max: float, taus: np.ndarray) -> 
         }
 
     return {
-        "fixed_budget": all(is_fixed_budget(t.strategy) for t in traces),
         "n_runs": len(traces),
         "n_dip": sum(t.dip_step is not None for t in traces),
         "n_place": len(q_places),
@@ -347,9 +345,8 @@ def _locator_summary(traces: list[RunTrace], i_max: float, taus: np.ndarray) -> 
 def use_case_summary(generator: str, noise: str, traces: dict[str, list[RunTrace]]) -> dict[str, Any]:
     """Everything the "Refine & speedup" section shows for one use case (one generator at one noise level).
 
-    ``traces``: base strategy name (:data:`SBED` or ``SimpleSweep-{k}perFWHM``) -> its repeats' :class:`RunTrace`, those
-    of the ``-fixed`` variant when the use case has it (``locators[...]["fixed_budget"]`` says which). Returns a
-    JSON-ready dict; see ``docs/evaluation_metrics.md`` for what each field is. The yardstick of the speedups is the
+    ``traces``: strategy name (:data:`SBED` or ``SimpleSweep-{k}perFWHM``) -> its repeats' :class:`RunTrace`.
+    Returns a JSON-ready dict; see ``docs/evaluation_metrics.md`` for what each field is. The yardstick of the speedups is the
     best sweep spacing, never an arbitrary one (rule 3).
     """
     traces = {s: t for s, t in traces.items() if t}

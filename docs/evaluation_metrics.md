@@ -17,7 +17,7 @@ The yardstick is a ladder, each rung tuned before the next:
 
 | Rung | Locator | Tuned / differs by |
 |---|---|---|
-| 0 | `SimpleSweep-<k>perFWHM`, k = 2, 3, 4 | grid step (k points per **prior** FWHM); passes averaged until the stop rule fires |
+| 0 | `SimpleSweep-<k>perFWHM`, k = 2, 3, 4 | grid step (k points per **prior** FWHM); passes averaged over the whole budget |
 | 1 | `Smart-Sweep` | coarse sweep, then sweep inside the dip, then the max-Fisher points |
 | 2 | `Smart-SBED` | same coarse grid as Smart-Sweep: only the acquisition after the dip is seen differs |
 | 3 | `Bayesian-SBED` | no coarse grid |
@@ -274,23 +274,16 @@ shot per measurement: no strategy sets `n_shots`, so measurements are shots). Tw
   constant rate does not describe that locator there. The error is interpolated linearly between the ~80 stored
   samples of a run (a step hold would lag by up to several percent of `n`, which biases `n₀`).
 
-**Fixed-budget runs** (strategies `Bayesian-SBED-fixed`, `SimpleSweep-{k}perFWHM-fixed`, run group `voigt-grid-fixed`) have
-the stop rule off (`stop_rule: False` in the locator config; `ConvergenceStopRules.stop_rule_enabled`), so every repeat measures
-the whole shared budget (`NVISION_MAX_MEASUREMENTS`; a sweep a whole number of passes of it, so 2450-2500) and has an error at
-every `n`: the fit window is then common to every run. They are reachable only by that name (`CombinationGrid.resolve`),
-never in the default grid, and are cached apart from the ordinary runs; the default behaviour and the physics fingerprint
-are untouched. They also store the measurement positions of **every** repeat (`meas_drive_freq_unit`, float32 unit
-coordinates of the drive window): ordinary SBED runs keep a scan figure, hence positions, only for the first
-`NVISION_GRAPH_REPEATS` repeats of a combo, so `q_place` of an ordinary SBED combo uses those few (the table shows
-"runs with positions / runs"). The section uses the `-fixed` variant of a locator when the use case has it and the ordinary
-run (labelled "stopped") otherwise.
+**Every run measures its whole budget.** The convergence rule is recorded but never stops a run (since the
+`stratified-zeeman-v1` fingerprint), so every repeat measures the shared budget (`NVISION_MAX_MEASUREMENTS`; a sweep a
+whole number of passes of it) and has an error at every `n`: the fit window is common to every run. Every repeat also
+stores where it measured (`meas_drive_freq_unit`, float32 unit coordinates of the drive window), so `q_place` uses all
+repeats, not only the first `NVISION_GRAPH_REPEATS` that keep a scan figure. Rows recorded before that change stopped early
+and stored positions for only the first repeats; they are stale under the current fingerprint.
 
 ```
-uv run nv run --run-group voigt-grid-fixed --filter-signal gs0-hfunresolved \
-    --signal-occupancy 0.2 --signal-occupancy 0.333333 --signal-occupancy 0.5 --snr 5 --snr 10 --repeats 50
+uv run nv run --run-group all --repeats 50
 ```
-(single dip, pure Lorentzian, windows of 5, 3 and 2 FWHM, 24 combinations; drop `--filter-signal` or use
-`--filter-signal hfn14` for the triplet use cases.)
 
 **How `η` is rebuilt for a cached run** (`refine_rates_runs.build_run_trace`). The cache has no belief snapshots, so:
 the true signal is regenerated with the executor's own seed (`generator.generate(Random(repeat_seed_int(signal_repeat_key(
@@ -305,9 +298,7 @@ be rebuilt are never given a fallback.
 
 `q_place` averages η over everything after the detection (localize included), while the line is fitted late, so the
 filter-loss ratio uses `q_place_window`, the median over runs of the mean η over the fitted window `[n_lo, n_hi]`
-(`q_err_over_place_window`); `q_err / q_place` is kept but mixes the two ranges. Fixed-budget combos are hidden from the
-ordinary views (the live server's combo list) and seen only by `/api/refine-rates`; `nv compare` and the parquet writer are
-not filtered (gap).
+(`q_err_over_place_window`); `q_err / q_place` is kept but mixes the two ranges.
 
 **Theory references, per use case.** `q_sweep = I_sweep / I_max`: the Lorentzian closed form `8π/27 · Γ/W` and the exact
 `mean(g²) / max(g²)` over the drive window of the rebuilt true line (any shape: Voigt, a hyperfine triplet, where the
@@ -328,7 +319,7 @@ flat). The older cost-ladder `n₀` / `e` of the Information table are kept (med
 `n₀` / `q_err` are the mean-square version the article uses.
 
 **Stale if** the generator, the seed derivation or the sweep grid changes: the true-signal check then raises and the section
-lists the repeats. No cache or render invalidation: nothing here is stored (the `-fixed` runs are new cache entries).
+lists the repeats. No cache or render invalidation: nothing here is stored.
 ## Posterior metrics (run-time, `nvision/metrics/posterior.py`)
 
 Computed from each step's particle cloud of the primary parameter (`zeeman_shift`) while the run is recorded, because the cache keeps no belief snapshots. Runs recorded earlier have none of these: **re-run** (`nv render` cannot fill them, and a plain re-run hits the cache, so use `--no-cache`, which replaces the combination's cached repeats). They read the beliefs only; no physics, SMC or SBED behaviour and no cache key or physics fingerprint changes.
@@ -363,14 +354,13 @@ Per run, in the results row and the API's compare fields (`_COMPARE_FIELDS`):
 
 ## Rules
 
-1. **Never use the accuracy at the end of a run or stage as a quality metric.** Every run stops once its claimed uncertainty σ̂
-   stays below the target τ, so the error it happens to end with mostly reflects τ. What matters is that the claimed
+1. **Never use the accuracy at the end of a run or stage as a quality metric.** Every run measures the same budget, so the error it ends with mostly reflects the budget, not the strategy. What matters is that the claimed
    σ is right: report the share of runs with |error| ≤ 1σ and ≤ 2σ against the Gaussian 68% / 95%, or |error| /
    claimed uncertainty σ̂. Below nominal = overconfident (the belief is known to be; see the locator memory notes).
 2. **Every locator gets the same budget.** `NVISION_MAX_MEASUREMENTS` (default 2500, for every signal and every window
-   of the SNR x window study) is the SBED family's `max_steps` and caps a plain sweep's total measurements. A run that hit it is censored: the stop rule never fired
-   (`primary_converged_step` is null; a sweep still ends as a normal locator stop). Count it at the budget, as a lower
-   bound, and show the capped share.
+   of the SNR x window study) is the SBED family's `max_steps` and caps a plain sweep's total measurements. Every run measures all of it: the convergence rule
+   is recorded (`primary_converged_step`) but never stops a run. A run whose rule never fired (`primary_converged_step` is
+   null) is capped: count it at the budget, as a lower bound, and show the capped share.
 3. **Show the raw metrics before ranking anything.** No arbitrary reference locator (e.g. "divided by k = 3"), no
    "cheapest k" summaries, until the plain per-locator metrics have been looked at.
 4. **Use physical axes.** SNR = C / noise σ with C = contrast_total / 2 (∞ without noise) and the effective FWHM, per the stage table

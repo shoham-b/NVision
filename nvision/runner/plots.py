@@ -38,7 +38,7 @@ from nvision.sim.defaults import (
     param_converged,
     param_convergence_bound_width,
 )
-from nvision.sim.grid_enums import is_fixed_budget, is_plain_sweep
+from nvision.sim.grid_enums import is_plain_sweep
 from nvision.spectra.nv_center import PHYSICS_CONFIG_FINGERPRINT
 from nvision.spectra.unit_cube import UnitCubeSignalModel
 from nvision.viz import Viz
@@ -880,12 +880,11 @@ def generate_attempt_plots(
                 if refine_step is not None and stage_param is not None:
                     step_series["r"] = extract_refine_series(run_result, stage_param, int(refine_step))
                 scan_entry["series"] = step_series
-                if is_fixed_budget(strat_name):
-                    # Where every measurement was taken (unit coordinates of the drive window, float32), for the
-                    # placement efficiency of the refine-rate study; the figure keeps only the first repeats.
-                    scan_entry["meas_drive_freq_unit"] = base64.b64encode(
-                        np.array([s.obs.drive_freq_unit for s in run_result.snapshots], dtype="<f4").tobytes()
-                    ).decode("ascii")
+                # Where every measurement was taken (unit coordinates of the drive window, float32), for every
+                # repeat: q_place needs it, and the scan figure keeps only the first repeats.
+                scan_entry["meas_drive_freq_unit"] = base64.b64encode(
+                    np.array([s.obs.drive_freq_unit for s in run_result.snapshots], dtype="<f4").tobytes()
+                ).decode("ascii")
         except Exception:
             log.debug("Step series extraction failed for %s", attempt_slug, exc_info=True)
         # Outside the try: a posterior series that does not line up with the stored steps must raise.

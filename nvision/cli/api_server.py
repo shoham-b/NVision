@@ -30,7 +30,7 @@ from nvision.metrics.posterior import POSTERIOR_METRIC_KEYS
 from nvision.runner.cache import _decompress_text
 from nvision.sim.combinations import SWEEP_SPACING_DIVISORS, CombinationGrid
 from nvision.sim.defaults import PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS
-from nvision.sim.grid_enums import is_fixed_budget, sweep_strategy_name
+from nvision.sim.grid_enums import sweep_strategy_name
 from nvision.tools.artifacts import _slim_manifest_entry
 from nvision.tools.json_sanitize import sanitize_non_finite
 
@@ -115,11 +115,6 @@ def _drop_unviewable_combos(combos: list[dict]) -> list[dict]:
             MIN_VIEWABLE_CACHE_SCHEMA_VERSION,
         )
     return viewable
-
-
-def _without_fixed_budget(combos: list[dict]) -> list[dict]:
-    """``combos`` minus the ``<strategy>-fixed`` variants (see :func:`_get_combos` in :func:`build_app`)."""
-    return [c for c in combos if not is_fixed_budget(c["strategy"])]
 
 
 class _NoCacheStaticFiles(StaticFiles):
@@ -466,11 +461,8 @@ def build_app(cache_dir: Path, run_dir: Path, lab_dirs: list[Path] | None = None
                     )
                 finally:
                     bridge.close()
-                # Fixed-budget (stop rule off) runs belong to the refine-rate study only: next to stopped runs they
-                # would show up as extra locators in every view and ranking (rule 6), so only /api/refine-rates
-                # sees them.
                 cache["all_combos"] = everything
-                cache["combos"] = _without_fixed_budget(everything)
+                cache["combos"] = everything
             return cache["combos"]
 
     def _get_generator_grid_info() -> dict[str, dict]:
