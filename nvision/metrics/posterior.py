@@ -291,14 +291,21 @@ class _StepPosterior:
         self.informed = belief.num_observations > 0
         self.mode_phys = self.far_mass = self.fisher = self.negentropy = self.bandwidth_phys = None
         self._has_density = False
+        self.no_bandwidth = False
         if self.informed and fwhm_phys is not None:
             self.mode_phys = _coarse_mode(self._x, self._w, fwhm_phys / 4.0)
             self.far_mass = float(np.sum(self._w[np.abs(self._x - self.mode_phys) > FAR_FWHM * fwhm_phys]))
 
     def ensure_density(self) -> None:
-        if self._has_density or not self.informed:
+        if self._has_density or self.no_bandwidth or not self.informed:
             return
-        density = posterior_density(self._x, self._w, *self._bounds)
+        try:
+            density = posterior_density(self._x, self._w, *self._bounds)
+        except NoBandwidthError:
+            # A cloud with no structure to smooth (e.g. still the flat prior after the first measurements): the
+            # density-based fields are undefined there. Recorded as missing, counted in posterior_undefined_steps.
+            self.no_bandwidth = True
+            return
         self.bandwidth_phys = density.bandwidth_phys
         self.fisher = density.fisher_information()
         self.negentropy = density.negentropy()
@@ -340,7 +347,13 @@ def compute_posterior_metrics(
     n = len(snapshots)
     scalars: dict[str, Any] = {k: None for k in POSTERIOR_METRIC_KEYS}
     series: dict[str, list[float | None]] = {k: [None] * n for k in POSTERIOR_SERIES_KEYS}
-    out: dict[str, Any] = {"scalars": scalars, "series": series, "density_steps": [], "max_points": max_points}
+    out: dict[str, Any] = {
+        "scalars": scalars,
+        "series": series,
+        "density_steps": [],
+        "max_points": max_points,
+        "computed": False,  # True once the per-step series were built (not for no primary / no particle cloud)
+    }
     if n == 0 or primary is None or _to_physical_particles(snapshots[0].belief, primary) is None:
         return out
 
@@ -359,13 +372,13 @@ def compute_posterior_metrics(
         if id(s.belief) not in by_belief:
             by_belief[id(s.belief)] = _StepPosterior(s.belief, primary, fwhm)
         posts.append(by_belief[id(s.belief)])
-    scalars["posterior_undefined_steps"] = sum(not p.informed for p in posts)
 
     tau = stage_metrics.get("dip_detected_step")
     density_steps = set(_downsample_indices(n, max_points))
     if tau is not None:
         density_steps.add(int(tau) - 1)
     out["density_steps"] = sorted(density_steps)
+    out["computed"] = True
 
     for t, (snap, post) in enumerate(zip(snapshots, posts, strict=True)):
         est = float(snap.belief.estimates()[primary])
@@ -387,11 +400,14 @@ def compute_posterior_metrics(
             zff = float(prev.estimates().get("zero_field_freq", zff_true))
             series["x"][t] = float(abs(drive_phys - (zff + posts[t - 1].mode_phys)) > FAR_FWHM * fwhm)
 
+    # Steps with no posterior density: no measurement had updated the belief, or its cloud has no structure for
+    # the bandwidth rule (checked at the steps a density is computed for).
+    scalars["posterior_undefined_steps"] = sum((not p.informed) or p.no_bandwidth for p in posts)
     if tau is not None:
         post = posts[int(tau) - 1]  # the density fields are None when no measurement had updated the belief yet
         scalars["posterior_J_tau_phys"] = post.fisher
         scalars["posterior_kde_bandwidth_tau_phys"] = post.bandwidth_phys
-        if post.informed:
+        if post.fisher is not None:
             scalars["posterior_J_tau_2h_phys"] = post.fisher_at_bandwidth_scale(2.0)
         scalars["posterior_negentropy_tau"] = post.negentropy
         scalars["posterior_far_mass_tau"] = post.far_mass

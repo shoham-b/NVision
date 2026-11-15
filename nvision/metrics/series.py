@@ -198,6 +198,8 @@ def attach_posterior_series(series: dict[str, Any], posterior: dict[str, Any]) -
     not built for those steps (the density series exist only at the steps the stored series keeps), so a mismatch
     cannot silently drop or misalign a series.
     """
+    if not posterior["computed"]:  # no primary parameter or no particle cloud (e.g. a real-data run): nothing to add
+        return
     steps0 = [step - 1 for step in series["s"]]
     if posterior["max_points"] != MAX_SERIES_POINTS or max(steps0) >= len(posterior["series"]["z"]):
         raise ValueError("The posterior series were not built for this run's steps / max_points.")

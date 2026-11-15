@@ -287,3 +287,35 @@ def test_j_tau_bracket_and_h_series(monkeypatch):
     s = out["scalars"]
     assert s["posterior_J_tau_2h_phys"] < s["posterior_J_tau_phys"]  # more smoothing, less information
     assert out["series"]["h"][1] == s["posterior_kde_bandwidth_tau_phys"]
+
+
+def test_structureless_cloud_after_measurements_is_undefined_not_an_abort(monkeypatch):
+    """A flat cloud after measurements (posterior still the prior) has no ISJ root: record it, do not abort."""
+    monkeypatch.setattr("nvision.metrics.stages._true_fwhm_phys", lambda ts: 2e6)
+    flat = np.linspace(0.0, 100e6, N)
+    peaked = 30e6 + 1e5 * np.random.default_rng(11).standard_normal(N)
+    run = _fake_run([flat, peaked], drive_unit=[0.3, 0.3])  # n_obs = 1 for both
+    out = compute_posterior_metrics(run, "zeeman_shift", {"dip_detected_step": 1})
+    assert out["series"]["j"][0] is None
+    assert out["series"]["j"][1] is not None
+    assert out["scalars"]["posterior_undefined_steps"] == 1
+    assert out["scalars"]["posterior_J_tau_phys"] is None
+    assert out["scalars"]["posterior_J_tau_2h_phys"] is None
+
+
+def test_attach_is_a_no_op_when_nothing_was_computed_and_raises_on_misalignment():
+    from nvision.metrics.series import attach_posterior_series
+
+    empty = compute_posterior_metrics(SimpleNamespace(snapshots=[], true_signal=None), "zeeman_shift", {})
+    series = {"s": [1, 2, 3]}
+    attach_posterior_series(series, empty)  # e.g. a real-data run: no primary, nothing attached, no error
+    assert set(series) == {"s"}
+    no_primary = compute_posterior_metrics(
+        SimpleNamespace(snapshots=[SimpleNamespace(belief=object())], true_signal=None), None, {}
+    )
+    attach_posterior_series(series, no_primary)
+    assert set(series) == {"s"}
+    run = _fake_run([30e6 + 1e5 * np.random.default_rng(12).standard_normal(N) for _ in range(3)], [0.3] * 3)
+    done = compute_posterior_metrics(run, "zeeman_shift", {})
+    with pytest.raises(ValueError, match="not built for this run"):
+        attach_posterior_series({"s": [1, 2, 9]}, done)
