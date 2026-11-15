@@ -31,6 +31,11 @@ def sweep_strategy_name(points_per_fwhm: int) -> str:
     return f"{StrategyFilter.SIMPLE_SWEEP}-{points_per_fwhm}perFWHM"
 
 
+# The plain sweep whose grid step is the analytically optimal k* of its task (nvision.sim.locs.sweep_optimal). One
+# fixed name: k* varies per grid cell, so it is not part of the name (it is recorded in each repeat's metrics).
+OPTIMAL_SWEEP_STRATEGY = f"{StrategyFilter.SIMPLE_SWEEP}-optimal"
+
+
 def is_plain_sweep(strategy_name: str) -> bool:
-    """True for the plain (non-adaptive) sweep strategies: ``SimpleSweep-<k>perFWHM``."""
+    """True for the plain (non-adaptive) sweep strategies: ``SimpleSweep-<k>perFWHM`` and ``SimpleSweep-optimal``."""
     return strategy_name == StrategyFilter.SIMPLE_SWEEP or strategy_name.startswith(f"{StrategyFilter.SIMPLE_SWEEP}-")
