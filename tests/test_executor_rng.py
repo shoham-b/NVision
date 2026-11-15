@@ -252,3 +252,32 @@ def test_shared_signal_rejects_changed_total_repeats():
     with pytest.raises(ValueError, match="n_repeats=5"):
         runner7._shared_experiment_for_repeat(0)
     clear_signal_experiment_cache()
+
+
+def test_stratified_zeeman_other_params_unchanged_when_randomized():
+    """Default generator randomizes hwhm/contrast: they must not move when only the stratum changes."""
+    from nvision.sim.gen.nv_center_generator import NVCenterCoreGenerator
+
+    gen = NVCenterCoreGenerator(variant="lorentzian")
+    ref = gen.generate(random.Random(11), repeat_idx=0, n_repeats=1)
+    sig = gen.generate(random.Random(11), repeat_idx=3, n_repeats=8)
+    drawn = ref.parameter_values()
+    assert any(k in drawn for k in ("hwhm", "contrast_total")), drawn
+    for name, value in drawn.items():
+        if name != "zeeman_shift":
+            assert sig.get_param_value(name) == value, name
+    assert sig.get_param_value("zeeman_shift") != ref.get_param_value("zeeman_shift")
+
+
+def test_stratified_zeeman_uses_global_index_in_chunked_subtasks():
+    """A sub-task with repeat_offset=3, chunk size 3, repeat_total=6 stratifies over 6 slices, not 3."""
+    runner, gen = _strat_runner("Gauss(0.01)", "Bayesian-SBED", 6)
+    runner.repeats = 3
+    runner.task.repeat_offset = 3
+    lo, hi = gen.zeeman_min_phys, gen.zeeman_max_phys
+    width = (hi - lo) / 6
+    clear_signal_experiment_cache()
+    for rid in (3, 4, 5):
+        t = _zeeman(runner._shared_experiment_for_repeat(rid))
+        assert lo + rid * width <= t < lo + (rid + 1) * width
+    clear_signal_experiment_cache()
