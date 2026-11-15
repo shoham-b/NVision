@@ -345,8 +345,11 @@ class LocatorResultsRepository:
 
         if actual_achieved > existing_total:
             columns: dict[str, Any] = {"achieved_repeats": [actual_achieved], "streaming": [True]}
-            if repeat_total is not None:
-                columns["repeat_total"] = [int(repeat_total)]
+            kept_total = repeat_total
+            if kept_total is None and existing_df is not None and "repeat_total" in existing_df.columns:
+                kept_total = int(existing_df.get_column("repeat_total")[0])  # never drop the guard
+            if kept_total is not None:
+                columns["repeat_total"] = [int(kept_total)]
             ptr_df = pl.DataFrame(columns)
             self._store.save_df(ptr_df, ptr_key, metadata={"config": ptr_config, "updated_at": updated_at})
 

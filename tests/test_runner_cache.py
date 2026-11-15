@@ -1168,3 +1168,79 @@ def test_content_bin_stored_as_blob_not_base85_text(tmp_path: Path):
             conn.close()
     finally:
         bridge.close()
+
+
+def _zeeman_split_task(tmp_path: Path, repeats: int, use_cache: bool):
+    import logging
+
+    from nvision.models.noise import CompositeNoise, CompositeOverFrequencyNoise
+    from nvision.models.task import LocatorTask
+    from nvision.noises import OverFrequencyGaussianNoise
+    from nvision.sim.combinations import Combination
+    from nvision.sim.gen.nv_center_generator import NVCenterCoreGenerator
+
+    sig = NVCenterCoreGenerator(
+        drive_freq_min_phys=2.6e9, drive_freq_max_phys=3.1e9, variant="lorentzian", with_zeeman_splitting=True
+    )
+    noise = CompositeNoise(over_frequency_noise=CompositeOverFrequencyNoise([OverFrequencyGaussianNoise(0.01)]))
+    combo = Combination(
+        generator=sig,
+        noise=noise,
+        strategy={**_sweep_strategy(), "config": {**_sweep_strategy()["config"], "with_zeeman_splitting": True}},
+        generator_name="NVCenter-lorentzian-zs",
+        noise_name="Gauss(0.01)",
+        strategy_name="SimpleSweep",
+    )
+    return LocatorTask(
+        combination=combo,
+        repeats=repeats,
+        seed=1,
+        slug="test_slug_zs",
+        out_dir=tmp_path / "out",
+        scans_dir=tmp_path / "out/scans",
+        bayes_dir=tmp_path / "out/bayes",
+        loc_max_steps=10,
+        sweep_max_steps=10,
+        loc_timeout_s=10,
+        use_cache=use_cache,
+        cache_dir=tmp_path / "cache",
+        log_queue=None,
+        log_level=logging.INFO,
+        ignore_cache_strategy=None,
+        repeat_offset=0,
+    )
+
+
+def test_task_runner_refuses_to_extend_stratified_run(tmp_path: Path, monkeypatch):
+    """Zeeman-split repeats are stratified over the total N: resuming with another N must fail, --no-cache must work."""
+    monkeypatch.setattr("nvision.runner.executor.generate_attempt_plots", lambda *args, **kwargs: [])
+
+    import pytest
+
+    from nvision import clear_signal_experiment_cache
+    from nvision.cache.hashing import stable_config_hash
+    from nvision.cache.locator_keys import combination_base_cache_config
+    from nvision.runner.executor import _TaskRunner
+
+    clear_signal_experiment_cache()
+    assert len(_TaskRunner(_zeeman_split_task(tmp_path, 3, True)).run()) == 3
+
+    clear_signal_experiment_cache()  # a fresh process would not have the in-memory signal cache either
+    with pytest.raises(ValueError, match="generated for a total of 3"):
+        _TaskRunner(_zeeman_split_task(tmp_path, 5, True)).run()
+
+    clear_signal_experiment_cache()
+    runner = _TaskRunner(_zeeman_split_task(tmp_path, 5, False))
+    assert len(runner.run()) == 5
+    ptr_cfg = combination_base_cache_config(
+        generator="NVCenter-lorentzian-zs",
+        noise="Gauss(0.01)",
+        strategy="SimpleSweep",
+        seed=1,
+        max_steps=runner._resolve_sweep_max_steps(runner._build_experiment(runner._rng_for_measurement(0))),
+        timeout_s=10,
+    )
+    ptr_df = runner.cache._store.load_df(stable_config_hash(ptr_cfg))
+    assert ptr_df is not None
+    assert int(ptr_df.get_column("repeat_total")[0]) == 5
+    clear_signal_experiment_cache()
