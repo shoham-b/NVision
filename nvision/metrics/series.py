@@ -134,8 +134,13 @@ def extract_step_series(
     run_result: RunResult | None,
     param: str = "zero_field_freq",
     max_points: int = MAX_SERIES_POINTS,
+    posterior: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
-    """Build the compact per-step series for one run, or None when unavailable."""
+    """Build the compact per-step series for one run, or None when unavailable.
+
+    ``posterior``: the ``compute_posterior_metrics`` result of the run; when given, its per-step series (``z``, ``g``,
+    ``m``, ``j``, ``x``; see ``nvision/metrics/posterior.py``) are added, aligned with ``"s"`` and downsampled with it.
+    """
     if run_result is None or not run_result.snapshots:
         return None
     param = _resolve_series_param(run_result, param)
@@ -180,6 +185,10 @@ def extract_step_series(
     }
     if any(c is not None for c in crlbs):
         series["c"] = [_round_sig(crlbs[i]) for i in keep]
+    if posterior is not None:
+        for key, values in posterior["series"].items():
+            if any(v is not None for v in values):
+                series[key] = [_round_sig(values[steps[i] - 1]) for i in keep]
     if any(windows):
         series["w"] = [
             [[_round_sig(lo), _round_sig(hi)] for lo, hi in windows[i]] if windows[i] else None for i in keep

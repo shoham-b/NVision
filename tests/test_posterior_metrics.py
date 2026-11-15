@@ -1,0 +1,171 @@
+"""Run-time posterior metrics (nvision/metrics/posterior.py): KDE Fisher information, negentropy, far mass."""
+
+from __future__ import annotations
+
+from types import SimpleNamespace
+from typing import ClassVar
+
+import numpy as np
+import pytest
+
+from nvision.metrics.posterior import (
+    POSTERIOR_METRIC_KEYS,
+    POSTERIOR_SERIES_KEYS,
+    compute_posterior_metrics,
+    posterior_density,
+)
+
+N = 1000
+
+
+def _mixture_fisher(means, sigmas, weights, lo, hi, n=400_001):
+    """Exact J = int p'^2 / p of a Gaussian mixture by dense quadrature of its analytic pdf."""
+    x = np.linspace(lo, hi, n)
+    p = np.zeros_like(x)
+    dp = np.zeros_like(x)
+    for m, s, w in zip(means, sigmas, weights, strict=True):
+        g = w * np.exp(-0.5 * ((x - m) / s) ** 2) / (s * np.sqrt(2 * np.pi))
+        p += g
+        dp += -(x - m) / s**2 * g
+    keep = p > 1e-12 * p.max()
+    return float(np.sum(dp[keep] ** 2 / p[keep]) * (x[1] - x[0]))
+
+
+def test_gaussian_posterior_fisher_is_inverse_variance():
+    rng = np.random.default_rng(0)
+    sigma = 3e3
+    x = 50e6 + sigma * rng.standard_normal(N)
+    d = posterior_density(x, np.full(N, 1.0 / N), 0.0, 100e6)
+    # The KDE of N draws is N(mu, sigma^2 + h^2): J = 1 / (sigma^2 + h^2), a few % below 1 / sigma^2.
+    j = d.fisher_information()
+    assert j == pytest.approx(1.0 / sigma**2, rel=0.25)
+    assert j == pytest.approx(1.0 / (np.var(x) + d.bandwidth_phys**2), rel=0.25)
+
+
+def test_two_mirror_peaks_fisher_matches_the_mixture_not_the_cloud_variance():
+    rng = np.random.default_rng(1)
+    sep, peak = 4e6, 0.1e6  # peaks far narrower than their separation
+    centres = np.array([20e6, 20e6 + sep])
+    x = np.concatenate([c + peak * rng.standard_normal(N // 2) for c in centres])
+    d = posterior_density(x, np.full(N, 1.0 / N), 0.0, 100e6)
+    sigma_hat = np.sqrt(np.var(x))
+    exact = _mixture_fisher(centres, [peak, peak], [0.5, 0.5], 0.0, 100e6)
+    j = d.fisher_information()
+    assert j > 20.0 / sigma_hat**2  # >> 1 / sigma_hat^2
+    assert j == pytest.approx(exact, rel=0.3)  # a global (Silverman) bandwidth would be ~8x low here
+    assert d.bandwidth_phys < peak
+
+
+def test_negentropy_zero_for_gaussian_positive_for_mixture():
+    rng = np.random.default_rng(2)
+    g = posterior_density(10e6 + 1e5 * rng.standard_normal(N), np.full(N, 1.0 / N), 0.0, 20e6)
+    assert g.negentropy() == pytest.approx(0.0, abs=0.05)
+    x = np.concatenate([5e6 + 1e4 * rng.standard_normal(N // 2), 15e6 + 1e4 * rng.standard_normal(N // 2)])
+    m = posterior_density(x, np.full(N, 1.0 / N), 0.0, 20e6)
+    assert m.negentropy() > 0.5
+
+
+def test_reflection_keeps_mass_at_the_bound():
+    rng = np.random.default_rng(3)
+    x = np.abs(rng.standard_normal(N)) * 1e5  # half-normal piled against lo = 0
+    d = posterior_density(x, np.full(N, 1.0 / N), 0.0, 10e6)
+    assert float(np.sum(d.pdf) * d.dx) == pytest.approx(1.0, abs=1e-6)  # nothing leaked past the edge
+    assert d.grid_phys.min() >= 0.0
+
+
+def test_weights_are_respected():
+    rng = np.random.default_rng(4)
+    x = np.concatenate([5e6 + 1e4 * rng.standard_normal(N), 15e6 + 1e4 * rng.standard_normal(N)])
+    w = np.concatenate([np.full(N, 0.9 / N), np.full(N, 0.1 / N)])
+    assert posterior_density(x, w, 0.0, 20e6).mode() == pytest.approx(5e6, abs=5e4)
+
+
+def test_density_fails_fast_on_bad_input():
+    with pytest.raises(ValueError, match="outside the bounds"):
+        posterior_density(np.array([1.0, 2.0, 30.0]), np.ones(3), 0.0, 10.0)
+    with pytest.raises(ValueError, match="no spread"):
+        posterior_density(np.full(5, 1.0), np.ones(5), 0.0, 10.0)
+    with pytest.raises(ValueError, match="non-negative"):
+        posterior_density(np.array([1.0, 2.0]), np.array([1.0, -1.0]), 0.0, 10.0)
+
+
+# --- run-level metrics on a fake run ---------------------------------------------------------------------------
+
+
+class _Belief:
+    """Particle belief stand-in: a fixed cloud of zeeman_shift (Hz) and a claimed sigma."""
+
+    physical_param_bounds: ClassVar = {"zeeman_shift": (0.0, 100e6)}
+    drive_freq_bounds_phys = (2.0e9, 2.1e9)
+
+    def __init__(self, x, sigma=None):
+        self._x = x
+        self._w = np.full(x.size, 1.0 / x.size)
+        self._sigma = float(np.sqrt(np.var(x))) if sigma is None else sigma
+
+    def particles_phys(self):
+        return {"zeeman_shift": self._x}
+
+    def weights(self):
+        return self._w
+
+    def estimates(self):
+        return {"zeeman_shift": float(np.mean(self._x))}
+
+    def uncertainty(self):
+        return {"zeeman_shift": self._sigma}
+
+
+def _fake_run(clouds, drive_unit, truth=30e6, zff=2.0e9):
+    signal = SimpleNamespace(
+        get_param_value=lambda name: {"zeeman_shift": truth, "zero_field_freq": zff}[name],
+        parameter_values=lambda: {"zeeman_shift": truth, "zero_field_freq": zff, "hwhm": 0.5e6},
+        model=SimpleNamespace(controls_drive=False),
+    )
+    snaps = [
+        SimpleNamespace(belief=_Belief(c), obs=SimpleNamespace(drive_freq_unit=u))
+        for c, u in zip(clouds, drive_unit, strict=True)
+    ]
+    return SimpleNamespace(snapshots=snaps, true_signal=signal)
+
+
+def test_run_metrics_z_far_mass_far_placement_and_j_tau(monkeypatch):
+    # FWHM 2 MHz -> far = 6 MHz from the mode. dip drive position = zff + mode.
+    monkeypatch.setattr("nvision.metrics.stages._true_fwhm_phys", lambda ts: 2e6)
+    rng = np.random.default_rng(5)
+    wide = 30e6 + 8e6 * rng.standard_normal(N)
+    mirror = np.concatenate([20e6 + 1e5 * rng.standard_normal(N // 2), 40e6 + 1e5 * rng.standard_normal(N // 2)])
+    tight = 30e6 + 1e5 * rng.standard_normal(N)
+    # step 1 measured at the dip of snapshot 0's mode?  mode of `wide` ~ 30 MHz -> drive 2.03 GHz -> unit 0.3
+    run = _fake_run([wide, mirror, tight], drive_unit=[0.0, 0.3, 0.9])
+    out = compute_posterior_metrics(run, "zeeman_shift", {"dip_detected_step": 2})
+    s, ser = out["scalars"], out["series"]
+    assert set(s) == set(POSTERIOR_METRIC_KEYS)
+    assert set(ser) == set(POSTERIOR_SERIES_KEYS)
+    assert all(len(v) == 3 for v in ser.values())
+    # z = (mean - truth) / sigma_hat; the mirror cloud's mean is 30 MHz -> z ~ 0
+    assert ser["z"][1] == pytest.approx(0.0, abs=0.05)
+    assert ser["x"][0] is None  # no belief before the first measurement
+    assert ser["x"][1] == 0.0  # measured on the previous mode
+    assert ser["x"][2] == 1.0  # 0.9 -> 2.09 GHz, ~60 MHz from the previous belief's dip
+    assert s["posterior_far_placed_steps"] == 1
+    assert s["posterior_far_placed_share"] == pytest.approx(0.5)
+    # J_tau is the information of the posterior at tau = 2 (the two mirror peaks): >> 1 / sigma_hat^2
+    sigma_hat = float(np.sqrt(np.var(mirror)))
+    assert s["posterior_J_tau_phys"] > 20.0 / sigma_hat**2
+    assert s["posterior_J_tau_phys"] == ser["j"][1]
+    # far mass of the mirror cloud: half of it sits 20 MHz (> 6 MHz) from the mode
+    assert s["posterior_far_mass_tau"] == pytest.approx(0.5, abs=0.05)
+    assert ser["m"][2] == pytest.approx(0.0, abs=1e-9)
+
+
+def test_run_metrics_none_without_primary_particles_or_detection(monkeypatch):
+    monkeypatch.setattr("nvision.metrics.stages._true_fwhm_phys", lambda ts: 2e6)
+    rng = np.random.default_rng(6)
+    run = _fake_run([30e6 + 1e5 * rng.standard_normal(N)], drive_unit=[0.1])
+    s = compute_posterior_metrics(run, "zeeman_shift", {"dip_detected_step": None})["scalars"]
+    assert s["posterior_J_tau_phys"] is None
+    empty = SimpleNamespace(snapshots=[], true_signal=None)
+    assert compute_posterior_metrics(empty, "zeeman_shift", {})["scalars"]["posterior_J_tau_phys"] is None
+    grid = SimpleNamespace(snapshots=[SimpleNamespace(belief=object())], true_signal=None)
+    assert compute_posterior_metrics(grid, "zeeman_shift", {})["scalars"]["posterior_J_tau_phys"] is None

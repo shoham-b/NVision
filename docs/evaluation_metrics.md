@@ -208,6 +208,27 @@ J₀ came from the prior carry the claimed-σ value and cannot be rescaled: re-r
 * **Search stays** as the one real stage (detecting the dip is not a Fisher regime). The stage columns in `stages.py`
   and the Scaling view are untouched.
 
+## Posterior metrics (run-time, `nvision/metrics/posterior.py`)
+
+Computed from each step's particle cloud of the primary parameter (`zeeman_shift`) while the run is recorded, because the cache keeps no belief snapshots. Runs recorded earlier have none of these: **re-run** (`nv render` cannot fill them, and a plain re-run hits the cache, so use `--no-cache`, which replaces the combination's cached repeats). They read the beliefs only; no physics, SMC or SBED behaviour and no cache key or physics fingerprint changes.
+
+Per step *t* (the belief after measurement *t*), in the scan entry's `series` next to `s`/`e`/`u` (downsampled with them):
+
+* `z`: signed (estimate − truth) / σ̂, σ̂ = `belief.uncertainty()`. Calibrated and Gaussian ⇒ N(0, 1); this is what rule 1's coverage check wants instead of |error|.
+* `j`: Fisher information ∫ p′(θ)²/p(θ) dθ of the posterior density, Hz⁻².
+* `g`: negentropy ½ ln(2πe V) − H of the smoothed density (V its own variance, H its differential entropy), nats: 0 for a Gaussian, > 0 for anything else (a Gaussian maximises entropy at fixed variance). The reference is the smoothed density's own variance, not σ̂²: the KDE adds its bandwidth to the variance, so against σ̂² a Gaussian cloud would come out negative.
+* `m`: posterior mass farther than 3 true FWHM from the posterior mode (KDE argmax); `None` for drive-controlled models (no single FWHM).
+* `x`: 1 if measurement *t* was placed more than 3 FWHM from the mode of the belief before it (belief *t − 1*), else 0; `None` at *t* = 0. The mode is mapped to the drive axis (the visible dip sits at `zero_field_freq + zeeman_shift`) and compared with the drive frequency measured. Tests the claim that a Gaussian-EIG acquisition wastes localize measurements on residual far mass.
+
+Per run, in the results row and the API's compare fields (`_COMPARE_FIELDS`):
+
+* `posterior_J_tau_phys` = J_τ: `j` at the run's own detection step `dip_detected_step` (snapshot τ − 1), the information of the posterior van Trees is restarted from (`articles/sections/sm_prior.tex`). `posterior_kde_bandwidth_tau_phys` is the bandwidth it was computed with, `posterior_negentropy_tau` and `posterior_far_mass_tau` the `g`, `m` at τ. `None` if the run never detected a dip.
+* `posterior_far_placed_steps`, `posterior_far_placed_share` (over measurements 2…n) and `posterior_far_placed_share_stage2` (over the localize stage only).
+
+**Density estimate.** Weighted Gaussian KDE on a grid spanning the particle support (±5 bandwidths, clipped to the parameter's bounds), by weighted binning and Gaussian convolution; p′ uses the derivative-of-Gaussian kernel. The density is *reflected* at the bounds (the SMC reflects particles that leave them), not clipped. **Bandwidth: improved Sheather–Jones** (Botev et al. 2010) with the Kish effective sample size 1/Σw², *not* Silverman. Silverman takes σ from the whole cloud, so for the two mirror peaks right after detection it smooths each peak to the width of the cloud and returns J ≈ 1/h², an artefact of the bandwidth (about 8× too low in the unit test); ISJ resolves the peaks. A KDE of a Gaussian cloud is N(μ, σ² + h²), so J for a Gaussian posterior is 1/(σ² + h²), a few percent below 1/σ².
+
+**Cost.** One density per step, every step: about 10 ms per step, about 1.8 s for a 190-step Bayesian-SBED repeat, ~3 % of its run time.
+
 ## Rules
 
 1. **Never use the accuracy at the end of a run or stage as a quality metric.** Every run stops once its claimed uncertainty σ̂
@@ -240,7 +261,8 @@ J₀ came from the prior carry the claimed-σ value and cannot be rescaled: re-r
 ## Where it lives
 
 * Per-run metrics: `nvision/metrics/stages.py` (stage boundaries, η), `nvision/metrics/milestones.py` (stop step),
-  `nvision/metrics/series.py` (per-step series), `nvision/metrics/compare.py` (`nv compare` tables).
+  `nvision/metrics/series.py` (per-step series), `nvision/metrics/posterior.py` (J_τ, z, negentropy, far mass),
+  `nvision/metrics/compare.py` (`nv compare` tables).
 * Results UI views: **Information** (the former Stages tab; scope selector Whole run / Search; **Whole run** also carries
   **Cost & search**: every locator side by side, chips to show/hide, a median-over-selection block and a block per use
   case, and cost and search vs SNR across use cases, `/api/run-rows`; the Whole run charts are the information-vs-bound
@@ -266,6 +288,6 @@ J₀ came from the prior carry the claimed-σ value and cannot be rescaled: re-r
 * The search→localize factor `FOCUS_SIGMA_DROP` = 0.7 is arbitrary (0.9 fires before the data have localised anything; 0.25 fires later than the true error reaches ε, at
   step 37 / 200); the stage boundaries also depend on δ = 0.1; a one-off sensitivity check (δ = 0.05 / 0.1 /
   0.2) that the locator ranking survives is still to do.
-* The signed z = (estimate − truth) / claimed uncertainty σ̂ is not stored (only |error|), so σ honesty is checked against a
-  half-normal, not N(0, 1).
+* The signed z = (estimate − truth) / σ̂ is stored from the posterior-metrics runs on (series `z`, see above); earlier runs keep only
+  |error|, so σ honesty there is checked against a half-normal, not N(0, 1). No Sanity/Information panel reads `z` yet.
 * SBED-Drive against every fixed drive amplitude, including the best one in hindsight.

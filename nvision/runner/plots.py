@@ -849,10 +849,15 @@ def generate_attempt_plots(
     # Attached to the scan entry only — entry_base is also copied into the
     # Bayesian auxiliary entries and must stay slim.
     if run_result is not None:
+        # Computed outside the try below: a failure here must surface, not be logged away (memoised on run_result
+        # by runner/metrics.py, which already ran for this repeat).
+        from nvision.metrics.posterior import compute_posterior_metrics
+
+        posterior_metrics = compute_posterior_metrics(run_result, entry_base.get("stage_primary_param"), entry_base)
         try:
             from nvision.metrics.series import _round_sig, extract_refine_series, extract_step_series
 
-            step_series = extract_step_series(run_result)
+            step_series = extract_step_series(run_result, posterior=posterior_metrics)
             if step_series:
                 # The finalize fit (e.g. a sweep's dip fit) can land outside the
                 # belief snapshots; the series endpoint must match the reported

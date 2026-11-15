@@ -1238,6 +1238,10 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             out[name] = lo + self._particles[:, j].astype(np.float64) * (hi - lo)
         return out
 
+    def weights(self) -> np.ndarray:
+        """Normalised particle weights (a copy), shape: (n_particles,), aligned with :meth:`particles_phys`."""
+        return np.asarray(self._weights, dtype=np.float64).copy()
+
     def mode_estimates(self) -> dict[str, float]:
         """Return the highest-weight particle's joint state (posterior mode).
 
