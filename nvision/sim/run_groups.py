@@ -27,7 +27,7 @@ from functools import lru_cache
 
 from nvision.sim import presets as sim_presets
 from nvision.sim.combinations import SWEEP_SPACING_DIVISORS
-from nvision.sim.grid_enums import sweep_strategy_name
+from nvision.sim.grid_enums import fixed_budget_name, sweep_strategy_name
 from nvision.sim.locs.search_grid import SWEEP_POINTS_PER_FWHM
 
 
@@ -126,6 +126,24 @@ def _group_voigt_grid() -> RunGroup:
     )
 
 
+def _group_voigt_grid_fixed() -> RunGroup:
+    """``voigt-grid`` with the stop rule off for Bayesian-SBED and the sweeps (the refine-rate study).
+
+    Every repeat measures the whole shared budget, so the error is known at every measurement count and
+    ``1 / mean(err^2)`` can be fitted over a common range; the per-measurement drive frequencies are kept for every
+    repeat (not only the first ``NVISION_GRAPH_REPEATS``), which the placement efficiency q_place needs. Cached
+    under the ``<strategy>-fixed`` names, apart from the ordinary runs.
+    """
+    base = _group_voigt_grid()
+    fixed = [fixed_budget_name(s) for s in ("Bayesian-SBED", *(sweep_strategy_name(k) for k in SWEEP_SPACING_DIVISORS))]
+    return replace(
+        base,
+        name="voigt-grid-fixed",
+        description=base.description.split(";")[0] + "; stop rule off for Bayesian-SBED and the sweeps (refine rates).",
+        strategy_names=fixed,
+    )
+
+
 def _group_drive_control() -> RunGroup:
     """Drive-choosing SBED vs fixed-drive SBED on the CW and pulsed drive-controlled generators."""
     return _group(
@@ -189,6 +207,7 @@ def alias_names() -> list[str]:
 def _run_groups_tuple() -> tuple[RunGroup, ...]:
     return (
         _group_voigt_grid(),
+        _group_voigt_grid_fixed(),
         _group_drive_control(),
         _group_all(),
     )

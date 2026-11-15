@@ -112,6 +112,7 @@ def run_loop(
     sweep_cache: SweepCache | None = None,
     n_shots: int = 1,
     search_replay: SweepReplay | None = None,
+    stop_rule: bool = True,
     **locator_config: Any,
 ) -> Iterator[Locator]:
     """Run one repeat's measurement loop and yield locator states.
@@ -123,6 +124,9 @@ def run_loop(
     ``n_shots`` shots at the chosen drive-frequency points and collapses them into one
     sufficient-statistic ``Observation`` (batch mean + empirical variance) via
     ``CoreExperiment.measure``. Defaults to 1 (single-shot, unchanged behavior).
+
+    ``stop_rule=False`` switches the convergence stop rule off (a fixed-budget run, strategy ``<name>-fixed``): the
+    locator then runs until its step budget. Only locators with :class:`ConvergenceStopRules` have one to switch off.
     """
     if experiment.drift is not None:
         # Cached sweep observations were measured by another run at other times; replaying
@@ -145,6 +149,10 @@ def run_loop(
         locator_config.setdefault("seed", seed_rng.getrandbits(32))
 
     locator = locator_class.create(**locator_config)
+    if not stop_rule:
+        if not hasattr(locator, "stop_rule_enabled"):
+            raise ValueError(f"{locator_class.__name__} has no stop rule to switch off.")
+        locator.stop_rule_enabled = False
 
     if getattr(locator, "max_passes", 1) > 1:
         # The sweep cache holds one pass keyed by the pass length; it cannot serve a sweep that repeats passes.
@@ -1242,7 +1250,7 @@ class _TaskRunner:
         max_steps = self._resolve_sweep_max_steps(experiment)
 
         cfg = {
-            **locator_config,
+            **{k: v for k, v in locator_config.items() if k != "stop_rule"},
             "max_steps": max_steps,
             "parameter_bounds": self._injected_parameter_bounds(experiment),
             "noise_std": noise_std,
@@ -1303,7 +1311,7 @@ class _TaskRunner:
 
         is_bayesian = issubclass(locator_class, SequentialBayesianLocator)
         cfg = {
-            **{k: v for k, v in locator_config.items() if k != "n_shots"},
+            **{k: v for k, v in locator_config.items() if k not in ("n_shots", "stop_rule")},
             "max_steps": max_steps,
             "parameter_bounds": self._injected_parameter_bounds(experiment),
         }
@@ -1339,6 +1347,7 @@ class _TaskRunner:
                     rng,
                     self._sweep_cache,
                     n_shots=n_shots,
+                    stop_rule=bool(locator_config.get("stop_rule", True)),
                     search_replay=replay,
                     **cfg,
                 )

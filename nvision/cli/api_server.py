@@ -21,6 +21,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from nvision.cache import CacheBridge
+from nvision.cli.refine_rates_api import add_refine_rates_route
 from nvision.cache.hashing import stable_config_hash
 from nvision.cache.locator_keys import MIN_VIEWABLE_CACHE_SCHEMA_VERSION, combination_base_cache_config
 from nvision.gui.report import _STATIC_DIR, render_index_html
@@ -426,6 +427,8 @@ def build_app(cache_dir: Path, run_dir: Path, lab_dirs: list[Path] | None = None
         # (combo_key, repeats) -> _load_combo result; keyed on the repeat count so a growing
         # combo is re-read, cleared on /api/reload so edited repeats are picked up too.
         "combo_memo": {},
+        # (generator, noise, repeat stamp) -> /api/refine-rates use-case summary; cleared on /api/reload.
+        "refine_memo": {},
     }
     # RLock, not Lock: _get_manifest holds `lock` while calling
     # _build_manifest, which calls _get_combos -- itself a `with lock:` block.
@@ -629,6 +632,9 @@ def build_app(cache_dir: Path, run_dir: Path, lab_dirs: list[Path] | None = None
         return [sweep_strategy_name(k) for k in SWEEP_SPACING_DIVISORS]
 
     _add_lab_study_route(app, lab_dirs or [], run_dir)
+    add_refine_rates_route(
+        app, get_combos=_get_combos, make_bridge=_bridge, combo_key=_combo_key, memo=cache["refine_memo"]
+    )
 
     @app.get("/api/run-rows")
     def run_rows(strategies: str) -> list[dict]:
@@ -687,6 +693,7 @@ def build_app(cache_dir: Path, run_dir: Path, lab_dirs: list[Path] | None = None
             cache["combos"] = None
             cache["generator_grid_info"] = None
             cache["combo_memo"] = {}
+            cache["refine_memo"].clear()
 
     # The lab data sync (`nv matlab`, no source) runs as a subprocess; when it exits, new MATLAB runs are in the cache.
     from nvision.tools.lab_sources import BackgroundSync
