@@ -188,3 +188,23 @@ def extract_step_series(
     if tau is not None:
         series["tau"] = _round_sig(tau)
     return series
+
+
+def attach_posterior_series(series: dict[str, Any], posterior: dict[str, Any]) -> None:
+    """Add the run-time posterior per-step series (``z``, ``g``, ``m``, ``j``, ``h``, ``x``) to a step series in place.
+
+    ``series``: the dict :func:`extract_step_series` built; ``posterior``: ``compute_posterior_metrics`` of the same
+    run. Values are taken at the steps of ``series["s"]`` (1-indexed). Raises ``ValueError`` if the posterior was
+    not built for those steps (the density series exist only at the steps the stored series keeps), so a mismatch
+    cannot silently drop or misalign a series.
+    """
+    if not posterior["computed"]:  # no primary parameter or no particle cloud (e.g. a real-data run): nothing to add
+        return
+    steps0 = [step - 1 for step in series["s"]]
+    if posterior["max_points"] != MAX_SERIES_POINTS or max(steps0) >= len(posterior["series"]["z"]):
+        raise ValueError("The posterior series were not built for this run's steps / max_points.")
+    if not set(steps0) <= set(posterior["density_steps"]):
+        raise ValueError("The stored steps are not the steps the posterior density was computed at.")
+    for key, values in posterior["series"].items():
+        if any(v is not None for v in values):
+            series[key] = [_round_sig(values[t]) for t in steps0]

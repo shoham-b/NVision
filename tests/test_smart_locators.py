@@ -30,7 +30,7 @@ NOISE_SIGMA = 0.01
 
 def _experiment(seed: int = 3, hwhm: float = 2.75e6, contrast: float = 0.4):
     gen = NVCenterCoreGenerator(variant="lorentzian", hwhm=hwhm, contrast_total=contrast)
-    true_signal = gen.generate(random.Random(seed))
+    true_signal = gen.generate(random.Random(seed), repeat_idx=0, n_repeats=1)
     noise = CompositeNoise(over_frequency_noise=CompositeOverFrequencyNoise([OverFrequencyGaussianNoise(NOISE_SIGMA)]))
     exp = CoreExperiment(
         true_signal=true_signal,
@@ -173,7 +173,7 @@ def test_smart_sweep_refines_at_both_steepest_slopes_once_the_dip_is_known():
 
 def test_smart_sweep_refine_points_come_from_the_model_not_a_lorentzian_formula():
     gen = NVCenterCoreGenerator(variant="voigt", hwhm=1.5e6, contrast_total=0.4, sigma_inhom=1.0e6)
-    true_signal = gen.generate(random.Random(5))
+    true_signal = gen.generate(random.Random(5), repeat_idx=0, n_repeats=1)
     noise = CompositeNoise(over_frequency_noise=CompositeOverFrequencyNoise([OverFrequencyGaussianNoise(NOISE_SIGMA)]))
     exp = CoreExperiment(
         true_signal=true_signal,

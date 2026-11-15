@@ -65,8 +65,8 @@ def test_shared_core_experiment_same_true_signal_object():
         built.append(exp)
         return exp
 
-    a = get_shared_core_experiment(task, 0, build)
-    b = get_shared_core_experiment(task, 0, build)
+    a = get_shared_core_experiment(task, 0, build, n_repeats=1)
+    b = get_shared_core_experiment(task, 0, build, n_repeats=1)
     assert a is not b
     assert a.true_signal is b.true_signal
     assert len(built) == 1
@@ -100,8 +100,8 @@ def test_shared_core_experiment_same_true_signal_across_noise_names():
         built.append(exp)
         return exp
 
-    a = get_shared_core_experiment(task_a, 0, build)
-    b = get_shared_core_experiment(task_b, 0, build)
+    a = get_shared_core_experiment(task_a, 0, build, n_repeats=1)
+    b = get_shared_core_experiment(task_b, 0, build, n_repeats=1)
     assert a.true_signal is b.true_signal
     assert a.noise is task_a.noise
     assert b.noise is task_b.noise
@@ -124,12 +124,15 @@ def test_shared_signal_does_not_leak_noise_model_across_noise_levels():
         combo = grid.resolve(gen_name, noise_name, "Bayesian-SBED")
         assert combo is not None
         runner = _TaskRunner.__new__(_TaskRunner)
+        runner.repeats = 5
         runner.task = SimpleNamespace(
             seed=42,
             generator_name=gen_name,
             generator=combo.generator,
             noise=combo.noise,
             noise_name=noise_name,
+            repeat_total=5,
+            repeat_offset=0,
         )
         return runner
 
@@ -148,4 +151,133 @@ def test_shared_signal_does_not_leak_noise_model_across_noise_levels():
         # The noise-independent part of the signal is still shared.
         assert got[noise_names[0]].true_signal.model is got[noise_names[1]].true_signal.model
 
+    clear_signal_experiment_cache()
+
+
+# ---- Stratified zeeman_shift draws -------------------------------------------------------------------------------
+
+_STRAT_GEN = "NVCenter-voigt-w0.50MHz-c0.10-si0.60MHz-hfn14"
+
+
+def _strat_runner(noise_name: str, strategy: str, n_total: int):
+    from types import SimpleNamespace
+
+    from nvision.runner.executor import _TaskRunner
+    from nvision.sim.combinations import CombinationGrid
+
+    combo = CombinationGrid().resolve(_STRAT_GEN, noise_name, strategy)
+    assert combo is not None
+    runner = _TaskRunner.__new__(_TaskRunner)
+    runner.repeats = n_total
+    runner.task = SimpleNamespace(
+        seed=42,
+        generator_name=_STRAT_GEN,
+        generator=combo.generator,
+        noise=combo.noise,
+        noise_name=noise_name,
+        repeat_total=n_total,
+        repeat_offset=0,
+    )
+    return runner, combo.generator
+
+
+def _zeeman(exp) -> float:
+    return float(exp.true_signal.get_param_value("zeeman_shift"))
+
+
+def test_stratified_zeeman_paired_across_locators_and_noise():
+    """Repeat i sees the same theta for every strategy and noise level."""
+    n = 6
+    thetas: dict[tuple[str, str], list[float]] = {}
+    for noise, strat in [
+        ("Gauss(0.01)", "Bayesian-SBED"),
+        ("Gauss(0.002)", "Bayesian-SBED"),
+        ("Gauss(0.008)", "Bayesian-SBED"),
+    ]:
+        clear_signal_experiment_cache()
+        runner, _ = _strat_runner(noise, strat, n)
+        thetas[(noise, strat)] = [_zeeman(runner._shared_experiment_for_repeat(i)) for i in range(n)]
+    ref = next(iter(thetas.values()))
+    assert all(v == ref for v in thetas.values())
+    clear_signal_experiment_cache()
+
+
+def test_stratified_zeeman_one_draw_per_slice():
+    n = 20
+    runner, gen = _strat_runner("Gauss(0.01)", "Bayesian-SBED", n)
+    lo, hi = gen.zeeman_min_phys, gen.zeeman_max_phys
+    width = (hi - lo) / n
+    clear_signal_experiment_cache()
+    thetas = [_zeeman(runner._shared_experiment_for_repeat(i)) for i in range(n)]
+    for i, t in enumerate(thetas):
+        assert lo + i * width <= t < lo + (i + 1) * width
+    clear_signal_experiment_cache()
+
+
+def test_stratified_zeeman_deterministic_and_other_params_unchanged():
+    n = 5
+    runner, gen = _strat_runner("Gauss(0.01)", "Bayesian-SBED", n)
+    clear_signal_experiment_cache()
+    a = [_zeeman(runner._shared_experiment_for_repeat(i)) for i in range(n)]
+    clear_signal_experiment_cache()
+    b = [_zeeman(runner._shared_experiment_for_repeat(i)) for i in range(n)]
+    assert a == b
+
+    # Same RNG consumption as the former rng.uniform draw: only zeeman_shift differs from the unstratified path.
+    sig = gen.generate(random.Random(7), repeat_idx=2, n_repeats=n)
+    ref = gen.generate(random.Random(7), repeat_idx=0, n_repeats=1)
+    for name, value in ref.parameter_values().items():
+        if name != "zeeman_shift":
+            assert sig.get_param_value(name) == value, name
+    clear_signal_experiment_cache()
+
+
+def test_stratified_zeeman_fails_fast():
+    import pytest
+
+    _, gen = _strat_runner("Gauss(0.01)", "Bayesian-SBED", 3)
+    with pytest.raises(ValueError, match="needs repeat_idx"):
+        gen.generate(random.Random(0))
+    with pytest.raises(ValueError, match="repeat_idx=3"):
+        gen.generate(random.Random(0), repeat_idx=3, n_repeats=3)
+
+
+def test_shared_signal_keeps_one_stratum_per_total_repeats():
+    """Repeat 0 of a 5-repeat study and of a 7-repeat study are different strata: the cache must not share them."""
+    clear_signal_experiment_cache()
+    runner5, _ = _strat_runner("Gauss(0.01)", "Bayesian-SBED", 5)
+    runner7, _ = _strat_runner("Gauss(0.01)", "Bayesian-SBED", 7)
+    z5 = runner5._shared_experiment_for_repeat(0).true_signal.get_param_value("zeeman_shift")
+    z7 = runner7._shared_experiment_for_repeat(0).true_signal.get_param_value("zeeman_shift")
+    assert z5 != z7
+    assert runner5._shared_experiment_for_repeat(0).true_signal.get_param_value("zeeman_shift") == z5  # still cached
+    clear_signal_experiment_cache()
+
+
+def test_stratified_zeeman_other_params_unchanged_when_randomized():
+    """Default generator randomizes hwhm/contrast: they must not move when only the stratum changes."""
+    from nvision.sim.gen.nv_center_generator import NVCenterCoreGenerator
+
+    gen = NVCenterCoreGenerator(variant="lorentzian")
+    ref = gen.generate(random.Random(11), repeat_idx=0, n_repeats=1)
+    sig = gen.generate(random.Random(11), repeat_idx=3, n_repeats=8)
+    drawn = ref.parameter_values()
+    assert any(k in drawn for k in ("hwhm", "contrast_total")), drawn
+    for name, value in drawn.items():
+        if name != "zeeman_shift":
+            assert sig.get_param_value(name) == value, name
+    assert sig.get_param_value("zeeman_shift") != ref.get_param_value("zeeman_shift")
+
+
+def test_stratified_zeeman_uses_global_index_in_chunked_subtasks():
+    """A sub-task with repeat_offset=3, chunk size 3, repeat_total=6 stratifies over 6 slices, not 3."""
+    runner, gen = _strat_runner("Gauss(0.01)", "Bayesian-SBED", 6)
+    runner.repeats = 3
+    runner.task.repeat_offset = 3
+    lo, hi = gen.zeeman_min_phys, gen.zeeman_max_phys
+    width = (hi - lo) / 6
+    clear_signal_experiment_cache()
+    for rid in (3, 4, 5):
+        t = _zeeman(runner._shared_experiment_for_repeat(rid))
+        assert lo + rid * width <= t < lo + (rid + 1) * width
     clear_signal_experiment_cache()

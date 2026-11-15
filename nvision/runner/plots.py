@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import logging
 import math
 from contextlib import suppress
@@ -849,8 +850,18 @@ def generate_attempt_plots(
     # Attached to the scan entry only — entry_base is also copied into the
     # Bayesian auxiliary entries and must stay slim.
     if run_result is not None:
+        # Computed outside the try below: a failure here must surface, not be logged away (memoised on run_result
+        # by runner/metrics.py, which already ran for this repeat).
+        from nvision.metrics.posterior import compute_posterior_metrics
+
+        posterior_metrics = compute_posterior_metrics(run_result, entry_base.get("stage_primary_param"), entry_base)
         try:
-            from nvision.metrics.series import _round_sig, extract_refine_series, extract_step_series
+            from nvision.metrics.series import (
+                _round_sig,
+                attach_posterior_series,
+                extract_refine_series,
+                extract_step_series,
+            )
 
             step_series = extract_step_series(run_result)
             if step_series:
@@ -869,8 +880,16 @@ def generate_attempt_plots(
                 if refine_step is not None and stage_param is not None:
                     step_series["r"] = extract_refine_series(run_result, stage_param, int(refine_step))
                 scan_entry["series"] = step_series
+                # Where every measurement was taken (unit coordinates of the drive window, float32), for every
+                # repeat: q_place needs it, and the scan figure keeps only the first repeats.
+                scan_entry["meas_drive_freq_unit"] = base64.b64encode(
+                    np.array([s.obs.drive_freq_unit for s in run_result.snapshots], dtype="<f4").tobytes()
+                ).decode("ascii")
         except Exception:
             log.debug("Step series extraction failed for %s", attempt_slug, exc_info=True)
+        # Outside the try: a posterior series that does not line up with the stored steps must raise.
+        if scan_entry.get("series") is not None:
+            attach_posterior_series(scan_entry["series"], posterior_metrics)
 
     # Build true_params for all strategies so it can be embedded in figure meta
     # (the manifest strips it; UI reads it from fig.layout.meta.true_params)

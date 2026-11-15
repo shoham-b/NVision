@@ -17,7 +17,7 @@ The yardstick is a ladder, each rung tuned before the next:
 
 | Rung | Locator | Tuned / differs by |
 |---|---|---|
-| 0 | `SimpleSweep-3perFWHM` (reference), `SimpleSweep-optimal` | grid step (k points per **prior** FWHM): 3 for the reference, the analytically optimal fractional k* of the task for `-optimal` (cost $\min_k \overline{P(k,\varphi)}\,n(k)$, see [locator comparison](locator_comparison.md)); passes averaged until the stop rule fires |
+| 0 | `SimpleSweep-3perFWHM` (reference), `SimpleSweep-optimal` | grid step (k points per **prior** FWHM): 3 for the reference, the analytically optimal fractional k* of the task for `-optimal` (cost $\min_k \overline{P(k,\varphi)}\,n(k)$, see [locator comparison](locator_comparison.md)); passes averaged over the whole budget |
 | 1 | `Smart-Sweep` | coarse sweep, then sweep inside the dip, then the max-Fisher points |
 | 2 | `Smart-SBED` | same coarse grid as Smart-Sweep: only the acquisition after the dip is seen differs |
 | 3 | `Bayesian-SBED` | no coarse grid |
@@ -210,16 +210,180 @@ J₀ came from the prior carry the claimed-σ value and cannot be rescaled: re-r
 * **Search stays** as the one real stage (detecting the dip is not a Fisher regime). The stage columns in `stages.py`
   and the Scaling view are untouched.
 
+## Search against the bounds (Information tab, Search scope)
+
+During the search no strategy, adaptive or not, beats the search bounds of the article (Sec. global and the SM prior
+section). The Search scope draws them next to the measured search, per use case (rule 7) and for the search locators only
+(`Bayesian-SBED`, `SimpleSweep-3perFWHM` and `SimpleSweep-optimal`; never the Smart-* variants). Everything is computed by
+`nvision/metrics/search_bounds.py` (formulas, unit tests in `tests/test_search_bounds.py`) from data already in the cache
+through `GET /api/search-bounds` (`nvision/cli/search_bounds_api.py`), so `nv serve` on an existing cache is enough and no
+re-run is needed. The panels are drawn by `static/search-bounds-view.js`.
+
+* **W is the width the generator draws `zeeman_shift` from** (`zeeman_min_phys` .. `zeeman_max_phys`, read from the run's
+  `true_params.bounds` and checked against the generator), not the drive window and not a van Trees prior. The bounds average over
+  the dip uniform in this range, so `theta` varying per repeat is correct. A use case whose line shape differs between
+  repeats, whose primary parameter is not `zeeman_shift`, or whose W is not wider than 2t is reported as "not judged" with the reason.
+* **kappa_bar** = k ∫dip² dx / (2σ²W), the mean KL rate per measurement. The integral is taken on the true line (rebuilt from the
+  generator, averaged over 33 values of `zeeman_shift` across the drawn range, on the drive window), so it holds for Voigt and
+  hyperfine multiplets; the Lorentzian closed form πγk·SNR²/(4W) is shown for reference. k = 1 (the simulator never sets
+  `n_shots`) and is cross-checked per run against the stored `stage_fisher_star` (k = I*σ²/max g² must be 1 within 5 %).
+  SNR = line contrast / σ with the line contrast of `sim.presets.line_contrast`; the run's own SNR label can be another convention
+  in older rows (`snr_label`, reported, not used).
+* **Bound curves vs n**: finite reach `(W − nΔd)³/(12W)` (eq. search-mean), change of measure
+  `W²/(8e)·e^{−nκ̄}/(1+ln2+nκ̄)²` (eq. search-bound) and the elimination model eq. mean-curve (`I_max` = the stored
+  `stage_fisher_star`). Δd comes from eq. sm-reach (a fixed point, z = √(2 ln(W/Δd)) + `Z_BETA`); with no single-measurement
+  reach (√k·SNR ≤ z) there is no Δd and the finite-reach and model curves are omitted, with Δd = W when one measurement covers the window.
+  Where √k·SNR/z ≤ 4/3 the best probe averages and Δd = Γ/√3 (eq. sm-fixed-cost). Curves are drawn in units of the prior variance W²/12.
+* **Mean squared true error vs n**: the mean over all runs of (true |estimate − truth|)²; a stopped run keeps its final error, a step
+  is drawn only while at least half of the runs still run. The stored series is downsampled (80 points), so a run's error at n is
+  that of its last kept step ≤ n.
+* **Survival and κ_eff**: S(n) = share of runs with |error| > t, t = `SURVIVAL_TOLERANCE_HWHM` (one HWHM). κ_eff = −d ln S/dn by
+  least squares over the grid points with 0.05 ≤ S ≤ 0.9. The bound is S ≥ exp(−(nκ̄+ln2)/(1−2t/W)) (drawn), so κ_eff/κ̄ may exceed 1
+  without violating it: it is compared with 1/(1−2t/W). The predicted sweep value 1/(2.4 ln(W/Δd)) is shown for the sweeps.
+* **Detection**: `dip_detected_step` (median, p75, share that never detected, counted at the budget so these are lower bounds) in
+  units of 1/κ̄ and of W/Δd (at high SNR, 1/κ̄ < W/Δd, compare with W/(2Δd)).
+
+* **Lab data.** The functions in `search_bounds.py` take a reference centre (`abs_errors`), widths, `k` and SNR or σ as plain arguments and
+  never read the true signal, so the single-run outputs (bound curves, detection step against 1/κ̄ and W/Δd) apply to one lab run; the
+  ensemble outputs (mean err², S(n), κ_eff) need many θ. The lab could emulate θ uniform in the window by replaying recorded sweeps with a
+  randomly shifted window (not implemented, no lab wiring yet).
+* **Old SNR labels.** Rows recorded before the `snr-per-line-contrast-v1` fingerprint change (cached `368f4f5d4fdc`; `018d00aed340` and later use the article SNR)
+  have σ = contrast_total/x for `SNR(x)`, i.e. article SNR x/2. The panel always shows the article SNR computed from σ and states when the run label differs.
+
+Reading it on the current cache (2026-11-15): the SNR × window study's drawn W is only 1.5–4.4 Γ, so the search is a few
+probe cells and the bounds are far below the measured search (κ_eff/κ̄ ≈ 0.01–0.09 for all four locators, none near 1/(1−2t/W));
+a real test of the search claim needs the larger windows. Rows of `SimpleSweep-3perFWHM` carry a stored J₀ that is not 4π²/W²
+(older prior), flagged in the panel; nothing here reads it.
+## Refine rates and the speedup over a sweep
+
+Code: `nvision/metrics/refine_rates.py` (pure maths), `nvision/metrics/refine_rates_runs.py` (rebuilding cached runs),
+`GET /api/refine-rates` (`nvision/cli/refine_rates_api.py`), UI `static/refine-rates.js` (the "Refine & speedup" section
+at the bottom of the Information tab). Theory: `articles/sections/theory.tex`, Sec. "Speedup over a drive-frequency
+sweep". Locators in scope: Bayesian-SBED and `SimpleSweep-3perFWHM` and `SimpleSweep-optimal` (the realised k* is read from `sweep_k_opt`) (never Smart-*). It reads the cache only, so it works
+after `nv render` / `nv serve` with no re-run (it needs the live server, not a static export).
+
+After the dip is found a locator gains information about the primary parameter at `q · I_max` per measurement,
+`1 / mean(err²)(n) = q · I_max · (n − n₀)`, with `I_max` = `stage_fisher_star` (per measurement, every locator takes one
+shot per measurement: no strategy sets `n_shots`, so measurements are shots). Two different `q`:
+
+* **`q_place`** = the mean oracle efficiency η_t of the measurements after `dip_detected_step` (per run, then median and mean
+  over runs; runs with no dip, or ending at the detection, are left out and counted). Exact: it is where the locator
+  measured, judged with the true signal. Rebuilt from the cache (below).
+* **`q_err`** = slope of `1 / mean(err²)` in units of `I_max`, the information the *estimate* gained; `n₀` its intercept.
+  `q_err / q_place` is what the particle filter keeps of the information the placement offered (1 = nothing lost). The
+  fit is the least-squares line over a window `[max(median dip step, n_hi / 2), n_hi]`, `n_hi` the largest `n` where at
+  least half the repeats still run (stopped runs keep their final error); `R²` is reported with it and a poor `R²` means a
+  constant rate does not describe that locator there. The error is interpolated linearly between the ~80 stored
+  samples of a run (a step hold would lag by up to several percent of `n`, which biases `n₀`).
+
+**Every run measures its whole budget.** The convergence rule is recorded but never stops a run (since the
+`stratified-zeeman-v1` fingerprint), so every repeat measures the shared budget (`NVISION_MAX_MEASUREMENTS`; a sweep a
+whole number of passes of it) and has an error at every `n`: the fit window is common to every run. Every repeat also
+stores where it measured (`meas_drive_freq_unit`, float32 unit coordinates of the drive window), so `q_place` uses all
+repeats, not only the first `NVISION_GRAPH_REPEATS` that keep a scan figure. Rows recorded before that change stopped early
+and stored positions for only the first repeats; they are stale under the current fingerprint.
+
+```
+uv run nv run --run-group all --repeats 50
+```
+
+**How `η` is rebuilt for a cached run** (`refine_rates_runs.build_run_trace`). The cache has no belief snapshots, so:
+the true signal is regenerated with the executor's own seed (`generator.generate(Random(repeat_seed_int(signal_repeat_key(
+seed, generator, repeat))))`) and compared with the stored `true_params` (a mismatch raises: the generator changed since the
+run); SBED's positions come from `meas_drive_freq_unit` or the scan figure (`measurements.x`, float16 rescaled into the window,
+~1e-3 of it); a sweep's from its design (its scan figure is never stored): `linspace(lo, hi, n)` repeated pass after pass with
+`n = ceil(W / (FWHM_prior / k)) + 1`, `FWHM_prior` from the generator's own prior means. `η_t = g²(x_t) / max g²` with
+`g = ∂signal/∂primary` (`stages.primary_sensitivity_at`, the function `compute_stage_metrics` uses). End-to-end check: the mean
+`η` over each stage's measurements must reproduce the stored `stage{1,2,3}_sens_eff` to 0.03 (sweeps match to rounding,
+SBED to about 1 % from the float16 positions), otherwise the repeat is left out and listed with the reason. Repeats that cannot
+be rebuilt are never given a fallback.
+
+`q_place` averages η over everything after the detection (localize included), while the line is fitted late, so the
+filter-loss ratio uses `q_place_window`, the median over runs of the mean η over the fitted window `[n_lo, n_hi]`
+(`q_err_over_place_window`); `q_err / q_place` is kept but mixes the two ranges.
+
+**Theory references, per use case.** `q_sweep = I_sweep / I_max`: the Lorentzian closed form `8π/27 · Γ/W` and the exact
+`mean(g²) / max(g²)` over the drive window of the rebuilt true line (any shape: Voigt, a hyperfine triplet, where the
+Lorentzian form is not valid and `Γ` = `stage_fwhm_true_phys` is the single-line FWHM, not the triplet's extent); likewise
+`R∞ = 27/(8π) · W/Γ` and `max / mean`. Both are drawn and labelled. The steepest point of the exact sensitivity, in units of the
+true HWHM `γ` from the nearest line centre, is marked on the histogram next to the Lorentzian `±1/√3`. Line centres are the
+dips (local minima deeper than 30 % of the range) of the noise-free true signal.
+
+**Panels** (Information tab, below Whole run): the table (median over the use cases of each use case's number, rule 7: runs
+with positions, `q_place`, `q_err`, `q_err / q_place`, `n₀`, `R²`, capped share, and the two theory `q_sweep`); the cost to reach
+τ (median first passage, the share that got there in the hover, p75) with the prediction `n₀ + τ⁻² / (q_err · I_max)` dotted
+(measured cost is a median over single runs, the prediction the mean square reaching τ², so they agree only roughly); the ratio
+`T_sweep(τ) / T_SBED(τ)` with the **best sweep spacing at each target** as yardstick and `R∞` (theory, exact, measured) as
+horizontal lines; `R∞` measured against `W / Γ`, one colour per SNR, with the theory line (solid dots: `q_err(SBED) / q_err(best
+sweep)`; open: the same from `q_place`); and the histogram of `drive_freq` relative to the nearest TRUE line centre in `γ`,
+before and after `dip_detected_step` (the SBED after-detection histogram should peak at the steepest point, the sweep's is
+flat). The older cost-ladder `n₀` / `e` of the Information table are kept (median-run statistic against the bound); the new
+`n₀` / `q_err` are the mean-square version the article uses.
+
+**Stale if** the generator, the seed derivation or the sweep grid changes: the true-signal check then raises and the section
+lists the repeats. No cache or render invalidation: nothing here is stored.
+## Localize phase (`nvision/metrics/localize.py`)
+
+The run is split by observable markers, not by claimed-sigma thresholds: **search** until the run's own dip test fires
+(`dip_detected_step` = τ), **localize** from τ to the lock, **refine** afterwards (q of the section above). The claim it
+tests is that the Bayesian strategy gains in localize too: from the same starting point, its own detection, it reaches
+the line in fewer measurements than a sweep.
+
+* **Lock step** (stored per run at run time, in `stages.py`): ε = `LOCK_TOLERANCE_HWHM` (0.5) × the true HWHM
+  (`lock_tolerance_phys`); `lock_step_true` = the first measurement from which the true error stays ≤ ε to the end of the
+  run, `lock_step_claimed` the same for the claimed σ̂ (the lab version). Computed on the full per-step trace, not the
+  downsampled series. `None` for drive-controlled models and rows recorded before it was added (re-run).
+* **Localize cost** L = lock − τ per run (0 if it locked before detecting; `None` if it never detected or never locked).
+  The "Localize" table of the Refine & speedup section shows the median and p75 over the runs that locked, the share that
+  locked, the best sweep's median L over SBED's, and the bound below.
+* **Bound**: van Trees restarted at τ with the posterior as prior, E[err²] ≥ (J_τ + n I_max)⁻¹, so reaching ε² takes at least
+  max(0, ε⁻² − J_τ) / I_max measurements after τ, shown for J_τ (`posterior_J_tau_phys`) and J_τ at twice the bandwidth
+  (`posterior_J_tau_2h_phys`), since J_τ is good to a factor 2. It bounds the mean square, not a run's first passage: a
+  reference, not a per-run test. L / bound is the median over runs of each run's L over its own bound.
+* The functions take an error array and a tolerance, never the true signal, so the lab can pass the error against the
+  holdout centre or the claimed σ̂.
+
+## Posterior metrics (run-time, `nvision/metrics/posterior.py`)
+
+Computed from each step's particle cloud of the primary parameter (`zeeman_shift`) while the run is recorded, because the cache keeps no belief snapshots. Runs recorded earlier have none of these: **re-run** (`nv render` cannot fill them, and a plain re-run hits the cache, so use `--no-cache`, which replaces the combination's cached repeats). They read the beliefs only; no physics, SMC or SBED behaviour and no cache key or physics fingerprint changes.
+
+Per step *t* (the belief after measurement *t*), in the scan entry's `series` next to `s`/`e`/`u` (downsampled with them):
+
+* `z`: signed (estimate − truth) / σ̂, σ̂ = `belief.uncertainty()`. Calibrated and Gaussian ⇒ N(0, 1); this is what rule 1's coverage check wants instead of |error|.
+* `j`: Fisher information ∫ p′(θ)²/p(θ) dθ of the posterior density, Hz⁻²; `h`: the KDE bandwidth it was computed with, Hz. `g`, `j`, `h` exist only at the stored steps (see Cost).
+* `g`: negentropy ½ ln(2πe V) − H of the smoothed density (V its own variance, H its differential entropy), nats: 0 for a Gaussian, > 0 for anything else (a Gaussian maximises entropy at fixed variance). The reference is the smoothed density's own variance, not σ̂²: the KDE adds its bandwidth to the variance, so against σ̂² a Gaussian cloud would come out negative.
+* `m`: posterior mass farther than 3 true FWHM from the posterior mode (mode of a weighted histogram with bins of FWHM/4, within FWHM/8 of the KDE's); `None` for drive-controlled models (no single FWHM).
+* `x`: 1 if measurement *t* was placed more than 3 FWHM from the mode of the belief before it (belief *t − 1*), else 0; `None` at *t* = 0. The mode is mapped to the drive axis (the visible dip sits at `zero_field_freq + zeeman_shift`) and compared with the drive frequency measured. Tests the claim that a Gaussian-EIG acquisition wastes localize measurements on residual far mass.
+
+Per run, in the results row and the API's compare fields (`_COMPARE_FIELDS`):
+
+* `posterior_J_tau_phys` = J_τ: `j` at the run's own detection step `dip_detected_step` (snapshot τ − 1), the information of the posterior van Trees is restarted from (`articles/sections/sm_prior.tex`). `posterior_kde_bandwidth_tau_phys` is the bandwidth it was computed with and `posterior_J_tau_2h_phys` the same J with twice that bandwidth (the smoothing bracket, see below), `posterior_negentropy_tau` and `posterior_far_mass_tau` the `g`, `m` at τ. `None` if the run never detected a dip.
+* `posterior_far_placed_steps`, `posterior_far_placed_share` (over measurements 2…n) and `posterior_far_placed_share_stage2` (over the localize stage only); `posterior_undefined_steps` (see below). For a sweep `x` is high by construction (it measures everywhere); the far-placement test is about SBED.
+
+**Density estimate.** Weighted Gaussian KDE on a grid spanning the particle support (±5 bandwidths, clipped to the parameter's bounds), by weighted binning and FFT convolution; p′ uses the derivative-of-Gaussian kernel. The density is *reflected* at the bounds (the SMC reflects particles that leave them), not clipped.
+* **Pilot bandwidth: improved Sheather–Jones** (Botev et al. 2010) with the Kish effective sample size 1/Σw², *not* Silverman. Silverman takes σ from the whole cloud, so for the two mirror peaks right after detection it smooths each peak to the width of the cloud and returns J ≈ 1/h², an artefact of the bandwidth (about 8× too low in the unit test); ISJ resolves the peaks.
+* **Then a sample-point adaptive (Abramson) bandwidth** h_i = h·(pilot(x_i)/g)^(−1/2), g the weighted geometric mean of the pilot, clamped to [1, 100]·h and quantised to half-octave steps. One global h tuned to narrow peaks leaves a diffuse tail (a few sparse particles) as spikes, and p′²/p of those inflates J: with two narrow peaks plus 15 % diffuse mass the global-h J was 2.3× the exact one (the tail contributed as much as the peaks), the adaptive one is within about 10 %. `posterior_kde_bandwidth_tau_phys` stores the pilot h.
+* A KDE of a Gaussian cloud is N(μ, σ² + h²), so J for a Gaussian posterior is 1/(σ² + h²), a few percent below 1/σ².
+
+**J is set partly by the bandwidth, and can jump before a resample.** J of a smoothed density depends on how much it is smoothed: in the reference run (NVCenter-lorentzian, Gauss(0.01), Bayesian-SBED) J at the detection step τ = 7 was 7.5e-14 Hz⁻² at the ISJ bandwidth h, 4.4e-14 at 2h and 1.2e-13 at h/2, so J_τ is good to about a factor 2, not to 10 %. `posterior_J_tau_2h_phys` stores the 2h value as the bracket; quote J_τ with it, and the `h` series shows where the bandwidth moves. Right before a resample the weights are degenerate (ESS 219–294 of 1000 at steps 15–17) and the cloud is clumped at the scale of the last Liu–West jitter; there ISJ can drop h by 3× (h/σ̂ 0.22 → 0.085 at step 16) and J jumps with it (5.5e-13 → 2.4e-12 → 3.6e-12, then 1.0e-12 once resampled). That spike is **bandwidth-limited, not structure**: J at 2h on the same snapshots (8e-13, 1.0e-12) is at the resampled level, and J falls roughly as 1/h² there. A fixed-bandwidth and an adaptive KDE agree (they share h), as do 2^11 and 2^14 ISJ search bins, so neither tests this. Do not read a single step's `j` without its `h`; J_τ for a τ that lands in such a window is an upper end of the bracket. Unit tests with importance-weighted clouds (ESS 100–500) show J is not inflated by low ESS per se (Gaussian: 1.06× exact; mirror peaks: 0.8×).
+
+**`x` over-counts right after detection.** The measurement that resolves the side of the two mirror peaks is placed at the other peak, so it counts as "far" although it is the intended one. The localize-stage share is therefore an upper bound for waste on residual far mass.
+
+**Undefined steps.** A step has no posterior density when no measurement had updated its belief (a flat prior: a sweep's belief until its first flush) or when its cloud has no structure for the bandwidth rule (the posterior is still the flat prior after the first measurements; the ISJ equation has no root). Its `g`, `j`, `h` (and `m`, `x` of the next step, for an un-updated belief) are `None` and it is counted in `posterior_undefined_steps` (the second kind only among the steps a density is computed for). This happens early in a run: in a 2-repeat budget-length SBED write one repeat had 7 such steps of 80 stored, which aborted the repeat before this was recorded as missing. Any other failure raises. A run that never detects a dip (`dip_detected_step` null, e.g. a fixed-budget run with the stop rule off) has no τ fields but still has every per-step series; nothing here assumes the run ends by its stop rule (budget-length SBED runs, 2500 steps, were checked, including a real write of two repeats on two runners).
+
+**Real-data (MATLAB/lab) runs get none of these fields**: `nv matlab` calls the metrics with no `run_result` (its stage and milestone metrics need a true signal too), and the posterior series attach is a no-op there.
+
+**Cost.** A KDE costs about 25 ms (68 s for a 2500-step SBED run when computed at every step), so `j`, `g` and `h` are computed only at the steps the stored series keeps (at most 80, the same indices as `s`) and at τ; `z`, `m` and `x` need no density (a weighted histogram with bins of a quarter FWHM gives the mode) and cover every step. Each distinct belief is summarised once (sweeps share a belief copy across buffered steps). Measured with three runs sharing the machine, startup included: Bayesian-SBED 190 steps 3.6 s of 34 s wall (~10 %), Bayesian-SBED at SNR(1) 2500 steps 3.0 s of 49 s, SimpleSweep 1768 steps (239 distinct beliefs) 2.8 s of 33 s.
+
 ## Rules
 
-1. **Never use the accuracy at the end of a run or stage as a quality metric.** Every run stops once its claimed uncertainty σ̂
-   stays below the target τ, so the error it happens to end with mostly reflects τ. What matters is that the claimed
+1. **Never use the accuracy at the end of a run or stage as a quality metric.** Every run measures the same budget, so the error it ends with mostly reflects the budget, not the strategy. What matters is that the claimed
    σ is right: report the share of runs with |error| ≤ 1σ and ≤ 2σ against the Gaussian 68% / 95%, or |error| /
    claimed uncertainty σ̂. Below nominal = overconfident (the belief is known to be; see the locator memory notes).
 2. **Every locator gets the same budget.** `NVISION_MAX_MEASUREMENTS` (default 2500, for every signal and every window
-   of the SNR x window study) is the SBED family's `max_steps` and caps a plain sweep's total measurements. A run that hit it is censored: the stop rule never fired
-   (`primary_converged_step` is null; a sweep still ends as a normal locator stop). Count it at the budget, as a lower
-   bound, and show the capped share.
+   of the SNR x window study) is the SBED family's `max_steps` and caps a plain sweep's total measurements. Every run measures all of it: the convergence rule
+   is recorded (`primary_converged_step`) but never stops a run. A run whose rule never fired (`primary_converged_step` is
+   null) is capped: count it at the budget, as a lower bound, and show the capped share.
 3. **Show the raw metrics before ranking anything.** No arbitrary reference locator (e.g. "divided by k = 3"), no
    "cheapest k" summaries, until the plain per-locator metrics have been looked at.
 4. **Use physical axes.** SNR = C / noise σ with C = contrast_total / 2 (∞ without noise) and the effective FWHM, per the stage table
@@ -242,7 +406,9 @@ J₀ came from the prior carry the claimed-σ value and cannot be rescaled: re-r
 ## Where it lives
 
 * Per-run metrics: `nvision/metrics/stages.py` (stage boundaries, η), `nvision/metrics/milestones.py` (stop step),
-  `nvision/metrics/series.py` (per-step series), `nvision/metrics/compare.py` (`nv compare` tables).
+  `nvision/metrics/series.py` (per-step series), `nvision/metrics/posterior.py` (J_τ, z, negentropy, far mass),
+  `nvision/metrics/compare.py` (`nv compare` tables),
+  `nvision/metrics/refine_rates.py` / `refine_rates_runs.py` (refine rates and the speedup, `/api/refine-rates`).
 * Results UI views: **Information** (the former Stages tab; scope selector Whole run / Search; **Whole run** also carries
   **Cost & search**: every locator side by side, chips to show/hide, a median-over-selection block and a block per use
   case, and cost and search vs SNR across use cases, `/api/run-rows`; the Whole run charts are the information-vs-bound
@@ -268,6 +434,6 @@ J₀ came from the prior carry the claimed-σ value and cannot be rescaled: re-r
 * The search→localize factor `FOCUS_SIGMA_DROP` = 0.7 is arbitrary (0.9 fires before the data have localised anything; 0.25 fires later than the true error reaches ε, at
   step 37 / 200); the stage boundaries also depend on δ = 0.1; a one-off sensitivity check (δ = 0.05 / 0.1 /
   0.2) that the locator ranking survives is still to do.
-* The signed z = (estimate − truth) / claimed uncertainty σ̂ is not stored (only |error|), so σ honesty is checked against a
-  half-normal, not N(0, 1).
+* The signed z = (estimate − truth) / σ̂ is stored from the posterior-metrics runs on (series `z`, see above); earlier runs keep only
+  |error|, so σ honesty there is checked against a half-normal, not N(0, 1). No Sanity/Information panel reads `z` yet.
 * SBED-Drive against every fixed drive amplitude, including the best one in hindsight.

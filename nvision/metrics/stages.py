@@ -80,11 +80,12 @@ from __future__ import annotations
 
 import logging
 import math
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import Any, NamedTuple
 
 import numpy as np
 
+from nvision.metrics.localize import LOCK_TOLERANCE_HWHM, lock_step
 from nvision.metrics.milestones import resolve_primary_param
 from nvision.models.observer import RunResult
 from nvision.spectra.drive import DRIVE_AMP_MIN_UNIT, DriveSetting
@@ -140,6 +141,11 @@ STAGE_METRIC_KEYS: tuple[str, ...] = (
     "stage3_oracle_steps",
     "stage3_efficiency",
     "stage3_wasted_share",
+    # Localize phase (nvision/metrics/localize.py): eps = LOCK_TOLERANCE_HWHM x the true HWHM, and the first step from
+    # which the true error / the claimed sigma stays <= eps to the end of the run.
+    "lock_tolerance_phys",
+    "lock_step_true",
+    "lock_step_claimed",
 )
 
 
@@ -275,12 +281,54 @@ def _primary_sensitivity(run_result: RunResult, primary: str) -> _Sensitivity:
     step's physical drive frequency (Hz) and drive. The max is over a dense grid of the full drive-frequency
     range (and, for drive-controlled models, of drive amplitudes).
     """
-    true_signal = run_result.true_signal
-    spec = true_signal.model.spec
-    grad_sq = _grad_sq_fn(true_signal, primary, [float(v) for v in spec.pack_params(true_signal.typed_parameters)])
-
     snapshots = run_result.snapshots
     x_lo_phys, x_hi_phys = snapshots[0].belief.drive_freq_bounds_phys
+    xs_all = np.array(
+        [x_lo_phys + s.obs.drive_freq_unit * (x_hi_phys - x_lo_phys) for s in snapshots],
+        dtype=np.float64,
+    )
+    return primary_sensitivity_at(
+        run_result.true_signal, primary, x_lo_phys, x_hi_phys, xs_all, [s.obs.drive for s in snapshots]
+    )
+
+
+def primary_sensitivity_curve(
+    true_signal: Any, primary: str, x_lo_phys: float, x_hi_phys: float
+) -> tuple[np.ndarray, np.ndarray]:
+    """``(grid_phys, g2)``: squared sensitivity of a fixed-drive ``true_signal`` on an even grid of its drive window.
+
+    Both shape (``_EFFICIENCY_GRID_POINTS``,): drive frequency (Hz) and ``(d signal / d primary)^2`` in
+    (signal / Hz)^2, the curve whose maximum is ``I*``'s ``best`` and whose mean is what a uniform sweep takes.
+    Raises for a drive-controlled model (its sensitivity also depends on the drive setting).
+    """
+    if true_signal.model.controls_drive:
+        raise ValueError(
+            "primary_sensitivity_curve is for fixed-drive models; a drive-controlled one has no single curve."
+        )
+    grad_sq = _grad_sq_fn(
+        true_signal, primary, [float(v) for v in true_signal.model.spec.pack_params(true_signal.typed_parameters)]
+    )
+    grid_phys = np.linspace(x_lo_phys, x_hi_phys, _EFFICIENCY_GRID_POINTS)
+    return grid_phys, grad_sq(None, grid_phys)
+
+
+def primary_sensitivity_at(
+    true_signal: Any,
+    primary: str,
+    x_lo_phys: float,
+    x_hi_phys: float,
+    xs_phys: np.ndarray,
+    drives: Sequence[DriveSetting | None],
+) -> _Sensitivity:
+    """:class:`_Sensitivity` of ``true_signal`` for measurements at ``xs_phys`` (the array-in core of the above).
+
+    ``xs_phys``: shape (n_steps,), drive frequency (Hz) of each measurement; ``drives``: length n_steps, the drive
+    setting of each (all ``None`` unless the model is drive-controlled). ``[x_lo_phys, x_hi_phys]`` is the drive
+    range the best point is searched on. Also what :mod:`nvision.metrics.refine_rates` calls for cached runs,
+    which have no belief snapshots.
+    """
+    spec = true_signal.model.spec
+    grad_sq = _grad_sq_fn(true_signal, primary, [float(v) for v in spec.pack_params(true_signal.typed_parameters)])
     grid_phys = np.linspace(x_lo_phys, x_hi_phys, _EFFICIENCY_GRID_POINTS)
 
     best, best_g2 = 0.0, None
@@ -291,20 +339,17 @@ def _primary_sensitivity(run_result: RunResult, primary: str) -> _Sensitivity:
     if best_g2 is None or not best > 0.0:
         raise ValueError(f"The true signal does not depend on {primary!r} anywhere on the drive range.")
 
-    xs_all = np.array(
-        [x_lo_phys + s.obs.drive_freq_unit * (x_hi_phys - x_lo_phys) for s in snapshots],
-        dtype=np.float64,
-    )
-    first_drive = snapshots[0].obs.drive
-    if all(s.obs.drive == first_drive for s in snapshots):
+    xs_all = np.asarray(xs_phys, dtype=np.float64)
+    first_drive = drives[0]
+    if all(d == first_drive for d in drives):
         measured = grad_sq(first_drive, xs_all)
     else:
-        measured = np.empty(len(snapshots), dtype=np.float64)
+        measured = np.empty(len(drives), dtype=np.float64)
         from collections import defaultdict
 
         by_drive: dict[DriveSetting | None, list[int]] = defaultdict(list)
-        for i, s in enumerate(snapshots):
-            by_drive[s.obs.drive].append(i)
+        for i, d in enumerate(drives):
+            by_drive[d].append(i)
         for d, idxs in by_drive.items():
             idx_arr = np.array(idxs, dtype=np.intp)
             measured[idx_arr] = grad_sq(d, xs_all[idx_arr])
@@ -483,7 +528,23 @@ def compute_stage_metrics(run_result: RunResult) -> dict[str, Any]:
             if k > 1:
                 out[f"stage{k}_wasted_share"] = float(np.mean(eta[first : final + 1] < 1.0 - REFINE_INFO_LOSS))
     _add_oracle_metrics(run_result, primary, sens, shots, np.asarray(err_trace), out)
+    _add_lock_metrics(run_result, np.asarray(err_trace), np.asarray(unc_trace), out)
     return out
+
+
+def _add_lock_metrics(run_result: RunResult, err_trace: np.ndarray, unc_trace: np.ndarray, out: dict[str, Any]) -> None:
+    """Lock steps of the localize phase (see ``nvision/metrics/localize.py``).
+
+    ``err_trace`` / ``unc_trace``: shape (n_steps,), the true error and the claimed sigma (Hz) of the primary parameter
+    after each measurement. Left ``None`` for drive-controlled models, whose line width depends on the drive.
+    """
+    fwhm_true = _true_fwhm_phys(run_result.true_signal)
+    if fwhm_true is None:
+        return
+    eps = LOCK_TOLERANCE_HWHM * fwhm_true / 2.0
+    out["lock_tolerance_phys"] = eps
+    out["lock_step_true"] = lock_step(err_trace, eps)
+    out["lock_step_claimed"] = lock_step(unc_trace, eps)
 
 
 def prior_variance_phys(

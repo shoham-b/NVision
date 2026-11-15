@@ -7499,6 +7499,30 @@ function main() {
         const costControls = document.getElementById('ss-controls');
         if (costView) costView.style.display = whole ? 'block' : 'none';
         if (costControls) costControls.style.display = whole ? 'block' : 'none';
+        // Search bounds (static/search-bounds-view.js) belong to the Search scope.
+        const boundsView = document.getElementById('search-bounds-view');
+        if (boundsView) boundsView.style.display = hlStageShown === 1 ? 'block' : 'none';
+        if (hlStageShown === 1) hlRenderSearchBounds();
+    }
+
+    // The selection the Information tab last rendered, for the Search bounds panel group.
+    let hlSelection = null;
+    function hlRenderSearchBounds() {
+        const body = document.getElementById('search-bounds-body');
+        if (!body || !hlSelection || !window.renderSearchBounds) return;
+        const cases = ucList(hlSelection.gen, hlSelection.noises);
+        const key = JSON.stringify(cases.map((c) => [c.generator, c.noise]));
+        if (body.dataset.key === key) return;   // already drawn for this selection
+        body.dataset.key = key;
+        if (cases.length > window.SB_MAX_USE_CASES) {
+            body.innerHTML = `<p style="color:#92400e; background:#fffbeb; border:1px solid #fde68a; border-radius:6px; padding:0.6em 1em;">${cases.length} use cases selected; the search bounds are computed per use case from the cache and are shown for at most ${window.SB_MAX_USE_CASES}. Narrow the selection.</p>`;
+            return;
+        }
+        const strategies = [...new Set(scanPlots.filter((p) => p.strategy).map((p) => p.strategy))];
+        window.renderSearchBounds(
+            body, [...new Set(cases.map((c) => c.generator))], [...new Set(cases.map((c) => c.noise))],
+            (name) => hlStratColor(strategies, name),
+        );
     }
 
     function hlBindStageSelector() {
@@ -7516,6 +7540,9 @@ function main() {
 
     function renderStagesTab(gen, noises) {
         if (toGenSet(gen).size === 0) return;
+        hlSelection = { gen, noises };
+        const boundsBody = document.getElementById('search-bounds-body');
+        if (boundsBody) delete boundsBody.dataset.key;   // the selection may have changed: redraw when shown
         ensureScanFieldsFor(gen, noises)
             .then(() => ensurePlotly())
             .then(() => {
@@ -7523,6 +7550,7 @@ function main() {
                 hlBindStageSelector();
                 hlApplyStageSelector();
                 if (hlStageShown === 0) renderStepSizeTab();   // Cost & search under Whole run
+                if (window.NVRefineRates) window.NVRefineRates.render(document.getElementById('refine-speedup-view'), gen, noises);
             })
             .catch(err => {
                 const view = document.getElementById('stages-view');

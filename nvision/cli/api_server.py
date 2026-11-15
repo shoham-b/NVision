@@ -23,7 +23,10 @@ from fastapi.staticfiles import StaticFiles
 from nvision.cache import CacheBridge
 from nvision.cache.hashing import stable_config_hash
 from nvision.cache.locator_keys import MIN_VIEWABLE_CACHE_SCHEMA_VERSION, combination_base_cache_config
+from nvision.cli.refine_rates_api import add_refine_rates_route
+from nvision.cli.search_bounds_api import add_search_bounds_route
 from nvision.gui.report import _STATIC_DIR, render_index_html
+from nvision.metrics.posterior import POSTERIOR_METRIC_KEYS
 from nvision.runner.cache import _decompress_text
 from nvision.sim.combinations import PLAIN_SWEEP_STRATEGIES, CombinationGrid
 from nvision.sim.defaults import PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS
@@ -43,6 +46,8 @@ _STATIC_ASSET_NAMES = (
     "reload.js",
     "styles.css",
     "lab-view.js",
+    "search-bounds-view.js",
+    "refine-rates.js",
 )
 
 log = logging.getLogger("nvision.api_server")
@@ -220,6 +225,12 @@ _COMPARE_FIELDS = (
     "stage3_oracle_steps",
     "stage3_efficiency",
     "stage3_wasted_share",
+    "lock_tolerance_phys",
+    "lock_step_true",
+    "lock_step_claimed",
+    # Run-time posterior metrics of the primary parameter (nvision/metrics/posterior.py); per-step values are in the
+    # scan entry's ``series`` (``z``, ``g``, ``m``, ``j``, ``x``).
+    *POSTERIOR_METRIC_KEYS,
 )
 
 
@@ -421,10 +432,13 @@ def build_app(cache_dir: Path, run_dir: Path, lab_dirs: list[Path] | None = None
     cache: dict[str, Any] = {
         "manifest": None,
         "combos": None,
+        "all_combos": None,
         "generator_grid_info": None,
         # (combo_key, repeats) -> _load_combo result; keyed on the repeat count so a growing
         # combo is re-read, cleared on /api/reload so edited repeats are picked up too.
         "combo_memo": {},
+        # (generator, noise, repeat stamp) -> /api/refine-rates use-case summary; cleared on /api/reload.
+        "refine_memo": {},
     }
     # RLock, not Lock: _get_manifest holds `lock` while calling
     # _build_manifest, which calls _get_combos -- itself a `with lock:` block.
@@ -444,11 +458,13 @@ def build_app(cache_dir: Path, run_dir: Path, lab_dirs: list[Path] | None = None
             if cache["combos"] is None:
                 bridge = _bridge()
                 try:
-                    cache["combos"] = _dedupe_latest_combos(
+                    everything = _dedupe_latest_combos(
                         _drop_unviewable_combos(bridge.list_combinations_with_updated_at())
                     )
                 finally:
                     bridge.close()
+                cache["all_combos"] = everything
+                cache["combos"] = everything
             return cache["combos"]
 
     def _get_generator_grid_info() -> dict[str, dict]:
@@ -629,6 +645,7 @@ def build_app(cache_dir: Path, run_dir: Path, lab_dirs: list[Path] | None = None
         return list(PLAIN_SWEEP_STRATEGIES)
 
     _add_lab_study_route(app, lab_dirs or [], run_dir)
+    add_refine_rates_route(app, get_combos=_get_combos, cache=cache, make_bridge=_bridge, combo_key=_combo_key)
 
     @app.get("/api/run-rows")
     def run_rows(strategies: str) -> list[dict]:
@@ -648,6 +665,8 @@ def build_app(cache_dir: Path, run_dir: Path, lab_dirs: list[Path] | None = None
                 return [row for _entries, rows in loaded for row in rows]
         finally:
             bridge.close()
+
+    add_search_bounds_route(app, _get_combos, _bridge, _combo_key)
 
     @app.get("/api/scan-fields")
     def scan_fields(generator: str, noise: str) -> list[dict]:
@@ -687,6 +706,7 @@ def build_app(cache_dir: Path, run_dir: Path, lab_dirs: list[Path] | None = None
             cache["combos"] = None
             cache["generator_grid_info"] = None
             cache["combo_memo"] = {}
+            cache["refine_memo"].clear()
 
     # The lab data sync (`nv matlab`, no source) runs as a subprocess; when it exits, new MATLAB runs are in the cache.
     from nvision.tools.lab_sources import BackgroundSync

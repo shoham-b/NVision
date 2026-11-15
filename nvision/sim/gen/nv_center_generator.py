@@ -177,13 +177,23 @@ class NVCenterCoreGenerator:
             )
         return max(MIN_ZEEMAN_SHIFT, pad)
 
-    def generate(self, rng: random.Random):
+    def generate(self, rng: random.Random, *, repeat_idx: int | None = None, n_repeats: int | None = None):
         """Generate NV center ODMR signal.
+
+        The true ``zeeman_shift`` is *stratified* across repeats: repeat ``i`` of ``N`` draws it uniformly
+        within the ``i``-th of ``N`` equal-width slices of ``[zeeman_min_phys, zeeman_max_phys]``,
+        ``lo + (i + u) * (hi - lo) / N`` with ``u ~ U(0, 1)`` from ``rng`` (one ``rng.random()`` call, the same
+        consumption as the former ``rng.uniform``, so all other drawn parameters are unchanged). The mean over the
+        N repeats is still an unbiased estimate of the uniform average over the window, with far less scatter.
 
         Parameters
         ----------
         rng : random.Random
             Random number generator
+        repeat_idx : int
+            Global index ``i`` of this repeat, in ``[0, n_repeats)``. Required when ``with_zeeman_splitting``.
+        n_repeats : int
+            Total number ``N`` of repeats of the study (not a chunk size). Required when ``with_zeeman_splitting``.
 
         Returns
         -------
@@ -200,7 +210,14 @@ class NVCenterCoreGenerator:
         # structure is unresolved, which collapses the multiplet to one dip.
         hyperfine_shift = hyperfine_geometry(self.hyperfine)[0]
         if self.with_zeeman_splitting:
-            zeeman_shift = rng.uniform(self.zeeman_min_phys, zeeman_max)
+            if repeat_idx is None or n_repeats is None:
+                raise ValueError(
+                    "generate() needs repeat_idx and n_repeats: zeeman_shift is stratified across repeats."
+                )
+            if n_repeats < 1 or not 0 <= repeat_idx < n_repeats:
+                raise ValueError(f"repeat_idx={repeat_idx} must lie in [0, n_repeats={n_repeats}).")
+            zeeman_lo = self.zeeman_min_phys
+            zeeman_shift = zeeman_lo + (repeat_idx + rng.random()) * (zeeman_max - zeeman_lo) / n_repeats
         if self.infer_hyperfine:
             hyperfine_shift = rng.uniform(MIN_HYPERFINE_SHIFT, MAX_HYPERFINE_SHIFT)
 

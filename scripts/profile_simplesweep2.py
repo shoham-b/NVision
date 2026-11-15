@@ -19,7 +19,7 @@ from nvision.sim.locs.coarse.sweep_locator import SweepingLocator
 def make_experiment(seed: int) -> CoreExperiment:
     rng = random.Random(seed)
     gen = NVCenterCoreGenerator(drive_freq_min_phys=2.6e9, drive_freq_max_phys=3.1e9, variant="lorentzian")
-    true_signal = gen.generate(rng)
+    true_signal = gen.generate(rng, repeat_idx=0, n_repeats=1)
     drive_freq_min_phys, drive_freq_max_phys = None, None
     for name in true_signal.parameter_names:
         if "zero_field_freq" in name:

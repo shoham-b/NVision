@@ -320,7 +320,7 @@ def recalc_metrics(
                 continue
 
             rng = random.Random(seed)
-            true_signal = combo.generator.generate(rng)
+            true_signal = combo.generator.generate(rng, repeat_idx=0, n_repeats=actual_repeats)
             experiment = CoreExperiment(
                 true_signal=true_signal,
                 noise=combo.noise,

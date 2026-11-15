@@ -20,7 +20,7 @@ The orchestration pipeline resolves these combinations into atomic `LocatorTask`
 ### 2. Bayesian Belief & SMC (`nvision/belief/`)
 
 Every strategy runs the same loop: choose a drive frequency $d_n$, take one measurement $y_n$ (the mean of $k$ shots),
-update the posterior, and stop when the stop rule fires. The strategies differ only in the first step; the posterior
+update the posterior, until the shared budget is used up. The strategies differ only in the first step; the posterior
 and its update are shared (article `methods.tex` §Bayesian inference, numbers in `sm_algorithm.tex`).
 
 - **Posterior.** A weighted particle cloud (`smc_marginal.py`, $N_p = 1000$) over the parameter of interest
@@ -49,10 +49,10 @@ A critical design feature of the inference engine is the strict separation betwe
 ### 4. Locators: sweep family and Bayesian SBED
 
 All strategies infer with the same particle filter, so the comparison isolates the choice of measurements from
-the inference, and $\hat\sigma_N$ means the same for all of them. All run under the **same stop rule and the same budget**
+the inference, and $\hat\sigma_N$ means the same for all of them. All run under the **same budget and the same convergence rule**
 (`methods.tex` §Measurement strategies; `sm_algorithm.tex`):
 
-- **Stop rule.** The claimed uncertainty of every parameter stays below its ceiling for 8 consecutive measurements
+- **Convergence rule (recorded, never stops a run).** The claimed uncertainty of every parameter stays below its ceiling for 8 consecutive measurements
   (`NVISION_CONVERGENCE_PATIENCE`) *and* the dip test finds a dip. Ceilings: 100 kHz for $\theta$, 500 kHz for each width
   (`NVISION_WIDTH_CONVERGENCE_THRESHOLD`), 0.01 for the contrast. The dip test is re-run at most every 10
   measurements (`NVISION_DIP_SCAN_EVERY`).
