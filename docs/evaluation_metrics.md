@@ -208,6 +208,44 @@ J₀ came from the prior carry the claimed-σ value and cannot be rescaled: re-r
 * **Search stays** as the one real stage (detecting the dip is not a Fisher regime). The stage columns in `stages.py`
   and the Scaling view are untouched.
 
+## Search against the bounds (Information tab, Search scope)
+
+During the search no strategy, adaptive or not, beats the search bounds of the article (Sec. global and the SM prior
+section). The Search scope draws them next to the measured search, per use case (rule 7) and for the search locators only
+(`Bayesian-SBED`, `SimpleSweep` 2/3/4 per FWHM; never the Smart-* variants). Everything is computed by
+`nvision/metrics/search_bounds.py` (formulas, unit tests in `tests/test_search_bounds.py`) from data already in the cache
+through `GET /api/search-bounds` (`nvision/cli/search_bounds_api.py`), so `nv serve` on an existing cache is enough and no
+re-run is needed. The panels are drawn by `static/search-bounds-view.js`.
+
+* **W is the width the generator draws `zeeman_shift` from** (`zeeman_min_phys` .. `zeeman_max_phys`, read from the run's
+  `true_params.bounds` and checked against the generator), not the drive window and not a van Trees prior. The bounds average over
+  the dip uniform in this range, so `theta` varying per repeat is correct. A use case whose line shape differs between
+  repeats, whose primary parameter is not `zeeman_shift`, or whose W is not wider than 2t is reported as "not judged" with the reason.
+* **kappa_bar** = k ∫dip² dx / (2σ²W), the mean KL rate per measurement. The integral is taken on the true line (rebuilt from the
+  generator, averaged over 33 values of `zeeman_shift` across the drawn range, on the drive window), so it holds for Voigt and
+  hyperfine multiplets; the Lorentzian closed form πγk·SNR²/(4W) is shown for reference. k = 1 (the simulator never sets
+  `n_shots`) and is cross-checked per run against the stored `stage_fisher_star` (k = I*σ²/max g² must be 1 within 5 %).
+  SNR = line contrast / σ with the line contrast of `sim.presets.line_contrast`; the run's own SNR label can be another convention
+  in older rows (`snr_label`, reported, not used).
+* **Bound curves vs n**: finite reach `(W − nΔd)³/(12W)` (eq. search-mean), change of measure
+  `W²/(8e)·e^{−nκ̄}/(1+ln2+nκ̄)²` (eq. search-bound) and the elimination model eq. mean-curve (`I_max` = the stored
+  `stage_fisher_star`). Δd comes from eq. sm-reach (a fixed point, z = √(2 ln(W/Δd)) + `Z_BETA`); with no single-measurement
+  reach (√k·SNR ≤ z) there is no Δd and the finite-reach and model curves are omitted, with Δd = W when one measurement covers the window.
+  Where √k·SNR/z ≤ 4/3 the best probe averages and Δd = Γ/√3 (eq. sm-fixed-cost). Curves are drawn in units of the prior variance W²/12.
+* **Mean squared true error vs n**: the mean over all runs of (true |estimate − truth|)²; a stopped run keeps its final error, a step
+  is drawn only while at least half of the runs still run. The stored series is downsampled (80 points), so a run's error at n is
+  that of its last kept step ≤ n.
+* **Survival and κ_eff**: S(n) = share of runs with |error| > t, t = `SURVIVAL_TOLERANCE_HWHM` (one HWHM). κ_eff = −d ln S/dn by
+  least squares over the grid points with 0.05 ≤ S ≤ 0.9. The bound is S ≥ exp(−(nκ̄+ln2)/(1−2t/W)) (drawn), so κ_eff/κ̄ may exceed 1
+  without violating it: it is compared with 1/(1−2t/W). The predicted sweep value 1/(2.4 ln(W/Δd)) is shown for the sweeps.
+* **Detection**: `dip_detected_step` (median, p75, share that never detected, counted at the budget so these are lower bounds) in
+  units of 1/κ̄ and of W/Δd (at high SNR, 1/κ̄ < W/Δd, compare with W/(2Δd)).
+
+Reading it on the current cache (2026-11-15): the SNR × window study's drawn W is only 1.5–4.4 Γ, so the search is a few
+probe cells and the bounds are far below the measured search (κ_eff/κ̄ ≈ 0.01–0.09 for all four locators, none near 1/(1−2t/W));
+a real test of the search claim needs the larger windows. Rows of `SimpleSweep-3perFWHM` carry a stored J₀ that is not 4π²/W²
+(older prior), flagged in the panel; nothing here reads it.
+
 ## Rules
 
 1. **Never use the accuracy at the end of a run or stage as a quality metric.** Every run stops once its claimed uncertainty σ̂
