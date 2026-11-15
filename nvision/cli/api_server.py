@@ -23,6 +23,7 @@ from fastapi.staticfiles import StaticFiles
 from nvision.cache import CacheBridge
 from nvision.cache.hashing import stable_config_hash
 from nvision.cache.locator_keys import MIN_VIEWABLE_CACHE_SCHEMA_VERSION, combination_base_cache_config
+from nvision.cli.search_bounds_api import add_search_bounds_route
 from nvision.gui.report import _STATIC_DIR, render_index_html
 from nvision.runner.cache import _decompress_text
 from nvision.sim.combinations import SWEEP_SPACING_DIVISORS, CombinationGrid
@@ -44,6 +45,7 @@ _STATIC_ASSET_NAMES = (
     "reload.js",
     "styles.css",
     "lab-view.js",
+    "search-bounds-view.js",
 )
 
 log = logging.getLogger("nvision.api_server")
@@ -648,6 +650,8 @@ def build_app(cache_dir: Path, run_dir: Path, lab_dirs: list[Path] | None = None
                 return [row for _entries, rows in loaded for row in rows]
         finally:
             bridge.close()
+
+    add_search_bounds_route(app, _get_combos, _bridge, _combo_key)
 
     @app.get("/api/scan-fields")
     def scan_fields(generator: str, noise: str) -> list[dict]:
