@@ -1082,14 +1082,14 @@ class _TaskRunner:
         )
         return random.Random(repeat_seed_int(key))
 
-    def _build_signal_experiment(self, rng: random.Random) -> CoreExperiment:
+    def _build_signal_experiment(self, rng: random.Random, repeat_idx: int, n_repeats: int) -> CoreExperiment:
         """Build the noise-independent ground-truth experiment (no noise model on ``true_signal``).
 
         This is what the shared signal cache stores: one signal per (seed, generator, repeat),
         reused by every noise level and strategy. The Bayesian noise model depends on the task's
         noise level, so it must be attached per task afterwards via :meth:`_attach_task_noise`.
         """
-        true_signal = self.task.generator.generate(rng)
+        true_signal = self.task.generator.generate(rng, repeat_idx=repeat_idx, n_repeats=n_repeats)
         drive_freq_min_phys, drive_freq_max_phys = self._domain_from_signal_params(true_signal)
         if drive_freq_min_phys is None or drive_freq_max_phys is None:
             drive_freq_min_phys, drive_freq_max_phys = self._domain_from_generator(self.task.generator)
@@ -1126,12 +1126,22 @@ class _TaskRunner:
             drive_freq_max_phys=experiment.drive_freq_max_phys,
         )
 
-    def _build_experiment(self, rng: random.Random) -> CoreExperiment:
-        return self._attach_task_noise(self._build_signal_experiment(rng))
+    def _build_experiment(self, rng: random.Random, repeat_idx: int = 0) -> CoreExperiment:
+        return self._attach_task_noise(self._build_signal_experiment(rng, repeat_idx, self._total_repeats()))
+
+    def _total_repeats(self) -> int:
+        """Global repeat count N of the study (not this sub-task's chunk size); the Zeeman strata count."""
+        return self.task.repeat_total or self.repeats
 
     def _shared_experiment_for_repeat(self, rid: int) -> CoreExperiment:
         """Shared (cached) noise-free signal for repeat ``rid`` with this task's noise attached."""
-        shared = get_shared_core_experiment(self.task, rid, self._build_signal_experiment)
+        n_total = self._total_repeats()
+        shared = get_shared_core_experiment(
+            self.task,
+            rid,
+            lambda rng: self._build_signal_experiment(rng, rid, n_total),
+            n_repeats=n_total,
+        )
         return self._attach_task_noise(shared)
 
     @staticmethod

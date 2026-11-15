@@ -13,7 +13,7 @@ def test_nv_center_lorentzian_default_has_zeeman_parameters():
     -- see NVCenterCoreGenerator's docstring -- so it's not in parameter_names)."""
     rng = random.Random(11)
     gen = NVCenterCoreGenerator(drive_freq_min_phys=2.6e9, drive_freq_max_phys=3.1e9, variant="lorentzian")
-    sig = gen.generate(rng)
+    sig = gen.generate(rng, repeat_idx=0, n_repeats=1)
     assert isinstance(sig, TrueSignal)
     names = set(sig.parameter_names)
     assert names == {"hwhm", "zeeman_shift", "contrast_total"}
@@ -26,7 +26,7 @@ def test_nv_center_lorentzian_no_zeeman_has_three_parameters():
     gen = NVCenterCoreGenerator(
         drive_freq_min_phys=2.6e9, drive_freq_max_phys=3.1e9, variant="lorentzian", with_zeeman_splitting=False
     )
-    sig = gen.generate(rng)
+    sig = gen.generate(rng, repeat_idx=0, n_repeats=1)
     assert isinstance(sig, TrueSignal)
     names = set(sig.parameter_names)
     assert names == {"hwhm", "contrast_total"}
@@ -44,7 +44,7 @@ def test_nv_center_lorentzian_with_hyperfine_only_has_five_parameters():
         infer_hyperfine=True,
         with_zeeman_splitting=False,
     )
-    sig = gen.generate(rng)
+    sig = gen.generate(rng, repeat_idx=0, n_repeats=1)
     assert isinstance(sig, TrueSignal)
     names = set(sig.parameter_names)
     assert names == {"hwhm", "hyperfine_shift", "k_np", "contrast_total"}
@@ -62,7 +62,7 @@ def test_nv_center_lorentzian_with_zeeman_and_hyperfine_has_six_parameters():
         infer_hyperfine=True,
         with_zeeman_splitting=True,
     )
-    sig = gen.generate(rng)
+    sig = gen.generate(rng, repeat_idx=0, n_repeats=1)
     assert isinstance(sig, TrueSignal)
     names = set(sig.parameter_names)
     assert names == {"hwhm", "zeeman_shift", "hyperfine_shift", "k_np", "contrast_total"}
@@ -74,7 +74,7 @@ def test_nv_center_lorentzian_fixed_hwhm_and_contrast():
     gen = NVCenterCoreGenerator(
         drive_freq_min_phys=2.6e9, drive_freq_max_phys=3.1e9, variant="lorentzian", hwhm=1e6, contrast_total=0.1
     )
-    sig = gen.generate(rng)
+    sig = gen.generate(rng, repeat_idx=0, n_repeats=1)
     assert sig.get_param_value("hwhm") == 1e6
     assert sig.get_param_value("contrast_total") == 0.1
 
@@ -82,8 +82,8 @@ def test_nv_center_lorentzian_fixed_hwhm_and_contrast():
 def test_nv_center_lorentzian_unset_hwhm_and_contrast_still_randomized():
     """None (default) keeps the historical randomized behavior."""
     gen = NVCenterCoreGenerator(drive_freq_min_phys=2.6e9, drive_freq_max_phys=3.1e9, variant="lorentzian")
-    sig_a = gen.generate(random.Random(1))
-    sig_b = gen.generate(random.Random(2))
+    sig_a = gen.generate(random.Random(1), repeat_idx=0, n_repeats=1)
+    sig_b = gen.generate(random.Random(2), repeat_idx=0, n_repeats=1)
     assert sig_a.get_param_value("hwhm") != sig_b.get_param_value("hwhm")
     assert sig_a.get_param_value("contrast_total") != sig_b.get_param_value("contrast_total")
 
@@ -97,7 +97,7 @@ def test_nv_center_saturation_voigt_default_has_zeeman_parameters():
     """
     rng = random.Random(11)
     gen = NVCenterCoreGenerator(drive_freq_min_phys=2.6e9, drive_freq_max_phys=3.1e9, variant="saturation_voigt")
-    sig = gen.generate(rng)
+    sig = gen.generate(rng, repeat_idx=0, n_repeats=1)
     assert isinstance(sig, TrueSignal)
     names = set(sig.parameter_names)
     assert names == {"saturation", "sigma_inhom", "zeeman_shift"}
@@ -112,15 +112,15 @@ def test_nv_center_saturation_voigt_fixed_values_used_verbatim():
         saturation=10.0,
         sigma_inhom=5e5,
     )
-    sig = gen.generate(rng)
+    sig = gen.generate(rng, repeat_idx=0, n_repeats=1)
     assert sig.get_param_value("saturation") == 10.0
     assert sig.get_param_value("sigma_inhom") == 5e5
 
 
 def test_nv_center_saturation_voigt_unset_values_still_randomized():
     gen = NVCenterCoreGenerator(drive_freq_min_phys=2.6e9, drive_freq_max_phys=3.1e9, variant="saturation_voigt")
-    sig_a = gen.generate(random.Random(1))
-    sig_b = gen.generate(random.Random(2))
+    sig_a = gen.generate(random.Random(1), repeat_idx=0, n_repeats=1)
+    sig_b = gen.generate(random.Random(2), repeat_idx=0, n_repeats=1)
     assert sig_a.get_param_value("saturation") != sig_b.get_param_value("saturation")
     assert sig_a.get_param_value("sigma_inhom") != sig_b.get_param_value("sigma_inhom")
 
@@ -159,7 +159,7 @@ def test_dip_cluster_stays_within_domain_for_all_variants():
             drive_freq_min_phys=drive_freq_min_phys, drive_freq_max_phys=drive_freq_max_phys, variant=variant, **kwargs
         )
         for seed in range(100):
-            sig = gen.generate(random.Random(seed))
+            sig = gen.generate(random.Random(seed), repeat_idx=0, n_repeats=1)
             # zero_field_freq is fixed (not inferred) by generator design, so it's absent
             # from parameter_values() -- fetch it via get_param_value's fixed-value
             # fallback instead, and merge it into the params dict _dip_cluster_extent expects.
@@ -174,8 +174,8 @@ def test_nv_center_voigt_has_different_params_than_lorentzian():
     rng_v = random.Random(22)
     gen_l = NVCenterCoreGenerator(drive_freq_min_phys=2.6e9, drive_freq_max_phys=3.1e9, variant="lorentzian")
     gen_v = NVCenterCoreGenerator(drive_freq_min_phys=2.6e9, drive_freq_max_phys=3.1e9, variant="voigt")
-    sig_l = gen_l.generate(rng_l)
-    sig_v = gen_v.generate(rng_v)
+    sig_l = gen_l.generate(rng_l, repeat_idx=0, n_repeats=1)
+    sig_v = gen_v.generate(rng_v, repeat_idx=0, n_repeats=1)
     assert isinstance(sig_v, TrueSignal)
     names_l = set(sig_l.parameter_names)
     names_v = set(sig_v.parameter_names)
@@ -192,8 +192,8 @@ def test_nv_center_voigt_fixed_contrast_flows_through():
     gen_b = NVCenterCoreGenerator(
         drive_freq_min_phys=2.6e9, drive_freq_max_phys=3.1e9, variant="voigt", contrast_total=0.8
     )
-    sig_a = gen_a.generate(random.Random(7))
-    sig_b = gen_b.generate(random.Random(7))
+    sig_a = gen_a.generate(random.Random(7), repeat_idx=0, n_repeats=1)
+    sig_b = gen_b.generate(random.Random(7), repeat_idx=0, n_repeats=1)
     assert sig_a.get_param_value("contrast_total") == 0.2
     assert sig_b.get_param_value("contrast_total") == 0.8
 
@@ -201,6 +201,6 @@ def test_nv_center_voigt_fixed_contrast_flows_through():
 def test_nv_center_voigt_unset_contrast_still_randomized():
     """None (default) keeps the historical randomized behavior."""
     gen = NVCenterCoreGenerator(drive_freq_min_phys=2.6e9, drive_freq_max_phys=3.1e9, variant="voigt")
-    sig_a = gen.generate(random.Random(1))
-    sig_b = gen.generate(random.Random(2))
+    sig_a = gen.generate(random.Random(1), repeat_idx=0, n_repeats=1)
+    sig_b = gen.generate(random.Random(2), repeat_idx=0, n_repeats=1)
     assert sig_a.get_param_value("contrast_total") != sig_b.get_param_value("contrast_total")

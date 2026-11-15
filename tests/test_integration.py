@@ -18,7 +18,7 @@ def _run_batch(generator, repeats: int = 2, max_steps: int = 30) -> pl.DataFrame
     rows = []
     for i in range(repeats):
         rng = random.Random(rng_seed + i)
-        true_signal = generator.generate(rng)
+        true_signal = generator.generate(rng, repeat_idx=0, n_repeats=1)
         # Find zero_field_freq parameter bounds for drive_freq_min_phys/drive_freq_max_phys
         drive_freq_min_phys, drive_freq_max_phys = true_signal.all_param_bounds()[true_signal.parameter_names[0]]
         for name in true_signal.parameter_names:

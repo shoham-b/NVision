@@ -1108,7 +1108,7 @@ def recalculate_metrics(
 
                 # Reconstruct experiment
                 rng = random.Random(seed)
-                true_signal = combo.generator.generate(rng)
+                true_signal = combo.generator.generate(rng, repeat_idx=0, n_repeats=int(cfg_copy.get("repeats") or 1))
                 drive_freq_min_phys, drive_freq_max_phys = (
                     DEFAULT_NV_DRIVE_FREQ_MIN_PHYS,
                     DEFAULT_NV_DRIVE_FREQ_MAX_PHYS,
