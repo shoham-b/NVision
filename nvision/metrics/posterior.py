@@ -67,10 +67,11 @@ POSTERIOR_METRIC_KEYS: tuple[str, ...] = (
     "posterior_far_placed_steps",
     "posterior_far_placed_share",
     "posterior_far_placed_share_stage2",
+    "posterior_J_tau_2h_phys",
     "posterior_undefined_steps",
 )
 # Per-step series keys (scan-entry ``series``), aligned with ``"s"``.
-POSTERIOR_SERIES_KEYS: tuple[str, ...] = ("z", "g", "m", "j", "x")
+POSTERIOR_SERIES_KEYS: tuple[str, ...] = ("z", "g", "m", "j", "h", "x")
 
 
 class NoBandwidthError(ValueError):
@@ -169,7 +170,9 @@ def isj_bandwidth(x: np.ndarray, w: np.ndarray, lo: float, hi: float) -> float:
     return math.sqrt(t) * r
 
 
-def posterior_density(x_phys: np.ndarray, weights: np.ndarray, lo_phys: float, hi_phys: float) -> PosteriorDensity:
+def posterior_density(
+    x_phys: np.ndarray, weights: np.ndarray, lo_phys: float, hi_phys: float, bandwidth_scale: float = 1.0
+) -> PosteriorDensity:
     """Weighted Gaussian KDE of a particle posterior with reflection at ``[lo_phys, hi_phys]``.
 
     ``x_phys``, ``weights``: shape (n_particles,), particle positions (Hz) inside the bounds and their weights (any
@@ -190,7 +193,7 @@ def posterior_density(x_phys: np.ndarray, weights: np.ndarray, lo_phys: float, h
 
     x_min, x_max = float(x.min()), float(x.max())
     pad = 0.05 * (x_max - x_min)
-    h = isj_bandwidth(x, w, max(lo_phys, x_min - pad), min(hi_phys, x_max + pad))
+    h = bandwidth_scale * isj_bandwidth(x, w, max(lo_phys, x_min - pad), min(hi_phys, x_max + pad))
 
     # Pilot: fixed bandwidth h (resolves the narrow structure). Final: sample-point adaptive (Abramson), where each
     # particle's bandwidth is h * (pilot(x_i) / g)^(-1/2), g the weighted geometric mean of the pilot. A single global
@@ -251,53 +254,84 @@ def _to_physical_particles(belief: Any, primary: str) -> tuple[np.ndarray, np.nd
     return particles_fn()[primary], weights_fn(), belief.physical_param_bounds[primary]
 
 
-class _StepPosterior:
-    """One snapshot's posterior summary of the primary parameter (scalars only; the density is not kept).
+def _coarse_mode(x: np.ndarray, w: np.ndarray, bin_width: float) -> float:
+    """Mode (Hz) of the weighted histogram of ``x`` with bins of ``bin_width`` Hz (shape: (n_particles,))."""
+    n_bins = max(1, math.ceil((float(x.max()) - float(x.min())) / bin_width))
+    hist, edges = np.histogram(x, bins=n_bins, weights=w)
+    i = int(np.argmax(hist))
+    return 0.5 * float(edges[i] + edges[i + 1])
 
-    ``defined`` is False when the density has no bandwidth (:class:`NoBandwidthError`: a flat prior that no
-    measurement has updated yet, as a sweep's belief is until its first flush); every density-based field is then
-    ``None`` and the step is counted in ``posterior_undefined_steps``. Any other failure still raises.
+
+class _StepPosterior:
+    """One distinct belief's summary of the primary parameter; the density fields are computed on demand.
+
+    ``informed`` is False for a belief no measurement has updated yet (a flat prior, as a sweep's belief is until its
+    first flush): it has no posterior, so every field is ``None`` and the step is counted in
+    ``posterior_undefined_steps``. ``mode_phys`` and ``far_mass`` are cheap (a weighted histogram with bins of a quarter
+    FWHM, so the mode is within FWHM/8 of the KDE's, far inside the 3 FWHM threshold) and exist for every informed
+    step. The KDE fields (``fisher``, ``negentropy``, ``bandwidth_phys``) cost ~25 ms and only exist after
+    :meth:`ensure_density`.
     """
 
     def __init__(self, belief: Any, primary: str, fwhm_phys: float | None) -> None:
         got = _to_physical_particles(belief, primary)
         if got is None:
             raise ValueError("Belief has no particle cloud.")
-        x, w, (lo, hi) = got
-        w = w / w.sum()
-        self.defined = True
-        try:
-            density = posterior_density(x, w, lo, hi)
-        except NoBandwidthError:
-            self.defined = False
-            self.mode_phys = self.bandwidth_phys = self.fisher = self.negentropy = self.far_mass = None
+        self._x, w, self._bounds = got
+        self._w = w / w.sum()
+        self.informed = belief.num_observations > 0
+        self.mode_phys = self.far_mass = self.fisher = self.negentropy = self.bandwidth_phys = None
+        self._has_density = False
+        if self.informed and fwhm_phys is not None:
+            self.mode_phys = _coarse_mode(self._x, self._w, fwhm_phys / 4.0)
+            self.far_mass = float(np.sum(self._w[np.abs(self._x - self.mode_phys) > FAR_FWHM * fwhm_phys]))
+
+    def ensure_density(self) -> None:
+        if self._has_density or not self.informed:
             return
-        self.mode_phys = density.mode()
+        density = posterior_density(self._x, self._w, *self._bounds)
         self.bandwidth_phys = density.bandwidth_phys
         self.fisher = density.fisher_information()
         self.negentropy = density.negentropy()
-        self.far_mass = (
-            None if fwhm_phys is None else float(np.sum(w[np.abs(x - self.mode_phys) > FAR_FWHM * fwhm_phys]))
-        )
+        self._has_density = True
+
+    def fisher_at_bandwidth_scale(self, scale: float) -> float:
+        """J (Hz^-2) with the bandwidth multiplied by ``scale``: how much J is set by the smoothing."""
+        return posterior_density(self._x, self._w, *self._bounds, bandwidth_scale=scale).fisher_information()
 
 
-def compute_posterior_metrics(run_result: Any, primary: str | None, stage_metrics: dict[str, Any]) -> dict[str, Any]:
-    """Posterior metrics of ``primary`` over one run: ``{"scalars": {...}, "series": {...}}``.
+def compute_posterior_metrics(
+    run_result: Any,
+    primary: str | None,
+    stage_metrics: dict[str, Any],
+    max_points: int | None = None,
+) -> dict[str, Any]:
+    """Posterior metrics of ``primary`` over one run: ``{"scalars", "series", "density_steps", "max_points"}``.
 
     ``stage_metrics``: the dict :func:`~nvision.metrics.stages.compute_stage_metrics` returned for the run
     (``dip_detected_step``, ``focus_found_step``, ``refine_start_step``). ``scalars`` has every
     :data:`POSTERIOR_METRIC_KEYS` key; ``series`` every :data:`POSTERIOR_SERIES_KEYS` key as a list of length
     ``n_steps`` (``None`` where undefined). Everything is ``None`` when there is no ``primary`` or the beliefs carry no
     particle cloud (grid beliefs). Memoised on ``run_result.posterior_cache``.
+
+    ``z``, ``m`` and ``x`` exist at every informed step (cheap). The KDE series ``g`` and ``j`` are computed only at the
+    steps the stored series keeps (``density_steps``, 0-based: the ``max_points`` indices
+    :func:`~nvision.metrics.series._downsample_indices` picks, default ``MAX_SERIES_POINTS``) and at the detection
+    step, because a density costs ~25 ms and a budget-length run would otherwise spend over a minute on them.
     """
+    from nvision.metrics.series import MAX_SERIES_POINTS, _downsample_indices
+
+    max_points = MAX_SERIES_POINTS if max_points is None else max_points
     cached = getattr(run_result, "posterior_cache", None)
     if cached is not None:
+        if cached["max_points"] != max_points:
+            raise ValueError(f"Posterior metrics were built for max_points={cached['max_points']}, not {max_points}.")
         return cached
     snapshots = run_result.snapshots
     n = len(snapshots)
     scalars: dict[str, Any] = {k: None for k in POSTERIOR_METRIC_KEYS}
     series: dict[str, list[float | None]] = {k: [None] * n for k in POSTERIOR_SERIES_KEYS}
-    out = {"scalars": scalars, "series": series}
+    out: dict[str, Any] = {"scalars": scalars, "series": series, "density_steps": [], "max_points": max_points}
     if n == 0 or primary is None or _to_physical_particles(snapshots[0].belief, primary) is None:
         return out
 
@@ -316,17 +350,27 @@ def compute_posterior_metrics(run_result: Any, primary: str | None, stage_metric
         if id(s.belief) not in by_belief:
             by_belief[id(s.belief)] = _StepPosterior(s.belief, primary, fwhm)
         posts.append(by_belief[id(s.belief)])
-    scalars["posterior_undefined_steps"] = sum(not p.defined for p in posts)
+    scalars["posterior_undefined_steps"] = sum(not p.informed for p in posts)
+
+    tau = stage_metrics.get("dip_detected_step")
+    density_steps = set(_downsample_indices(n, max_points))
+    if tau is not None:
+        density_steps.add(int(tau) - 1)
+    out["density_steps"] = sorted(density_steps)
+
     for t, (snap, post) in enumerate(zip(snapshots, posts, strict=True)):
         est = float(snap.belief.estimates()[primary])
         sigma = float(snap.belief.uncertainty()[primary])
         if not sigma > 0.0:
             raise ValueError(f"Claimed uncertainty of {primary!r} is {sigma} at step {t + 1}; cannot standardise.")
         series["z"][t] = (est - truth) / sigma
-        series["g"][t] = post.negentropy
         series["m"][t] = post.far_mass
-        series["j"][t] = post.fisher
-        if t >= 1 and primary == "zeeman_shift" and fwhm is not None and posts[t - 1].defined:
+        if t in density_steps:
+            post.ensure_density()
+            series["g"][t] = post.negentropy
+            series["j"][t] = post.fisher
+            series["h"][t] = post.bandwidth_phys
+        if t >= 1 and primary == "zeeman_shift" and fwhm is not None and posts[t - 1].informed:
             prev = snapshots[t - 1].belief
             lo, hi = prev.drive_freq_bounds_phys
             drive_phys = lo + snap.obs.drive_freq_unit * (hi - lo)
@@ -334,12 +378,13 @@ def compute_posterior_metrics(run_result: Any, primary: str | None, stage_metric
             zff = float(prev.estimates().get("zero_field_freq", zff_true))
             series["x"][t] = float(abs(drive_phys - (zff + posts[t - 1].mode_phys)) > FAR_FWHM * fwhm)
 
-    tau = stage_metrics.get("dip_detected_step")
     if tau is not None:
-        post = posts[int(tau) - 1]  # all None when the posterior at tau has no density (see _StepPosterior)
-        scalars["posterior_J_tau_phys"] = series["j"][int(tau) - 1]
+        post = posts[int(tau) - 1]  # the density fields are None when no measurement had updated the belief yet
+        scalars["posterior_J_tau_phys"] = post.fisher
         scalars["posterior_kde_bandwidth_tau_phys"] = post.bandwidth_phys
-        scalars["posterior_negentropy_tau"] = series["g"][int(tau) - 1]
+        if post.informed:
+            scalars["posterior_J_tau_2h_phys"] = post.fisher_at_bandwidth_scale(2.0)
+        scalars["posterior_negentropy_tau"] = post.negentropy
         scalars["posterior_far_mass_tau"] = post.far_mass
     placed = [(t, v) for t, v in enumerate(series["x"]) if v is not None]
     if placed:

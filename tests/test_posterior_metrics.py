@@ -98,7 +98,8 @@ class _Belief:
     physical_param_bounds: ClassVar = {"zeeman_shift": (0.0, 100e6)}
     drive_freq_bounds_phys = (2.0e9, 2.1e9)
 
-    def __init__(self, x, sigma=None):
+    def __init__(self, x, sigma=None, num_observations=1):
+        self.num_observations = num_observations
         self._x = x
         self._w = np.full(x.size, 1.0 / x.size)
         self._sigma = float(np.sqrt(np.var(x))) if sigma is None else sigma
@@ -116,15 +117,17 @@ class _Belief:
         return {"zeeman_shift": self._sigma}
 
 
-def _fake_run(clouds, drive_unit, truth=30e6, zff=2.0e9):
+def _fake_run(clouds, drive_unit, truth=30e6, zff=2.0e9, n_obs=None):
     signal = SimpleNamespace(
         get_param_value=lambda name: {"zeeman_shift": truth, "zero_field_freq": zff}[name],
         parameter_values=lambda: {"zeeman_shift": truth, "zero_field_freq": zff, "hwhm": 0.5e6},
         model=SimpleNamespace(controls_drive=False),
     )
     snaps = [
-        SimpleNamespace(belief=_Belief(c), obs=SimpleNamespace(drive_freq_unit=u))
-        for c, u in zip(clouds, drive_unit, strict=True)
+        SimpleNamespace(
+            belief=_Belief(c, num_observations=1 if n_obs is None else n_obs[i]), obs=SimpleNamespace(drive_freq_unit=u)
+        )
+        for i, (c, u) in enumerate(zip(clouds, drive_unit, strict=True))
     ]
     return SimpleNamespace(snapshots=snaps, true_signal=signal)
 
@@ -202,16 +205,85 @@ def test_mirror_peaks_with_a_diffuse_background_and_a_far_straggler():
     assert j2 == pytest.approx(j, rel=0.3)
 
 
-def test_flat_prior_cloud_is_undefined_not_a_crash_and_is_counted(monkeypatch):
-    """A sweep's belief is the un-updated flat prior until its first flush: no bandwidth, so no density metrics."""
+def test_belief_without_measurements_is_undefined_not_a_crash_and_is_counted(monkeypatch):
+    """A sweep's belief is the flat prior until its first flush: no posterior, so no metrics for that step."""
     monkeypatch.setattr("nvision.metrics.stages._true_fwhm_phys", lambda ts: 2e6)
     flat = np.linspace(0.0, 100e6, N)
     peaked = 30e6 + 1e5 * np.random.default_rng(8).standard_normal(N)
-    run = _fake_run([flat, peaked], drive_unit=[0.0, 0.3])
+    run = _fake_run([flat, peaked, peaked + 1.0], drive_unit=[0.0, 0.3, 0.3], n_obs=[0, 1, 2])
     out = compute_posterior_metrics(run, "zeeman_shift", {"dip_detected_step": 1})
     assert out["scalars"]["posterior_undefined_steps"] == 1
     assert out["series"]["j"][0] is None
+    assert out["series"]["m"][0] is None
     assert out["series"]["z"][0] is not None  # z needs only the estimate and sigma
     assert out["series"]["j"][1] is not None
-    assert out["series"]["x"][1] is None  # no mode before the first measurement
+    assert out["series"]["x"][1] is None  # the previous belief is undefined: no mode to compare with
+    assert out["series"]["x"][2] is not None
     assert out["scalars"]["posterior_J_tau_phys"] is None  # tau = 1 is the undefined step
+
+
+def test_density_is_computed_only_at_the_kept_steps_and_tau(monkeypatch):
+    monkeypatch.setattr("nvision.metrics.stages._true_fwhm_phys", lambda ts: 2e6)
+    from nvision.metrics.series import MAX_SERIES_POINTS, _downsample_indices
+
+    rng = np.random.default_rng(9)
+    n = 200
+    clouds = [30e6 + 1e5 * rng.standard_normal(N) for _ in range(n)]
+    run = _fake_run(clouds, drive_unit=[0.3] * n)
+    out = compute_posterior_metrics(run, "zeeman_shift", {"dip_detected_step": 100})
+    expected = set(_downsample_indices(n, MAX_SERIES_POINTS)) | {99}
+    assert set(out["density_steps"]) == expected
+    assert {t for t, v in enumerate(out["series"]["j"]) if v is not None} == expected
+    assert all(v is not None for v in out["series"]["z"])  # the cheap per-step series cover every step
+    assert all(v is not None for v in out["series"]["m"])
+    assert out["scalars"]["posterior_J_tau_phys"] == out["series"]["j"][99]
+
+
+def _weighted_draws(target_pdf, centre, proposal_sd, seed):
+    """Importance-weighted sample of ``target_pdf`` from a broad Gaussian proposal (weights degenerate: low ESS)."""
+    from scipy.stats import norm
+
+    rng = np.random.default_rng(seed)
+    x = centre + proposal_sd * rng.standard_normal(N)
+    w = target_pdf(x) / norm.pdf(x, centre, proposal_sd)
+    w /= w.sum()
+    return x, w, 1.0 / float(np.sum(w**2))
+
+
+def test_low_ess_weighted_clouds_do_not_inflate_j():
+    """The posterior before a resample has degenerate weights (ESS ~ 100-500 of 1000): J must still be right."""
+    from scipy.stats import norm
+
+    sigma = 3e3
+    js, neffs = [], []
+    for seed in range(5):
+        x, w, neff = _weighted_draws(lambda v: norm.pdf(v, 50e6, sigma), 50e6, 3 * sigma, seed)
+        js.append(posterior_density(x, w, 0.0, 100e6).fisher_information())
+        neffs.append(neff)
+    assert 100 < np.mean(neffs) < 700
+    assert np.mean(js) == pytest.approx(1.0 / sigma**2, rel=0.2)
+
+    peak, sep = 0.1e6, 4e6
+
+    def mix(v):
+        return 0.5 * norm.pdf(v, 20e6, peak) + 0.5 * norm.pdf(v, 20e6 + sep, peak)
+
+    js, neffs = [], []
+    for seed in range(5):
+        x, w, neff = _weighted_draws(mix, 22e6, 2.5e6, seed)
+        js.append(posterior_density(x, w, 0.0, 100e6).fisher_information())
+        neffs.append(neff)
+    assert np.mean(neffs) < 300
+    # ESS ~ 90 leaves ~45 particles per peak, so J comes out low, never high: undersmoothing would inflate it.
+    assert 0.6 / peak**2 < np.mean(js) < 1.2 / peak**2
+
+
+def test_j_tau_bracket_and_h_series(monkeypatch):
+    monkeypatch.setattr("nvision.metrics.stages._true_fwhm_phys", lambda ts: 2e6)
+    rng = np.random.default_rng(10)
+    cloud = 30e6 + 1e5 * rng.standard_normal(N)
+    run = _fake_run([cloud, cloud + 1.0], drive_unit=[0.3, 0.3])
+    out = compute_posterior_metrics(run, "zeeman_shift", {"dip_detected_step": 2})
+    s = out["scalars"]
+    assert s["posterior_J_tau_2h_phys"] < s["posterior_J_tau_phys"]  # more smoothing, less information
+    assert out["series"]["h"][1] == s["posterior_kde_bandwidth_tau_phys"]

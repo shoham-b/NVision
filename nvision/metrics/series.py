@@ -186,6 +186,10 @@ def extract_step_series(
     if any(c is not None for c in crlbs):
         series["c"] = [_round_sig(crlbs[i]) for i in keep]
     if posterior is not None:
+        if posterior["max_points"] != max_points or len(steps) != len(posterior["series"]["z"]):
+            raise ValueError("The posterior series were not built for this run's steps / max_points.")
+        if not {steps[i] - 1 for i in keep} <= set(posterior["density_steps"]):
+            raise ValueError("The stored steps are not the steps the posterior density was computed at.")
         for key, values in posterior["series"].items():
             if any(v is not None for v in values):
                 series[key] = [_round_sig(values[steps[i] - 1]) for i in keep]
