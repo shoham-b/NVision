@@ -226,6 +226,9 @@ _COMPARE_FIELDS = (
     "stage3_oracle_steps",
     "stage3_efficiency",
     "stage3_wasted_share",
+    "lock_tolerance_phys",
+    "lock_step_true",
+    "lock_step_claimed",
     # Run-time posterior metrics of the primary parameter (nvision/metrics/posterior.py); per-step values are in the
     # scan entry's ``series`` (``z``, ``g``, ``m``, ``j``, ``x``).
     *POSTERIOR_METRIC_KEYS,

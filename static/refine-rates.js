@@ -72,6 +72,36 @@
             `<p style="font-size:0.8em;color:#475569;margin:0.4em 0 0;">Theory for a sweep, q_sweep = I_sweep / I_max: Lorentzian formula 8π/27 · Γ/W = <b>${fmt(th0)}</b>; exact for these line shapes, mean(g²) / max(g²) over the window = <b>${fmt(thx)}</b> (the two differ for a hyperfine triplet or a Voigt line). One shot per measurement for every locator, so the cost axis (measurements) is also shots.</p>`;
     }
 
+    // ---- localize phase: from the run's own detection to the lock (error stays <= eps), median over use cases ----
+    function renderLocalize(box, cases) {
+        const th = (txt, tip) => `<th style="padding:2px 8px;text-align:right" title="${esc(tip)}">${txt}</th>`;
+        const td = (v) => `<td style="padding:2px 8px;text-align:right">${v}</td>`;
+        const rows = [SBED, ...SWEEPS].filter((s) => cases.some((u) => u.locators[s] && u.locators[s].localize)).map((s) => {
+            const ds = cases.map((u) => u.locators[s] && u.locators[s].localize).filter(Boolean);
+            return `<tr><td style="padding:2px 12px 2px 0">${label(s)}</td>` +
+                td(fmt(median(ds.map((d) => d.cost_median)))) +
+                td(fmt(median(ds.map((d) => d.cost_p75)))) +
+                td(pct(median(ds.map((d) => d.locked_share)))) +
+                td(`${fmt(median(ds.map((d) => d.bound_median)))} – ${fmt(median(ds.map((d) => d.bound_2h_median)))}`) +
+                td(fmt(median(ds.map((d) => d.cost_over_bound_median)), 2)) + '</tr>';
+        }).join('');
+        if (!rows) {
+            box.innerHTML = '<p style="font-size:0.85em;color:#94a3b8;">Localize: no run of the selection stores the lock step (recorded before it was added; re-run).</p>';
+            return;
+        }
+        const ratios = cases.map((u) => u.speedup && u.speedup.localize_ratio).filter((v) => v != null);
+        box.innerHTML = '<h3 style="margin:0.8em 0 0.3em;font-size:1em;">Localize ' +
+            help('From the run’s own dip detection (dip_detected_step) to the lock: the first measurement from which the true error stays within ε = 0.5 HWHM to the end of the run. L = lock − detection, per run. Bound: van Trees restarted at the detection with the posterior as prior, (ε⁻² − J_τ) / I_max, shown for J_τ at the KDE bandwidth and at twice it (J_τ is good to a factor 2). It bounds the mean square, so it is a reference line, not a per-run test.') + '</h3>' +
+            '<table style="border-collapse:collapse;font-size:0.85em;"><thead><tr><th style="text-align:left;padding:2px 12px 2px 0">Locator</th>' +
+            th('L median', 'Measurements from detection to lock, median over the runs that locked, then over use cases.') +
+            th('L p75', '75th percentile of L.') +
+            th('Locked', 'Share of runs that detected and locked within the budget.') +
+            th('Bound', 'Restarted van Trees: fewest measurements after detection to reach ε², for J_τ and J_τ at 2h.') +
+            th('L / bound', 'Median over runs of L over that run’s bound (J_τ at the KDE bandwidth).') +
+            `</tr></thead><tbody>${rows}</tbody></table>` +
+            `<p style="font-size:0.8em;color:#475569;margin:0.4em 0 0;">Best sweep L over SBED L: <b>${fmt(median(ratios), 2)}</b> (median over ${ratios.length} use case${ratios.length === 1 ? '' : 's'}).</p>`;
+    }
+
     // ---- cost with the line's prediction, one use case ----
     function renderCost(id, u) {
         const traces = [];
@@ -185,6 +215,7 @@
             `<p style="margin:0 0 0.6em;font-size:0.85em;color:#475569;">Every run measures the whole budget; the line is fitted over the late part of it, after the dip. Median over ${cases.length} use case${cases.length > 1 ? 's' : ''}; cost in measurements (one shot each).</p>` +
             errHtml +
             '<div id="rr-table" style="margin:0.6em 0; overflow-x:auto;"></div>' +
+            '<div id="rr-localize" style="margin:0.6em 0; overflow-x:auto;"></div>' +
             (cases.length > 1 ? `<label style="font-size:0.85em;">Use case for the cost and histogram charts: <select id="rr-case" class="control-select">${cases.map((u, i) => `<option value="${i}">${esc(ucName(u))}</option>`).join('')}</select></label>` : '') +
             '<div style="display:flex; flex-wrap:wrap; gap:1.5em; margin-top:0.8em;">' +
             card('Cost to reach a precision, with the line\'s prediction', 'Median measurements until the true error first stays below τ (solid), against the precision gain over the prior σ₀/τ. Dotted: n₀ + τ⁻² / (q_err · I_max) from the fitted line. The measured cost is a median over single runs, the prediction the mean-square error reaching τ², so they agree only roughly. The share of runs that got there is in the hover; runs that never get there are censored, not counted.', 'rr-cost') +
@@ -195,6 +226,7 @@
             '<div style="display:flex; flex-wrap:wrap; gap:1.5em; margin-top:1em;">' +
             card('Where SBED measured (after the dip is detected)', 'Same histogram for the measurements after dip_detected_step. Dashed lines: ±1/√3 γ, where a Lorentzian\'s squared slope peaks; the orange label is where the exact sensitivity peaks for this use case. Greedy EIG should pile up there; a sweep should be flat.', 'rr-hist-after') + '</div>';
         renderTable(document.getElementById('rr-table'), cases);
+        renderLocalize(document.getElementById('rr-localize'), cases);
         renderRatio('rr-ratio', cases);
         renderRinf('rr-rinf', cases);
         const drawCase = (i) => { renderCost('rr-cost', cases[i]); renderHist('rr-hist-before', 'rr-hist-after', cases[i]); };

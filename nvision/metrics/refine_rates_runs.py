@@ -29,6 +29,7 @@ from typing import Any
 import numpy as np
 
 from nvision.metrics import refine_rates as rr
+from nvision.metrics.localize import localize_bound_steps, localize_cost
 from nvision.metrics.stages import primary_sensitivity_at, primary_sensitivity_curve
 from nvision.runner.repeat_keys import repeat_seed_int, signal_repeat_key
 
@@ -74,6 +75,16 @@ class RunTrace:
     q_sweep_exact: float | None  # mean(g^2) / max(g^2) over the window
     peak_offset_gamma: float | None  # |offset| of the steepest point from the nearest line centre, units of the HWHM
     n_lines: int | None  # dips of the true signal
+    # Localize phase (nvision/metrics/localize.py), None on rows recorded before it was stored.
+    lock_step: int | None = None  # 1-indexed first step from which the true error stays <= lock_tol_phys
+    lock_tol_phys: float | None = None  # eps (Hz)
+    j_tau: float | None = None  # posterior Fisher information at the detection (Hz^-2)
+    j_tau_2h: float | None = None  # the same at twice the KDE bandwidth (the other end of its factor-2 bracket)
+
+    @property
+    def localize_cost(self) -> int | None:
+        """Measurements from the detection to the lock (``None`` if the run never detected or never locked)."""
+        return localize_cost(self.lock_step, self.dip_step)
 
     @property
     def q_place(self) -> float | None:
@@ -200,6 +211,10 @@ def build_run_trace(
         "prior_info": float(row["stage_prior_info"]),
         "fwhm_phys": float(row["stage_fwhm_true_phys"]),
         "window_phys": float(row["stage_window_phys"]),
+        "lock_step": _int_or_none(row.get("lock_step_true")),
+        "lock_tol_phys": _float_or_none(row.get("lock_tolerance_phys")),
+        "j_tau": _float_or_none(row.get("posterior_J_tau_phys")),
+        "j_tau_2h": _float_or_none(row.get("posterior_J_tau_2h_phys")),
     }
     is_sbed = strategy == SBED
     if is_sbed and scan.get("plot_skipped") and "meas_drive_freq_unit" not in scan:
@@ -267,6 +282,46 @@ def _check_stage_sensitivities(eta: np.ndarray, row: dict[str, Any]) -> None:
                 "the measurement positions or the true signal are not the ones of the run."
             )
         start += int(n_stage)
+
+
+def _int_or_none(value: Any) -> int | None:
+    return None if value is None else int(value)
+
+
+def _float_or_none(value: Any) -> float | None:
+    return None if value is None else float(value)
+
+
+def _localize_summary(traces: list[RunTrace], i_max: float) -> dict[str, Any] | None:
+    """Localize cost ``L = lock - tau`` of one locator in one use case, against the restarted van Trees bound.
+
+    ``None`` when no run of it carries the lock step (rows recorded before it was stored).
+    """
+    stored = [t for t in traces if t.lock_tol_phys is not None]
+    if not stored:
+        return None
+    costs = [c for t in stored if (c := t.localize_cost) is not None]
+    bounds, bounds_2h, ratios = [], [], []
+    for t in stored:
+        if t.j_tau is None:
+            continue
+        b = localize_bound_steps(t.lock_tol_phys, t.j_tau, i_max)
+        bounds.append(b)
+        if t.j_tau_2h is not None:
+            bounds_2h.append(localize_bound_steps(t.lock_tol_phys, t.j_tau_2h, i_max))
+        if t.localize_cost is not None and b > 0:
+            ratios.append(t.localize_cost / b)
+    return {
+        "n_runs": len(stored),
+        "n_locked": len(costs),
+        "locked_share": len(costs) / len(stored),
+        "cost_median": _median([float(c) for c in costs]),
+        "cost_p75": float(np.percentile(costs, 75)) if costs else None,
+        "bound_median": _median(bounds),
+        "bound_2h_median": _median(bounds_2h),
+        "cost_over_bound_median": _median(ratios),
+        "tol_phys": float(np.median([t.lock_tol_phys for t in stored])),
+    }
 
 
 def _median(values: list[float]) -> float | None:
@@ -338,6 +393,7 @@ def _locator_summary(traces: list[RunTrace], i_max: float, taus: np.ndarray) -> 
         "curve": {"n": n_grid, "inv_mse": inv.inv_mse},
         "cost": {"t_median": cost.t_median, "t_p75": cost.t_p75, "share": cost.share},
         "hist": {"before": hist("before"), "after": hist("after")},
+        "localize": _localize_summary(traces, i_max),
         "_cost": cost,
     }
 
@@ -346,8 +402,8 @@ def use_case_summary(generator: str, noise: str, traces: dict[str, list[RunTrace
     """Everything the "Refine & speedup" section shows for one use case (one generator at one noise level).
 
     ``traces``: strategy name (:data:`SBED` or ``SimpleSweep-{k}perFWHM``) -> its repeats' :class:`RunTrace`.
-    Returns a JSON-ready dict; see ``docs/evaluation_metrics.md`` for what each field is. The yardstick of the speedups is the
-    best sweep spacing, never an arbitrary one (rule 3).
+    Returns a JSON-ready dict; see ``docs/evaluation_metrics.md`` for what each field is. The yardstick of the
+    speedups is the best sweep spacing, never an arbitrary one (rule 3).
     """
     traces = {s: t for s, t in traces.items() if t}
     if not traces:
@@ -406,7 +462,14 @@ def _speedup(locators: dict[str, dict[str, Any]], sweeps: list[str]) -> dict[str
     q_err_sbed = None if sbed["fit"] is None else sbed["fit"]["q"]
     err_sweep, q_err_sweep = best(lambda d: None if d["fit"] is None else d["fit"]["q"])
     place_sweep, q_place_sweep = best(lambda d: d["q_place_median"])
+    loc_sbed = (sbed.get("localize") or {}).get("cost_median")
+    loc_sweeps = {s: (locators[s].get("localize") or {}).get("cost_median") for s in sweeps}
+    loc_sweeps = {s: v for s, v in loc_sweeps.items() if v is not None}
+    # The best sweep localizes fastest: the smallest median cost.
+    best_loc = min(loc_sweeps, key=loc_sweeps.get) if loc_sweeps else None
     return {
+        "localize_ratio": loc_sweeps[best_loc] / loc_sbed if best_loc and loc_sbed else None,
+        "best_sweep_localize": best_loc,
         "ratio": ratio,
         "r_inf_err": q_err_sbed / q_err_sweep if q_err_sbed and q_err_sweep else None,
         "best_sweep_err": err_sweep,

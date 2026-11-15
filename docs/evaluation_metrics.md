@@ -320,6 +320,27 @@ flat). The older cost-ladder `n₀` / `e` of the Information table are kept (med
 
 **Stale if** the generator, the seed derivation or the sweep grid changes: the true-signal check then raises and the section
 lists the repeats. No cache or render invalidation: nothing here is stored.
+## Localize phase (`nvision/metrics/localize.py`)
+
+The run is split by observable markers, not by claimed-sigma thresholds: **search** until the run's own dip test fires
+(`dip_detected_step` = τ), **localize** from τ to the lock, **refine** afterwards (q of the section above). The claim it
+tests is that the Bayesian strategy gains in localize too: from the same starting point, its own detection, it reaches
+the line in fewer measurements than a sweep.
+
+* **Lock step** (stored per run at run time, in `stages.py`): ε = `LOCK_TOLERANCE_HWHM` (0.5) × the true HWHM
+  (`lock_tolerance_phys`); `lock_step_true` = the first measurement from which the true error stays ≤ ε to the end of the
+  run, `lock_step_claimed` the same for the claimed σ̂ (the lab version). Computed on the full per-step trace, not the
+  downsampled series. `None` for drive-controlled models and rows recorded before it was added (re-run).
+* **Localize cost** L = lock − τ per run (0 if it locked before detecting; `None` if it never detected or never locked).
+  The "Localize" table of the Refine & speedup section shows the median and p75 over the runs that locked, the share that
+  locked, the best sweep's median L over SBED's, and the bound below.
+* **Bound**: van Trees restarted at τ with the posterior as prior, E[err²] ≥ (J_τ + n I_max)⁻¹, so reaching ε² takes at least
+  max(0, ε⁻² − J_τ) / I_max measurements after τ, shown for J_τ (`posterior_J_tau_phys`) and J_τ at twice the bandwidth
+  (`posterior_J_tau_2h_phys`), since J_τ is good to a factor 2. It bounds the mean square, not a run's first passage: a
+  reference, not a per-run test. L / bound is the median over runs of each run's L over its own bound.
+* The functions take an error array and a tolerance, never the true signal, so the lab can pass the error against the
+  holdout centre or the claimed σ̂.
+
 ## Posterior metrics (run-time, `nvision/metrics/posterior.py`)
 
 Computed from each step's particle cloud of the primary parameter (`zeeman_shift`) while the run is recorded, because the cache keeps no belief snapshots. Runs recorded earlier have none of these: **re-run** (`nv render` cannot fill them, and a plain re-run hits the cache, so use `--no-cache`, which replaces the combination's cached repeats). They read the beliefs only; no physics, SMC or SBED behaviour and no cache key or physics fingerprint changes.

@@ -85,6 +85,7 @@ from typing import Any, NamedTuple
 
 import numpy as np
 
+from nvision.metrics.localize import LOCK_TOLERANCE_HWHM, lock_step
 from nvision.metrics.milestones import resolve_primary_param
 from nvision.models.observer import RunResult
 from nvision.spectra.drive import DRIVE_AMP_MIN_UNIT, DriveSetting
@@ -140,6 +141,11 @@ STAGE_METRIC_KEYS: tuple[str, ...] = (
     "stage3_oracle_steps",
     "stage3_efficiency",
     "stage3_wasted_share",
+    # Localize phase (nvision/metrics/localize.py): eps = LOCK_TOLERANCE_HWHM x the true HWHM, and the first step from
+    # which the true error / the claimed sigma stays <= eps to the end of the run.
+    "lock_tolerance_phys",
+    "lock_step_true",
+    "lock_step_claimed",
 )
 
 
@@ -522,7 +528,23 @@ def compute_stage_metrics(run_result: RunResult) -> dict[str, Any]:
             if k > 1:
                 out[f"stage{k}_wasted_share"] = float(np.mean(eta[first : final + 1] < 1.0 - REFINE_INFO_LOSS))
     _add_oracle_metrics(run_result, primary, sens, shots, np.asarray(err_trace), out)
+    _add_lock_metrics(run_result, np.asarray(err_trace), np.asarray(unc_trace), out)
     return out
+
+
+def _add_lock_metrics(run_result: RunResult, err_trace: np.ndarray, unc_trace: np.ndarray, out: dict[str, Any]) -> None:
+    """Lock steps of the localize phase (see ``nvision/metrics/localize.py``).
+
+    ``err_trace`` / ``unc_trace``: shape (n_steps,), the true error and the claimed sigma (Hz) of the primary parameter
+    after each measurement. Left ``None`` for drive-controlled models, whose line width depends on the drive.
+    """
+    fwhm_true = _true_fwhm_phys(run_result.true_signal)
+    if fwhm_true is None:
+        return
+    eps = LOCK_TOLERANCE_HWHM * fwhm_true / 2.0
+    out["lock_tolerance_phys"] = eps
+    out["lock_step_true"] = lock_step(err_trace, eps)
+    out["lock_step_claimed"] = lock_step(unc_trace, eps)
 
 
 def prior_variance_phys(
