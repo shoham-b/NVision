@@ -26,6 +26,7 @@ from nvision.cache.locator_keys import MIN_VIEWABLE_CACHE_SCHEMA_VERSION, combin
 from nvision.cli.refine_rates_api import add_refine_rates_route
 from nvision.cli.search_bounds_api import add_search_bounds_route
 from nvision.gui.report import _STATIC_DIR, render_index_html
+from nvision.metrics.posterior import POSTERIOR_METRIC_KEYS
 from nvision.runner.cache import _decompress_text
 from nvision.sim.combinations import SWEEP_SPACING_DIVISORS, CombinationGrid
 from nvision.sim.defaults import PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS
@@ -230,6 +231,9 @@ _COMPARE_FIELDS = (
     "stage3_oracle_steps",
     "stage3_efficiency",
     "stage3_wasted_share",
+    # Run-time posterior metrics of the primary parameter (nvision/metrics/posterior.py); per-step values are in the
+    # scan entry's ``series`` (``z``, ``g``, ``m``, ``j``, ``x``).
+    *POSTERIOR_METRIC_KEYS,
 )
 
 

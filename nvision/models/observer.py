@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 
@@ -79,6 +79,9 @@ class RunResult:
     fit_mode_estimates: dict[str, float] | None = None
     # Standard deviation of each fitted parameter, for locators whose reported estimate is a fit (sweeps).
     fit_mode_uncertainties: dict[str, float] | None = None
+    # Memo of ``nvision.metrics.posterior.compute_posterior_metrics`` (scalars and per-step series), so the row metrics
+    # and the scan-entry series share one computation.
+    posterior_cache: dict | None = field(default=None, repr=False, compare=False)
 
     def convergence_step(self, param: str, threshold: float) -> int | None:
         """Find first step where parameter converged below threshold.
