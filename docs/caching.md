@@ -60,9 +60,12 @@ less scatter than `N` unstratified draws. Everything else (`hwhm`, contrast, ...
   without them. `n_repeats` is the study's *total* `repeat_total`, never a chunk size, and `repeat_idx`
   is the global repeat index (`repeat_offset + i`).
 * **`N` is part of the signal.** The signal key does not carry `N`, so the in-process signal cache raises if
-  one key is requested with two different `N`. Do not extend a finished `N`-repeat run to a larger `N`
-  by reusing its first repeats: they sit in the lowest `N/N'` of the window and the mean becomes biased.
-  Re-run the combination with the new total.
+  one key is requested with two different `N`. The combination pointer key is also `N`-independent (work-stealing
+  sub-tasks share it), so the pointer record stores the study's total as `repeat_total` for generators that
+  stratify (`stratifies_across_repeats`, i.e. Zeeman-split NV-center signals), and every cache read and
+  append raises `ValueError` if it is requested with another total. Extending a finished `N`-repeat run to a
+  larger `N` (or shrinking it) would reuse repeats drawn from the wrong slices and bias the mean, so use the same
+  `--repeats` to resume, or `--no-cache` to regenerate. Generators that do not stratify can still be extended.
 * **Staleness.** Results cached before this change used independent uniform draws: re-run (not
   `nv render`). Cache keys do not contain the signal parameters, so a physics-fingerprint bump is needed
   to make old entries miss.

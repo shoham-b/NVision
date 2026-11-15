@@ -147,6 +147,15 @@ class NVCenterCoreGenerator:
         return DEFAULT_NV_DRIVE_FREQ_MAX_PHYS - DEFAULT_NV_DRIVE_FREQ_MIN_PHYS
 
     @property
+    def stratifies_across_repeats(self) -> bool:
+        """Whether the true signal of repeat ``i`` depends on the study's total repeat count ``N``.
+
+        True when ``zeeman_shift`` is drawn (see :meth:`generate`): cached repeats are then only valid for the
+        ``N`` they were generated with.
+        """
+        return self.with_zeeman_splitting
+
+    @property
     def zeeman_max_phys(self) -> float:
         """Largest ``zeeman_shift`` (Hz) this generator draws and its belief bounds allow."""
         if self.window_fwhm is None:

@@ -233,3 +233,28 @@ def test_locator_repository_repeat_offset(repo):
     )
     assert loaded is not None
     assert len(loaded) == 15
+
+
+_KW = {"generator": "gen", "noise": "noise", "strategy": "strat", "seed": 1, "max_steps": 10, "timeout_s": 10}
+
+
+def test_pointer_rejects_a_different_total_repeat_count(repo):
+    """Stratified true signals depend on N: a run with another total must not reuse the cached repeats."""
+    results = [([{"p": f"p{i}"}], {"idx": i}) for i in range(3)]
+    repo.save_cached_combination(repeats=3, results=results, repeat_total=3, **_KW)
+
+    assert len(repo.get_cached_combination(repeats=3, **_KW)) == 3
+    for other in (2, 5):
+        with pytest.raises(ValueError, match="generated for a total of 3"):
+            repo.get_cached_combination(repeats=other, **_KW)
+        with pytest.raises(ValueError, match="generated for a total of 3"):
+            repo.get_cached_combination_partial(repeats=other, **_KW)
+    # Saving more repeats under another total is refused too.
+    with pytest.raises(ValueError, match="generated for a total of 3"):
+        repo.append_cached_repeats(new_results=[([{"p": "x"}], {"idx": 3})], start_idx=3, repeat_total=5, **_KW)
+
+
+def test_pointer_without_total_is_still_readable(repo):
+    """Pointers written without repeat_total (legacy callers) carry no stratification claim."""
+    repo.append_cached_repeats(new_results=[([{"p": "a"}], {"idx": 0})], start_idx=0, **_KW)
+    assert len(repo.get_cached_combination(repeats=1, **_KW)) == 1

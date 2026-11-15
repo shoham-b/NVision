@@ -942,6 +942,7 @@ class _TaskRunner:
                     repeat_offset=0,
                     new_results=[],
                     start_idx=self.task.repeat_total or (rid + 1),
+                    repeat_total=self._stratum_total(),
                 )
                 # Only now that the slim result is in the cache may a graph worker overwrite it
                 # with the full graphs, so the job is released here and not earlier.
@@ -1064,6 +1065,7 @@ class _TaskRunner:
                     repeat_offset=ro,
                     results=[],  # Do not overwrite repeats, just update the pointer
                     start_idx=final_idx,
+                    repeat_total=self._stratum_total(),
                 )
             return
 
@@ -1073,6 +1075,7 @@ class _TaskRunner:
             repeat_offset=ro,
             results=full_results,
             start_idx=ro,
+            repeat_total=self._stratum_total(),
         )
 
     def _rng_for_measurement(self, repeat_idx: int) -> random.Random:
@@ -1129,6 +1132,12 @@ class _TaskRunner:
     def _build_experiment(self, rng: random.Random, repeat_idx: int = 0) -> CoreExperiment:
         return self._attach_task_noise(self._build_signal_experiment(rng, repeat_idx, self._total_repeats()))
 
+    def _stratum_total(self) -> int | None:
+        """Total repeat count N if this generator's true signals are stratified over it, else ``None``."""
+        if getattr(self.task.generator, "stratifies_across_repeats", False):
+            return self._total_repeats()
+        return None
+
     def _total_repeats(self) -> int:
         """Global repeat count N of the study (not this sub-task's chunk size); the Zeeman strata count."""
         return self.task.repeat_total or self.repeats
@@ -1140,7 +1149,7 @@ class _TaskRunner:
             self.task,
             rid,
             lambda rng: self._build_signal_experiment(rng, rid, n_total),
-            n_repeats=n_total,
+            n_repeats=self._stratum_total(),
         )
         return self._attach_task_noise(shared)
 
