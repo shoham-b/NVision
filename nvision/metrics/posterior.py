@@ -46,6 +46,7 @@ from typing import Any
 import numpy as np
 from scipy.fft import dct
 from scipy.optimize import brentq
+from scipy.signal import fftconvolve
 
 log = logging.getLogger(__name__)
 
@@ -54,6 +55,7 @@ _ISJ_BINS = 2**11  # bins of the ISJ bandwidth search (grid over the particle ra
 _GRID_PER_BANDWIDTH = 5.0  # final grid spacing = h / this
 _KERNEL_HALF_WIDTHS = 5.0  # kernel and grid padding, in bandwidths
 _MAX_GRID_POINTS = 2**18
+_LAMBDA_MIN, _LAMBDA_MAX = 1.0, 100.0  # clamp of the Abramson local-bandwidth factor
 _TAIL_FLOOR = 1e-10  # p below this fraction of its max is dropped from p'^2/p (underflow noise, mass < 1e-9)
 
 # Per-run scalar keys (results-row columns); see :func:`compute_posterior_metrics`.
@@ -65,9 +67,14 @@ POSTERIOR_METRIC_KEYS: tuple[str, ...] = (
     "posterior_far_placed_steps",
     "posterior_far_placed_share",
     "posterior_far_placed_share_stage2",
+    "posterior_undefined_steps",
 )
 # Per-step series keys (scan-entry ``series``), aligned with ``"s"``.
 POSTERIOR_SERIES_KEYS: tuple[str, ...] = ("z", "g", "m", "j", "x")
+
+
+class NoBandwidthError(ValueError):
+    """The ISJ equation has no solution: the cloud carries no structure to smooth (e.g. a flat, un-updated prior)."""
 
 
 class PosteriorDensity:
@@ -155,10 +162,10 @@ def isj_bandwidth(x: np.ndarray, w: np.ndarray, lo: float, hi: float) -> float:
         try:
             t = brentq(fixed_point, 1e-12, t_hi, xtol=1e-30, rtol=1e-3)
             break
-        except ValueError:
+        except (ValueError, ZeroDivisionError):  # no sign change / vanishing functional: no root
             continue
     if t is None or not t > 0.0:
-        raise ValueError("The ISJ bandwidth equation has no root on this sample (degenerate particle cloud?).")
+        raise NoBandwidthError("The ISJ bandwidth equation has no root on this sample (degenerate particle cloud?).")
     return math.sqrt(t) * r
 
 
@@ -185,27 +192,54 @@ def posterior_density(x_phys: np.ndarray, weights: np.ndarray, lo_phys: float, h
     pad = 0.05 * (x_max - x_min)
     h = isj_bandwidth(x, w, max(lo_phys, x_min - pad), min(hi_phys, x_max + pad))
 
-    lo = max(lo_phys, x_min - _KERNEL_HALF_WIDTHS * h)
-    hi = min(hi_phys, x_max + _KERNEL_HALF_WIDTHS * h)
-    n_grid = math.ceil((hi - lo) / (h / _GRID_PER_BANDWIDTH))
+    # Pilot: fixed bandwidth h (resolves the narrow structure). Final: sample-point adaptive (Abramson), where each
+    # particle's bandwidth is h * (pilot(x_i) / g)^(-1/2), g the weighted geometric mean of the pilot. A single global
+    # h tuned to narrow peaks leaves a diffuse tail (a few sparse particles) as spikes, whose p'^2 / p inflates J.
+    grid, pilot, _ = _kde(x, w, np.full(x.shape, h), lo_phys, hi_phys)
+    pilot_at_x = np.maximum(np.interp(x, grid, pilot), 1e-300)
+    geo_mean = math.exp(float(np.sum(w * np.log(pilot_at_x))))
+    lam = np.clip((pilot_at_x / geo_mean) ** -0.5, _LAMBDA_MIN, _LAMBDA_MAX)
+    # Quantised to half-octave steps so the kernels fall into a few classes (one convolution per class).
+    lam = 2.0 ** (np.round(2.0 * np.log2(lam)) / 2.0)
+    grid, pdf, dpdf = _kde(x, w, h * lam, lo_phys, hi_phys)
+    return PosteriorDensity(grid, pdf, dpdf, h)
+
+
+def _kde(
+    x: np.ndarray, w: np.ndarray, h_i: np.ndarray, lo_phys: float, hi_phys: float
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Sample-point-adaptive Gaussian KDE and its derivative on a grid, reflected at the bounds.
+
+    ``x``, ``w``, ``h_i``: shape (n_particles,), positions (Hz), normalised weights and per-particle bandwidths (Hz).
+    Returns ``(grid_phys, pdf, dpdf)``, each shape (n_grid,): grid (Hz), density (1/Hz), derivative (1/Hz^2). Particles
+    are grouped by bandwidth (``h_i`` takes few distinct values) and each group is binned and convolved with its own
+    kernel, so the cost is one FFT convolution per distinct bandwidth, not per particle.
+    """
+    lo = max(lo_phys, float(np.min(x - _KERNEL_HALF_WIDTHS * h_i)))
+    hi = min(hi_phys, float(np.max(x + _KERNEL_HALF_WIDTHS * h_i)))
+    h_min = float(h_i.min())
+    n_grid = math.ceil((hi - lo) / (h_min / _GRID_PER_BANDWIDTH))
     if n_grid > _MAX_GRID_POINTS:
-        raise ValueError(f"The KDE grid would need {n_grid} points (h = {h} Hz over {hi - lo} Hz).")
+        raise ValueError(f"The KDE grid would need {n_grid} points (h = {h_min} Hz over {hi - lo} Hz).")
     n_grid = max(n_grid, 16)
     dx = (hi - lo) / n_grid
-    hist, edges = np.histogram(x, bins=n_grid, range=(lo, hi), weights=w)
+    edges = np.linspace(lo, hi, n_grid + 1)
     grid = 0.5 * (edges[:-1] + edges[1:])
-
-    half = math.ceil(_KERNEL_HALF_WIDTHS * h / dx)
-    offs = np.arange(-half, half + 1) * dx
-    gauss = np.exp(-0.5 * (offs / h) ** 2) / (h * math.sqrt(2.0 * math.pi))
-    dgauss = -offs / h**2 * gauss
-    # Mirror padding = reflection at the edges of the grid (half-sample symmetric: bins are cell-centred).
-    padded = np.pad(hist, half, mode="symmetric")
-    # ``hist`` holds probability per bin and the kernels are densities in 1/Hz, so convolve(hist, gauss) is already
-    # the density (sum over bins of mass * kernel); no division by dx.
-    pdf = np.convolve(padded, gauss, mode="valid")
-    dpdf = np.convolve(padded, dgauss[::-1], mode="valid")
-    return PosteriorDensity(grid, pdf, dpdf, h)
+    pdf = np.zeros(n_grid)
+    dpdf = np.zeros(n_grid)
+    for h in np.unique(h_i):
+        sel = h_i == h
+        hist, _ = np.histogram(x[sel], bins=edges, weights=w[sel])
+        half = math.ceil(_KERNEL_HALF_WIDTHS * h / dx)
+        offs = np.arange(-half, half + 1) * dx
+        gauss = np.exp(-0.5 * (offs / h) ** 2) / (h * math.sqrt(2.0 * math.pi))
+        dgauss = -offs / h**2 * gauss
+        # Mirror padding = reflection at the grid edges (half-sample symmetric: bins are cell-centred). ``hist``
+        # holds probability per bin and the kernels are densities in 1/Hz, so the convolution is already a density.
+        padded = np.pad(hist, half, mode="symmetric")
+        pdf += fftconvolve(padded, gauss, mode="valid")
+        dpdf += fftconvolve(padded, dgauss[::-1], mode="valid")
+    return grid, pdf, dpdf
 
 
 def _to_physical_particles(belief: Any, primary: str) -> tuple[np.ndarray, np.ndarray, tuple[float, float]] | None:
@@ -218,7 +252,12 @@ def _to_physical_particles(belief: Any, primary: str) -> tuple[np.ndarray, np.nd
 
 
 class _StepPosterior:
-    """One snapshot's posterior of the primary parameter: the KDE, its mode and the far mass."""
+    """One snapshot's posterior summary of the primary parameter (scalars only; the density is not kept).
+
+    ``defined`` is False when the density has no bandwidth (:class:`NoBandwidthError`: a flat prior that no
+    measurement has updated yet, as a sweep's belief is until its first flush); every density-based field is then
+    ``None`` and the step is counted in ``posterior_undefined_steps``. Any other failure still raises.
+    """
 
     def __init__(self, belief: Any, primary: str, fwhm_phys: float | None) -> None:
         got = _to_physical_particles(belief, primary)
@@ -226,8 +265,17 @@ class _StepPosterior:
             raise ValueError("Belief has no particle cloud.")
         x, w, (lo, hi) = got
         w = w / w.sum()
-        self.density = posterior_density(x, w, lo, hi)
-        self.mode_phys = self.density.mode()
+        self.defined = True
+        try:
+            density = posterior_density(x, w, lo, hi)
+        except NoBandwidthError:
+            self.defined = False
+            self.mode_phys = self.bandwidth_phys = self.fisher = self.negentropy = self.far_mass = None
+            return
+        self.mode_phys = density.mode()
+        self.bandwidth_phys = density.bandwidth_phys
+        self.fisher = density.fisher_information()
+        self.negentropy = density.negentropy()
         self.far_mass = (
             None if fwhm_phys is None else float(np.sum(w[np.abs(x - self.mode_phys) > FAR_FWHM * fwhm_phys]))
         )
@@ -260,17 +308,25 @@ def compute_posterior_metrics(run_result: Any, primary: str | None, stage_metric
     fwhm = _true_fwhm_phys(true_signal)  # None for drive-controlled models (width depends on the drive)
     zff_true = float(true_signal.get_param_value("zero_field_freq")) if primary == "zeeman_shift" else None
 
-    posts = [_StepPosterior(s.belief, primary, fwhm) for s in snapshots]
+    # The observer shares one belief copy across steps a locator buffers (sweeps), so each distinct belief is
+    # summarised once.
+    by_belief: dict[int, _StepPosterior] = {}
+    posts = []
+    for s in snapshots:
+        if id(s.belief) not in by_belief:
+            by_belief[id(s.belief)] = _StepPosterior(s.belief, primary, fwhm)
+        posts.append(by_belief[id(s.belief)])
+    scalars["posterior_undefined_steps"] = sum(not p.defined for p in posts)
     for t, (snap, post) in enumerate(zip(snapshots, posts, strict=True)):
         est = float(snap.belief.estimates()[primary])
         sigma = float(snap.belief.uncertainty()[primary])
         if not sigma > 0.0:
             raise ValueError(f"Claimed uncertainty of {primary!r} is {sigma} at step {t + 1}; cannot standardise.")
         series["z"][t] = (est - truth) / sigma
-        series["g"][t] = post.density.negentropy()
+        series["g"][t] = post.negentropy
         series["m"][t] = post.far_mass
-        series["j"][t] = post.density.fisher_information()
-        if t >= 1 and primary == "zeeman_shift" and fwhm is not None:
+        series["j"][t] = post.fisher
+        if t >= 1 and primary == "zeeman_shift" and fwhm is not None and posts[t - 1].defined:
             prev = snapshots[t - 1].belief
             lo, hi = prev.drive_freq_bounds_phys
             drive_phys = lo + snap.obs.drive_freq_unit * (hi - lo)
@@ -280,9 +336,9 @@ def compute_posterior_metrics(run_result: Any, primary: str | None, stage_metric
 
     tau = stage_metrics.get("dip_detected_step")
     if tau is not None:
-        post = posts[int(tau) - 1]
+        post = posts[int(tau) - 1]  # all None when the posterior at tau has no density (see _StepPosterior)
         scalars["posterior_J_tau_phys"] = series["j"][int(tau) - 1]
-        scalars["posterior_kde_bandwidth_tau_phys"] = post.density.bandwidth_phys
+        scalars["posterior_kde_bandwidth_tau_phys"] = post.bandwidth_phys
         scalars["posterior_negentropy_tau"] = series["g"][int(tau) - 1]
         scalars["posterior_far_mass_tau"] = post.far_mass
     placed = [(t, v) for t, v in enumerate(series["x"]) if v is not None]

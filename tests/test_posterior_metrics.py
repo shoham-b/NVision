@@ -169,3 +169,49 @@ def test_run_metrics_none_without_primary_particles_or_detection(monkeypatch):
     assert compute_posterior_metrics(empty, "zeeman_shift", {})["scalars"]["posterior_J_tau_phys"] is None
     grid = SimpleNamespace(snapshots=[SimpleNamespace(belief=object())], true_signal=None)
     assert compute_posterior_metrics(grid, "zeeman_shift", {})["scalars"]["posterior_J_tau_phys"] is None
+
+
+def test_mirror_peaks_with_a_diffuse_background_and_a_far_straggler():
+    """The posterior right after detection also holds some diffuse mass (the tail the far-mass metric counts)."""
+    rng = np.random.default_rng(7)
+    peak, sep, bg_std, bg_share = 0.1e6, 4e6, 15e6, 0.15
+    n_bg = int(bg_share * N)
+    n_peak = (N - n_bg) // 2
+    bg_centre = 50e6
+    x = np.concatenate(
+        [
+            20e6 + peak * rng.standard_normal(n_peak),
+            20e6 + sep + peak * rng.standard_normal(n_peak),
+            bg_centre + bg_std * rng.standard_normal(n_bg),
+        ]
+    )
+    w = np.full(x.size, 1.0 / x.size)
+    exact = _mixture_fisher(
+        [20e6, 20e6 + sep, bg_centre],
+        [peak, peak, bg_std],
+        [n_peak / x.size, n_peak / x.size, n_bg / x.size],
+        0.0,
+        100e6,
+    )
+    j = posterior_density(x, w, 0.0, 100e6).fisher_information()
+    assert j == pytest.approx(exact, rel=0.3)
+    # One far particle of weight 5e-4 (the span jumps to ~100 MHz) must not move J by much.
+    x2 = np.append(x, 99e6)
+    w2 = np.append(w, 5e-4)
+    j2 = posterior_density(x2, w2, 0.0, 100e6).fisher_information()
+    assert j2 == pytest.approx(j, rel=0.3)
+
+
+def test_flat_prior_cloud_is_undefined_not_a_crash_and_is_counted(monkeypatch):
+    """A sweep's belief is the un-updated flat prior until its first flush: no bandwidth, so no density metrics."""
+    monkeypatch.setattr("nvision.metrics.stages._true_fwhm_phys", lambda ts: 2e6)
+    flat = np.linspace(0.0, 100e6, N)
+    peaked = 30e6 + 1e5 * np.random.default_rng(8).standard_normal(N)
+    run = _fake_run([flat, peaked], drive_unit=[0.0, 0.3])
+    out = compute_posterior_metrics(run, "zeeman_shift", {"dip_detected_step": 1})
+    assert out["scalars"]["posterior_undefined_steps"] == 1
+    assert out["series"]["j"][0] is None
+    assert out["series"]["z"][0] is not None  # z needs only the estimate and sigma
+    assert out["series"]["j"][1] is not None
+    assert out["series"]["x"][1] is None  # no mode before the first measurement
+    assert out["scalars"]["posterior_J_tau_phys"] is None  # tau = 1 is the undefined step
