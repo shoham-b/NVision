@@ -37,6 +37,7 @@ _X_POINTS_PER_FWHM = 200.0
 _WIDTH_REL_TOL = 1e-6
 _SNR_REL_TOL = 1e-3
 _SHAPE_REL_TOL = 1e-9
+_FINAL_ERR_REL_TOL = 2e-3
 
 LoadMeta = Callable[[dict], list[tuple[list[dict] | None, dict]]]
 
@@ -94,6 +95,14 @@ class _Run:
             raise UseCaseError("a repeat has no true-error series")
         self.steps = np.array([series["s"][i] for i in keep], dtype=float)
         self.errs = np.array([series["e"][i] for i in keep], dtype=float)
+        # The series parameter is chosen by the series exporter, not by stage_primary_param: confirm it is the
+        # zeeman_shift error through the stored final error (the series is rounded to 4 significant digits).
+        final_err = field("final_err_primary")
+        if final_err is None or not math.isclose(float(self.errs[-1]), float(final_err), rel_tol=_FINAL_ERR_REL_TOL):
+            raise UseCaseError(
+                f"the last point of the true-error series ({self.errs[-1]:g}) is not the stored final "
+                f"zeeman_shift error ({final_err}): the series is not the primary parameter's error"
+            )
         true = scan.get("true_params") or {}
         self.params = dict(true.get("params") or {})
         lo_phys, hi_phys = (true.get("bounds") or {}).get(PRIMARY_PARAM, (None, None))
@@ -309,6 +318,8 @@ def search_bounds_payload(
         try:
             rows: dict[str, list[_Run]] = {}
             for combo in case_combos:
+                if combo["strategy"] in rows:
+                    raise UseCaseError(f"several cached combos for {combo['strategy']} (older fingerprints?)")
                 rows[combo["strategy"]] = [_Run(entries, row) for entries, row in load_meta(combo)]
             budgets = {int(c["max_steps"]) for c in case_combos if c.get("max_steps")}
             if len(budgets) != 1:
