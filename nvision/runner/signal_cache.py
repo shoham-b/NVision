@@ -151,7 +151,7 @@ def get_shared_core_experiment(
     task: LocatorTask,
     repeat_idx: int,
     build: Callable[[random.Random], CoreExperiment],
-    n_repeats: int,
+    n_repeats: int | None = None,
 ) -> CoreExperiment:
     """Return a :class:`CoreExperiment` with shared ``true_signal`` for this repeat.
 
@@ -171,7 +171,7 @@ def get_shared_core_experiment(
     # The signal of repeat i depends on the total N (stratified draws) but the key does not carry N: two studies
     # with different N must not share a signal, so fail fast instead of silently serving a wrong stratum.
     with _LOCK:
-        seen_n = _N_REPEATS_BY_KEY.setdefault(key, n_repeats)
+        seen_n = n_repeats if n_repeats is None else _N_REPEATS_BY_KEY.setdefault(key, n_repeats)
     if seen_n != n_repeats:
         raise ValueError(f"Signal {key!r} was built for n_repeats={seen_n}, now requested with n_repeats={n_repeats}.")
 

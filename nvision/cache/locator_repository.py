@@ -22,6 +22,24 @@ CachedComboResults = list[tuple[list[dict[str, Any]], dict[str, Any]]]
 STREAMING_REPEAT_THRESHOLD = int(os.getenv("NVISION_STREAMING_REPEAT_THRESHOLD", "0"))
 
 
+def _check_repeat_total(ptr_df: pl.DataFrame, repeats: int, *, what: str) -> None:
+    """Fail fast if a pointer was written for a different total repeat count than the one now requested.
+
+    The NV-center generators stratify the true ``zeeman_shift`` over the study's total ``N`` repeats, so the
+    signal of repeat ``i`` depends on ``N``. The pointer key is deliberately N-independent (work-stealing
+    sub-tasks share it), hence the stored total is the only thing preventing a run with another ``N`` from
+    silently reusing repeats drawn from the wrong strata. Pointers without the column predate this guard.
+    """
+    if "repeat_total" not in ptr_df.columns:
+        return
+    stored = int(ptr_df.get_column("repeat_total")[0])
+    if stored != repeats:
+        raise ValueError(
+            f"{what}: cached repeats were generated for a total of {stored} repeats (stratified true signals), "
+            f"but {repeats} were requested. Re-run with --repeats {stored}, or with --no-cache to regenerate."
+        )
+
+
 class LocatorResultsRepository:
     """Load/save cached locator runs using semantic configs and stable row keys."""
 
@@ -109,6 +127,7 @@ class LocatorResultsRepository:
                 ptr_df = ptr_df_v8
 
         if ptr_df is not None and not ptr_df.is_empty():
+            _check_repeat_total(ptr_df, repeats, what="get_cached_combination")
             achieved = int(ptr_df.get_column("achieved_repeats")[0])
             if achieved >= repeat_offset + repeats:
                 # Full streaming hit
@@ -185,6 +204,7 @@ class LocatorResultsRepository:
                 ptr_df = ptr_df_v8
 
         if ptr_df is not None and not ptr_df.is_empty():
+            _check_repeat_total(ptr_df, repeats, what="get_cached_combination_partial")
             achieved = int(ptr_df.get_column("achieved_repeats")[0])
             # Cap to this sub-task's own chunk, not the total repeats
             max_count = chunk_size if chunk_size is not None else repeats
@@ -237,6 +257,7 @@ class LocatorResultsRepository:
         repeat_offset: int = 0,
         results: CachedComboResults,
         start_idx: int = 0,
+        repeat_total: int | None = None,
     ) -> Path:
         """Persist full combination results.
 
@@ -248,6 +269,9 @@ class LocatorResultsRepository:
             Global repeat index of the first result in ``results``.  For
             sub-tasks this must be ``repeat_offset + n_already_cached`` so that
             results land at the correct positions in the shared pointer.
+        repeat_total:
+            Total repeat count N for generators whose true signals are stratified over it (see
+            :meth:`append_cached_repeats`); ``None`` for generators whose repeats do not depend on N.
         """
         self.append_cached_repeats(
             generator=generator,
@@ -259,6 +283,7 @@ class LocatorResultsRepository:
             repeat_offset=repeat_offset,
             new_results=results,
             start_idx=start_idx,
+            repeat_total=repeat_total,
         )
         return self._store.db_path
 
@@ -274,8 +299,13 @@ class LocatorResultsRepository:
         repeat_offset: int = 0,
         new_results: CachedComboResults,
         start_idx: int,
+        repeat_total: int | None = None,
     ) -> None:
-        """Append new repeats to a streaming cache entry and update pointer."""
+        """Append new repeats to a streaming cache entry and update pointer.
+
+        ``repeat_total`` is the study's total repeat count N; it is stored on the pointer and checked on every
+        read (see :func:`_check_repeat_total`). ``None`` writes a pointer without it (legacy callers/tests).
+        """
         import datetime
 
         updated_at = datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%d %H:%M:%S")
@@ -310,8 +340,17 @@ class LocatorResultsRepository:
         if existing_df is not None and not existing_df.is_empty():
             existing_total = int(existing_df.get_column("achieved_repeats")[0])
 
+        if existing_df is not None and not existing_df.is_empty() and repeat_total is not None:
+            _check_repeat_total(existing_df, repeat_total, what="append_cached_repeats")
+
         if actual_achieved > existing_total:
-            ptr_df = pl.DataFrame({"achieved_repeats": [actual_achieved], "streaming": [True]})
+            columns: dict[str, Any] = {"achieved_repeats": [actual_achieved], "streaming": [True]}
+            kept_total = repeat_total
+            if kept_total is None and existing_df is not None and "repeat_total" in existing_df.columns:
+                kept_total = int(existing_df.get_column("repeat_total")[0])  # never drop the guard
+            if kept_total is not None:
+                columns["repeat_total"] = [int(kept_total)]
+            ptr_df = pl.DataFrame(columns)
             self._store.save_df(ptr_df, ptr_key, metadata={"config": ptr_config, "updated_at": updated_at})
 
     def save_repeat(

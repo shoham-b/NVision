@@ -281,3 +281,20 @@ def test_stratified_zeeman_uses_global_index_in_chunked_subtasks():
         t = _zeeman(runner._shared_experiment_for_repeat(rid))
         assert lo + rid * width <= t < lo + (rid + 1) * width
     clear_signal_experiment_cache()
+
+
+def test_stratum_total_only_for_stratified_generators():
+    """Zeeman-split generators record/enforce N in the cache; others keep resumable, N-independent repeats."""
+    from types import SimpleNamespace
+
+    from nvision.runner.executor import _TaskRunner
+    from nvision.sim.gen.nv_center_generator import NVCenterCoreGenerator
+
+    def total(**gen_kw):
+        runner = _TaskRunner.__new__(_TaskRunner)
+        runner.repeats = 3
+        runner.task = SimpleNamespace(generator=NVCenterCoreGenerator(**gen_kw), repeat_total=8)
+        return runner._stratum_total()
+
+    assert total(variant="lorentzian") == 8
+    assert total(variant="lorentzian", with_zeeman_splitting=False) is None
