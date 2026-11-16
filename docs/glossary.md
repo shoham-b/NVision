@@ -26,7 +26,7 @@ uses the names on the right. Docs describing the algorithm use the article's ter
 | dip test | `find_dips` (`belief/dip_detection.py`), `NVISION_DIP_P_FA` | Boxcar score over measured stretches, Bonferroni threshold. |
 | falsification probe | exploration step in SBED `_acquire` (`EXPLORE_PROBABILITY_*`) | Measures the middle of the widest unmeasured gap. |
 | search / localize / refine | search / localize / refine (persisted fields keep the old name: `focus_found_step`, `refine_start_step`, `stage{1,2,3}_*`) | Same names. The middle stage was called *focus* before; the *focus window / focus sections* (`FocusRegion`) are a different thing and keep their name. See Known deviations in [locator comparison](locator_comparison.md). |
-| SimpleSweep, Smart-Sweep | `SimpleSweep-3perFWHM`, `SimpleSweep-optimal`, `Smart-Sweep` | $\Gamma_0$ = FWHM of the prior-mean line; SimpleSweep spacing $\Gamma_0/k$: $k = 3$ (reference) or the per-task optimum $k^*$ = argmin of $\overline{P(k,\varphi)}\,n(k)$ (whole passes $P$ times points per pass $n$). |
+| SimpleSweep | `SimpleSweep-3perFWHM`, `SimpleSweep-optimal` | $\Gamma_0$ = FWHM of the prior-mean line; SimpleSweep spacing $\Gamma_0/k$: $k = 3$ (reference) or the per-task optimum $k^*$ = argmin of $\overline{P(k,\varphi)}\,n(k)$ (whole passes $P$ times points per pass $n$). |
 | Bayesian SBED | `Bayesian-SBED` | |
 
 ## Frequencies and shifts

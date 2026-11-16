@@ -23,9 +23,7 @@ def test_voigt_grid_group_uses_voigt_inhom_grid_and_all_locators():
     assert set(group.strategy_names) == {
         "SimpleSweep-3perFWHM",
         "SimpleSweep-optimal",
-        "Smart-Sweep",
         "Bayesian-SBED",
-        "Smart-SBED",
     }
     assert group.task_count == len(group.generator_names) * len(group.noise_names) * len(group.strategy_names)
 

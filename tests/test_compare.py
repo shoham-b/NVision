@@ -54,12 +54,17 @@ def test_plain_sweeps_are_the_reference_and_the_optimal_step():
     for name in PLAIN_SWEEP_STRATEGIES:
         assert name in names
         assert is_plain_sweep(name)
-    assert not is_plain_sweep("Smart-Sweep")
     assert not is_plain_sweep("Bayesian-SBED")
 
 
-def test_standard_groups_run_both_plain_sweeps_and_both_smart_locators():
+def test_standard_groups_run_both_plain_sweeps_and_sbed():
     for group in ("voigt-grid",):
         strategies = get_run_group(group).strategy_names
         assert set(PLAIN_SWEEP_STRATEGIES) <= set(strategies)
-        assert {"Smart-Sweep", "Smart-SBED", "Bayesian-SBED"} <= set(strategies)
+        assert "Bayesian-SBED" in strategies
+
+
+def test_sweep_strategy_name_accepts_fractional_points_per_fwhm():
+    assert sweep_strategy_name(3) == sweep_strategy_name(3.0) == "SimpleSweep-3perFWHM"
+    assert sweep_strategy_name(1.5) == "SimpleSweep-1.5perFWHM"
+    assert is_plain_sweep(sweep_strategy_name(1.5))

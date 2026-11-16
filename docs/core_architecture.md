@@ -66,9 +66,7 @@ the inference, and $\hat\sigma_N$ means the same for all of them. All run under 
 - **Sweep family.** `SimpleSweep-3perFWHM` (the reference) and `SimpleSweep-optimal` measure a uniform grid of spacing
   $\Gamma_0/k$ and repeat whole passes; $k = 3$ for the reference, and the optimal sweep uses the fractional $k^*$ that
   minimises $\overline{P(k,\varphi)}\,n(k)$, the whole passes times points per pass the stop rules need
-  ([locator comparison](locator_comparison.md)); `Smart-Sweep` sweeps at $\Gamma_0/3$ until the dip test finds a dip, then at $\Gamma_0/10$ inside the
-  focus, then measures only at the maxima of $(\partial\mu/\partial\theta)^2$ at the posterior mean once the posterior expects each point to
-  carry at least 90 % of the optimal information. Details: [locator comparison](locator_comparison.md).
+  (details: [locator comparison](locator_comparison.md)).
 - **Bayesian SBED** (`nvision/sim/locs/bayesian/sbed_locator.py`). After every resampling, 800 candidate drive
   frequencies are placed at quantiles of a density with Gaussian kernels on the two sides of the posterior-mean dip
   ($\pm$ HWHM from its centre), kernels on the dips found and a flat share, thinned to at least 100 kHz spacing. The

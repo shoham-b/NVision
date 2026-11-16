@@ -23,11 +23,7 @@ from nvision.sim import presets as sim_presets
 from nvision.sim.grid_enums import OPTIMAL_SWEEP_STRATEGY, sweep_strategy_name
 from nvision.sim.locs.bayesian.belief_builders import nv_center_smc_belief
 from nvision.sim.locs.bayesian.sbed_drive_locator import DriveChoosingSBEDLocator
-from nvision.sim.locs.bayesian.sbed_locator import (
-    SequentialBayesianExperimentDesignLocator,
-    SmartSBEDLocator,
-    SmartSweepLocator,
-)
+from nvision.sim.locs.bayesian.sbed_locator import SequentialBayesianExperimentDesignLocator
 from nvision.sim.locs.coarse.generic_sweep_locator import GenericSweepLocator
 from nvision.sim.locs.search_grid import SWEEP_POINTS_PER_FWHM
 from nvision.sim.locs.sweep_optimal import OPTIMAL_SPACING
@@ -304,8 +300,6 @@ class CombinationGrid:
 
         strats = [
             ("Bayesian-SBED", {"class": SequentialBayesianExperimentDesignLocator, "config": sbed_config}),
-            ("Smart-SBED", {"class": SmartSBEDLocator, "config": sbed_config}),
-            ("Smart-Sweep", {"class": SmartSweepLocator, "config": sbed_config}),
             # The reference sweep, named by its points per FWHM, and the sweep at its task's optimal step.
             (sweep_strategy_name(SWEEP_POINTS_PER_FWHM), sweep(SWEEP_POINTS_PER_FWHM)),
             (OPTIMAL_SWEEP_STRATEGY, sweep(OPTIMAL_SPACING)),

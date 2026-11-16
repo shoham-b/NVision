@@ -18,13 +18,11 @@ The yardstick is a ladder, each rung tuned before the next:
 | Rung | Locator | Tuned / differs by |
 |---|---|---|
 | 0 | `SimpleSweep-3perFWHM` (reference), `SimpleSweep-optimal` | grid step (k points per **prior** FWHM): 3 for the reference, the analytically optimal fractional k* of the task for `-optimal` (cost $\min_k \overline{P(k,\varphi)}\,n(k)$, see [locator comparison](locator_comparison.md)); passes averaged over the whole budget |
-| 1 | `Smart-Sweep` | coarse sweep, then sweep inside the dip, then the max-Fisher points |
-| 2 | `Smart-SBED` | same coarse grid as Smart-Sweep: only the acquisition after the dip is seen differs |
-| 3 | `Bayesian-SBED` | no coarse grid |
-| 4 | `Bayesian-SBED-Drive` | also picks the MW drive amplitude (strong to search, near the slope optimum to refine) |
+| 1 | `Bayesian-SBED` | no coarse grid |
+| 2 | `Bayesian-SBED-Drive` | also picks the MW drive amplitude (strong to search, near the slope optimum to refine) |
 
 Expected story: the search stage is a tie (blind, cost of order n for everyone); SBED's distinctive win over
-Smart-Sweep is in the localize stage; in refine SBED and Smart-Sweep both measure at the Fisher-optimal points, while a
+the sweeps is in the localize stage; in refine SBED measures at the Fisher-optimal points, while a
 plain sweep keeps spreading its measurements over the whole dip.
 
 ## What drives each stage
@@ -160,7 +158,7 @@ columns remain for the per-stage views.
 
 A fit of three straight log-log segments to the claimed uncertainty σ̂ is not used: the bound above is the reference. On the
 2026-11-02 check (3 use cases, SNR 5, 50 repeats each), the existing `refine_start_step` sat on the cliff, not on a −1/2
-tail, in 72 of 149 Smart-SBED and 113 of 149 Smart-Sweep runs.
+tail, in many runs of the (since removed) Smart locators.
 
 ### Sensitivity and bandwidth
 
@@ -214,7 +212,7 @@ J₀ came from the prior carry the claimed-σ value and cannot be rescaled: re-r
 
 During the search no strategy, adaptive or not, beats the search bounds of the article (Sec. global and the SM prior
 section). The Search scope draws them next to the measured search, per use case (rule 7) and for the search locators only
-(`Bayesian-SBED`, `SimpleSweep-3perFWHM` and `SimpleSweep-optimal`; never the Smart-* variants). Everything is computed by
+(`Bayesian-SBED`, `SimpleSweep-3perFWHM` and `SimpleSweep-optimal`). Everything is computed by
 `nvision/metrics/search_bounds.py` (formulas, unit tests in `tests/test_search_bounds.py`) from data already in the cache
 through `GET /api/search-bounds` (`nvision/cli/search_bounds_api.py`), so `nv serve` on an existing cache is enough and no
 re-run is needed. The panels are drawn by `static/search-bounds-view.js`.
@@ -259,7 +257,7 @@ a real test of the search claim needs the larger windows. Rows of `SimpleSweep-3
 Code: `nvision/metrics/refine_rates.py` (pure maths), `nvision/metrics/refine_rates_runs.py` (rebuilding cached runs),
 `GET /api/refine-rates` (`nvision/cli/refine_rates_api.py`), UI `static/refine-rates.js` (the "Refine & speedup" section
 at the bottom of the Information tab). Theory: `articles/sections/theory.tex`, Sec. "Speedup over a drive-frequency
-sweep". Locators in scope: Bayesian-SBED and `SimpleSweep-3perFWHM` and `SimpleSweep-optimal` (the realised k* is read from `sweep_k_opt`) (never Smart-*). It reads the cache only, so it works
+sweep". Locators in scope: Bayesian-SBED and `SimpleSweep-3perFWHM` and `SimpleSweep-optimal` (the realised k* is read from `sweep_k_opt`). It reads the cache only, so it works
 after `nv render` / `nv serve` with no re-run (it needs the live server, not a static export).
 
 After the dip is found a locator gains information about the primary parameter at `q · I_max` per measurement,
