@@ -3082,7 +3082,7 @@ function main() {
                 // First load defaults to the Lorentzian / Voigt study.
                 selectedFamilyKey = candidateKey && familyOptions.some((o) => o.key === candidateKey)
                     ? candidateKey
-                    : (familyOptions.find((o) => o.key === 'voigt') || familyOptions[0]).key;
+                    : (familyOptions.find((o) => o.key.startsWith('voigt_')) || familyOptions[0]).key;
                 scanGeneratorFamily.value = selectedFamilyKey;
                 scanGeneratorFamily.onchange = () => {
                     updateScanSignalControls(scanGeneratorFamily.value);

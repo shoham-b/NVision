@@ -177,7 +177,14 @@ window.NVISION_BOOTSTRAP = (async () => {
         let fullGenerator = null; // the one generator that also gets its non-scan (bayesian_*) entries
         if (allGenerators.length && !_nvisionForcedUnscoped()) {
             const hashGenerator = _nvisionHashGenerator();
-            const target = hashGenerator && allGenerators.includes(hashGenerator) ? hashGenerator : allGenerators[0];
+            // Default to the Lorentzian / Voigt study (not drive control, which sorts first by name).
+            const isVoigt = (g) => {
+                const parsed = window.nvisionGeneratorAxes(gridInfoByName[g]);
+                return !!parsed && parsed.family.startsWith('voigt_');
+            };
+            const target = hashGenerator && allGenerators.includes(hashGenerator)
+                ? hashGenerator
+                : (allGenerators.find(isVoigt) || allGenerators[0]);
             scopeGenerators = _nvisionFamilyScope(target, allGenerators, gridInfoByName);
             fullGenerator = target;
         }

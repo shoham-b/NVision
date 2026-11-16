@@ -13,7 +13,7 @@ group                 generators                                  noise         
 ====================  ==========================================  ==================  ===========================
 ``voigt-grid``        Voigt window/FWHM x share x isotope         SNR grid            locator study (below)
 ``drive-control``     CW / pulsed drive-controlled NV x isotope   SNR grid (nominal)  Bayesian-SBED, -SBED-Drive
-``all``               the two above                               the two above       each scenario's own set
+``all``               ``voigt-grid`` only (not ``drive-control``) SNR grid            locator study (below)
 ====================  ==========================================  ==================  ===========================
 
 The locator study is SimpleSweep-3perFWHM (the reference sweep), SimpleSweep-optimal (the sweep at its task's
@@ -153,15 +153,16 @@ def _voigt_grid_up_to_window(group: RunGroup, max_window_fwhm: float) -> RunGrou
 
 
 def _group_all() -> RunGroup:
-    """Every scenario with every locator used in it."""
-    members = (_group_voigt_grid(), _group_drive_control())
+    """Every standard scenario with every locator used in it. ``drive-control`` is run explicitly, not as part of
+    ``all``."""
+    members = (_group_voigt_grid(),)
 
     def union(lists):
         return list(dict.fromkeys(x for xs in lists for x in xs))
 
     return RunGroup(
         name="all",
-        description=("Every scenario above with all of its locators (voigt-grid + drive-control)."),
+        description="The standard scenario (voigt-grid) with all of its locators; drive-control is not included.",
         generator_names=union(m.generator_names for m in members),
         noise_names=union(m.noise_names for m in members),
         strategy_names=union(m.strategy_names for m in members),
