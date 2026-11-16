@@ -1019,9 +1019,8 @@ function main() {
 
         // Known sweeping manners supported in NVision
         const knownSweeps = [
-            'SimpleSweep-2perFWHM',
             'SimpleSweep-3perFWHM',
-            'SimpleSweep-4perFWHM',
+            'SimpleSweep-optimal',
             'Smart-Sweep'
         ];
 
@@ -6236,18 +6235,25 @@ function main() {
         { key: 'err_at_primary', label: 'Error @ primary conv.',  type: 'frequency', color: '#d946ef', deltaColor: '#f43f5e' },
     ];
 
-    // Plain sweeps run at several spacings (SimpleSweep-<k>perFWHM = k grid points per FWHM). The pickers list
-    // "Sweep" once and offer the spacing in a second dropdown that appears after Sweep is chosen.
+    // Plain sweeps: SimpleSweep-<k>perFWHM = k grid points per FWHM (the reference is 3; 2 and 4 only appear in
+    // older cached data) and SimpleSweep-optimal, the sweep at its task's optimal step k*. The pickers list
+    // "Sweep" once and offer the spacing in a second dropdown that appears after Sweep is chosen. k* has no fixed
+    // number: it sorts after every numeric spacing (SWEEP_OPTIMAL_ORDER).
+    const SWEEP_OPTIMAL_ORDER = 1000;
+    function sweepOrder(strategy) {
+        if (/^SimpleSweep-optimal/.test(strategy || '')) return SWEEP_OPTIMAL_ORDER;
+        return Number((/(\d+)perFWHM/.exec(strategy || '') || [])[1]) || 0;
+    }
     function sweepParts(id) {
-        const m = /^simplesweep_(\d+)perfwhm(.*)$/.exec(id || '');
-        return m ? { k: Number(m[1]), rest: m[2] } : null;
+        const m = /^simplesweep_(?:(\d+)perfwhm|(optimal))(.*)$/.exec(id || '');
+        return m ? { k: m[2] ? SWEEP_OPTIMAL_ORDER : Number(m[1]), rest: m[3] } : null;
     }
     function pickerFamilyKey(e) {
         const sp = sweepParts(e.id);
         return sp ? 'simplesweep' + sp.rest : e.id;
     }
     function pickerFamilyLabel(e) {
-        return sweepParts(e.id) ? e.label.replace(/-\d+perFWHM/, '') : e.label;
+        return sweepParts(e.id) ? e.label.replace(/-(\d+perFWHM|optimal)/, '') : e.label;
     }
 
     // One entity picker: a family dropdown (+ a spacing dropdown for the sweep family). Calls onChange when the
@@ -6273,7 +6279,7 @@ function main() {
             for (const k of ks) {
                 const opt = document.createElement('option');
                 opt.value = String(k);
-                opt.textContent = `${k} per FWHM`;
+                opt.textContent = k === SWEEP_OPTIMAL_ORDER ? 'k* (optimal step)' : `${k} per FWHM`;
                 spc.appendChild(opt);
             }
             spc.hidden = ks.length < 2;
@@ -6651,9 +6657,7 @@ function main() {
     function hlStrategyCompare(a, b) {
         const d = hlStrategyRank(a) - hlStrategyRank(b);
         if (d) return d;
-        const ka = Number((/(\d+)perFWHM/.exec(a) || [])[1]) || 0;
-        const kb = Number((/(\d+)perFWHM/.exec(b) || [])[1]) || 0;
-        return ka - kb || a.localeCompare(b);
+        return sweepOrder(a) - sweepOrder(b) || a.localeCompare(b);
     }
 
     function hlSorted(values) {
@@ -6839,8 +6843,7 @@ function main() {
     // that darkens with k (light = coarsest spacing); every other locator gets its own palette color.
     function hlStratColor(strategies, strategy) {
         if (isSweepBaseline(strategy)) {
-            const sweepK = (s) => Number((/(\d+)perFWHM/.exec(s) || [])[1]) || 0;
-            const sweeps = strategies.filter(isSweepBaseline).sort((a, b) => sweepK(a) - sweepK(b));
+            const sweeps = strategies.filter(isSweepBaseline).sort((a, b) => sweepOrder(a) - sweepOrder(b));
             const frac = sweeps.length > 1 ? sweeps.indexOf(strategy) / (sweeps.length - 1) : 0.5;
             return hlHslToHex(215, 0.5, 0.78 - 0.5 * frac);
         }
@@ -6906,12 +6909,14 @@ function main() {
     const SS_GAUSS_WITHIN = { 1: 0.6827, 2: 0.9545, 3: 0.9973 };
 
     function ssSpacing(strategy) {
+        if (strategy === 'SimpleSweep-optimal') return SWEEP_OPTIMAL_ORDER;
         const m = /^SimpleSweep-(\d+)perFWHM$/.exec(strategy || '');
         return m ? Number(m[1]) : null;
     }
 
     function ssLabel(strategy) {
         const k = ssSpacing(strategy);
+        if (k === SWEEP_OPTIMAL_ORDER) return 'SimpleSweep k*';
         return k != null ? `Sweep k=${k}` : _shortStratLabel(strategy);
     }
 
@@ -7494,6 +7499,30 @@ function main() {
         const costControls = document.getElementById('ss-controls');
         if (costView) costView.style.display = whole ? 'block' : 'none';
         if (costControls) costControls.style.display = whole ? 'block' : 'none';
+        // Search bounds (static/search-bounds-view.js) belong to the Search scope.
+        const boundsView = document.getElementById('search-bounds-view');
+        if (boundsView) boundsView.style.display = hlStageShown === 1 ? 'block' : 'none';
+        if (hlStageShown === 1) hlRenderSearchBounds();
+    }
+
+    // The selection the Information tab last rendered, for the Search bounds panel group.
+    let hlSelection = null;
+    function hlRenderSearchBounds() {
+        const body = document.getElementById('search-bounds-body');
+        if (!body || !hlSelection || !window.renderSearchBounds) return;
+        const cases = ucList(hlSelection.gen, hlSelection.noises);
+        const key = JSON.stringify(cases.map((c) => [c.generator, c.noise]));
+        if (body.dataset.key === key) return;   // already drawn for this selection
+        body.dataset.key = key;
+        if (cases.length > window.SB_MAX_USE_CASES) {
+            body.innerHTML = `<p style="color:#92400e; background:#fffbeb; border:1px solid #fde68a; border-radius:6px; padding:0.6em 1em;">${cases.length} use cases selected; the search bounds are computed per use case from the cache and are shown for at most ${window.SB_MAX_USE_CASES}. Narrow the selection.</p>`;
+            return;
+        }
+        const strategies = [...new Set(scanPlots.filter((p) => p.strategy).map((p) => p.strategy))];
+        window.renderSearchBounds(
+            body, [...new Set(cases.map((c) => c.generator))], [...new Set(cases.map((c) => c.noise))],
+            (name) => hlStratColor(strategies, name),
+        );
     }
 
     function hlBindStageSelector() {
@@ -7511,6 +7540,9 @@ function main() {
 
     function renderStagesTab(gen, noises) {
         if (toGenSet(gen).size === 0) return;
+        hlSelection = { gen, noises };
+        const boundsBody = document.getElementById('search-bounds-body');
+        if (boundsBody) delete boundsBody.dataset.key;   // the selection may have changed: redraw when shown
         ensureScanFieldsFor(gen, noises)
             .then(() => ensurePlotly())
             .then(() => {
@@ -7518,6 +7550,7 @@ function main() {
                 hlBindStageSelector();
                 hlApplyStageSelector();
                 if (hlStageShown === 0) renderStepSizeTab();   // Cost & search under Whole run
+                if (window.NVRefineRates) window.NVRefineRates.render(document.getElementById('refine-speedup-view'), gen, noises);
             })
             .catch(err => {
                 const view = document.getElementById('stages-view');

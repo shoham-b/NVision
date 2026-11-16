@@ -239,6 +239,10 @@ def _sigma_curves(full: dict, held: dict, ref: dict) -> dict | None:
     out: dict = {"steps": list(range(1, len(full["sigma_history"]["zeeman_shift"]) + 1))}
     for param in HOLDOUT_PARAMS:
         out[f"all_{param}"] = [_mhz(s) for s in full["sigma_history"][param]]
+        # Fitted at import (nv matlab) and stored in the record; records from before that have none.
+        fit = (full.get("search_fit") or {}).get(param)
+        out[f"searchfit_{param}"] = None if fit is None else fit["model"]
+        out[f"searchfit_{param}_params"] = None if fit is None else {k: v for k, v in fit.items() if k != "model"}
         out[f"even_{param}"] = [_mhz(s) for s in held["sigma_history"][param]]
         sigma_ref = ref[f"ref_{param}_sigma"]
         out[f"ref_{param}"] = None if sigma_ref == 0.0 or ref.get(f"ref_{param}_at_bound") else _mhz(sigma_ref)

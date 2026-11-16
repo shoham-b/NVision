@@ -30,10 +30,14 @@ NVISION_CONVERGENCE_PATIENCE: int = int(os.getenv("NVISION_CONVERGENCE_PATIENCE"
 
 
 class ConvergenceStopRules:
-    """The stopping rules shared by every locator that infers with an SMC belief (SBED family and the sweeps).
+    """The convergence rule shared by every locator that infers with an SMC belief (SBED family and the sweeps).
 
     Needs ``self.belief`` and ``self.step_count``; call :meth:`_init_stop_rules` once, then
     :meth:`_update_stop_rules` after each observation and read ``_is_converged``.
+
+    The rule is recorded, never enforced: every run measures its whole budget, so the error is known at every
+    measurement count and all locators are compared over the same range (docs/evaluation_metrics.md). ``_is_converged``
+    says where the run *would* have stopped.
     """
 
     def _init_stop_rules(self, convergence_threshold: float, convergence_patience_steps: int) -> None:
@@ -217,14 +221,10 @@ class SequentialBayesianLocator(ConvergenceStopRules, Locator):
         self._check_convergence_milestones()
 
     def _acquisition_done(self) -> bool:
-        """Return whether the Bayesian acquisition phase should stop.
+        """Return whether the Bayesian acquisition phase should stop: only when the ``max_steps`` budget is exhausted.
 
-        Stops when:
-        1. Target parameters have stayed converged for ``convergence_patience_steps``
-           (``_target_params_converged``,
-           both of which require several *consecutive* or empirically-grounded
-           confirmations, not a single snapshot).
-        2. The absolute ``max_steps`` budget is exhausted.
+        The convergence rule (``_is_converged``) is recorded but does not stop the run (see
+        :class:`ConvergenceStopRules`).
 
         This used to also stop early whenever a dynamic budget estimate
         (``n_req = step_count * (crlb_zero_field_freq()/threshold)**2``, scaled by
@@ -246,7 +246,7 @@ class SequentialBayesianLocator(ConvergenceStopRules, Locator):
         converged" path -- removing this second, snapshot-only stopping path
         rather than trying to further patch its triggering condition.
         """
-        return self._is_converged or self.inference_step_count >= self.max_steps
+        return self.inference_step_count >= self.max_steps
 
     # ------------------------------------------------------------------
     # Locator interface — thin orchestrators that delegate to hooks above
@@ -265,7 +265,7 @@ class SequentialBayesianLocator(ConvergenceStopRules, Locator):
         self._observe_acquisition(obs)
 
     def done(self) -> bool:
-        """Stop when converged or step budget is exhausted."""
+        """Stop when the step budget is exhausted."""
         return self._acquisition_done()
 
     def result(self) -> dict[str, float]:

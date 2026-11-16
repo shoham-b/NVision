@@ -12,6 +12,7 @@ import polars as pl
 
 from nvision.metrics.claim_columns import CLAIM_COLUMN_KEYS, compute_claim_columns
 from nvision.metrics.milestones import calculate_zeeman_metrics, detect_all_converged_step, resolve_primary_param
+from nvision.metrics.posterior import POSTERIOR_METRIC_KEYS, compute_posterior_metrics
 from nvision.metrics.stages import STAGE_METRIC_KEYS, compute_stage_metrics
 from nvision.models.experiment import CoreExperiment
 from nvision.models.observer import RunResult
@@ -119,6 +120,11 @@ def generate_attempt_metrics(
             metrics_serialized[k] = v if isinstance(v, str) else _maybe_finite(v)
         # Columns the article's claims need (PIT, sweep information, far placement; metrics/claim_columns.py).
         for k, v in compute_claim_columns(run_result, stage_metrics).items():
+            metrics_serialized[k] = _maybe_finite(v)
+        # Run-time posterior metrics of the primary parameter (J_tau, far placement; metrics/posterior.py). The
+        # per-step series are attached to the scan entry in runner/plots.py from the same (memoised) computation.
+        posterior = compute_posterior_metrics(run_result, stage_metrics["stage_primary_param"], stage_metrics)
+        for k, v in posterior["scalars"].items():
             metrics_serialized[k] = _maybe_finite(v)
 
     sweep_steps: int | None = None
@@ -311,6 +317,7 @@ def generate_attempt_metrics(
         "all_converged_step": all_converged_step,
         **{key: metrics_serialized.get(key) for key in STAGE_METRIC_KEYS},
         **{key: metrics_serialized.get(key) for key in CLAIM_COLUMN_KEYS},
+        **{key: metrics_serialized.get(key) for key in POSTERIOR_METRIC_KEYS},
         "failure_reason": failure_reason,
         "metrics": metrics_serialized,
     }

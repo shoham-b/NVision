@@ -147,6 +147,7 @@ def get_shared_core_experiment(
     task: LocatorTask,
     repeat_idx: int,
     build: Callable[[random.Random], CoreExperiment],
+    n_repeats: int,
 ) -> CoreExperiment:
     """Return a :class:`CoreExperiment` with shared ``true_signal`` for this repeat.
 
@@ -162,7 +163,10 @@ def get_shared_core_experiment(
     level, such as the Bayesian ``noise_sigma`` prior window, has to be attached by the caller
     afterwards, or one task's noise prior would leak into every other noise level's experiment.
     """
-    key = signal_repeat_key(task.seed, task.generator_name, repeat_idx)
+    seed_key = signal_repeat_key(task.seed, task.generator_name, repeat_idx)
+    # The signal of repeat i depends on the total N (stratified draws), so N is part of the cache key: two studies
+    # with different N each get their own stratum. The rng seed stays the repeat's own (``seed_key``).
+    key = f"{seed_key}|n_repeats={n_repeats}"
 
     # 1. Check local cache (lock-free)
     cached = _DESERIALIZED_CACHE.get(key)
@@ -194,7 +198,7 @@ def get_shared_core_experiment(
                     )
 
                 # Generate and write to SHM
-                rng = random.Random(repeat_seed_int(key))
+                rng = random.Random(repeat_seed_int(seed_key))
                 exp = build(rng)
                 bundle = (exp.true_signal, exp.drive_freq_min_phys, exp.drive_freq_max_phys)
                 _DESERIALIZED_CACHE[key] = bundle
@@ -219,7 +223,7 @@ def get_shared_core_experiment(
                         drive_freq_max_phys=drive_freq_max_phys,
                     )
 
-                rng = random.Random(repeat_seed_int(key))
+                rng = random.Random(repeat_seed_int(seed_key))
                 exp = build(rng)
                 _SIGNAL_BUNDLE_BY_KEY[key] = (exp.true_signal, exp.drive_freq_min_phys, exp.drive_freq_max_phys)
                 return CoreExperiment(
@@ -241,7 +245,7 @@ def get_shared_core_experiment(
                     drive_freq_max_phys=drive_freq_max_phys,
                 )
 
-            rng = random.Random(repeat_seed_int(key))
+            rng = random.Random(repeat_seed_int(seed_key))
             exp = build(rng)
             _SIGNAL_BUNDLE_BY_KEY[key] = (exp.true_signal, exp.drive_freq_min_phys, exp.drive_freq_max_phys)
             return CoreExperiment(

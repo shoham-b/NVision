@@ -14,78 +14,82 @@
 % about D, so this is equivalent to the lower transition f_- used here (the one measured in the lab).
 
 Under green illumination the negatively charged N-V center emits red photoluminescence (PL). A center in the
-ground-state spin sublevels $m_s=\pm1$ crosses more often into a dark metastable singlet than one in $m_s=0$, so it
-emits less PL, and the singlet decays preferentially back to $m_s=0$ \cite{manson2006,doherty2013nv}. Continuous
+ground-state spin sublevels $m_s=\pm1$ crosses much more often into a dark metastable singlet than one in $m_s=0$, so it
+emits much less PL, and the singlet decays preferentially back to $m_s=0$ \cite{manson2006,doherty2013nv}. Continuous
 illumination therefore pumps the spin into $m_s=0$, and the spin state can be prepared and read out optically
 (\SM{sm:odmr}).
 
-The ground state is a spin 1. With a static field $B_z$ along the N-V axis, its Hamiltonian is \cite{doherty2013nv}
+The ground state is a spin 1 and with a static field $B_z$ along the N-V axis, its Hamiltonian is \cite{doherty2013nv}
 \begin{equation}
   H=D\,S_z^2+\gamma_e B_z S_z+A_\parallel S_zI_z ,
   \label{eq:hamiltonian}
 \end{equation}
 written in frequency units ($h=1$), with $D\approx2.87$~GHz the zero-field splitting, $\gamma_e\approx28$~GHz/T the electron gyromagnetic ratio, and
-$A_\parallel$ the axial hyperfine coupling to the nitrogen nuclear spin $I$ ($|A_\parallel|=2.15$~MHz for
-$^{14}$N, $I=1$, and $3.03$~MHz for $^{15}$N, $I=1/2$ \cite{felton2009}). The eigenstates are the product states
+$A_\parallel$ the axial hyperfine coupling to the nitrogen nuclear spin $I$. The eigenstates are the product states
 $|m_s,m_I\rangle$, and the magnetic-dipole transitions $m_s=0\to\pm1$, which conserve $m_I$, lie at
 \begin{equation}
   f_\pm(m_I)=D\pm\left(\delta_Z+A_\parallel m_I\right),\qquad \delta_Z=\gamma_e B_z ,
   \label{eq:transitions}
 \end{equation}
 where the Zeeman shift $\delta_Z$ is the distance of each transition from $D$: the field moves the two transitions
-apart, symmetrically about $D$. The hyperfine
-term splits each of them further into $2I+1$ lines, one per nuclear projection $m_I$, spaced by $|A_\parallel|$:
-a triplet for $^{14}$N and a doublet for $^{15}$N. Every N-V center contains one of the two isotopes ($^{14}$N at
-99.6\% natural abundance, $^{15}$N in isotopically enriched or implanted samples), so the hyperfine structure is
-always present; whether it is resolved depends on the linewidth.
+apart, symmetrically about $D$. The hyperfine term splits each transition further into $2I+1$ lines, one per
+nuclear projection $m_I$, spaced by $|A_\parallel|$.
 
 An ODMR measurement sets the microwave drive frequency $f$ and records the PL, normalized to its off-resonance
-level. When $f$ meets a transition, the drive transfers population from $m_s=0$ to the darker $m_s=\pm1$ state and
-the PL dips. When the two transitions, $2\delta_Z$ apart, are well separated compared with the linewidth, a drive
-near $f_-$ couples only $m_s=0$ and $m_s=-1$, and the spin reduces to a driven two-level system \cite{dreau2011}.
-It is therefore enough to model one transition, and we take the one measured in our setup,
-$f_-$ (Sec.~\ref{sec:setup}); $f_+$ behaves the same way, mirrored about $D$. With the zero-field splitting $D$
-treated as a known constant, $f_-$ carries the field, $D-f_-=\delta_Z=\gamma_e B_z$, and an uncertainty in $f_-$ is
-the same uncertainty in the Zeeman shift.
+level. At $f=f_\pm$ the drive is resonant with the $m_s=0\to\pm1$ transition: it transfers population from
+$m_s=0$ to the darker $m_s=\pm1$ state and the PL dips. Each transition on its own is a driven two-level system,
+$m_s=0$ and one of $m_s=\pm1$ \cite{dreau2011}.
 
 In continuous-wave (CW) ODMR the laser and the microwave drive act on the spin at the same time. The laser pumps the
 spin back toward $m_s=0$ at a rate $\Gamma_p$, and each optical cycle destroys the phase between $m_s=0$ and
-$m_s=-1$, at a rate $\Gamma_c$; both rates grow with the laser power and saturate at high power. The spin's
+$m_s=\pm1$, at a rate $\Gamma_c$; both rates grow with the laser power and saturate at high power. The spin's
 environment adds its own relaxation rate $1/T_1$ to the first and its dephasing rate $1/T_2$ to the second, so the
 populations relax at $\Gamma_1=\Gamma_p+1/T_1$ and the coherence at $\Gamma_2=\Gamma_c+1/T_2$. With these rates, and
 the angular Rabi frequency $\Omega_R=2\pi\Omega$ of the drive, the steady-state line is a Lorentzian
 (\SM{sm:cw-pumping}), of half width \cite{dreau2011}
-\begin{equation}
-  \gamma=\frac{1}{2\pi}\sqrt{\Gamma_2^2+\Omega_R^2\,\frac{\Gamma_2}{\Gamma_1}} .
-  \label{eq:linewidth}
-\end{equation}
+    \begin{equation}
+      \gamma=\frac{1}{2\pi}\sqrt{\Gamma_2^2+\Omega_R^2\,\frac{\Gamma_2}{\Gamma_1}} .
+      \label{eq:linewidth}
+    \end{equation}
 At weak drive the laser sets the width, at strong drive
-the microwave. The spin bath also spreads the transition frequency itself, by $\sim1/T_2^*$; this adds a Gaussian
-broadening to the Lorentzian, and it sets the width once both powers are low (\SM{sm:cw-pumping}). Whatever its
-origin, the line is one dip of a single effective width, taken here as a Lorentzian: the normalized PL expected at
-drive frequency $f$ is
+the microwave. Eq.~\eqref{eq:linewidth} does not contain $T_2^*$: the spin bath does not add a decay rate but
+spreads the transition frequency itself, with standard deviation $\sigma_\xi=1/(\sqrt2\,\pi T_2^*)$. Averaged over
+this spread, the Lorentzian becomes a Voigt profile, and once both powers are low the Gaussian sets the width
+(\SM{sm:cw-pumping}). When $T_2^*$ is long enough that $\sigma_\xi\ll\gamma$, the Gaussian is negligible and the line
+stays a Lorentzian. We assume this regime and take the line as a Lorentzian of half width $\gamma$ and full width at
+half maximum $\Gamma=2\gamma$. Optical and microwave broadening are not modeled separately: they enter only
+through $\Gamma$, which is inferred with the line.
+
+\emph{Signal.} Every N-V center contains one of two nitrogen isotopes: $^{14}$N ($I=1$,
+$|A_\parallel|=2.15$~MHz) at 99.6\% natural abundance, which splits each transition into three dips, or $^{15}$N
+($I=1/2$, $|A_\parallel|=3.03$~MHz) in isotopically enriched or implanted samples, which splits it into two
+\cite{felton2009}. The structure is always present, but the hyperfine lines of a transition merge into one dip when
+$\Gamma\gg|A_\parallel|$, and only one of them remains when the nuclear spin is polarized into a single $m_I$
+\cite{jacques2009}. We assume one of the two, so each transition gives a single dip, and the normalized PL expected at drive frequency $f$ is
 \begin{equation}
-  \mu(f)=1-C\,\frac{\gamma^2}{\gamma^2+(f-f_-)^2},
+  \mu(f)=1-C\,\frac{\gamma^2}{\gamma^2+(f-f_-)^2}-C\,\frac{\gamma^2}{\gamma^2+(f-f_+)^2},
+  \label{eq:signal-both}
+\end{equation}
+with contrast $C$, the depth of each dip at its resonance.
+
+For $\delta_Z\gg\gamma$ the tail of the $f_+$ dip is negligible near $f_-$, the drive there couples only $m_s=0$ and
+$m_s=-1$, and Eq.~\eqref{eq:signal-both} reduces to the $f_-$ dip alone,
+\begin{equation}
+  \mu(f)=1-C\,\frac{\gamma^2}{\gamma^2+(f-f_-)^2}.
   \label{eq:signal}
 \end{equation}
-with contrast $C$, the depth of the dip at $f=f_-$, half width $\gamma$ of Eq.~\eqref{eq:linewidth} and full width
-at half maximum $\Gamma=2\gamma$. Optical and microwave broadening are not modeled separately: they enter only
-through the single linewidth $\Gamma$, which is inferred with the line.
+With the zero-field splitting $D$ treated as a known constant, $f_-$ carries the field,
+$D-f_-=\delta_Z=\gamma_e B_z$, and an uncertainty in $f_-$ is the same uncertainty in the Zeeman shift.
 
-Equation~\eqref{eq:signal} is a single line. It holds when the hyperfine lines merge, $\Gamma\gg|A_\parallel|$, or
-when the nuclear spin is polarized into one $m_I$ \cite{jacques2009}.
-
-\emph{Noise.} Each reading of the normalized PL is noisy. Its floor is photon shot noise: a reading that collects
-$N_{\rm ph}$ photons on average off resonance has a relative standard deviation $N_{\rm ph}^{-1/2}$, and slightly
-less inside the dip, where fewer photons arrive. Technical noise (laser intensity, microwave power, collection
-drift) adds to it~\cite{hincks2018}. We model a single reading, a shot, as
+\emph{Noise.} A reading of the normalized PL that collects $N_{\rm ph}$ photons on average off resonance carries photon shot noise of relative standard deviation $N_{\rm ph}^{-1/2}$, and technical noise
+such as laser intensity, microwave power and collection drift adds to it~\cite{hincks2018}. We model a single reading, a shot, as
 \begin{equation}
   y=\mu(f)+\epsilon,\qquad \epsilon\sim\mathcal N(0,\sigma^2),
   \label{eq:noise}
 \end{equation}
-with one $\sigma\ge N_{\rm ph}^{-1/2}$ at every drive frequency; this neglects the small reduction of the shot noise
+with one $\sigma\ge N_{\rm ph}^{-1/2}$ at every drive frequency neglecting the small reduction of the shot noise
 inside the dip, of relative order of the contrast $C$. A measurement is the mean of $k$ shots at the same $f$, so its noise is
-$\sigma/\sqrt k$. The signal-to-noise ratio of a single shot depends on where it is taken: it is the drop in PL at
+$\sigma/\sqrt k$. The signal-to-noise ratio of a single shot depends on where it is taken and drop in PL at
 $f$ over the noise,
 \begin{equation}
   \mathrm{SNR}(f)=\frac{1-\mu(f)}{\sigma}=\frac{C}{\sigma}\,\frac{\gamma^2}{\gamma^2+(f-f_-)^2}.
@@ -103,8 +107,7 @@ Eq.~\eqref{eq:snr}.
 % simulated SNR by /2 before quoting it in figures, tables or text.
 
 The prior knowledge of the experimentalist is an interval of width $W$ that holds the resonance,
-$f_-\in[f_{\min},f_{\min}+W]$, and the drive frequency is scanned over at least this interval. The ratio $W/\Gamma$,
-the inverse of the fraction of the window the line occupies, sets how hard the search is.
+$f_-\in[f_{\min},f_{\min}+W]$, and the drive frequency is scanned over at least this interval.
 
 The model above predicts what a measurement records for given parameters. The rest of this section turns the
 question around: given the measurements, how well can $f_-$ be known, how much can each measurement add, and where
@@ -127,8 +130,7 @@ if the dip is at $\theta$. For the Gaussian scatter of Eq.~\eqref{eq:noise},
   \mathcal L(\theta)=\sqrt{\frac{k}{2\pi\sigma^2}}\,\exp\!\Big[-\frac{k\,\big(y-\mu(d;\theta,\phi)\big)^2}{2\sigma^2}\Big].
 \end{equation*}
 
-How much one measurement at $d$ tells about $\theta$ is its Fisher information. With the score
-$\partial\ln\mathcal L/\partial\theta=(k/\sigma^2)(y-\mu)\,\partial\mu/\partial\theta$ it is
+How much one measurement at $d$ tells about $\theta$ is its Fisher information. 
 \begingroup\small
 \begin{equation}
   \begin{aligned}
@@ -141,11 +143,10 @@ $\partial\ln\mathcal L/\partial\theta=(k/\sigma^2)(y-\mu)\,\partial\mu/\partial\
   \label{eq:fisher}
 \end{equation}
 \endgroup
-the average running over the outcomes $y$ the measurement could return, and the slope $\partial\mu/\partial\theta$
-being how fast the predicted signal moves when $\theta$ moves.
+
 
 For the Lorentzian of Eq.~\eqref{eq:signal} the slope vanishes on resonance, where the dip is flat, and on the
-baseline far from it: a measurement at the bottom of the dip or far outside it says almost nothing about where the
+baseline far from it so a measurement at the bottom of the dip or far outside it says almost nothing about where the
 dip is. The slope is steepest on the two sides of the dip, a detuning $\gamma/\sqrt3$ from the resonance, where the
 dip is $3/4$ deep (Appendix~\ref{app:fisher}). A measurement there carries the most information one measurement
 can,
@@ -183,7 +184,7 @@ uniform on the window, $p(\theta)=1/W$.
 The information of a prior probability density function (PDF) $p(\theta)$ is its Fisher information. For the
 Gaussian prior of tracking,
 \begin{equation}
-  J_0^{\rm track}=\int\frac{p'(\theta)^2}{p(\theta)}\,d\theta=\big(\sigma_0^{\rm track}\big)^{-2}.
+  J_0^{\rm track}=-\Big\langle\frac{\partial^2\ln p(\theta)}{\partial\theta^2}\Big\rangle_{\!\theta}=\big(\sigma_0^{\rm track}\big)^{-2}.
   \label{eq:j0}
 \end{equation}
 It is knowledge the strategy starts with: a narrower prior holds more of it, and no measurement had to pay for it.
@@ -198,19 +199,29 @@ $I(d)\le I_{\rm max}$ gives
   \bar\sigma_\theta(n)\ \ge\ \sigma_{\rm vT}(n)=\big(J_0+nI_{\rm max}\big)^{-1/2},
   \label{eq:vantrees}
 \end{equation}
-for any estimator, biased or not, with $J_0=J_0^{\rm track}$ in tracking. Here $\bar\sigma_\theta^2(n)=\mathbb E\big[(\hat\theta_n-\theta)^2\big]$ is the mean
-squared error (MSE) of the estimate $\hat\theta_n$ after $n$ measurements. The bar marks the average: over the noise
-of the measurements and over the true $\theta$ drawn from the prior, here the random drift since the last estimate.
-It is an error against the true $\theta$, not the uncertainty a strategy claims. For a signal linear in $\theta$ the
-bound is reached exactly; for the dip it holds at every $n$ and is reached once the estimate is within the line.
+for any estimator, biased or not, with $J_0=J_0^{\rm track}$ in tracking. Here $\bar\sigma_\theta^2(n)$ is the
+squared error of the estimate $\hat\theta_n$ after $n$ measurements, averaged over the true $\theta$ drawn from the
+prior and, for each $\theta$, over the outcomes $y_{1:n}$ of the measurements:
+\begin{equation}
+  \bar\sigma_\theta^2(n)=\int p(\theta)\,\underbrace{\mathbb E_{y_{1:n}\mid\theta}\Big[\big(\hat\theta_n(y_{1:n})-\theta\big)^2\Big]}_{\text{MSE at a fixed }\theta}\,d\theta .
+  \label{eq:bayes-mse}
+\end{equation}
+In tracking, $p(\theta)$ is the random drift since the last estimate. This is an error against the true $\theta$,
+not the uncertainty a strategy claims. The bound holds for this average over $\theta$, not for each $\theta$ alone: an
+estimate that leans on the prior can do better than the bound at some $\theta$, near the center of the prior, only by
+doing worse at others. For a signal linear in $\theta$ the bound is reached exactly; for the dip it holds at every
+$n$ and is reached once the estimate is within the line.
+The bound, like all those below, treats the width $\Gamma$ and the contrast $C$ as known. Inferring them as well can
+only add to the uncertainty in $\theta$, but it adds nothing when the measurements are placed symmetrically on the two
+sides of the dip: there the effect of a shift of $\theta$ on the data is uncorrelated with that of a change of
+$\Gamma$ or $C$, so the Fisher information has no cross terms between them.
 
 The curve has two limits, set by how the information of the measurements compares with that of the prior. While
 $nI_{\rm max}\ll J_0$, it stays at the prior, $\sigma_{\rm vT}\approx\sigma_0^{\rm track}$: the measurements have not yet added
-to what the prior told. An estimate in this limit leans on the prior and is biased toward its center, which is why
-its error may lie below the unbiased Cram\'er--Rao bound $(nI_{\rm max})^{-1/2}$. Once $nI_{\rm max}\gg J_0$, the
-prior is washed out and $\sigma_{\rm vT}\approx(nI_{\rm max})^{-1/2}$, the unbiased Cram\'er--Rao bound of
-Sec.~\ref{sec:fisher}, which falls with slope $-\tfrac12$ on a log--log scale and is reached only by measuring every
-time at the steepest slope. The two limits cross at $n_c=J_0/I_{\rm max}$.
+to what the prior told. The error is then smaller than $(nI_{\rm max})^{-1/2}$, the Cram\'er--Rao bound of the
+measurements alone, because the prior already holds more information than they do. Once $nI_{\rm max}\gg J_0$, the
+prior is washed out and $\sigma_{\rm vT}\approx(nI_{\rm max})^{-1/2}$, which falls as $n^{-1/2}$ and is reached only
+by measuring every time at the steepest slope. The two limits cross at $n_c=J_0/I_{\rm max}$.
 
 Any strategy therefore starts in the prior limit and, if it does well, ends in the data limit, and in between it
 must pass from one to the other. We name these regimes after what the strategy does in them: \emph{search} while it
@@ -226,148 +237,104 @@ dip located from the start, so it has no search and is all refine.
 In a global search the best guess before any measurement is the center of the window, and its error is the spread
 of the uniform prior,
 \begin{equation}
-  \bar\sigma_\theta^2(0)=\big(\sigma_0^{\rm global}\big)^2=\int_{-W/2}^{W/2}\frac{v^2}{W}\,dv=\frac{W^2}{12},
+  \bar\sigma_\theta^2(0)=\big(\sigma_0^{\rm global}\big)^2=\frac{W^2}{12}.
   \label{eq:prior}
 \end{equation}
-with $v$ the distance from the center of the window. Eq.~\eqref{eq:vantrees} cannot describe what follows, for two
-reasons. First, the uniform prior steps from $1/W$ to zero at the edges of the window, where $p'$ diverges, so
+Eq.~\eqref{eq:vantrees} cannot describe what follows. The uniform prior steps from $1/W$ to zero at the edges of the
+window, where $p'$ diverges, so its information is infinite and the bound says nothing,
 \begin{equation*}
-  J_0^{\rm global}=\int\frac{p'(\theta)^2}{p(\theta)}\,d\theta=\infty,
+  \begin{aligned}
+  J_0^{\rm global}&=\int\frac{p'(\theta)^2}{p(\theta)}\,d\theta=\infty\\
+  \Longrightarrow\quad\bar\sigma_\theta(n)&\ \ge\ \big(J_0^{\rm global}+nI_{\rm max}\big)^{-1/2}=0 .
+  \end{aligned}
 \end{equation*}
-and the bound becomes empty. Second, even with the inverse variance $12/W^2$ in its place, the bound credits every
-measurement with $I_{\rm max}$, and its crossover,
-\begin{equation*}
-  n_c=\frac{12/W^2}{I_{\rm max}}=\frac{64}{9}\,\frac{(\Gamma/W)^2}{k\,\mathrm{SNR}^2}
-  \;\overset{W\gg\Gamma}{\ll}\;1,
-\end{equation*}
-would put the data limit at the first measurement. But $I_{\rm max}$ is reached only once the dip has been found: a
-measurement on the baseline carries $I(d)\approx0$. What such a measurement contributes instead is
-\emph{elimination}: it rules out the part of the window where a dip would have shown.
+And the bound credits every measurement with $I_{\rm max}$, while a measurement on the baseline carries $I(d)\approx0$ (\SM{sm:prior}).
+What such a measurement contributes instead is \emph{elimination}: it rules out the part of the window where a dip
+would have shown.
 
-\paragraph{Elimination model.} The simplest strategy built on elimination steps through the window from one edge,
-only until it finds the dip, and from then on measures only at the steepest slope. This is not a sweep, which keeps
-spreading its measurements over the whole window after the dip is found (Sec.~\ref{sec:speedup}). Let the SNR be so
-high that a single measurement shows a dip within its reach $\Delta d$, the width around the drive frequency in which
-the drop cannot be mistaken for noise, and none further away. The steps are spaced by this reach: closer spacing
-repeats work, wider spacing lets the dip slip between them. Within the line the reach is about $\Gamma$; at high SNR
-the Lorentzian tails stay visible further out, and $\Delta d>\Gamma$ (\SM{sm:prior}). In one run, after $n$ measurements without a dip, the resonance is
-known only to lie in the part of the window not yet excluded, and the posterior is uniform there, so the error of
-that run is
+\paragraph{Elimination model.} Let the SNR be so high that a single measurement shows a dip within its reach
+$\Delta d$ of the drive frequency, and none further away. The elimination model steps through the window from one
+edge, spaced by this reach, so that each step covers a cell of width $\Delta d$ (\SM{sm:prior}). After $n$ steps
+without a dip, the dip is equally likely anywhere in the part of the window not yet covered, so the error of that
+run is
 \begin{equation}
-  \sigma_\theta(n)=\frac{W-n\Delta d}{\sqrt{12}},\qquad n<n_d,
+  \sigma_\theta(n)=\frac{\overbrace{W-n\Delta d}^{\text{window left}}}{\sqrt{12}},\qquad n<n_d,
   \label{eq:elimination}
 \end{equation}
-where $n_d\le W/\Delta d$ is the step that finds the dip. Detection localizes the resonance to one step, an
-interval of width $\Delta d$ and inverse variance $12/\Delta d^2$, after which each measurement adds
-$I_{\rm max}$:
-\begin{equation}
-  \sigma_\theta(n)=\Big(\frac{12}{\Delta d^2}+(n-n_d)\,I_{\rm max}\Big)^{-1/2},\qquad n\ge n_d .
-  \label{eq:after-detection}
-\end{equation}
-A single run thus has a plateau, a cliff at its own $n_d$ and a $-\tfrac12$ tail (Fig.~\ref{fig:budget}). Where the
-cliff falls depends only on where the dip happens to lie, possibly under the first measurement.
+where $n_d\le W/\Delta d$ is the step that finds the dip. At that step the dip is equally likely anywhere in the cell
+of the detecting measurement, and the error is that of the cell, $\Delta d/\sqrt{12}$.
 
-To average over where the dip lies, put the window at $[0,W]$ with the steps starting at $0$. After $n$ steps a dip
-at $\theta>n\Delta d$ is not yet found, and its run estimates the center of the part not yet excluded,
-$(W+n\Delta d)/2$; a dip at $\theta<n\Delta d$ has been found, with the error $\sigma_\theta^2(n\mid\theta)$ of
-Eq.~\eqref{eq:after-detection}. With $\theta$ uniform on the window,
+Detection turns the search into tracking (Sec.~\ref{sec:prior}): the posterior at detection takes the place of the
+prior, and its information $J_\tau$ takes the place of $J_0$. This is why van Trees applies again. Each likelihood is
+the Gaussian of Eq.~\eqref{eq:noise}, which changes smoothly as $\theta$ moves, so in a real run the posterior has no
+hard edges and $J_\tau$ is finite, unlike the information of the uniform window. Eq.~\eqref{eq:vantrees} then holds
+again from detection, for each run, with $J_0=J_\tau$ (\SM{sm:prior}). The cell of the model keeps the hard edges of
+its all-or-nothing detection, so the model takes for $J_\tau$ the inverse of its error at detection,
+$J_\tau=12/\Delta d^2$, and after detection simply takes the data limit, each later measurement adding $I_{\rm max}$:
 \begin{equation}
   \begin{aligned}
-  \bar\sigma_\theta^2(n)&=\frac1W\int_{n\Delta d}^{W}\Big(\theta-\frac{W+n\Delta d}{2}\Big)^{\!2}d\theta\\
-  &\quad+\frac1W\int_0^{n\Delta d}\sigma_\theta^2(n\mid\theta)\,d\theta\\
-  &=\frac{(W-n\Delta d)^3}{12\,W}+\frac1W\int_0^{n\Delta d}\sigma_\theta^2(n\mid\theta)\,d\theta .
+  \sigma_\theta^2(n\mid n_d)&=\big(J_\tau+(n-n_d)\,I_{\rm max}\big)^{-1},\qquad n\ge n_d\\
+  &\xrightarrow[\;n\,\gg\,n_d\;]{\;(n-n_d)I_{\rm max}\,\gg\,J_\tau\;}\
+  \underbrace{\frac{1}{nI_{\rm max}}}_{\text{Cram\'er--Rao}} .
   \end{aligned}
+  \label{eq:after-detection}
+\end{equation}
+In localize a strategy has not yet locked onto the dip, its posterior may still have several peaks, and its error lies above
+this curve; refine starts when its error runs parallel to it.
+
+\paragraph{Mean over runs.} Where a run detects depends only on where its dip lies, so averaged over the prior the
+runs split in two. After $n$ steps a fraction $(W-n\Delta d)/W$ of them is still searching, each with the error of
+Eq.~\eqref{eq:elimination}, and these contribute
+\begin{equation}
+  \sigma_{\rm search}^2(n)=\underbrace{\frac{W-n\Delta d}{W}}_{\text{fraction searching}}\,
+  \underbrace{\frac{(W-n\Delta d)^2}{12}}_{\sigma_\theta^2(n),\ \text{Eq.~\eqref{eq:elimination}}}
+  =\frac{(W-n\Delta d)^3}{12\,W}.
   \label{eq:search-mean}
 \end{equation}
-The first term holds the runs still searching, a fraction $(W-n\Delta d)/W$, each with the error of
-Eq.~\eqref{eq:elimination}; the second, the runs that have found the dip, is small during the search. The mean is dominated
-by the runs still searching, so it stays near the prior until most of the window is excluded, later than the cliff
-of a typical run. In inverse variance, $12W/(W-n\Delta d)^3$, it gains more per step as the part of the window not
-yet excluded shrinks, not a fixed amount per measurement.
-
-\paragraph{No search is faster.} At high SNR the elimination model is not only the simplest search, it is the best
-one. The
-Ziv--Zakai bound \cite{zivzakai1969,bell1997} limits the mean error by how often the data cannot tell a dip at
-$\theta$ from one at $\theta+h$, weighted by $h$. It needs no smooth prior, and it has been used for this reason with
-priors that have hard edges \cite{daurelio2022}. Before any measurement no two positions can be told apart, and the
-bound gives exactly Eq.~\eqref{eq:prior}. For a dip that a measurement detects only within reach of it, every outcome
-before the first detection looks like the baseline, so any strategy, adaptive or not, is up to that point a fixed
-order of probes, and two positions are told apart once either of them has been probed. The bound is then smallest when
-the probed part of the window is contiguous, and equals the first term of Eq.~\eqref{eq:search-mean} (\SM{sm:prior}).
-
-At lower SNR one measurement in the dip no longer reveals it. Averaging a few shots per probe until the drop is
-clear brings back the same model, with each step costing that many shots. The limit now comes from a bound of the same
-kind, which compares a dip at $\theta$ with a world that has no dip at all. How well one measurement tells the two
-apart is the Kullback--Leibler divergence between its outcomes in the two worlds (Sec.~\ref{sec:eig}),
-$k\,s(d;\theta)^2/2\sigma^2$ for a dip of depth $s(d;\theta)$ at the drive frequency: the squared SNR of the drop it
-would see. In the world without a dip the strategy's choices cannot depend on $\theta$, so, averaged over where the
-dip could be, a measurement tells them apart by at most
-\begin{equation*}
-  \bar\kappa=\frac1W\int\frac{k\,s(d;\theta)^2}{2\sigma^2}\,d\theta=\frac{\pi\gamma\,k\,\mathrm{SNR}^2}{4W} .
-\end{equation*}
-The fraction of runs that have not yet located the dip therefore falls no faster than about $e^{-n\bar\kappa}$, and
-any strategy needs at least about
+The rest found the dip at one of the steps $n_d\le n$, a fraction $\Delta d/W$ at each, and since then follow
+Eq.~\eqref{eq:after-detection},
 \begin{equation}
-  n_{\rm search}\ \gtrsim\ \frac{1}{\bar\kappa}=\frac{8}{\pi}\,\frac{W}{\Gamma}\,\frac{1}{k\,\mathrm{SNR}^2}
-  \label{eq:search-cost}
+  \sigma_{\rm found}^2(n)=\sum_{n_d=1}^{n}\underbrace{\frac{\Delta d}{W}}_{\text{found at }n_d}\,
+  \underbrace{\sigma_\theta^2(n\mid n_d)}_{\text{Eq.~\eqref{eq:after-detection}}} .
+  \label{eq:found-mean}
 \end{equation}
-measurements \cite{garivier2019} (\SM{sm:prior}). Averaging a fixed number of shots at every probe costs about
-$\ln(W/\Delta d)$ times more: the detection threshold must rise with the number of probe positions to keep false
-alarms rare. A sequential test, which drops a position as soon as it looks like the baseline and spends more shots
-only on ambiguous ones, avoids most of that factor \cite{malloy2014}, so at low SNR an adaptive strategy can search
-faster than repeated averaging. At high SNR Eq.~\eqref{eq:search-cost} allows less than one measurement per probe,
-which no strategy can take, and the elimination bound takes over. Before the dip is found, no strategy knows where to look, and none gains more per
-measurement than the window average.
-
-\paragraph{After detection.} Once the dip is found, the posterior is a single smooth peak around it, shaped by the
-measurements that saw the dip, and the problem has become tracking (Sec.~\ref{sec:prior}) with that posterior as the
-prior. Van Trees applies again from there: Eq.~\eqref{eq:after-detection} is Eq.~\eqref{eq:vantrees} restarted at
-detection, with $J_0$ the information of the posterior, $12/\Delta d^2$ in the model (\SM{sm:prior}). It covers
-localize and refine alike. In localize a
-strategy is not yet measuring at the steepest slope, its posterior may still have several peaks, and its error lies
-above the curve; refine starts when its error runs parallel to it. In the elimination model localize is the single
-detection step. A dip at $\theta$ is found at step $n_d=\lceil\theta/\Delta d\rceil$, so inserting
-Eq.~\eqref{eq:after-detection} into the second term of Eq.~\eqref{eq:search-mean}, one step of width $\Delta d$ per
-$n_d$, gives the mean error of the model at every $n\le W/\Delta d$,
+The mean squared error of the model is the sum,
 \begin{equation}
-  \bar\sigma_\theta^2(n)=\frac{(W-n\Delta d)^3}{12\,W}
-  +\frac{\Delta d}{W}\sum_{n_d=1}^{n}\Big(\frac{12}{\Delta d^2}+(n-n_d)\,I_{\rm max}\Big)^{-1},
+  \bar\sigma_\theta^2(n)=\sigma_{\rm search}^2(n)+\sigma_{\rm found}^2(n),\qquad n\le W/\Delta d ,
   \label{eq:mean-curve}
 \end{equation}
-with the sum ending at $W/\Delta d$ for larger $n$. It starts at Eq.~\eqref{eq:prior} and tends to the data limit
-$(nI_{\rm max})^{-1}$ at large $n$. In a window about as narrow as the line the first measurements already land in
-the dip, so there is no plateau (Fig.~\ref{fig:budget}, dashed curve). A sweep has none of the three regimes, since it
-gains the same information $I_{\rm sweep}$ at every step (Sec.~\ref{sec:speedup}).
+the reference for the error of a strategy averaged over runs (Sec.~\ref{sec:results}). The runs that found the dip
+add at most $\Delta d^2/12$, so the mean stays near the prior until most of the window is covered, later than a
+typical run finds its dip, and then tends to $1/(nI_{\rm max})$ (\SM{sm:prior}).
 
-\paragraph{Reading the bounds.} We judge a strategy by how close its error comes to these curves. Every bound here
-limits a mean of $(\hat\theta_n-\theta)^2$, and they differ in what varies inside that mean, which decides how a
-strategy is read against each. The unbiased Cram\'er--Rao bound averages over the noise at a fixed $\theta$.
+\paragraph{A lower bound on the search.} No strategy can locate the dip better than its data tell apart where the
+dip might be, and before the dip is found none, adaptive or not, knows where to look. At high SNR a measurement
+either shows the dip or does not, and the question is whether the data tell a dip at $\theta$ from one at
+$\theta+h$. The Ziv--Zakai bound \cite{zivzakai1969,bell1997}, which unlike van Trees holds for a prior with hard
+edges \cite{daurelio2022}, turns this into a bound on the mean error. No strategy tells apart two positions it has
+not yet probed, so the bound equals Eq.~\eqref{eq:search-mean}, and the elimination model meets it
+(\SM{sm:prior}).
 
-Van Trees in tracking averages also over $\theta$, but only over the drift since the last estimate. The error
-averaged over runs is compared with Eq.~\eqref{eq:vantrees}; a gap means that the measurements carried less than
-$I_{\rm max}$, or that the strategy did not use them efficiently.
+At lower SNR a single measurement no longer shows the dip, and the search is limited by noise rather than by
+coverage. A measurement learns about the dip only if it lands within about a linewidth of it, so the window holds
+about $W/\Gamma$ places to check. At each place the drop must stand out from the noise: $m$ measurements there give
+a signal-to-noise ratio $\sqrt{mk}\,\mathrm{SNR}$, which reaches order one after $m\approx1/(k\,\mathrm{SNR}^2)$.
+Checking every place thus takes about
+\begin{equation}
+  n_{\rm search}\ \gtrsim\ \overbrace{\frac{8}{\pi}}^{\text{Lorentzian coefficient}}\,\frac{W}{\Gamma}\,\frac{1}{k\,\mathrm{SNR}^2}
+  \label{eq:search-cost}
+\end{equation}
+measurements. Adaptivity does not help here: before
+the dip is found a strategy does not know which place to check. A rigorous version holds for any strategy, adaptive
+or not, and bounds the mean error at every $n$ \cite{garivier2019} (\SM{sm:prior}). At high SNR
+Eq.~\eqref{eq:search-cost} allows less than one measurement per place, and Eq.~\eqref{eq:search-mean} is the bound
+that holds.
 
-The search bound averages over $\theta$ anywhere in the window: over runs whose dips lie at different places. It
-therefore constrains only the mean over runs, and the gap of that mean above it measures how fast the strategy
-covers the window. A single run says nothing against it, since it stays on its plateau and drops at its own $n_d$,
-wherever its dip happens to be.
-
-The restarted van Trees, once a run has found its dip, averages over the noise and over $\theta$ only within that
-run's own narrow posterior, so $\theta$ is nearly fixed. It applies to each run, given what the run has measured so
-far. The slope of a run's error then gives the information each of its measurements carries, a fraction $q\le1$ of
-$I_{\rm max}$ (Sec.~\ref{sec:speedup}), and a gap that does not close means $q<1$. The restart must be decided from
-the run's own data, never from the true $\theta$.
-
-For the posterior mean the MSE equals the expected posterior variance, whatever the shape of the posterior. The
-posterior standard deviation can therefore stand in for the error, averaged over runs during the search and run by
-run after detection, as long as the posterior is calibrated. A claimed uncertainty below the restarted curve by more
-than the scatter of the runs points to an overconfident posterior; a single run's posterior variance may fluctuate
-slightly below it, since the bound is on an expected error.
-
-The bounds treat the width $\Gamma$ and the contrast $C$ as known. Inferring them as well can only add to the
-uncertainty in $\theta$, but it adds nothing when the measurements are placed symmetrically on the two sides of the
-dip: a shift of $\theta$ then raises the signal on one side and lowers it on the other, while a change of $\Gamma$ or
-$C$ changes both sides alike, so the data tell the two apart.
+\paragraph{Reading the bounds.} The bounds differ in what their mean averages over. The search bounds,
+Eq.~\eqref{eq:search-mean} and its low-SNR counterpart (\SM{sm:prior}), average over $\theta$ anywhere in the window, so they
+constrain only the mean over runs; a single run, which drops at its own $n_d$, says nothing against them. After
+detection each run is read on its own, and the slope of its error gives the fraction $q\le1$ of $I_{\rm max}$ that
+its measurements carry (Sec.~\ref{sec:speedup}).
 
 \begin{figure}[t]
 \centering
@@ -385,9 +352,9 @@ $C$ changes both sides alike, so the data tell the two apart.
 % Wide window W = 20 Gamma (20 steps), dip found at n_d = 10 (half the steps); the vertical segment is the detection.
 % Regimes of the wide window: search shaded, localize = the detection step, refine = the tail.
 \fill[gray!15] (axis cs:1,2e-3) rectangle (axis cs:10,10);
-\node[font=\scriptsize, align=center] at (axis cs:3.2,0.012) {search\\(mean over runs)};
+\node[font=\scriptsize, align=center] at (axis cs:3.2,0.012) {search};
 \node[font=\scriptsize, anchor=east] at (axis cs:9.6,0.6) {localize};
-\node[font=\scriptsize, align=center] at (axis cs:250,0.035) {refine\\(per run)};
+\node[font=\scriptsize, align=center] at (axis cs:250,0.035) {refine};
 \addplot[thick, domain=1:10, samples=40] {(20 - x)/sqrt(12)};
 \addlegendentry{$W=20\,\Gamma$}
 \addplot[thick, forget plot] coordinates {(10, 2.8868) (10, 0.28868)};
@@ -405,17 +372,12 @@ $C$ changes both sides alike, so the data tell the two apart.
   {sqrt(2.963e-4*ln((12 + 168.75*x)/(12 + 168.75*(x - 20))))};
 \end{loglogaxis}
 \end{tikzpicture}
-\caption{Schematic of the three regimes of an adaptive strategy, drawn with the elimination model,
-Eqs.~\eqref{eq:elimination}--\eqref{eq:mean-curve}; a Bayesian adaptive strategy follows the same profile, with
-a less sharp localize step. Illustrative values (SNR 10, $k=1$, reach $\Delta d=\Gamma$). Black: single runs, solid for a wide window,
-$W=20\,\Gamma$, with the dip found halfway through, dashed for a narrow one, $W=2\,\Gamma$, found at the first step;
-dotted: unbiased Cram\'er--Rao bound $(nI_{\rm max})^{-1/2}$. The wide-window run shows a search plateau (shaded), a
-localize cliff at detection (vertical segment) and the $-\tfrac12$ refine tail; the narrow window shows no plateau.
-Gray: the root of the mean squared error over runs of the wide window, Eq.~\eqref{eq:mean-curve}, which stays near
-the prior until most of the window is covered, because the runs that have not yet found the dip dominate it; each run
-drops at its own $n_d$. During the search only this mean is bounded, while after detection each run is read against
-its own restarted van Trees curve, the refine tail. All curves start near the prior width $\sigma_0^{\rm global}=W/\sqrt{12}$ and tend to the
-data limit at large $n$. Simulated and measured runs are shown against the bounds in Sec.~\ref{sec:results}.}
+\caption{Schematic of the three regimes, drawn with the elimination model,
+Eqs.~\eqref{eq:elimination}--\eqref{eq:mean-curve}, for SNR 10, $k=1$ and reach $\Delta d=\Gamma$. Black solid: one
+run in a wide window, $W=20\,\Gamma$, that finds the dip halfway through; the regime labels refer to it. Black
+dashed: a narrow window, $W=2\,\Gamma$, where the dip is found at the first step. Gray: the root of the mean squared
+error over runs of the wide window, Eq.~\eqref{eq:mean-curve}. Dotted: the data limit $(nI_{\rm max})^{-1/2}$. All
+curves start at the prior width $\sigma_0^{\rm global}=W/\sqrt{12}$.}
 \label{fig:budget}
 \end{figure}
 
@@ -430,8 +392,8 @@ the model; once a measurement lands in the dip the posterior collapses onto it; 
 strategy measures at the steepest slope and reaches the data limit (Sec.~\ref{sec:eig}). The model is therefore a
 picture of a Bayesian run, not a prediction of its step counts: at low SNR one measurement no longer reveals the dip,
 $n_d$ grows, and localize spreads over many measurements. The runs are read against the bounds rather than the
-model: during the search through their mean, Eqs.~\eqref{eq:search-mean}--\eqref{eq:search-cost}, which hold for any
-strategy, and after each run's own detection against Eq.~\eqref{eq:vantrees} restarted there.
+model: during the search through their mean, against Eq.~\eqref{eq:search-mean} at high SNR and
+the rigorous form of Eq.~\eqref{eq:search-cost} at any SNR (\SM{sm:prior}), which holds for any strategy, and after each run's own detection against Eq.~\eqref{eq:vantrees} with that run's posterior as the prior.
 
 \subsection{Information gained per measurement}
 \label{sec:eig}
@@ -542,7 +504,8 @@ they share the factor $kC^2/\sigma^2$ and differ only in the width factor. The e
 sweep is the fraction of its measurements that land on the line at all.
 
 Where a sweep measures does not depend on what it has learned, so its information grows at the constant rate
-$I_{\rm sweep}$, while an adaptive strategy in refine gains $I_{\rm max}$ per measurement. For a precise target,
+$I_{\rm sweep}$ from its first measurement, and it has none of the three regimes of Sec.~\ref{sec:budget}, while
+an adaptive strategy in refine gains $I_{\rm max}$ per measurement. For a precise target,
 where the search cost no longer matters, the speedup is the ratio of the two rates,
 \begin{equation}
   R_\infty=\frac{I_{\rm max}}{I_{\rm sweep}}=\frac{27}{8\pi}\,\frac{W}{\Gamma}\approx1.07\,\frac{W}{\Gamma}:
@@ -623,37 +586,33 @@ Sensitivity and bandwidth follow from the same budget once measurements are conv
 measurement take $t_m=k\,t_s$ ($k$ shots of duration $t_s$), so that $n$ measurements take $T=n t_m$. With $D$
 known, $D-f_-=\delta_Z=\gamma_e B_z$, so the field uncertainty is $\sigma_B=\sigma_{f_-}/\gamma_e$.
 
-\paragraph{Sensitivity (refine).} In the refine regime every measurement adds $I_{\rm max}$, so after a time $T$
-\begin{align*}
-  \sigma_{f_-}(T)&=(nI_{\rm max})^{-1/2}=\Big(\frac{T}{t_m}\,I_{\rm max}\Big)^{-1/2},\\
-  \sigma_{f_-}\sqrt T&=\sqrt{\frac{t_m}{I_{\rm max}}}=\gamma_e\,\eta .
-\end{align*}
-The uncertainty falls as $\sigma_{f_-}\propto T^{-1/2}$, so the product $\sigma_{f_-}\sqrt T$ does not depend on $T$
-and characterizes the strategy rather than the length of the run. Converted to field, this constant is the
-sensitivity $\eta$,
+\paragraph{Sensitivity.} We follow the field uncertainty of a run scaled by the square root of its duration,
+$\eta(T)=\sigma_B(T)\sqrt T$. With $n=T/t_m$ in Eq.~\eqref{eq:strategy-numbers},
+\begin{equation}
+  \eta(T)=\frac{1}{\gamma_e}\sqrt{\frac{t_m}{qI_{\rm max}}}\,\Big(1-\frac{n_0t_m}{T}\Big)^{-1/2}
+  \;\xrightarrow{\;T\gg n_0t_m\;}\;\frac{\eta}{\sqrt q}.
+  \label{eq:eta-run}
+\end{equation}
+The search leaves a fixed offset $n_0$, so early in the run $\eta(T)$ is large. In the refine regime every
+measurement adds the same information $qI_{\rm max}$, $\sigma_B\propto T^{-1/2}$, and $\eta(T)$ settles to a constant
+that no longer depends on $T$: in this phase the strategy delivers a fixed field uncertainty per unit integration
+time, $\sigma_B=\eta/\sqrt{qT}$, and that constant, in ${\rm T}/\sqrt{\rm Hz}$, is its sensitivity. It characterizes
+the strategy rather than the length of the run. For the ideal strategy, which measures every refine point at the
+steepest slope ($q=1$),
 \begin{equation}
   \begin{aligned}
-  \eta=\sigma_B\sqrt T&=\frac{1}{\gamma_e}\sqrt{\frac{t_m}{I_{\rm max}}}
+  \eta&=\frac{1}{\gamma_e}\sqrt{\frac{t_m}{I_{\rm max}}}
   =\frac{1}{\gamma_e}\sqrt{\frac{16\,k\,t_s\,\Gamma^2}{27\,k\,\mathrm{SNR}^2}}\\
   &=\frac{4}{3\sqrt3}\,\frac{\Gamma\sqrt{t_s}}{\gamma_e\,\mathrm{SNR}},
   \end{aligned}
   \label{eq:sensitivity}
 \end{equation}
-with $\mathrm{SNR}=C/\sigma$ the single-shot SNR of Eq.~\eqref{eq:snr}. The number of shots $k$ cancels as well:
+with $\mathrm{SNR}=C/\sigma$ the single-shot SNR of Eq.~\eqref{eq:snr}. The number of shots $k$ cancels:
 averaging $k$ shots into one measurement costs $k$ times the time and gives $k$ times the information. This is the
-standard CW-ODMR sensitivity of a Lorentzian line \cite{dreau2011}, here the refine limit of the budget, reached only
-by a strategy that measures at the steepest slope. A strategy whose
-refine measurements are not all at the steepest slope gains less per measurement: if they carry on average a
-fraction $q\le1$ of $I_{\rm max}$, $I_{\rm max}$ is replaced by $qI_{\rm max}$ in Eq.~\eqref{eq:sensitivity}, and its sensitivity is worse
-by $1/\sqrt q$, i.e.\ $\eta/\sqrt q$.
-
-\paragraph{Sensitivity over a run.} Read off a run of length $T$, the product $\sigma_B(T)\sqrt T$ is not yet this
-constant. In tracking, at the bound, $\sigma_{f_-}^{-2}=J_0+(T/t_m)\,I_{\rm max}$, so
-\begin{equation*}
-  \sigma_B\sqrt T=\frac{1}{\gamma_e}\,\frac{\sqrt T}{\sqrt{J_0+(T/t_m)\,I_{\rm max}}}\;\longrightarrow\;\eta ,
-\end{equation*}
-which grows as $\sqrt T$ while the prior information $J_0$ dominates and tends to $\eta$ once the data dominate. A
-real strategy reaches the same constant; its search offset $n_0$ only changes how (\SM{sm:speedup}).
+standard CW-ODMR sensitivity of a Lorentzian line \cite{dreau2011}; a strategy whose refine measurements carry on
+average only a fraction $q<1$ of $I_{\rm max}$ is worse by $1/\sqrt q$. In tracking there is no search but a prior
+$J_0$, and $\eta(T)$ instead rises from zero as $\sqrt T$ before settling to the same constant
+(\SM{sm:speedup}).
 
 \paragraph{Bandwidth (whole run).} A field reading is useful once its error reaches the target
 $\sigma_{\rm tgt}$; the time needed, $T(\sigma_{\rm tgt})=t_m\,[n_0+\sigma_{\rm tgt}^{-2}/(qI_{\rm max})]$ by

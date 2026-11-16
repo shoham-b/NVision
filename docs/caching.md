@@ -45,6 +45,30 @@ When a simulation is interrupted by user command (`Ctrl-C` / `KeyboardInterrupt`
 
 ---
 
+## 3b. Per-repeat true signals: stratified `zeeman_shift`
+
+Repeat `i` of `N` of the NV-center generators draws the true `zeeman_shift` as
+`lo + (i + u) * (hi - lo) / N`, `u ~ U(0, 1)` from the repeat's own signal RNG: one random draw inside
+the `i`-th of `N` equal slices of `[zeeman_min_phys, zeeman_max_phys]`. The mean over the repeats then
+estimates the uniform average over the window (what the paper's search bounds average over) with much
+less scatter than `N` unstratified draws. Everything else (`hwhm`, contrast, ...) is drawn exactly as before.
+
+* **Pairing is kept.** The signal RNG key is still `(seed, generator, repeat_idx)`
+  (`signal_repeat_key`), so every locator and noise level sees the same signal, hence the same
+  `zeeman_shift`, for repeat `i`.
+* **`generate(rng, *, repeat_idx, n_repeats)` is mandatory** for Zeeman-split generators and raises
+  without them. `n_repeats` is the study's *total* `repeat_total`, never a chunk size, and `repeat_idx`
+  is the global repeat index (`repeat_offset + i`).
+* **`N` is part of the signal.** The signal key does not carry `N`, so the in-process signal cache raises if
+  one key is requested with two different `N`. Do not extend a finished `N`-repeat run to a larger `N`
+  by reusing its first repeats: they sit in the lowest `N/N'` of the window and the mean becomes biased.
+  Re-run the combination with the new total.
+* **Staleness.** Results cached before this change used independent uniform draws: re-run (not
+  `nv render`). Cache keys do not contain the signal parameters, so a physics-fingerprint bump is needed
+  to make old entries miss.
+
+---
+
 ## 4. Generations (`nv cache gen`)
 
 The cache is a single mutable store keyed by `(generator, noise, strategy, repeats, ...)` --

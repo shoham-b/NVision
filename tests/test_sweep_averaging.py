@@ -1,4 +1,4 @@
-"""GenericSweepLocator repeats its grid until the Bayesian stopping rules fire (at a pass boundary)."""
+"""GenericSweepLocator repeats its grid for its whole measurement budget; the convergence rule is recorded only."""
 
 from __future__ import annotations
 
@@ -56,22 +56,23 @@ def _drive(loc: GenericSweepLocator) -> list[float]:
     return xs
 
 
-def test_stops_at_the_pass_boundary_after_the_rules_fire():
-    # The rules fire mid-way through the second pass; the sweep finishes that pass.
+def test_converging_does_not_stop_the_sweep():
+    # The rule fires mid-way through the second pass: it is recorded, and the sweep still uses its whole budget.
     loc = _locator(passes=20, converged_at_step=_N_GRID + 2)
     xs = _drive(loc)
-    assert len(xs) == 2 * _N_GRID
-    assert xs[:_N_GRID] == xs[_N_GRID:]
-    assert loc.passes_done == 2
-    assert loc.history.count == 2 * _N_GRID
+    assert loc._is_converged
+    assert len(xs) == 20 * _N_GRID
+    assert xs[:_N_GRID] == xs[_N_GRID : 2 * _N_GRID]
+    assert loc.passes_done == 20
+    assert loc.history.count == 20 * _N_GRID
 
 
 def test_stops_at_the_measurement_cap_when_the_rules_never_fire():
     assert len(_drive(_locator(passes=3, converged_at_step=None))) == 3 * _N_GRID
 
 
-def test_rules_firing_in_the_first_pass_give_a_single_pass():
-    assert len(_drive(_locator(passes=20, converged_at_step=1))) == _N_GRID
+def test_rules_firing_in_the_first_pass_still_run_every_pass():
+    assert len(_drive(_locator(passes=20, converged_at_step=1))) == 20 * _N_GRID
 
 
 def test_requires_at_least_one_pass():

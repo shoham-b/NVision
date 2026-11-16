@@ -122,6 +122,9 @@ def _saved_repeat(cache_dir: Path, task, idx: int) -> dict:
 def test_deferred_graphs_round_trip(tmp_path, monkeypatch):
     """Results are saved without graphs, a worker adds them, and only then is the combination archived."""
     monkeypatch.setattr(plots_module, "NVISION_GRAPH_REPEATS", 2)
+    # Every run measures its whole budget (the convergence rule no longer stops it): keep it short, the graph
+    # hand-over is what is under test, not convergence.
+    monkeypatch.setattr("nvision.sim.defaults.NVISION_MAX_MEASUREMENTS", 60)
     for sub in ("scans", "bayes", "cache"):
         (tmp_path / sub).mkdir()
     gen = "NVCenter-voigt-w0.50MHz-c0.10-si0.60MHz-hfn14"

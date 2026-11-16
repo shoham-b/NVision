@@ -75,7 +75,10 @@ unmeasured, SBED instead measures the middle of the widest unmeasured gap, a fal
 
 \paragraph{What the claimed uncertainty is.} The particle filter reports $\hat\sigma_N$, Eq.~\eqref{eq:sigma-hat}: a moment of the
 posterior, defined at every $N$. During the search its average over runs is compared with the search bound, and
-after a run's own detection the run is compared with van Trees restarted there (Sec.~\ref{sec:global}). What fails before the posterior is Gaussian
+after a run's own detection the run is compared with van Trees restarted there (Sec.~\ref{sec:global}). The comparison
+holds because for the posterior mean the MSE equals the expected posterior variance, whatever the shape of the
+posterior, so $\hat\sigma_N$ can stand in for the error as long as the posterior is calibrated; a $\hat\sigma_N$ below
+a bound by more than the scatter of the runs points to an overconfident posterior. What fails before the posterior is Gaussian
 (Sec.~\ref{sec:eig}) is the usual reading of $\hat\sigma_N$: with a uniform window or several live
 candidates it is not a 68\% interval, and the posterior entropy is below $\tfrac12\ln(2\pi e\,\hat\sigma_N^2)$, so
 information gains, per-step gains as variance ratios, and coverage at Gaussian quantiles are only meaningful in the
@@ -95,7 +98,7 @@ use cases are summarized by the median over them.
 uncertainty is below the ceiling, so its final error mostly reflects the ceiling. We report instead whether the
 claimed uncertainty is honest, through its coverage, the share of runs whose true error lies within $\hat\sigma_N$
 and within $2\hat\sigma_N$; how close each strategy comes to the bounds of Sec.~\ref{sec:global}, through the ratio of
-the search bound, the first term of Eq.~\eqref{eq:search-mean}, to the mean squared true error over runs during the
+the search bound, Eq.~\eqref{eq:search-mean}, to the mean squared true error over runs during the
 search, and through each run's gap to its restarted van Trees curve after its detection; and the cost, the number of
 measurements after which the true error stays below a target. After its detection each run is also read through its
 information rate, the growth of $\hat\sigma_N^{-2}$ per measurement in units of $I_{\rm max}$, Eq.~\eqref{eq:istar};

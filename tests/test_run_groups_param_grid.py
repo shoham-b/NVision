@@ -21,9 +21,8 @@ def test_voigt_grid_group_uses_voigt_inhom_grid_and_all_locators():
     assert group.extra_generators is not None
     assert set(group.extra_generators.keys()) == set(group.generator_names)
     assert set(group.strategy_names) == {
-        "SimpleSweep-2perFWHM",
         "SimpleSweep-3perFWHM",
-        "SimpleSweep-4perFWHM",
+        "SimpleSweep-optimal",
         "Smart-Sweep",
         "Bayesian-SBED",
         "Smart-SBED",
@@ -174,7 +173,7 @@ def test_snr_window_generator_draws_dips_inside_its_window():
 
     gen = next(g for n, g in sim_presets.voigt_snr_window_param_grid_generators() if "-span5-" in n)
     for seed in range(20):
-        signal = gen.generate(random.Random(seed))
+        signal = gen.generate(random.Random(seed), repeat_idx=0, n_repeats=1)
         values = signal.parameter_values()
         window = gen.drive_freq_max_phys - gen.drive_freq_min_phys
         assert 0.0 <= values["zeeman_shift"] <= gen.zeeman_max_phys < window
@@ -220,7 +219,7 @@ def test_snr_window_belief_inherits_the_generator_window():
 
     name = next(n for n, _ in sim_presets.voigt_snr_window_param_grid_generators() if "-span5-" in n)
     combo = CombinationGrid().resolve(name, sim_presets.snr_study_noises()[0][0], "Bayesian-SBED")
-    signal = combo.generator.generate(random.Random(0))
+    signal = combo.generator.generate(random.Random(0), repeat_idx=0, n_repeats=1)
     cfg = {k: v for k, v in combo.strategy["config"].items() if k not in ("builder", "max_steps")}
     belief = nv_center_smc_belief(signal.bounds, noise_model=combo.noise.to_noise_signal_model(), **cfg)
     lo, hi = belief.drive_freq_bounds_phys
@@ -320,7 +319,7 @@ def test_snr_window_width_bounds_and_priors_do_not_move_with_the_window():
 
     by_share_hf: dict[tuple[float, str], list[tuple[dict, dict]]] = {}
     for _, gen in sim_presets.voigt_snr_window_param_grid_generators():
-        signal = gen.generate(random.Random(0))
+        signal = gen.generate(random.Random(0), repeat_idx=0, n_repeats=1)
         priors = signal.bounds["_priors"]
         by_share_hf.setdefault((gen.gaussian_share, gen.hyperfine), []).append(
             (

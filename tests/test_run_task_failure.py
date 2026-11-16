@@ -37,7 +37,7 @@ def test_failed_task_still_writes_the_other_results(tmp_path, monkeypatch):
             "--filter-noise",
             "Gauss",
             "--filter-strategy",
-            "SimpleSweep-2perFWHM,SimpleSweep-3perFWHM",
+            "SimpleSweep-optimal,SimpleSweep-3perFWHM",
             "--logs-root",
             str(tmp_path / "logs"),
         ],
@@ -47,5 +47,5 @@ def test_failed_task_still_writes_the_other_results(tmp_path, monkeypatch):
     status = json.loads((tmp_path / "run_status.json").read_text())
     assert status["status"] == "error"
     strategies = pl.read_parquet(tmp_path / "locator_results.parquet")["strategy"].unique().to_list()
-    assert strategies == ["SimpleSweep-2perFWHM"]
+    assert strategies == ["SimpleSweep-optimal"]
     assert "NVCenter-lorentzian" in result.output or "stage metrics exploded" in result.output

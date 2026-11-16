@@ -6,8 +6,8 @@ import polars as pl
 import pytest
 
 from nvision.metrics.compare import compare_locators, usable_runs
-from nvision.sim.combinations import SWEEP_SPACING_DIVISORS, CombinationGrid
-from nvision.sim.grid_enums import is_plain_sweep, sweep_strategy_name
+from nvision.sim.combinations import PLAIN_SWEEP_STRATEGIES, CombinationGrid
+from nvision.sim.grid_enums import OPTIMAL_SWEEP_STRATEGY, is_plain_sweep, sweep_strategy_name
 from nvision.sim.run_groups import get_run_group
 
 
@@ -47,18 +47,19 @@ def test_compare_tolerates_missing_stage_columns():
     assert compare_locators(df).height == 2
 
 
-def test_sweep_strategies_are_named_by_points_per_fwhm():
-    assert SWEEP_SPACING_DIVISORS == (2, 3, 4)
+def test_plain_sweeps_are_the_reference_and_the_optimal_step():
+    assert list(PLAIN_SWEEP_STRATEGIES) == ["SimpleSweep-3perFWHM", "SimpleSweep-optimal"]
+    assert list(PLAIN_SWEEP_STRATEGIES) == [sweep_strategy_name(3), OPTIMAL_SWEEP_STRATEGY]
     names = [n for n, _ in CombinationGrid().strategies_for("NVCenter-lorentzian")]
-    for k in SWEEP_SPACING_DIVISORS:
-        assert sweep_strategy_name(k) in names
-        assert is_plain_sweep(sweep_strategy_name(k))
+    for name in PLAIN_SWEEP_STRATEGIES:
+        assert name in names
+        assert is_plain_sweep(name)
     assert not is_plain_sweep("Smart-Sweep")
     assert not is_plain_sweep("Bayesian-SBED")
 
 
-def test_standard_groups_run_every_sweep_spacing_and_both_smart_locators():
+def test_standard_groups_run_both_plain_sweeps_and_both_smart_locators():
     for group in ("voigt-grid",):
         strategies = get_run_group(group).strategy_names
-        assert {sweep_strategy_name(k) for k in SWEEP_SPACING_DIVISORS} <= set(strategies)
+        assert set(PLAIN_SWEEP_STRATEGIES) <= set(strategies)
         assert {"Smart-Sweep", "Smart-SBED", "Bayesian-SBED"} <= set(strategies)

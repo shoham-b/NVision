@@ -4,9 +4,14 @@ When the dip's width is already known (a previously classified resonance whose p
 grid spacing is not a tuning knob but follows from how many points must land inside the dip:
 
 * A dip is only *seen* when several measurements fall inside it. With ``SWEEP_POINTS_PER_FWHM = 3``
-  points per full width at half maximum (FWHM), the grid cannot step over a dip, and the three
-  points are what the binomial test in :func:`nvision.belief.dip_detection.find_dips` needs to call
-  a cluster of low points a dip rather than noise. This is the spacing of every sweep.
+  points per full width at half maximum (FWHM) the grid cannot step over a dip, and the dip's information
+  about its position is within a few percent of a dense grid wherever the dip sits relative to the grid
+  (:mod:`nvision.sim.locs.sweep_optimal`: worst/best offset 0.96/1.04 of the dense limit; detection energy is
+  flat from 2 points per FWHM). The boxcar GLRT scan of :func:`nvision.belief.dip_detection.find_dips` then
+  scores windows of the grid points inside a dip; it has no minimum cluster size of its own. 3 is *kept as the
+  reference sweep and as the search grid of the Smart locators* (below), not because it is optimal for a
+  plain sweep: the plain-sweep baseline of the study runs at ``k*``, the grid step that needs the fewest
+  measurements for its task (``SimpleSweep-optimal``, :func:`nvision.sim.locs.sweep_optimal.optimal_sweep_spacing`).
 * The adaptive locators (Smart-Sweep, Smart-SBED) search the very same grid, ``COARSE_SEARCH_POINTS_PER_FWHM`` =
   ``SWEEP_POINTS_PER_FWHM``: their search phase *is* the reference sweep until the focus, and takes its measurements
   from the sweep's persisted repeat (``nvision.runner.sweep_data``) instead of measuring again. Smart-Sweep visits
@@ -32,7 +37,10 @@ from numpy.typing import NDArray
 from nvision.belief.focus_window import FocusRegion
 from nvision.spectra.nv_center import effective_hwhm
 
-# Points per FWHM so a dip cannot be stepped over and ``find_dips`` has the cluster it needs.
+# Points per FWHM of the reference sweep (SimpleSweep-3perFWHM): a dip cannot be stepped over and the position
+# information is within a few percent of a dense grid at any dip offset (``find_dips`` is a boxcar GLRT scan, it
+# does not need a minimum cluster). Kept as the reference/search grid the Smart locators replay; the plain-sweep
+# baseline uses the optimal step k* instead (``nvision.sim.locs.sweep_optimal``).
 SWEEP_POINTS_PER_FWHM: int = 3
 # Search grid of Smart-Sweep and Smart-SBED before the focus: the reference sweep's grid (Smart-SBED's EIG picks
 # among its points).
@@ -51,8 +59,8 @@ FOCUS_SWEEP_POINTS_PER_FWHM: int = 10
 _MAX_GRID_POINTS: int = 2_000_000
 
 
-def prior_fwhm_phys(belief) -> float:
-    """FWHM (Hz) the belief's *prior* implies: ``2 * effective_hwhm`` of the prior-mean parameters.
+def prior_mean_params_phys(belief) -> dict[str, float]:
+    """Physical prior-mean value of every parameter of the belief (Hz for frequencies, else the parameter's unit).
 
     A parameter's prior mean is its Gaussian prior's mean when it has one (the previously classified
     value), else the midpoint of its bounds. Deterministic: it reads the prior, not the sampled particles.
@@ -66,13 +74,19 @@ def prior_fwhm_phys(belief) -> float:
             means[name] = lo + min(max(float(prior[0]), 0.0), 1.0) * (hi - lo)
         else:
             means[name] = 0.5 * (lo + hi)
-    fwhm = 2.0 * float(effective_hwhm(means))
+    return means
+
+
+def prior_fwhm_phys(belief) -> float:
+    """FWHM (Hz) the belief's *prior* implies: ``2 * effective_hwhm`` of the prior-mean parameters
+    (:func:`prior_mean_params_phys`)."""
+    fwhm = 2.0 * float(effective_hwhm(prior_mean_params_phys(belief)))
     if not (fwhm > 0.0) or not math.isfinite(fwhm):
         raise ValueError(f"prior_fwhm_phys: the belief implies a non-positive or non-finite FWHM ({fwhm!r} Hz).")
     return fwhm
 
 
-def max_sweep_points(lo_phys: float, hi_phys: float, min_hwhm_phys: float, points_per_fwhm: int) -> int:
+def max_sweep_points(lo_phys: float, hi_phys: float, min_hwhm_phys: float, points_per_fwhm: float) -> int:
     """Most grid points a sweep can need: the count for the narrowest dip the prior allows.
 
     ``min_hwhm_phys`` is the lower bound of the hwhm prior; the prior-mean FWHM never falls below

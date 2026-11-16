@@ -20,7 +20,7 @@ The orchestration pipeline resolves these combinations into atomic `LocatorTask`
 ### 2. Bayesian Belief & SMC (`nvision/belief/`)
 
 Every strategy runs the same loop: choose a drive frequency $d_n$, take one measurement $y_n$ (the mean of $k$ shots),
-update the posterior, and stop when the stop rule fires. The strategies differ only in the first step; the posterior
+update the posterior, until the shared budget is used up. The strategies differ only in the first step; the posterior
 and its update are shared (article `methods.tex` §Bayesian inference, numbers in `sm_algorithm.tex`).
 
 - **Posterior.** A weighted particle cloud (`smc_marginal.py`, $N_p = 1000$) over the parameter of interest
@@ -49,10 +49,10 @@ A critical design feature of the inference engine is the strict separation betwe
 ### 4. Locators: sweep family and Bayesian SBED
 
 All strategies infer with the same particle filter, so the comparison isolates the choice of measurements from
-the inference, and $\hat\sigma_N$ means the same for all of them. All run under the **same stop rule and the same budget**
+the inference, and $\hat\sigma_N$ means the same for all of them. All run under the **same budget and the same convergence rule**
 (`methods.tex` §Measurement strategies; `sm_algorithm.tex`):
 
-- **Stop rule.** The claimed uncertainty of every parameter stays below its ceiling for 8 consecutive measurements
+- **Convergence rule (recorded, never stops a run).** The claimed uncertainty of every parameter stays below its ceiling for 8 consecutive measurements
   (`NVISION_CONVERGENCE_PATIENCE`) *and* the dip test finds a dip. Ceilings: 100 kHz for $\theta$, 500 kHz for each width
   (`NVISION_WIDTH_CONVERGENCE_THRESHOLD`), 0.01 for the contrast. The dip test is re-run at most every 10
   measurements (`NVISION_DIP_SCAN_EVERY`).
@@ -63,8 +63,10 @@ the inference, and $\hat\sigma_N$ means the same for all of them. All run under 
   scale. Every contiguous stretch of measured drive frequencies whose span lies in the prior range of the linewidth gets
   the boxcar score $\sum z_n/\sqrt n$; it is significant when it passes the Bonferroni threshold at family-wise
   false-alarm probability $p_{FA} = 0.1$ (`NVISION_DIP_P_FA`). Each connected run of significant stretches is one dip.
-- **Sweep family.** `SimpleSweep-<k>perFWHM` measures a uniform grid of spacing $\Gamma_0/p$, $p = 2, 3, 4$, and repeats
-  whole passes; `Smart-Sweep` sweeps at $\Gamma_0/3$ until the dip test finds a dip, then at $\Gamma_0/10$ inside the
+- **Sweep family.** `SimpleSweep-3perFWHM` (the reference) and `SimpleSweep-optimal` measure a uniform grid of spacing
+  $\Gamma_0/k$ and repeat whole passes; $k = 3$ for the reference, and the optimal sweep uses the fractional $k^*$ that
+  minimises $\overline{P(k,\varphi)}\,n(k)$, the whole passes times points per pass the stop rules need
+  ([locator comparison](locator_comparison.md)); `Smart-Sweep` sweeps at $\Gamma_0/3$ until the dip test finds a dip, then at $\Gamma_0/10$ inside the
   focus, then measures only at the maxima of $(\partial\mu/\partial\theta)^2$ at the posterior mean once the posterior expects each point to
   carry at least 90 % of the optimal information. Details: [locator comparison](locator_comparison.md).
 - **Bayesian SBED** (`nvision/sim/locs/bayesian/sbed_locator.py`). After every resampling, 800 candidate drive

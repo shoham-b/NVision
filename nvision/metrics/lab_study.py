@@ -9,6 +9,7 @@ drift of the resonance between runs.
 
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 
@@ -78,7 +79,10 @@ def lab_study_payload(root: Path) -> dict:
     for w in windows:
         claimed = pl.read_csv(root / f"window{w}MHz_self_reported_std_vs_step.csv")
         actual = pl.read_csv(root / f"window{w}MHz_resonance_std_vs_step_retained.csv")
+        # Written at import (nv matlab); folders processed before that have none.
+        fit_path = root / f"window{w}MHz_search_fit.json"
         curves[str(w)] = {
+            "search_fit": json.loads(fit_path.read_text()) if fit_path.exists() else None,
             "step": claimed["measurementStep"].to_list(),
             "claimed_median": claimed["medianPosteriorStdMHz"].to_list(),
             "claimed_q25": claimed["q25PosteriorStdMHz"].to_list(),
