@@ -1,6 +1,6 @@
-# Locator comparison: sweeps, Smart-Sweep, Smart-SBED
+# Locator comparison: sweeps and SBED
 
-Terms follow the article (`articles/sections/methods.tex`, `sm_algorithm.tex`): the **sweep family** (SimpleSweep, Smart-Sweep)
+Terms follow the article (`articles/sections/methods.tex`, `sm_algorithm.tex`): the **sweep family** (SimpleSweep)
 is what an experimentalist would do without adaptive design, and the question is whether its best member matches
 Bayesian SBED. All strategies infer with the same particle filter (so the **claimed uncertainty** $\hat\sigma_N$ means the
 same for all), run under the same stop rule (claimed uncertainty below its ceiling for 8 consecutive measurements *and* a
@@ -11,7 +11,7 @@ i.e. the article's $C/\sigma = x/2$.
 Every locator searches for the resonance (`zeeman_shift`, the primary parameter); the standard run groups
 compare them on the same signals and noise levels. The generators are the ordinary ones, whose priors on the
 nuisance parameters are loose (std 10 % of the parameter range). The prior-based FWHM sizing below (sweep
-spacing, Smart-* search grid) is therefore less accurate than it would be after a prior classification of the
+spacing) is therefore less accurate than it would be after a prior classification of the
 spectrum with tight nuisance priors; it still uses the prior's width, never the true signal's.
 
 ## Run groups
@@ -76,7 +76,7 @@ sigma and linewidth separately, and each axis changes one thing:
 Only the positions follow the window (`zero_field_freq` range, `zeeman_shift` range and its prior std). The width
 bounds (`hwhm_lorentz`, `sigma_inhom`, `hyperfine_shift`) are normally sized as a fraction of the window; for these
 signals they are sized off the default window instead (`NVCenterCoreGenerator.width_bounds_reference_phys`), so
-how well the linewidth is known does not change with `N`. The search grids of the sweeps and Smart-* locators are
+how well the linewidth is known does not change with `N`. The search grids of the sweeps are
 still sized from the prior FWHM, which is much wider than the true one (a prior of about 11 MHz against 2 MHz here),
 so at 5 FWHM the coarse stage has only a handful of points.
 
@@ -89,7 +89,7 @@ still open.
 `nv run` with no selection runs the default group (`voigt-grid`). Pick points of it by their numbers:
 
 ```bash
-uv run nv run --snr 10 --snr 20 --signal-occupancy 0.2 --filter-strategy "Smart-Sweep" --repeats 20
+uv run nv run --snr 10 --snr 20 --signal-occupancy 0.2 --filter-strategy "SimpleSweep-optimal" --repeats 20
 ```
 
 `--snr` and `--signal-occupancy` (repeatable) narrow any run group, together with `--filter-signal` and
@@ -124,19 +124,9 @@ parameters, clipped to their bounds) -- never the true signal's width (`nvision/
 * A dip is seen only if several measurements fall inside it. Three points per FWHM
   (`SWEEP_POINTS_PER_FWHM = 3`) cannot step over a dip and keep the dip's position information within 4 % of a
   dense grid (table below); `find_dips` is a boxcar GLRT scan and needs no minimum cluster. 3 is the **reference**
-  sweep's grid and the Smart locators' search grid, not the plain-sweep baseline's step: that is the optimal k*
+  sweep's grid, not the plain-sweep baseline's step: that is the optimal k*
   (next section). It is derived, not a tuning knob, so it is a module constant and not an env var.
-* Smart-Sweep and Smart-SBED search the reference sweep's own grid, FWHM/3 (`COARSE_SEARCH_POINTS_PER_FWHM =
-  SWEEP_POINTS_PER_FWHM`), and take each search measurement from the persisted `SimpleSweep-3perFWHM` repeat of the
-  same signal (see [runner_architecture.md](runner_architecture.md)). Until the focus they therefore *are* that
-  sweep, so they differ from it, and from each other, only in what happens after the dip is seen. (They used a
-  FWHM/2 grid, chosen from the plain-sweep spacing study, before this.) A grid that misses the dip is swept again.
-* Smart-Sweep's focus sweep uses a finer grid, FWHM/10 (`FOCUS_SWEEP_POINTS_PER_FWHM = 10`), laid fresh inside each
-  focus section from its lower edge. Lower bound, derived: a measurement eps from the max-information point keeps
-  eta ~ 1 - 4.5 (eps/HWHM)^2 of the optimal information, so eta >= 0.9 (the refine switch's
-  `SMART_SWEEP_REFINE_INFO_LOSS`) needs eps <= 0.15 HWHM, i.e. spacing 2 eps = FWHM/6.7, so 7 points per FWHM.
-  At 7, one pass over the focus occasionally ended before the posterior allowed the refine switch (1 of 8 test
-  runs), so 10 was chosen empirically (0 of 8). A grid that is fully measured is swept again at the same spacing, never refined and never an error (the stop rules end the run).
+
 
 ### The optimal sweep step k*
 
@@ -184,16 +174,10 @@ the realised $k^*$ is recorded per repeat (`sweep_k_opt`, `sweep_passes_pred`, `
 
 | Strategy | Acquisition |
 |---|---|
-| `SimpleSweep-3perFWHM` | uniform grid over the whole axis with 3 points per FWHM (spacing FWHM/3), then a least-squares fit. The reference sweep: its repeats are persisted and reused by Smart-Sweep / Smart-SBED |
+| `SimpleSweep-3perFWHM` | uniform grid over the whole axis with 3 points per FWHM (spacing FWHM/3), then a least-squares fit. The reference sweep: its repeats are persisted for the scan-figure overlay |
 | `SimpleSweep-optimal` | the same sweep at the fractional step FWHM/k* that minimises the predicted measurements of its task (previous section) |
-| `Smart-Sweep` | FWHM/3 sweep (the reference sweep's grid); once the data show a dip, sweep only inside the focus on a FWHM/10 grid, then measure at the max-information points once the refine rule fires |
 | `Bayesian-SBED` | unchanged SBED |
-| `Smart-SBED` | EIG over the not-yet-measured points of a FWHM/3 grid until a dip is found, then ordinary SBED inside the focus |
-
-`Smart-Sweep` and `Smart-SBED` are subclasses of the SBED locator: same belief, uncertainty-convergence stop,
-and focus rule (`next_focus_region`), but the focus is re-decided after every measurement (from
-`belief.current_dips()`) instead of only at resamples. All sweeps update the same SMC belief every step, so an
-uncertainty trajectory exists for every locator. A plain sweep's *reported* estimate is still its final fit.
+All sweeps update the same SMC belief every step, so an uncertainty trajectory exists for every locator. A plain sweep's *reported* estimate is still its final fit.
 
 ## Stages
 
@@ -259,8 +243,6 @@ shows them.
 - **Bound.** The article judges runs against the van Trees bound with prior information $J_0$; the stage oracle on this page
   is the CRLB-style $I^* = k\max g^2/\sigma^2$ (no prior). `stage_prior_info` carries $J_0$; see
   [evaluation metrics](evaluation_metrics.md).
-- **Smart-Sweep coarse grid.** The strategy table said FWHM/2; the article, `search_grid.py` and
-  `COARSE_SEARCH_POINTS_PER_FWHM` give $\Gamma_0/3$ (corrected above).
 - **SimpleSweep spacing.** The article lists $p = 2, 3, 4$; the code now runs the reference $k = 3$ and the optimal
   fractional $k^*$ (`SimpleSweep-optimal`) instead of the $2, 3, 4$ ladder.
 - **Sweep reported estimate.** A plain sweep's reported estimate is its final fit while the claimed uncertainty comes from the

@@ -64,16 +64,13 @@ class RunGroup:
 _DEFAULT_SWEEP = sweep_strategy_name(SWEEP_POINTS_PER_FWHM)
 
 # The locators compared on the standard scenarios: the plain sweeps (the reference at 3 points per FWHM and the one at
-# the optimal step), the plain SBED, and the two locators that search coarsely first and then work inside the focus
-# (docs/locator_comparison.md).
+# the optimal step), and the plain SBED (docs/locator_comparison.md).
 _LOCATOR_STUDY_STRATEGIES = [
     *PLAIN_SWEEP_STRATEGIES,
-    "Smart-Sweep",
     "Bayesian-SBED",
-    "Smart-SBED",
 ]
 
-_STUDY_LOCATORS = "all locators (sweeps, Smart-Sweep, Bayesian-SBED, Smart-SBED)"
+_STUDY_LOCATORS = "all locators (sweeps, Bayesian-SBED)"
 
 
 def _voigt_snr_window_param_grid() -> dict[str, object]:

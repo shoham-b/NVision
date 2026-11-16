@@ -3,9 +3,7 @@
 ``SimpleSweep-3perFWHM`` (``SWEEP_POINTS_PER_FWHM`` grid points per prior FWHM) is the reference sweep. Its
 measurements and fitted curve are stored on the repeat's scan entry (``SWEEP_DATA_KEY``) and read back by
 
-* the Bayesian locators' scan figures, which overlay the sweep's points and fit (no separate baseline run), and
-* Smart-Sweep / Smart-SBED, whose search phase *is* that sweep until the focus: the same grid, so each search
-  measurement is the sweep's own measurement at that point (see :class:`SweepReplay`).
+the Bayesian locators' scan figures, which overlay the sweep's points and fit (no separate baseline run).
 
 The sweep of repeat ``r`` and a locator's repeat ``r`` share the generated signal (same seed, generator and
 repeat index), so the stored data belongs to the same experiment. A sweep that is not in the cache is an error,
@@ -16,18 +14,13 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-import numpy as np
-
-from nvision.models.observation import Observation
 from nvision.sim.grid_enums import sweep_strategy_name
 from nvision.sim.locs.search_grid import SWEEP_POINTS_PER_FWHM
 
 if TYPE_CHECKING:
     from nvision.cache.locator_repository import LocatorResultsRepository
-    from nvision.models.experiment import CoreExperiment
 
 SWEEP_DATA_KEY = "sweep_data"
 # A search measurement may only stand in for a sweep point this close in unit coordinates (the same grid, so ~0).
@@ -69,44 +62,6 @@ def sweep_data_from_run(run_result: Any) -> dict[str, Any]:
             else {k: float(v) for k, v in run_result.fit_mode_estimates.items()}
         ),
     }
-
-
-@dataclass
-class SweepReplay:
-    """One repeat's persisted sweep, handed out point by point to a locator's search phase.
-
-    Each stored measurement is used once: a search pass that comes back to the same point (the grid was
-    covered without a dip) measures afresh.
-    """
-
-    data: dict[str, Any]
-
-    def __post_init__(self) -> None:
-        self._xs_unit = np.asarray(self.data["drive_freqs_unit"], dtype=np.float64)  # shape: (n_points,)
-        self._used = np.zeros(self._xs_unit.size, dtype=bool)
-
-    def take(self, experiment: CoreExperiment, drive_freq_unit: float) -> Observation | None:
-        """The sweep's measurement at ``drive_freq_unit``, or None if that point was already handed out.
-
-        Raises ``ValueError`` if no sweep point lies at ``drive_freq_unit``: the search grid and the sweep grid
-        are meant to be identical, so a mismatch is a bug, not something to approximate.
-        """
-        idx = int(np.argmin(np.abs(self._xs_unit - drive_freq_unit)))
-        if abs(float(self._xs_unit[idx]) - drive_freq_unit) > _MATCH_TOL_UNIT:
-            raise ValueError(
-                f"Search point {drive_freq_unit!r} (unit) is not on the persisted sweep grid "
-                f"(nearest {float(self._xs_unit[idx])!r})."
-            )
-        if self._used[idx]:
-            return None
-        self._used[idx] = True
-        return experiment.replay_observation(
-            drive_freq_unit=float(self._xs_unit[idx]),
-            signal_value=float(self.data["signal_values"][idx]),
-            noise_std=float(self.data["noise_std"][idx]),
-            n_shots=int(self.data["n_shots"][idx]),
-            sample_var=self.data["sample_var"][idx],
-        )
 
 
 def load_sweep_data(

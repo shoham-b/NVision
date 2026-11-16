@@ -82,7 +82,7 @@ class LocatorTask:
     # (see nvision/runner/graph_queue.py). Ignored for dry runs.
     defer_graphs: bool = False
     # True when this run also computes the reference sweep (SimpleSweep-3perFWHM) of this task's generator and noise,
-    # so a locator that replays it (Smart-Sweep / Smart-SBED) may wait for a repeat still being computed.
+    # (nothing replays it any more).
     sweep_pending: bool = False
 
     def __post_init__(self) -> None:

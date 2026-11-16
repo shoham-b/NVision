@@ -26,9 +26,13 @@ class NoiseName(StrEnum):
     GAUSS = "Gauss"
 
 
-def sweep_strategy_name(points_per_fwhm: int) -> str:
-    """Strategy name of the plain sweep with ``points_per_fwhm`` grid points per FWHM, e.g. ``SimpleSweep-3perFWHM``."""
-    return f"{StrategyFilter.SIMPLE_SWEEP}-{points_per_fwhm}perFWHM"
+def sweep_strategy_name(points_per_fwhm: float) -> str:
+    """Strategy name of the plain sweep with ``points_per_fwhm`` grid points per FWHM (fractional allowed).
+
+    Whole numbers print without a decimal point, so ``3`` and ``3.0`` are ``SimpleSweep-3perFWHM`` and ``1.5`` is
+    ``SimpleSweep-1.5perFWHM`` (the form ``refine_rates_runs`` parses).
+    """
+    return f"{StrategyFilter.SIMPLE_SWEEP}-{float(points_per_fwhm):g}perFWHM"
 
 
 # The plain sweep whose grid step is the analytically optimal k* of its task (nvision.sim.locs.sweep_optimal). One

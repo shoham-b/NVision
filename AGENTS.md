@@ -121,7 +121,7 @@ The article and its Supplemental Material live in Overleaf's git (project `6ad7c
 - **Figures are explained in their captions.** The text only cites them ("Fig. 2"); how to read the curves belongs in the caption.
 - **No pointless repetition** across sections; a short reminder for clarity is fine.
 - **No signposting** ("we return to it below", "the next two paragraphs show"); state a fact where it is used.
-- **Keep private experiments out**: Smart-Sweep and Smart-SBED are not in the paper. Call the baseline "the sweep", not a code name.
+- **Keep private experiments out**: unpublished experiments are not in the paper. Call the baseline "the sweep", not a code name.
 
 **Ask before changing meaning.** The author reviews every change closely. Pure wording changes are fine; anything else must be proposed and approved first: a changed claim, number or equation, removing or moving a sentence or paragraph, deciding which copy of a repeated passage survives, adding a displayed equation or new symbol, or fixing a content error you noticed. Flag content problems; do not fix them silently.
 
