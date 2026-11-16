@@ -125,14 +125,6 @@ NVISION_ZERO_FIELD_FREQ_CRLB_SAFETY_FACTOR: float = float(
     os.getenv("NVISION_ZERO_FIELD_FREQ_CRLB_SAFETY_FACTOR", "4.0")
 )
 
-# Minimum physical step (Hz) between consecutive EIG-evaluated candidates.
-# Candidate count from the epoch grid ≈ 6·σ_f / NVISION_SMC_CANDIDATE_STEP_HZ,
-# so the budget shrinks automatically as the posterior tightens.
-# Defaults to NVISION_ZERO_FIELD_FREQ_CONVERGENCE_THRESHOLD (100 kHz).
-NVISION_SMC_CANDIDATE_STEP_HZ: float = float(
-    os.getenv("NVISION_SMC_CANDIDATE_STEP_HZ", str(NVISION_ZERO_FIELD_FREQ_CONVERGENCE_THRESHOLD))
-)
-
 
 # --- Background-noise estimation ---------------------------------------------
 

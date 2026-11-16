@@ -70,9 +70,9 @@ family-wise false-alarm probability $p_{\rm FA}=0.1$ over the $N_{\rm tests}$ st
 \paragraph{Sweep.} $\Gamma_0$ is the FWHM of the prior-mean line. SimpleSweep measures a uniform grid of
 spacing $\Gamma_0/p$, $p=2,3,4$, and repeats whole passes.
 
-\paragraph{Bayesian SBED.} After every resampling SBED places 800 candidate drive frequencies at the quantiles of a
-density with Gaussian kernels on the two sides of the posterior-mean dip, $\pm$HWHM from its center, kernels on the dips found and a
-flat share, thinned to a spacing of at least $100$~kHz. Eq.~\eqref{eq:eig-var} is evaluated on a 500-particle
+\paragraph{Bayesian SBED.} After every resampling SBED takes as candidates a uniform grid of drive frequencies over the
+whole window, with a step of one tenth of the posterior-mean HWHM (at the widest drive amplitude for a driven line),
+and keeps those inside the focus. Eq.~\eqref{eq:eig-var} is evaluated on a 500-particle
 subsample, with $\sigma^2$ the posterior mean of the noise. The candidates are taken in blocks of 64, and the block
 maxima compete through a softmax with a temperature of $0.01$~nats, so the choice is near-greedy. Each focus section
 is a dip's extent padded by one posterior-mean HWHM on each side. A new dip widens the focus at once; narrowing waits

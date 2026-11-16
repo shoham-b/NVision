@@ -43,25 +43,13 @@ PRIOR_BROAD_FRACTION: float = 0.1
 # Subsampling keeps the matrix small (< 4 MB) with negligible quality loss.
 NVISION_SMC_EIG_PARTICLES: int = int(os.getenv("NVISION_SMC_EIG_PARTICLES", "500"))
 
-# Minimum physical spacing (Hz) for the epoch candidate grid. Controls the
-# finest resolution the slope-targeting grid can achieve regardless of sigma.
-# Set to 0 (or a very small value) via env to let the grid refine with sigma.
-NVISION_SMC_EPOCH_GRID_MIN_STEP_HZ: float = float(os.getenv("NVISION_SMC_EPOCH_GRID_MIN_STEP_HZ", "10000.0"))
+# Step of the epoch candidate grid as a fraction of the posterior-mean effective HWHM. The candidates are one
+# uniform grid over the whole drive-frequency window with this step, in every phase, so the EIG score alone
+# decides where to measure (no candidate density is placed on the dip's slopes).
+NVISION_SBED_CANDIDATE_STEP_HWHM_FRACTION: float = float(os.getenv("NVISION_SBED_CANDIDATE_STEP_HWHM_FRACTION", "0.1"))
 
-# Minimum half-width (Hz) for a dip-focus kernel's window in the epoch candidate
-# density mixture (see _generate_epoch_candidate_drive_freq), mirroring the role the old
-# per-slope grid half-width played: a detected dip narrower than this still gets
-# a window wide enough to be found even if its empirical centroid is slightly off.
-NVISION_SMC_DIP_WINDOW_MIN_HZ: float = float(os.getenv("NVISION_SMC_DIP_WINDOW_MIN_HZ", "5000000.0"))
-
-# Single coherent candidate budget for the epoch candidate density mixture,
-# replacing the old three independently-tuned counts (a ~12,500-point global
-# grid for Lorentzian models, an implicit ~180 points/slope from the sigma/30
-# spacing floor, and a 100-point dip-grid budget). Fixed rather than
-# env-configurable: unlike the physical constants around it, this is a pure
-# computational-budget/quality tradeoff knob, not a physical or algorithmic
-# parameter someone would need to retune per experiment.
-NVISION_SMC_EPOCH_CANDIDATE_BUDGET: int = 800
+# Fail-fast cap on the number of candidates of one epoch grid (a runaway window/HWHM ratio is a bug).
+_MAX_EPOCH_CANDIDATES: int = 200_000
 
 _EIG_CHUNK_SIZE: int = 64
 
@@ -294,88 +282,40 @@ def _weighted_cdf(samples: np.ndarray, weights: np.ndarray, x_query: np.ndarray)
     return np.interp(x_query, sorted_samples, cdf_vals)
 
 
-# --- Epoch candidate density mixture (see _generate_epoch_candidate_drive_freq) --------
-
-# Baseline (flat) term's mass share of the local (slope + dip) kernel mass when
-# use_global_grid is enabled. A judgment call, not derived: big enough that the
-# domain-wide backstop coverage the old global grid provided isn't lost, small
-# enough that it never dominates the budget away from the slope/dip kernels
-# that carry the actual acquired information.
-_EPOCH_BASELINE_MASS_FRACTION: float = 0.2
-
-# Resolution of the scaffold grid used to numerically build the mixture's CDF
-# before quantile inversion (see _quantile_place_candidate_drive_freq). This is a pure
-# numerical-accuracy knob for that intermediate scaffold -- unrelated to the
-# final candidate budget (NVISION_SMC_EPOCH_CANDIDATE_BUDGET) or to the
-# resolution floor (NVISION_SMC_EPOCH_GRID_MIN_STEP_HZ) the final candidates
-# are snapped to.
-_EPOCH_DENSITY_BASELINE_POINTS: int = 2000
-_EPOCH_DENSITY_KERNEL_POINTS: int = 400
-_EPOCH_DENSITY_KERNEL_SPAN_SIGMAS: float = 6.0
-
-
-def _quantile_place_candidate_drive_freq(
-    kernels: list[tuple[float, float, float]],
-    baseline_weight: float,
-    lo: float,
-    hi: float,
-    n_candidates: int,
+def uniform_candidate_grid_phys(
+    lo_phys: float, hi_phys: float, hwhm_phys: float, step_hwhm_fraction: float
 ) -> np.ndarray:
-    """Deterministically place ``n_candidates`` points at evenly-spaced quantiles
-    of a density mixture over ``[lo, hi]``.
+    """Uniform grid over ``[lo_phys, hi_phys]`` with step at most ``step_hwhm_fraction * hwhm_phys``.
 
-    The mixture is a weighted sum of Gaussian kernels, each given as
-    ``(center, bandwidth, weight)``, plus an optional flat baseline term of total
-    mass ``baseline_weight``. Placement is exact inverse-CDF quantile sampling
-    (deterministic -- evenly-spaced quantile levels, not a random draw), so it
-    does not consume or depend on any RNG state and leaves reproducibility under
-    a fixed ``NVISION_RNG_SEED`` untouched.
+    Both ends are included; the step is shrunk slightly so the grid divides the window evenly.
 
-    Implementation note: there is no closed form for a truncated Gaussian-mixture
-    CDF inverse, so the density is instead evaluated on an adaptive scaffold grid
-    (locally dense around each kernel, coarse elsewhere) and its CDF built by
-    trapezoidal integration; quantiles are then read off by linear interpolation
-    against that empirical CDF. The scaffold itself is discarded -- it is not the
-    returned candidate set.
+    Args:
+        lo_phys: Lower drive-frequency bound (Hz).
+        hi_phys: Upper drive-frequency bound (Hz).
+        hwhm_phys: Posterior-mean effective half width at half maximum (Hz); must be > 0.
+        step_hwhm_fraction: Grid step as a fraction of ``hwhm_phys``; must be > 0.
+
+    Returns:
+        Ascending drive frequencies (Hz). shape: (n_candidates,)
+
+    Raises:
+        ValueError: on a degenerate window, a non-positive/non-finite HWHM or fraction, or a grid larger
+            than ``_MAX_EPOCH_CANDIDATES``.
     """
-    if not (hi > lo):
-        raise ValueError(f"_quantile_place_candidate_drive_freq: degenerate domain [{lo}, {hi}].")
-    if n_candidates <= 0:
-        raise ValueError(f"_quantile_place_candidate_drive_freq: n_candidates must be positive, got {n_candidates}.")
-
-    pieces = [np.linspace(lo, hi, _EPOCH_DENSITY_BASELINE_POINTS)]
-    for center, bandwidth, weight in kernels:
-        if weight <= 0:
-            continue
-        bw = max(bandwidth, 1e-9)
-        span = _EPOCH_DENSITY_KERNEL_SPAN_SIGMAS * bw
-        lo_k = max(center - span, lo)
-        hi_k = min(center + span, hi)
-        if hi_k <= lo_k:
-            continue
-        pieces.append(np.linspace(lo_k, hi_k, _EPOCH_DENSITY_KERNEL_POINTS))
-    xs = np.unique(np.concatenate(pieces))
-
-    density = np.zeros_like(xs)
-    if baseline_weight > 0:
-        density += baseline_weight / (hi - lo)
-    for center, bandwidth, weight in kernels:
-        if weight <= 0:
-            continue
-        bw = max(bandwidth, 1e-9)
-        density += weight * np.exp(-0.5 * ((xs - center) / bw) ** 2) / (bw * math.sqrt(2.0 * math.pi))
-
-    seg_area = 0.5 * (density[1:] + density[:-1]) * np.diff(xs)
-    cdf = np.concatenate([[0.0], np.cumsum(seg_area)])
-    total_mass = cdf[-1]
-    if not (total_mass > 0) or not math.isfinite(total_mass):
-        raise ValueError(f"_quantile_place_candidate_drive_freq: degenerate density (total mass={total_mass!r}).")
-    cdf /= total_mass
-
-    # Midpoint quantile levels avoid q=0/q=1, which would map to exactly lo/hi
-    # regardless of where the mixture's actual mass sits.
-    q = (np.arange(n_candidates, dtype=np.float64) + 0.5) / n_candidates
-    return np.interp(q, cdf, xs)
+    if not (hi_phys > lo_phys):
+        raise ValueError(f"uniform_candidate_grid_phys: degenerate domain [{lo_phys}, {hi_phys}].")
+    if not (math.isfinite(hwhm_phys) and hwhm_phys > 0.0):
+        raise ValueError(f"uniform_candidate_grid_phys: HWHM must be positive and finite, got {hwhm_phys!r}.")
+    if not (math.isfinite(step_hwhm_fraction) and step_hwhm_fraction > 0.0):
+        raise ValueError(f"uniform_candidate_grid_phys: step fraction must be positive, got {step_hwhm_fraction!r}.")
+    step_phys = step_hwhm_fraction * hwhm_phys
+    n_intervals = math.ceil((hi_phys - lo_phys) / step_phys)
+    if n_intervals + 1 > _MAX_EPOCH_CANDIDATES:
+        raise ValueError(
+            f"uniform_candidate_grid_phys: grid of {n_intervals + 1} candidates exceeds {_MAX_EPOCH_CANDIDATES} "
+            f"(window {hi_phys - lo_phys} Hz, step {step_phys} Hz)."
+        )
+    return np.linspace(lo_phys, hi_phys, n_intervals + 1)
 
 
 @dataclass
@@ -901,161 +841,38 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         return var_sigma_sq_std
 
     def _generate_epoch_candidate_drive_freq(self) -> None:
-        """Generate the epoch candidate density mixture and cache its quantile
-        placement for the current epoch.
+        """Generate the epoch's candidate drive frequencies: one uniform grid over the drive window.
 
-        Targets the steepest slopes (center ± hwhm) of the hyperfine dips
-        and (once enough observations exist) empirically-detected dip centroids.
-        Kernel bandwidths and window sizes scale with posterior uncertainty. See
-        the "4. Build the unified candidate-density mixture" comment below for
-        the full construction.
+        The step is ``NVISION_SBED_CANDIDATE_STEP_HWHM_FRACTION`` x the posterior-mean effective HWHM (for a
+        drive-controlled model, at the widest reference drive amplitude), the same rule in every phase. The
+        empirically detected dips (``current_dips``, which the focus is decided from) are refreshed here too.
+        Stores ``_candidate_drive_freq_unit`` (shape: (n_candidates,), ascending, in [0, 1]).
         """
         # New epoch: candidates and particles have changed, so the EIG
         # prediction-matrix cache (built from both) must be rebuilt.
         self._eig_epoch += 1
         self._eig_cache = None
         self._dip_candidates = []
+
+        # Posterior-mean HWHM (physical, Hz) at the widest reference drive amplitude.
         est = self.estimates()
-        unc = self.uncertainty()
-
-        # Slope targeting needs a ``zero_field_freq`` and its uncertainty. "zero_field_freq" is either a
-        # particle dimension or a known instrument constant (exact centre, no spread).
-        if "zero_field_freq" in est:
-            f_b_phys = est["zero_field_freq"]
-            sigma_f_phys = unc["zero_field_freq"]
-        else:
-            f_b_phys = self.model.inner.spec.fixed_values["zero_field_freq"]
-            sigma_f_phys = 0.0
-        df_hf_phys = est.get("hyperfine_shift", 0.0)
-        df_zeeman_phys = est.get("zeeman_shift", 0.0)
-
-        # 1. Linewidth Omega (HWHM, physical) and its spread over the posterior. A drive-controlled
-        # model's width depends on the drive, so slopes are targeted at every reference amplitude
-        # (see width_drive_amp_units); the spread is taken at the widest one.
         width_amps = self.width_drive_amp_units()
-        particles_phys = self.particles_phys()
         omegas_phys = [float(effective_hwhm(est, drive_amp_unit=a)) for a in width_amps]
-        omega_phys = max(omegas_phys)
-        hwhm_particles = effective_hwhm(particles_phys, drive_amp_unit=width_amps[int(np.argmax(omegas_phys))])
-        hwhm_mean = float(self._weights @ hwhm_particles)
-        sigma_omega_phys = float(np.sqrt(self._weights @ (hwhm_particles - hwhm_mean) ** 2))
+        hwhm_particles_phys = effective_hwhm(
+            self.particles_phys(), drive_amp_unit=width_amps[int(np.argmax(omegas_phys))]
+        )
+        hwhm_mean_phys = float(self._weights @ hwhm_particles_phys)
 
-        # 2. Effective uncertainty in physical space -- the bandwidth of each slope-targeting
-        # Gaussian kernel below.
-        sigma_eff_phys = np.sqrt(sigma_f_phys**2 + sigma_omega_phys**2)
-        min_step_physical = NVISION_SMC_EPOCH_GRID_MIN_STEP_HZ
-
-        # 3. Slope Targeting: centers for all Zeeman groups × HF sub-peaks (deduplicated)
-        zeeman_offsets = [-df_zeeman_phys, df_zeeman_phys] if df_zeeman_phys > 0 else [0.0]
-        hf_offsets = [-df_hf_phys, 0.0, df_hf_phys] if df_hf_phys > 0 else [0.0]
-        centers_seen: set[int] = set()
-        centers_phys = []
-        for zo in zeeman_offsets:
-            for hfo in hf_offsets:
-                c = f_b_phys + zo + hfo
-                c_key = round(c)
-                if c_key not in centers_seen:
-                    centers_seen.add(c_key)
-                    centers_phys.append(c)
         phys_f_lo, phys_f_hi = self.drive_freq_bounds_phys
-        if not (phys_f_hi > phys_f_lo):
-            raise ValueError(
-                f"_generate_epoch_candidate_drive_freq: degenerate drive-frequency axis [{phys_f_lo}, {phys_f_hi}]."
-            )
-        # The drive-frequency window is typically only one half of the mirror-symmetric spectrum
-        # (see DEFAULT_NV_DRIVE_FREQ_MIN_PHYS), so a slope point falling outside it is
-        # measured at its mirror image about the signal center instead.
-        slopes_phys = []
-        slope_offsets = sorted({o for omega in omegas_phys for o in (-omega, omega)})
-        for c in centers_phys:
-            for s in (c + o for o in slope_offsets):
-                if not (phys_f_lo <= s <= phys_f_hi):
-                    mirror = 2.0 * f_b_phys - s
-                    if phys_f_lo <= mirror <= phys_f_hi:
-                        s = mirror
-                slopes_phys.append(s)
-
-        # 4. Build the unified candidate-density mixture.
-        #
-        # Replaces the old three independently-sized grids (global coarse grid +
-        # per-slope uniform windows + a separately-budgeted dip grid) with one
-        # continuous density over [f_lo, f_hi]: a Gaussian kernel per slope point
-        # (bandwidth = sigma_eff_phys, matching the old uniform slope windows'
-        # 3-sigma half-width), a Gaussian kernel per empirically-detected dip
-        # centroid (bandwidth = its detection window / 3, same span-matching
-        # logic), and an optional flat baseline term for domain-wide backstop
-        # coverage. NVISION_SMC_EPOCH_CANDIDATE_BUDGET candidates are then placed
-        # at that density's evenly-spaced CDF quantiles -- deterministic (no RNG
-        # draw, so NVISION_RNG_SEED reproducibility is untouched), and
-        # concentrated where the mixture says information actually is, rather
-        # than uniform-within-window-then-a-density-cliff at the window edge.
-        slope_bw_phys = max(sigma_eff_phys, min_step_physical)
-        kernels: list[tuple[float, float, float]] = [(s_phys, slope_bw_phys, 1.0) for s_phys in slopes_phys]
-        n_slope_kernels = len(kernels)
-        if n_slope_kernels == 0:
-            raise RuntimeError(
-                "_generate_epoch_candidate_drive_freq: no slope-targeting centers were generated -- "
-                "slopes_phys must always contain at least one dip's ±omega points."
-            )
-
-        # 4b. Observation-driven dip focusing.
-        # Use empirically measured low-signal values to add dense candidates directly
-        # at the true dip locations, correcting for posterior bias when belief is wrong.
-        self._dip_candidates = self.current_dips()
-        if self._dip_candidates:
-            total_sig = sum(c.significance for c in self._dip_candidates)
-            # The dip family competes with the slope family on equal aggregate
-            # footing (each gets n_slope_kernels total mixture weight); within
-            # the dip family, individual dips are still split by significance.
-            dip_family_weight = float(n_slope_kernels)
-            for candidate in self._dip_candidates:
-                frac = candidate.significance / total_sig
-                window_phys = max(3.0 * omega_phys, sigma_eff_phys, NVISION_SMC_DIP_WINDOW_MIN_HZ)
-                dip_bw_phys = max(window_phys / 3.0, min_step_physical)
-                kernels.append((candidate.centroid_hz, dip_bw_phys, frac * dip_family_weight))
-
-        # 5. Flat baseline term for domain-wide backstop coverage, gated
-        # by use_global_grid. Scaled relative to the local (slope + dip) mass so
-        # its share stays roughly constant whether or not dips have been detected.
-        local_weight_total = sum(w for _, _, w in kernels)
-        baseline_weight = _EPOCH_BASELINE_MASS_FRACTION * local_weight_total
-
-        total_weight = local_weight_total + baseline_weight
-        if not (total_weight > 0) or not math.isfinite(total_weight):
-            raise ValueError(
-                "_generate_epoch_candidate_drive_freq: candidate density mixture has zero total weight "
-                f"(n_kernels={len(kernels)}, "
-                f"local_weight_total={local_weight_total!r}). There is nothing to build an "
-                "epoch candidate grid from."
-            )
-
-        candidate_drive_freq_phys = _quantile_place_candidate_drive_freq(
-            kernels=kernels,
-            baseline_weight=baseline_weight,
-            lo=phys_f_lo,
-            hi=phys_f_hi,
-            n_candidates=NVISION_SMC_EPOCH_CANDIDATE_BUDGET,
+        grid_phys = uniform_candidate_grid_phys(
+            phys_f_lo, phys_f_hi, hwhm_mean_phys, NVISION_SBED_CANDIDATE_STEP_HWHM_FRACTION
         )
 
-        # Snap to the resolution floor (skipped if the floor is disabled via env,
-        # matching NVISION_SMC_EPOCH_GRID_MIN_STEP_HZ's documented "0 to let the
-        # grid refine with sigma" escape hatch), clip into bounds, dedup.
-        if min_step_physical > 0:
-            candidate_drive_freq_phys = np.round(candidate_drive_freq_phys / min_step_physical) * min_step_physical
-        candidate_drive_freq_phys = np.clip(candidate_drive_freq_phys, phys_f_lo, phys_f_hi)
-        merged = np.clip((candidate_drive_freq_phys - phys_f_lo) / (phys_f_hi - phys_f_lo), 0.0, 1.0).astype(
+        # Observation-driven dip detection feeds the focus; it does not shape the candidates.
+        self._dip_candidates = self.current_dips()
+        self._candidate_drive_freq_unit = np.clip((grid_phys - phys_f_lo) / (phys_f_hi - phys_f_lo), 0.0, 1.0).astype(
             np.float32, copy=False
         )
-        # Quantile placement returns an ascending sequence, so this is already
-        # (near-)sorted -- a stable (timsort) sort is near-linear here, unlike
-        # np.unique's full introsort. Dedup with a neighbor mask.
-        merged.sort(kind="stable")
-        if merged.shape[0] > 1:
-            keep = np.empty(merged.shape[0], dtype=bool)
-            keep[0] = True
-            np.not_equal(merged[1:], merged[:-1], out=keep[1:])
-            merged = merged[keep]
-        self._candidate_drive_freq_unit = merged
 
     def _resample(self) -> None:
         """Systematic resampling with Gaussian nudging and Liu-West shrinkage.
