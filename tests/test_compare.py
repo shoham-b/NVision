@@ -7,7 +7,13 @@ import pytest
 
 from nvision.metrics.compare import compare_locators, usable_runs
 from nvision.sim.combinations import PLAIN_SWEEP_STRATEGIES, CombinationGrid
-from nvision.sim.grid_enums import OPTIMAL_SWEEP_STRATEGY, is_plain_sweep, sweep_strategy_name
+from nvision.sim.grid_enums import (
+    OPTIMAL_SWEEP_STRATEGY,
+    is_plain_sweep,
+    optimal_sweep_multiplier,
+    optimal_sweep_strategy_name,
+    sweep_strategy_name,
+)
 from nvision.sim.run_groups import get_run_group
 
 
@@ -48,8 +54,12 @@ def test_compare_tolerates_missing_stage_columns():
 
 
 def test_plain_sweeps_are_the_reference_and_the_optimal_step():
-    assert list(PLAIN_SWEEP_STRATEGIES) == ["SimpleSweep-3perFWHM", "SimpleSweep-optimal"]
-    assert list(PLAIN_SWEEP_STRATEGIES) == [sweep_strategy_name(3), OPTIMAL_SWEEP_STRATEGY]
+    assert list(PLAIN_SWEEP_STRATEGIES) == ["SimpleSweep-optimal-x0.5", "SimpleSweep-optimal", "SimpleSweep-optimal-x2"]
+    assert OPTIMAL_SWEEP_STRATEGY in PLAIN_SWEEP_STRATEGIES
+    assert [optimal_sweep_multiplier(s) for s in PLAIN_SWEEP_STRATEGIES] == [0.5, 1.0, 2.0]
+    assert optimal_sweep_strategy_name(1) == OPTIMAL_SWEEP_STRATEGY
+    assert optimal_sweep_multiplier("Bayesian-SBED") is None
+    assert optimal_sweep_multiplier(sweep_strategy_name(3)) is None
     names = [n for n, _ in CombinationGrid().strategies_for("NVCenter-lorentzian")]
     for name in PLAIN_SWEEP_STRATEGIES:
         assert name in names

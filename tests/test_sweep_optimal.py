@@ -76,6 +76,30 @@ def test_optimal_locator_uses_and_reports_k_star():
     assert so.K_MIN <= loc.spacing_divisor <= so.K_MAX
 
 
+def test_k_multiplier_scales_k_star_and_is_reported():
+    base = _locator(spacing_divisor=so.OPTIMAL_SPACING, noise_std=0.01)
+    half = _locator(spacing_divisor=so.OPTIMAL_SPACING, noise_std=0.01, k_multiplier=0.5)
+    double = _locator(spacing_divisor=so.OPTIMAL_SPACING, noise_std=0.01, k_multiplier=2.0)
+    k_star = base.optimal_spacing.k_opt
+    assert half.optimal_spacing.k_opt == double.optimal_spacing.k_opt == k_star
+    assert half.spacing_divisor == pytest.approx(0.5 * k_star)
+    assert double.spacing_divisor == pytest.approx(2.0 * k_star)
+    assert half.max_steps < base.max_steps < double.max_steps
+    assert double.result()["sweep_k"] == pytest.approx(2.0 * k_star)
+    assert double.result()["sweep_k_opt"] == k_star
+
+
+@pytest.mark.parametrize("bad", [0, -1.0, math.inf, math.nan])
+def test_k_multiplier_must_be_positive_and_finite(bad):
+    with pytest.raises(ValueError, match="k_multiplier"):
+        _locator(spacing_divisor=so.OPTIMAL_SPACING, noise_std=0.01, k_multiplier=bad)
+
+
+def test_k_multiplier_only_scales_the_optimal_step():
+    with pytest.raises(ValueError, match="k_multiplier"):
+        _locator(spacing_divisor=3, k_multiplier=2.0)
+
+
 def test_fisher_ripple_of_a_grid_matches_the_lorentzian_table():
     """Position information of a uniform grid vs a dense grid, worst/best dip offset (docs/locator_comparison.md)."""
     model = NVCenterLorentzianModel(with_zeeman_splitting=False, with_fixed_zero_field_freq=False)

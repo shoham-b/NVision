@@ -16,7 +16,7 @@ from nvision.runner import run_task as real_run_task
 @pytest.mark.timeout(240)
 def test_failed_task_still_writes_the_other_results(tmp_path, monkeypatch):
     def flaky(task, **kwargs):
-        if "3perfwhm" in task.slug.lower():
+        if task.strategy_name.endswith("-x2"):
             raise ValueError("stage metrics exploded")
         return real_run_task(task, **kwargs)
 
@@ -37,7 +37,7 @@ def test_failed_task_still_writes_the_other_results(tmp_path, monkeypatch):
             "--filter-noise",
             "Gauss",
             "--filter-strategy",
-            "SimpleSweep-optimal,SimpleSweep-3perFWHM",
+            "^SimpleSweep-optimal$,^SimpleSweep-optimal-x2$",
             "--logs-root",
             str(tmp_path / "logs"),
         ],

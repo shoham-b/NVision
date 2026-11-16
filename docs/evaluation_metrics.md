@@ -17,7 +17,7 @@ The yardstick is a ladder, each rung tuned before the next:
 
 | Rung | Locator | Tuned / differs by |
 |---|---|---|
-| 0 | `SimpleSweep-3perFWHM` (reference), `SimpleSweep-optimal` | grid step (k points per **prior** FWHM): 3 for the reference, the analytically optimal fractional k* of the task for `-optimal` (cost $\min_k \overline{P(k,\varphi)}\,n(k)$, see [locator comparison](locator_comparison.md)); passes averaged over the whole budget |
+| 0 | `SimpleSweep-optimal` (reference), `SimpleSweep-optimal-x0.5`, `-x2` | grid step (k points per **prior** FWHM): $m\,k^*$ with $m = 1, 0.5, 2$ and k* the analytically optimal fractional step of the task (cost $\min_k \overline{P(k,\varphi)}\,n(k)$, see [locator comparison](locator_comparison.md)); passes averaged over the whole budget |
 | 1 | `Bayesian-SBED` | no coarse grid |
 | 2 | `Bayesian-SBED-Drive` | also picks the MW drive amplitude (strong to search, near the slope optimum to refine) |
 
@@ -42,7 +42,7 @@ FWHM, not against those columns.
 (e.g. prior HWHM ≈ 2.5 MHz against a true 0.5 MHz) a "k = 1" grid puts ~0.2 points per true FWHM and can step over the
 dip. k = 1 is therefore not studied (the optimal-step sweep scans k from 0.5, but its cost model prices such grids
 out); compare spacings by points per true FWHM. The realised k* of every `SimpleSweep-optimal` repeat is recorded
-(`sweep_k_opt`, with the predicted passes `sweep_passes_pred` and cost `sweep_cost_pred`).
+(`sweep_k_opt`; `sweep_k` = m k* is the step actually swept; with the predicted passes `sweep_passes_pred` and cost `sweep_cost_pred`).
 
 ## The Fisher oracle behind the stage metrics
 
@@ -212,7 +212,7 @@ J₀ came from the prior carry the claimed-σ value and cannot be rescaled: re-r
 
 During the search no strategy, adaptive or not, beats the search bounds of the article (Sec. global and the SM prior
 section). The Search scope draws them next to the measured search, per use case (rule 7) and for the search locators only
-(`Bayesian-SBED`, `SimpleSweep-3perFWHM` and `SimpleSweep-optimal`). Everything is computed by
+(`Bayesian-SBED` and the `SimpleSweep-optimal` family). Everything is computed by
 `nvision/metrics/search_bounds.py` (formulas, unit tests in `tests/test_search_bounds.py`) from data already in the cache
 through `GET /api/search-bounds` (`nvision/cli/search_bounds_api.py`), so `nv serve` on an existing cache is enough and no
 re-run is needed. The panels are drawn by `static/search-bounds-view.js`.
@@ -250,14 +250,14 @@ re-run is needed. The panels are drawn by `static/search-bounds-view.js`.
 
 Reading it on the current cache (2026-11-15): the SNR × window study's drawn W is only 1.5–4.4 Γ, so the search is a few
 probe cells and the bounds are far below the measured search (κ_eff/κ̄ ≈ 0.01–0.09 for all four locators, none near 1/(1−2t/W));
-a real test of the search claim needs the larger windows. Rows of `SimpleSweep-3perFWHM` carry a stored J₀ that is not 4π²/W²
+a real test of the search claim needs the larger windows. Rows of the fixed-step sweeps (`SimpleSweep-<k>perFWHM`, only in older caches) carry a stored J₀ that is not 4π²/W²
 (older prior), flagged in the panel; nothing here reads it.
 ## Refine rates and the speedup over a sweep
 
 Code: `nvision/metrics/refine_rates.py` (pure maths), `nvision/metrics/refine_rates_runs.py` (rebuilding cached runs),
 `GET /api/refine-rates` (`nvision/cli/refine_rates_api.py`), UI `static/refine-rates.js` (the "Refine & speedup" section
 at the bottom of the Information tab). Theory: `articles/sections/theory.tex`, Sec. "Speedup over a drive-frequency
-sweep". Locators in scope: Bayesian-SBED and `SimpleSweep-3perFWHM` and `SimpleSweep-optimal` (the realised k* is read from `sweep_k_opt`). It reads the cache only, so it works
+sweep". Locators in scope: Bayesian-SBED and the `SimpleSweep-optimal` family (the realised k is read from `sweep_k`). It reads the cache only, so it works
 after `nv render` / `nv serve` with no re-run (it needs the live server, not a static export).
 
 After the dip is found a locator gains information about the primary parameter at `q · I_max` per measurement,
