@@ -12,7 +12,6 @@ never silently re-simulated.
 
 from __future__ import annotations
 
-import time
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
@@ -26,8 +25,6 @@ SWEEP_DATA_KEY = "sweep_data"
 # A search measurement may only stand in for a sweep point this close in unit coordinates (the same grid, so ~0).
 _MATCH_TOL_UNIT = 1e-9
 # How long a dependent task waits for a sweep repeat still being computed by another worker.
-SWEEP_WAIT_S = 3600.0
-_POLL_S = 2.0
 
 
 class MissingSweepDataError(RuntimeError):
@@ -64,27 +61,20 @@ def sweep_data_from_run(run_result: Any) -> dict[str, Any]:
     }
 
 
-def load_sweep_data(
-    repo: LocatorResultsRepository, combo_kw: dict[str, Any], repeat_idx: int, *, wait_s: float = 0.0
-) -> dict[str, Any]:
+def load_sweep_data(repo: LocatorResultsRepository, combo_kw: dict[str, Any], repeat_idx: int) -> dict[str, Any]:
     """The reference sweep's stored data for repeat ``repeat_idx`` of the combination ``combo_kw``.
 
     ``combo_kw`` identifies a combination (generator, noise, strategy, seed, max_steps, timeout_s); the sweep is
-    the same combination with the reference sweep as strategy. With ``wait_s`` > 0 a repeat another worker is
-    still computing is waited for. Raises :class:`MissingSweepDataError` otherwise.
+    the same combination with the reference sweep as strategy. Raises :class:`MissingSweepDataError` otherwise.
     """
     sweep_kw = {**combo_kw, "strategy": reference_sweep_strategy()}
-    deadline = time.monotonic() + wait_s
-    while True:
-        data = repo.load_scan_field(**sweep_kw, repeat_idx=repeat_idx, field=SWEEP_DATA_KEY)
-        if data is not None:
-            return data
-        if time.monotonic() >= deadline:
-            raise MissingSweepDataError(
-                f"No {reference_sweep_strategy()} data for repeat {repeat_idx} of {combo_kw['generator']} / "
-                f"{combo_kw['noise']} (seed {combo_kw['seed']}): run that strategy first."
-            )
-        time.sleep(_POLL_S)
+    data = repo.load_scan_field(**sweep_kw, repeat_idx=repeat_idx, field=SWEEP_DATA_KEY)
+    if data is None:
+        raise MissingSweepDataError(
+            f"No {reference_sweep_strategy()} data for repeat {repeat_idx} of {combo_kw['generator']} / "
+            f"{combo_kw['noise']} (seed {combo_kw['seed']}): run that strategy first."
+        )
+    return data
 
 
 SweepLoader = Callable[[int], dict[str, Any]]

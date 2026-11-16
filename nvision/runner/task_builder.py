@@ -141,13 +141,9 @@ def build_task_list(
             )
         )
 
-    # The reference sweep's measurements are read by the smart locators and the Bayesian figures of the same
-    # generator and noise, so its tasks go first (a worker that picks a dependent task then finds every sweep task
-    # already started) and the dependents learn the sweep is coming.
+    # The reference sweep's measurements are read by the Bayesian figures of the same generator and noise, so its
+    # tasks go first.
     reference = reference_sweep_strategy()
-    planned = {(t.generator_name, t.noise_name) for t in task_list if t.strategy_name == reference}
-    for t in task_list:
-        t.sweep_pending = (t.generator_name, t.noise_name) in planned
     task_list.sort(key=lambda t: t.strategy_name != reference)
     monitor.set_total_weight(total=total_weighted_repeats)
     return task_list, total_weighted_repeats
