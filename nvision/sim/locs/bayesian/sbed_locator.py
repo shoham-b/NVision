@@ -3,40 +3,15 @@
 from __future__ import annotations
 
 import numpy as np
-from numba import njit
 
 from nvision.belief.focus_window import NVISION_SMC_FOCUSING_COVER_FACTOR, next_focus_region
 from nvision.models.observation import Observation
-from nvision.sim.defaults import (
-    NVISION_CONVERGENCE_THRESHOLD,
-    NVISION_SMC_CANDIDATE_STEP_HZ,
-)
+from nvision.sim.defaults import NVISION_CONVERGENCE_THRESHOLD
 from nvision.sim.locs.bayesian.sequential_bayesian_locator import (
     NVISION_CONVERGENCE_PATIENCE,
     SequentialBayesianLocator,
 )
 from nvision.spectra.nv_center import effective_hwhm
-
-
-@njit(cache=True)
-def _thin_by_step_indices(candidate_drive_freq_phys: np.ndarray, step: float) -> np.ndarray:
-    """Indices of a greedy minimum-spacing subset of sorted *candidate_drive_freq_phys* (shape: (n,), Hz).
-
-    Keeps the first and last candidate so the full range stays represented.
-    """
-    n = candidate_drive_freq_phys.shape[0]
-    kept = np.empty(n, dtype=np.int64)
-    kept[0] = 0
-    m = 1
-    last = candidate_drive_freq_phys[0]
-    for i in range(1, n - 1):
-        if candidate_drive_freq_phys[i] - last >= step:
-            kept[m] = i
-            m += 1
-            last = candidate_drive_freq_phys[i]
-    kept[m] = n - 1
-    return kept[: m + 1]
-
 
 # Falsification probes: chance of a probe when the axis is unmeasured (largest gap = 1) and when it is densely
 # covered (largest gap -> 0). The floor keeps checking away from a suspected dip for the whole run.
@@ -94,7 +69,6 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         max_steps: int = 150,
         convergence_threshold: float = NVISION_CONVERGENCE_THRESHOLD,
         center_param: str | None = None,
-        candidate_step_hz: float | None = None,
         convergence_patience_steps: int = NVISION_CONVERGENCE_PATIENCE,
     ) -> None:
         super().__init__(
@@ -103,9 +77,6 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
             convergence_threshold,
             center_param,
             convergence_patience_steps=convergence_patience_steps,
-        )
-        self.candidate_step_hz: float = (
-            float(candidate_step_hz) if candidate_step_hz is not None else NVISION_SMC_CANDIDATE_STEP_HZ
         )
 
         # We handle resampling manually to check convergence at the right moment
@@ -121,7 +92,6 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         convergence_threshold: float = NVISION_CONVERGENCE_THRESHOLD,
         center_param: str | None = None,
         parameter_bounds=None,
-        candidate_step_hz: float | None = None,
         convergence_patience_steps: int = NVISION_CONVERGENCE_PATIENCE,
         **grid_config,
     ):
@@ -133,24 +103,8 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
             max_steps=max_steps,
             convergence_threshold=convergence_threshold,
             center_param=center_param,
-            candidate_step_hz=candidate_step_hz,
             convergence_patience_steps=convergence_patience_steps,
         )
-
-    def _thin_candidate_drive_freq_by_step(self, candidate_drive_freq_phys: np.ndarray) -> np.ndarray:
-        """Return a subset of *candidate_drive_freq_phys* (physical space) with minimum physical spacing.
-
-        Walks the sorted candidate array once and keeps a candidate only when it
-        is at least ``candidate_step_hz`` away from the previously kept one.
-        This is O(n) and preserves the first and last candidate so the full
-        acquisition range is always represented.
-        """
-        if len(candidate_drive_freq_phys) <= 1:
-            return candidate_drive_freq_phys
-        kept = _thin_by_step_indices(
-            np.ascontiguousarray(candidate_drive_freq_phys, dtype=np.float64), self.candidate_step_hz
-        )
-        return candidate_drive_freq_phys[kept]
 
     def _acquire(self) -> float:
         """Next drive frequency in Hz (``next`` maps it to unit): falsification probe, else the EIG maximiser."""
@@ -177,12 +131,12 @@ class SequentialBayesianExperimentDesignLocator(SequentialBayesianLocator):
         return float(self.belief.select_max_information_gain(candidate_drive_freq_phys, 1)[0])
 
     def _eig_candidate_drive_freq_phys(self) -> np.ndarray:
-        """The epoch's candidate drive frequencies (Hz) inside a focus section, thinned to ``candidate_step_hz``."""
+        """The epoch's uniform candidate grid (Hz), restricted to the focus sections."""
         candidate_drive_freq_phys = self.belief.get_candidate_drive_freq_phys()
         candidate_drive_freq_phys = candidate_drive_freq_phys[self._focus.contains(candidate_drive_freq_phys)]
         if candidate_drive_freq_phys.size == 0:
             raise ValueError(f"No epoch candidate lies inside the focus sections {self._focus.sections} Hz.")
-        return self._thin_candidate_drive_freq_by_step(candidate_drive_freq_phys)
+        return candidate_drive_freq_phys
 
     def _observe_acquisition(self, obs: Observation) -> None:
         """Handle acquisition observations and manually trigger resample checks.

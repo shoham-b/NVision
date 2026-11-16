@@ -39,7 +39,7 @@ def _make_locator() -> SequentialBayesianExperimentDesignLocator:
         drive_freq_bounds_phys=x_bounds,
         noise_model=gaussian_noise(),
     )
-    return SequentialBayesianExperimentDesignLocator(belief=belief, max_steps=10, candidate_step_hz=200e3)
+    return SequentialBayesianExperimentDesignLocator(belief=belief, max_steps=10)
 
 
 def _dip(left: float, right: float) -> DipCandidate:

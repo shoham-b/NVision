@@ -329,6 +329,9 @@ def physics_config_fingerprint() -> str:
         # inside the i-th of N equal slices of the drawn range): the true signal of every repeat differs. Same
         # bump: the convergence rule no longer stops a run, so every run measures its whole budget.
         "stratified-zeeman-v1",
+        # Bumped when SBED's candidates became one uniform grid (step 0.1 x posterior-mean HWHM, whole window,
+        # restricted to the focus) instead of 800 quantiles of a slope/dip/flat mixture thinned to 100 kHz.
+        "sbed-uniform-grid-v1",
         NV_ZEEMAN_EDGE_PAD_FWHM,
         MIN_HWHM,
         MAX_HWHM,
