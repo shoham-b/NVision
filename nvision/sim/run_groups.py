@@ -16,8 +16,8 @@ group                 generators                                  noise         
 ``all``               ``voigt-grid`` only (not ``drive-control``) SNR grid            locator study (below)
 ====================  ==========================================  ==================  ===========================
 
-The locator study is SimpleSweep-3perFWHM (the reference sweep), SimpleSweep-optimal (the sweep at its task's
-analytically optimal step k*), Smart-Sweep, Bayesian-SBED and Smart-SBED.
+The locator study is SimpleSweep-optimal (the sweep at its task's analytically optimal step k*, the reference),
+its multiples SimpleSweep-optimal-x0.5 and -x2, and Bayesian-SBED.
 """
 
 from __future__ import annotations
@@ -28,8 +28,7 @@ from functools import lru_cache
 
 from nvision.sim import presets as sim_presets
 from nvision.sim.combinations import PLAIN_SWEEP_STRATEGIES
-from nvision.sim.grid_enums import sweep_strategy_name
-from nvision.sim.locs.search_grid import SWEEP_POINTS_PER_FWHM
+from nvision.sim.grid_enums import OPTIMAL_SWEEP_STRATEGY
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,10 +60,10 @@ class RunGroup:
         return len(self.combinations())
 
 
-_DEFAULT_SWEEP = sweep_strategy_name(SWEEP_POINTS_PER_FWHM)
+_DEFAULT_SWEEP = OPTIMAL_SWEEP_STRATEGY
 
-# The locators compared on the standard scenarios: the plain sweeps (the reference at 3 points per FWHM and the one at
-# the optimal step), and the plain SBED (docs/locator_comparison.md).
+# The locators compared on the standard scenarios: the plain sweeps (at the optimal step k* and at multiples of it),
+# and the plain SBED (docs/locator_comparison.md).
 _LOCATOR_STUDY_STRATEGIES = [
     *PLAIN_SWEEP_STRATEGIES,
     "Bayesian-SBED",

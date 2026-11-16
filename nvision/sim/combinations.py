@@ -20,12 +20,11 @@ from nvision.models.noise import CompositeNoise, CompositeOverFrequencyNoise
 from nvision.noises import OverFrequencyGaussianNoise
 from nvision.sim import defaults as sim_defaults
 from nvision.sim import presets as sim_presets
-from nvision.sim.grid_enums import OPTIMAL_SWEEP_STRATEGY, sweep_strategy_name
+from nvision.sim.grid_enums import OPTIMAL_SWEEP_MULTIPLIERS, optimal_sweep_strategy_name
 from nvision.sim.locs.bayesian.belief_builders import nv_center_smc_belief
 from nvision.sim.locs.bayesian.sbed_drive_locator import DriveChoosingSBEDLocator
 from nvision.sim.locs.bayesian.sbed_locator import SequentialBayesianExperimentDesignLocator
 from nvision.sim.locs.coarse.generic_sweep_locator import GenericSweepLocator
-from nvision.sim.locs.search_grid import SWEEP_POINTS_PER_FWHM
 from nvision.sim.locs.sweep_optimal import OPTIMAL_SPACING
 
 
@@ -41,9 +40,9 @@ class Combination:
     strategy: type | dict[str, Any]
 
 
-# The plain sweeps of the study: the reference sweep (SWEEP_POINTS_PER_FWHM grid points per prior FWHM; its repeats are
-# persisted and shared with Smart-Sweep / Smart-SBED) and the sweep at its task's analytically optimal step k*.
-PLAIN_SWEEP_STRATEGIES: tuple[str, ...] = (sweep_strategy_name(SWEEP_POINTS_PER_FWHM), OPTIMAL_SWEEP_STRATEGY)
+# The plain sweeps of the study: the sweep at its task's analytically optimal step k* (the reference: its repeats are
+# persisted and overlaid on the Bayesian figures) and at multiples of k*.
+PLAIN_SWEEP_STRATEGIES: tuple[str, ...] = tuple(optimal_sweep_strategy_name(m) for m in OPTIMAL_SWEEP_MULTIPLIERS)
 
 _NV_SMC: dict[str, object] = {
     "builder": nv_center_smc_belief,
@@ -292,17 +291,19 @@ class CombinationGrid:
 
         sbed_config = {"max_steps": sim_defaults.NVISION_SBED_MAX_STEPS, **nv_smc_config}
 
-        def sweep(spacing_divisor: float | str) -> dict[str, Any]:
+        def sweep(spacing_divisor: float | str, k_multiplier: float = 1.0) -> dict[str, Any]:
             # Sweeps infer with the same belief as SBED (same builder/prior), so their uncertainty
-            # trajectories are comparable; the spacing is the prior FWHM / spacing_divisor (OPTIMAL_SPACING: the
+            # trajectories are comparable; the spacing is the prior FWHM / (k_multiplier * k*) (OPTIMAL_SPACING: the
             # locator derives k* from the belief and the true per-measurement noise it is handed at run time).
-            return {"class": GenericSweepLocator, "config": {**nv_smc_config, "spacing_divisor": spacing_divisor}}
+            return {
+                "class": GenericSweepLocator,
+                "config": {**nv_smc_config, "spacing_divisor": spacing_divisor, "k_multiplier": k_multiplier},
+            }
 
         strats = [
             ("Bayesian-SBED", {"class": SequentialBayesianExperimentDesignLocator, "config": sbed_config}),
-            # The reference sweep, named by its points per FWHM, and the sweep at its task's optimal step.
-            (sweep_strategy_name(SWEEP_POINTS_PER_FWHM), sweep(SWEEP_POINTS_PER_FWHM)),
-            (OPTIMAL_SWEEP_STRATEGY, sweep(OPTIMAL_SPACING)),
+            # The sweep at its task's optimal step k*, and at multiples of it.
+            *((optimal_sweep_strategy_name(m), sweep(OPTIMAL_SPACING, m)) for m in OPTIMAL_SWEEP_MULTIPLIERS),
         ]
         if drive_lineshape is not None:
             # Only drive-controlled generators have a drive to choose.

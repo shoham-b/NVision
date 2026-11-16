@@ -1019,8 +1019,9 @@ function main() {
 
         // Known sweeping manners supported in NVision
         const knownSweeps = [
-            'SimpleSweep-3perFWHM',
-            'SimpleSweep-optimal'
+            'SimpleSweep-optimal-x0.5',
+            'SimpleSweep-optimal',
+            'SimpleSweep-optimal-x2'
         ];
 
         // Also discover any additional sweep strategies present in MANIFEST or scanPlots
@@ -6238,21 +6239,28 @@ function main() {
     // older cached data) and SimpleSweep-optimal, the sweep at its task's optimal step k*. The pickers list
     // "Sweep" once and offer the spacing in a second dropdown that appears after Sweep is chosen. k* has no fixed
     // number: it sorts after every numeric spacing (SWEEP_OPTIMAL_ORDER).
+    // SimpleSweep-optimal-x<m> is the sweep at m * k* (SimpleSweep-optimal is m = 1): it sorts by m after the numeric ones.
     const SWEEP_OPTIMAL_ORDER = 1000;
+    function sweepOptimalMult(strategy) {
+        const m = /^SimpleSweep-optimal(?:-x(\d+(?:\.\d+)?))?$/.exec(strategy || '');
+        return m ? (m[1] ? Number(m[1]) : 1) : null;
+    }
     function sweepOrder(strategy) {
-        if (/^SimpleSweep-optimal/.test(strategy || '')) return SWEEP_OPTIMAL_ORDER;
+        const mult = sweepOptimalMult(strategy);
+        if (mult != null) return SWEEP_OPTIMAL_ORDER + mult;
         return Number((/(\d+(?:\.\d+)?)perFWHM/.exec(strategy || '') || [])[1]) || 0;
     }
     function sweepParts(id) {
-        const m = /^simplesweep_(?:(\d+(?:\.\d+)?)perfwhm|(optimal))(.*)$/.exec(id || '');
-        return m ? { k: m[2] ? SWEEP_OPTIMAL_ORDER : Number(m[1]), rest: m[3] } : null;
+        const m = /^simplesweep_(?:(\d+(?:\.\d+)?)perfwhm|optimal(?:[-_]x(\d+(?:\.\d+)?))?)(.*)$/.exec(id || '');
+        if (!m) return null;
+        return { k: m[1] ? Number(m[1]) : SWEEP_OPTIMAL_ORDER + (m[2] ? Number(m[2]) : 1), rest: m[3] };
     }
     function pickerFamilyKey(e) {
         const sp = sweepParts(e.id);
         return sp ? 'simplesweep' + sp.rest : e.id;
     }
     function pickerFamilyLabel(e) {
-        return sweepParts(e.id) ? e.label.replace(/-(\d+(?:\.\d+)?perFWHM|optimal)/, '') : e.label;
+        return sweepParts(e.id) ? e.label.replace(/-(\d+(?:\.\d+)?perFWHM|optimal(?:-x\d+(?:\.\d+)?)?)/, '') : e.label;
     }
 
     // One entity picker: a family dropdown (+ a spacing dropdown for the sweep family). Calls onChange when the
@@ -6278,7 +6286,8 @@ function main() {
             for (const k of ks) {
                 const opt = document.createElement('option');
                 opt.value = String(k);
-                opt.textContent = k === SWEEP_OPTIMAL_ORDER ? 'k* (optimal step)' : `${k} per FWHM`;
+                const mult = k - SWEEP_OPTIMAL_ORDER;
+                opt.textContent = mult === 1 ? 'k* (optimal step)' : mult > 0 ? `${mult}×k*` : `${k} per FWHM`;
                 spc.appendChild(opt);
             }
             spc.hidden = ks.length < 2;
@@ -6905,14 +6914,16 @@ function main() {
     const SS_GAUSS_WITHIN = { 1: 0.6827, 2: 0.9545, 3: 0.9973 };
 
     function ssSpacing(strategy) {
-        if (strategy === 'SimpleSweep-optimal') return SWEEP_OPTIMAL_ORDER;
+        const mult = sweepOptimalMult(strategy);
+        if (mult != null) return SWEEP_OPTIMAL_ORDER + mult;
         const m = /^SimpleSweep-(\d+(?:\.\d+)?)perFWHM$/.exec(strategy || '');
         return m ? Number(m[1]) : null;
     }
 
     function ssLabel(strategy) {
+        const mult = sweepOptimalMult(strategy);
+        if (mult != null) return mult === 1 ? 'SimpleSweep k*' : `SimpleSweep ${mult}×k*`;
         const k = ssSpacing(strategy);
-        if (k === SWEEP_OPTIMAL_ORDER) return 'SimpleSweep k*';
         return k != null ? `Sweep k=${k}` : _shortStratLabel(strategy);
     }
 

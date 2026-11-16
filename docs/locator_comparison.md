@@ -24,7 +24,7 @@ spectrum with tight nuisance priors; it still uses the prior's width, never the 
 
 `nv groups list` shows every group with its task count. The former groups `both-sbed`, `both-sbed-only`,
 and `both-sweep-only` still work as aliases of
-`voigt-grid` restricted to `Bayesian-SBED` (+ `SimpleSweep-3perFWHM`). To run any other
+`voigt-grid` restricted to `Bayesian-SBED` (+ `SimpleSweep-optimal`). To run any other
 subset, narrow a group: `--filter-signal` (generator substring) and `--filter-strategy` (comma-separated
 regex/substring). Only the sweeps, on every scenario: `--run-group all --filter-strategy Sweep`.
 
@@ -114,7 +114,7 @@ uncertainty ratio) for every locator on the same footing; `--filter-signal`, `--
 A quick look: `NVISION_SBED_SNR_VALUES=5 uv run nv run --run-group voigt-grid --filter-signal "span5-gs0.15" --repeats 5`.
 
 In the UI the plain sweeps appear as one "Sweep" entry; choosing it reveals a second dropdown for the spacing
-(the reference `3perFWHM` and `optimal`).
+(`optimal` = k*, and its multiples 0.5×k* and 2×k*).
 
 ## Width and spacing
 
@@ -168,14 +168,14 @@ beats it. If no $k$ is reachable, the sweep will stop at its cap of $P_\mathrm{c
 so the objective becomes the expected final error there: the $k$ minimising the mean over offsets of the binding
 relative uncertainty $s^*(P_\mathrm{cap} F_\mathrm{pass})$ (the factor by which the CRLB stds must shrink for
 `target_params_converged` to accept them; precision only). Signal quantities are the belief's prior means, $\sigma$ is the true task noise (an oracle yardstick), and
-the realised $k^*$ is recorded per repeat (`sweep_k_opt`, `sweep_passes_pred`, `sweep_cost_pred`).
+the realised $k^*$ is recorded per repeat (`sweep_k_opt`, `sweep_k` = m k*, `sweep_passes_pred`, `sweep_cost_pred`).
 
 ## Strategies
 
 | Strategy | Acquisition |
 |---|---|
-| `SimpleSweep-3perFWHM` | uniform grid over the whole axis with 3 points per FWHM (spacing FWHM/3), then a least-squares fit. The reference sweep: its repeats are persisted for the scan-figure overlay |
-| `SimpleSweep-optimal` | the same sweep at the fractional step FWHM/k* that minimises the predicted measurements of its task (previous section) |
+| `SimpleSweep-optimal` | uniform grid over the whole axis at the fractional step FWHM/k* that minimises the predicted measurements of its task (previous section), then a least-squares fit. The reference sweep: its repeats are persisted for the scan-figure overlay |
+| `SimpleSweep-optimal-x0.5`, `-x2` | the same sweep at m k* points per FWHM, m = 0.5 or 2: a check that k* really is the cheapest step (the cost should rise on both sides). A fixed number of points per FWHM proves nothing about the sweep, because the best step depends on the task |
 | `Bayesian-SBED` | unchanged SBED |
 All sweeps update the same SMC belief every step, so an uncertainty trajectory exists for every locator. A plain sweep's *reported* estimate is still its final fit.
 
@@ -257,7 +257,7 @@ enough). The Sobol locators, the Sobol baseline inside SBED runs, and the "Sobol
 
 `nv compare` has a counterpart in the results UI: the *Stages* view lists the same three tables (accuracy,
 stage boundaries, per-stage measurements and uncertainty ratio) for the selected generator(s) and noise levels,
-one row per strategy (`SimpleSweep-3perFWHM` and `SimpleSweep-optimal` are separate rows). The per-run fields come from
+one row per strategy (the `SimpleSweep-optimal` multiples are separate rows). The per-run fields come from
 `/api/scan-fields` (`compare`), and runs are filtered as in `metrics/compare.py` `usable_runs`.
 
 Manual check that UI and CLI agree on a tiny run:

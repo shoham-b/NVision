@@ -20,7 +20,6 @@ from nvision.runner.sweep_data import (
 )
 from nvision.sim.locs.bayesian.belief_builders import nv_center_smc_belief, nv_lineshape_for_model
 from nvision.sim.locs.coarse.generic_sweep_locator import GenericSweepLocator
-from nvision.sim.locs.search_grid import SWEEP_POINTS_PER_FWHM
 from tests.noise import gaussian_noise
 
 NOISE_SIGMA = 0.01
@@ -40,7 +39,7 @@ def _experiment(seed: int = 3, hwhm: float = 2.75e6, contrast: float = 0.4):
 
 
 def _reference_sweep(exp, bounds, n_points: int) -> list[Observation]:
-    """The first ``n_points`` measurements of a plain sweep at SWEEP_POINTS_PER_FWHM, as the executor takes them."""
+    """The first ``n_points`` measurements of a plain sweep at its default spacing, as the executor takes them."""
     belief = nv_center_smc_belief(
         bounds,
         noise_model=gaussian_noise(),
@@ -99,7 +98,7 @@ _COMBO = {"generator": "g", "noise": "n", "strategy": "Bayesian-SBED", "seed": 1
 def test_load_reads_the_reference_sweeps_combination():
     repo = _Repo({"x": 1})
     assert load_sweep_data(repo, _COMBO, 3) == {"x": 1}
-    assert repo.calls[0]["strategy"] == reference_sweep_strategy() == f"SimpleSweep-{SWEEP_POINTS_PER_FWHM}perFWHM"
+    assert repo.calls[0]["strategy"] == reference_sweep_strategy() == "SimpleSweep-optimal"
     assert repo.calls[0]["repeat_idx"] == 3
     assert repo.calls[0]["field"] == "sweep_data"
 

@@ -32,7 +32,7 @@ from nvision.metrics import refine_rates as rr
 from nvision.metrics.localize import localize_bound_steps, localize_cost
 from nvision.metrics.stages import primary_sensitivity_at, primary_sensitivity_curve
 from nvision.runner.repeat_keys import repeat_seed_int, signal_repeat_key
-from nvision.sim.grid_enums import OPTIMAL_SWEEP_STRATEGY
+from nvision.sim.grid_enums import optimal_sweep_multiplier
 
 # Tolerance of the rebuilt-vs-stored stage sensitivity check (absolute, on eta in [0, 1]). SBED positions are float16
 # rescaled into the window (~1e-3 of it); a sweep's are exact (it matches to rounding).
@@ -48,20 +48,20 @@ _SWEEP_RE = re.compile(r"^SimpleSweep-(\d+(?:\.\d+)?)perFWHM$")
 
 
 def is_sweep(strategy: str) -> bool:
-    """True for the plain sweeps: ``SimpleSweep-{k}perFWHM`` and ``SimpleSweep-optimal``."""
-    return strategy == OPTIMAL_SWEEP_STRATEGY or _SWEEP_RE.match(strategy) is not None
+    """True for the plain sweeps: ``SimpleSweep-{k}perFWHM`` and ``SimpleSweep-optimal[-x<m>]``."""
+    return optimal_sweep_multiplier(strategy) is not None or _SWEEP_RE.match(strategy) is not None
 
 
 def sweep_divisor(strategy: str, row: dict[str, Any] | None = None) -> float | None:
     """Grid points per prior FWHM of a sweep run, ``None`` for any other strategy.
 
-    ``k`` of ``SimpleSweep-{k}perFWHM``; for ``SimpleSweep-optimal`` the k* the run realised (``sweep_k_opt`` of its
-    results ``row``, which must then be given and carry it).
+    ``k`` of ``SimpleSweep-{k}perFWHM``; for ``SimpleSweep-optimal[-x<m>]`` the grid the run realised (``sweep_k`` of
+    its results ``row``, i.e. ``m * k*``, which must then be given and carry it).
     """
-    if strategy == OPTIMAL_SWEEP_STRATEGY:
-        if row is None or row.get("sweep_k_opt") is None:
-            raise ValueError(f"{strategy} needs the run's realised sweep_k_opt.")
-        return float(row["sweep_k_opt"])
+    if optimal_sweep_multiplier(strategy) is not None:
+        if row is None or row.get("sweep_k") is None:
+            raise ValueError(f"{strategy} needs the run's realised sweep_k.")
+        return float(row["sweep_k"])
     m = _SWEEP_RE.match(strategy)
     return float(m.group(1)) if m else None
 

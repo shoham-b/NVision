@@ -21,8 +21,9 @@ def test_voigt_grid_group_uses_voigt_inhom_grid_and_all_locators():
     assert group.extra_generators is not None
     assert set(group.extra_generators.keys()) == set(group.generator_names)
     assert set(group.strategy_names) == {
-        "SimpleSweep-3perFWHM",
+        "SimpleSweep-optimal-x0.5",
         "SimpleSweep-optimal",
+        "SimpleSweep-optimal-x2",
         "Bayesian-SBED",
     }
     assert group.task_count == len(group.generator_names) * len(group.noise_names) * len(group.strategy_names)
@@ -33,9 +34,9 @@ def test_former_group_names_are_strategy_subsets_of_their_scenario_group():
     listed = {g.name for g in sim_run_groups.run_groups()}
     assert listed == {"voigt-grid", "drive-control", "all"}
     expected = {
-        "both-sbed": ("voigt-grid", ["Bayesian-SBED", "SimpleSweep-3perFWHM"]),
+        "both-sbed": ("voigt-grid", ["Bayesian-SBED", "SimpleSweep-optimal"]),
         "both-sbed-only": ("voigt-grid", ["Bayesian-SBED"]),
-        "both-sweep-only": ("voigt-grid", ["SimpleSweep-3perFWHM"]),
+        "both-sweep-only": ("voigt-grid", ["SimpleSweep-optimal"]),
     }
     assert set(sim_run_groups.alias_names()) == set(expected)
     for alias, (canonical, strategies) in expected.items():

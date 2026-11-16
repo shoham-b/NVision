@@ -1,6 +1,6 @@
 """The plain sweep's measurements, persisted once and reused by everything that needs a sweep of the same repeat.
 
-``SimpleSweep-3perFWHM`` (``SWEEP_POINTS_PER_FWHM`` grid points per prior FWHM) is the reference sweep. Its
+``SimpleSweep-optimal`` (the sweep at its task's optimal step k*) is the reference sweep. Its
 measurements and fitted curve are stored on the repeat's scan entry (``SWEEP_DATA_KEY``) and read back by
 
 the Bayesian locators' scan figures, which overlay the sweep's points and fit (no separate baseline run).
@@ -15,8 +15,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
-from nvision.sim.grid_enums import sweep_strategy_name
-from nvision.sim.locs.search_grid import SWEEP_POINTS_PER_FWHM
+from nvision.sim.grid_enums import OPTIMAL_SWEEP_STRATEGY
 
 if TYPE_CHECKING:
     from nvision.cache.locator_repository import LocatorResultsRepository
@@ -32,8 +31,8 @@ class MissingSweepDataError(RuntimeError):
 
 
 def reference_sweep_strategy() -> str:
-    """Strategy name of the sweep whose measurements are shared, e.g. ``SimpleSweep-3perFWHM``."""
-    return sweep_strategy_name(SWEEP_POINTS_PER_FWHM)
+    """Strategy name of the sweep whose measurements are shared: ``SimpleSweep-optimal`` (the sweep at k*)."""
+    return OPTIMAL_SWEEP_STRATEGY
 
 
 def sweep_data_from_run(run_result: Any) -> dict[str, Any]:
