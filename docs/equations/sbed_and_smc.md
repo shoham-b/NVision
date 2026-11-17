@@ -395,7 +395,7 @@ every locator (`nvision/metrics/milestones.py`, `nvision/metrics/stages.py`).
 
 | Symbol | Name | Default | Unit |
 |---|---|---|---|
-| N | `NVISION_SMC_NUM_PARTICLES` | 1 000 | — |
+| N | `NVISION_SMC_NUM_PARTICLES` | 10 000 | — |
 | r_thr | `NVISION_SMC_ESS_THRESHOLD` | 0.20 | — |
 | a | `NVISION_SMC_A_PARAM` | 0.85 | — |
 | N_EIG | `NVISION_SMC_EIG_PARTICLES` | 500 | — |
