@@ -373,6 +373,33 @@ Per run, in the results row and the API's compare fields (`_COMPARE_FIELDS`):
 
 **Cost.** A KDE costs about 25 ms (68 s for a 2500-step SBED run when computed at every step), so `j`, `g` and `h` are computed only at the steps the stored series keeps (at most 80, the same indices as `s`) and at τ; `z`, `m` and `x` need no density (a weighted histogram with bins of a quarter FWHM gives the mode) and cover every step. Each distinct belief is summarised once (sweeps share a belief copy across buffered steps). Measured with three runs sharing the machine, startup included: Bayesian-SBED 190 steps 3.6 s of 34 s wall (~10 %), Bayesian-SBED at SNR(1) 2500 steps 3.0 s of 49 s, SimpleSweep 1768 steps (239 distinct beliefs) 2.8 s of 33 s.
 
+## Stuck-belief check (run-time, `nvision/metrics/fit_gap.py`)
+
+A particle-filter belief can freeze on a wrong line shape (e.g. the wrong split between the Lorentzian and Gaussian
+widths) and stay there: its claimed σ keeps falling while the true error stays put, so neither the claimed σ nor a
+1/√N curve of it shows the failure. `belief_fit_gap` detects it without the truth, so it also works on lab data. The
+final belief's own model is fitted to every observation it absorbed (bounded least squares on the unit cube, from the
+belief mean, the best particle, and a one-at-a-time ladder over each non-primary parameter), and
+
+$$D = \frac{SS_{\rm belief} - SS_{\rm fit}}{\hat\sigma^2_{\rm fit}}, \qquad \hat\sigma^2_{\rm fit} = \frac{SS_{\rm fit}}{n-k}.$$
+
+A belief that has converged sits within noise of the best fit (D of order k, a few); D > `STUCK_FIT_GAP` (20) flags a
+stuck one. `belief_fit_gap_shift_phys` is how far the primary would move to the fit (Hz). The fit's Jacobian uses a
+relative step of 1e-3 because the models compute in float32 (the default step reads a zero gradient).
+
+What it showed (2026-11-17, window 5 linewidths, SNR 20, 20 paired repeats per arm, dry runs): with a = 0.98 the true
+parameters beat the belief by Δχ² > 20 in 14 of 20 runs; D flagged all 14 and none of the 6 healthy runs, and tracked
+the truth-based gap (e.g. 1723 → 6207, 138 → 144, 39 → 33). The cause was Liu-West rejuvenation too weak to leave the
+wrong shape (jitter ≈ 0.2 × the cloud's spread at a = 0.98). An a × ESS grid (a ∈ {0.98 … 0.80}, ESS ∈ {0.2, 0.5, 0.8},
+SNR 20 and 2) showed a ≤ 0.85 removes it at any ESS (stuck 0-5 %, coverage 0.9-1.0 at SNR 20; SNR 2 not hurt), so
+`NVISION_SMC_A_PARAM` defaults to 0.85. Checked on windows 1.6 and 3 (SNR 10) and 5 (SNR 5): stuck 30/35/20 % →
+5/10/0 %, RMS error 3-5x lower; the 1.6-linewidth window stays somewhat overconfident (2σ coverage 0.70).
+Lab runs (`nv matlab`) store it in the run record and print it; replayed shots are reused (`shot_reuse` draws per
+distinct shot) and count as independent observations, so there D is inflated by about `shot_reuse` and the printed
+flag compares against `STUCK_FIT_GAP × shot_reuse`.
+Sweeps: their SMC belief is not resampled during the sweep and their reported estimate is the curve fit, so a large D
+there describes the belief only, not the sweep's answer.
+
 ## Rules
 
 1. **Never use the accuracy at the end of a run or stage as a quality metric.** Every run measures the same budget, so the error it ends with mostly reflects the budget, not the strategy. What matters is that the claimed

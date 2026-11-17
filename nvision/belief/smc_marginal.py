@@ -28,7 +28,9 @@ load_dotenv()
 
 NVISION_SMC_NUM_PARTICLES: int = int(os.getenv("NVISION_SMC_NUM_PARTICLES", "1000"))
 NVISION_SMC_ESS_THRESHOLD: float = float(os.getenv("NVISION_SMC_ESS_THRESHOLD", "0.2"))
-NVISION_SMC_A_PARAM: float = float(os.getenv("NVISION_SMC_A_PARAM", "0.98"))
+# Liu-West shrinkage. 0.98 (OptBayesExpt's value) jitters by only ~0.2x the cloud's spread per resample: at high SNR the
+# line-shape nuisances froze on a wrong shape in ~70% of runs (2026-11-17 a x ESS grid, docs/evaluation_metrics.md).
+NVISION_SMC_A_PARAM: float = float(os.getenv("NVISION_SMC_A_PARAM", "0.85"))
 NVISION_SMC_MIN_EXPLORATION_FRAC: float = float(os.getenv("NVISION_SMC_MIN_EXPLORATION_FRAC", "0.01"))
 NVISION_SMC_TEMPERING_FACTOR: float = float(os.getenv("NVISION_SMC_TEMPERING_FACTOR", "1.0"))
 # Fraction of the initial particles, per Gaussian-prior parameter, drawn uniformly over the whole bound instead of from
@@ -337,7 +339,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
     ----------
     a_param : float
         Contraction parameter. After nudging, particles are contracted
-        (1 - a_param) of the distance toward the mean. Default 0.98.
+        (1 - a_param) of the distance toward the mean. Default 0.85.
     auto_resample : bool
         If True, resample automatically when ESS drops below threshold.
         Set False to let the locator trigger resampling manually.
@@ -699,6 +701,42 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         mutate them.
         """
         return self._obs_drive_freqs_unit[: self._obs_count], self._obs_y_arr[: self._obs_count]
+
+    def observation_shots(self) -> np.ndarray:
+        """Shots averaged into each observation, aligned with :meth:`observation_arrays`. shape: (n_observations,)"""
+        return self._obs_shots_arr[: self._obs_count]
+
+    def predict_at_observations(self, params_unit: np.ndarray) -> np.ndarray:
+        """Model prediction at every stored observation (each at its own drive) for given parameter vectors.
+
+        Args:
+            params_unit: Parameter vectors on the unit cube, columns ordered like :attr:`parameter_names`.
+                shape: (n_sets, n_parameters)
+
+        Returns:
+            Predicted signal. shape: (n_observations, n_sets)
+        """
+        params_unit = np.asarray(params_unit, dtype=np.float64)
+        if params_unit.ndim != 2 or params_unit.shape[1] != len(self._param_names):
+            raise ValueError(
+                f"params_unit must have shape (n_sets, {len(self._param_names)}), got {params_unit.shape}."
+            )
+        xs_unit, _ = self.observation_arrays()
+        arrays = [params_unit[:, j] for j in range(params_unit.shape[1])]
+        return self._predict_at_drives(xs_unit, arrays, self._obs_drives[: self._obs_count])
+
+    @property
+    def parameter_names(self) -> list[str]:
+        """Signal-parameter names, in the column order of the particle array (``noise_sigma`` excluded)."""
+        return list(self._param_names)
+
+    def particles_unit(self) -> np.ndarray:
+        """Particle positions on the unit cube (a copy). shape: (n_particles, n_parameters)"""
+        return np.array(self._particles, dtype=np.float64)
+
+    def estimates_unit(self) -> dict[str, float]:
+        """Weighted-mean parameter estimates on the unit cube (``noise_sigma`` stays physical)."""
+        return self._estimates_unit()
 
     def sorted_observation_arrays(self) -> tuple[np.ndarray, np.ndarray]:
         """Return ``(x, signal_value)`` of all observations sorted ascending by x.
