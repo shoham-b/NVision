@@ -156,8 +156,10 @@ def test_sigma_curves_in_mhz_with_reference_lines_and_old_records_none():
         "lab_curve_fit": {"sigmas": {"zeeman_shift": 3e4, "zero_field_freq": 0.0}, "at_bound": []},
         "search_fit": {
             "zeeman_shift": {
+                "version": 2,
                 "window_mhz": 13.8,
-                "delta_d_mhz": 1.0,
+                "v_mhz_per_step": 1.0,
+                "j_tau_per_mhz2": 2.0,
                 "i_max_per_mhz2": 5.0,
                 "rms_log": 0.1,
                 "model": [4, 2, 1],
@@ -174,8 +176,10 @@ def test_sigma_curves_in_mhz_with_reference_lines_and_old_records_none():
     assert curves["all_zeeman_shift"] == pytest.approx([4.0, 2.0, 1.0])
     assert curves["searchfit_zeeman_shift"] == [4, 2, 1]
     assert curves["searchfit_zeeman_shift_params"] == {
+        "version": 2,
         "window_mhz": 13.8,
-        "delta_d_mhz": 1.0,
+        "v_mhz_per_step": 1.0,
+        "j_tau_per_mhz2": 2.0,
         "i_max_per_mhz2": 5.0,
         "rms_log": 0.1,
     }

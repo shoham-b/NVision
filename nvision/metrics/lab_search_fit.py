@@ -1,12 +1,18 @@
-"""Fit of the article's search-phase error model (theory.tex, Eq. ``mean-curve``) to a claimed-sigma history.
+"""Fit of the article's mean error curve (SM Eq. ``mean-curve``) to a claimed-sigma history.
 
-The elimination model has a window ``W`` and two free parameters: the reach ``delta_d`` of one measurement and the
-information ``i_max`` of one measurement at the steepest slope. Its error after ``n`` measurements, averaged over where
-the dip lies, is the search term plus the restarted after-detection terms::
+The elimination model has a window ``W`` and three free parameters, as in the article: the search rate ``v`` (window
+cleared per measurement, Eq. ``search-rate``), the information ``J_tau`` of the posterior at detection (it takes the
+place of the van Trees prior ``J_0``), and the information ``I_max`` of one measurement at the steepest slope. A
+fraction ``v / W`` of the runs detects the dip at each measurement ``n_d``, and from its own detection on each follows
+the van Trees curve ``(J_tau + (n - n_d) I_max)^-1``. Averaged over where the dip lies::
 
-    var(n) = (W - n dd)^3 / (12 W)  +  dd/W * sum_{nd=1..min(n, W/dd)} (12/dd^2 + (n - nd) i_max)^-1
+    var(n) = (W - n v)^3 / (12 W)  +  sum_{n_d=1..min(n, N)} w_{n_d} / (J_tau + (n - n_d) I_max)
 
-(the search term is zero once ``n dd >= W``). All lengths in MHz, ``i_max`` in 1/MHz^2.
+with ``N = ceil(W / v)`` detections, ``w_{n_d} = v / W`` and the last one the remainder so the weights sum to one
+(the search term is zero once ``n v >= W``). All lengths in MHz, ``J_tau`` and ``I_max`` in 1/MHz^2.
+
+The search rate and the information at detection are separate parameters: a search that needs several measurements
+per cell (low SNR, ``m > 1``) is slow without the dip being pinned to a narrow cell when it is found.
 """
 
 from __future__ import annotations
@@ -14,25 +20,36 @@ from __future__ import annotations
 import numpy as np
 from scipy.optimize import least_squares
 
+# Stored fits (window*MHz_search_fit.json, a MATLAB record's search_fit) carry this; a fit without it is from the
+# older two-parameter model (v = delta_d, J_tau = 12 / delta_d^2) and is refitted when read.
+SEARCH_FIT_VERSION = 2
 
-def search_model_sigma(steps: np.ndarray, window: float, delta_d: float, i_max: float) -> np.ndarray:
+
+def detection_weights(window: float, v: float) -> np.ndarray:
+    """Share of the runs that detect the dip at measurement ``n_d = 1..N``, ``N = ceil(W / v)``.
+
+    Returns shape (N,), summing to 1: ``v / W`` each, the last one the remainder.
+    """
+    n_det = int(np.ceil(window / v - 1e-9))
+    w = np.full(n_det, v / window)
+    w[-1] = 1.0 - v / window * (n_det - 1)
+    return w
+
+
+def search_model_sigma(steps: np.ndarray, window: float, v: float, j_tau: float, i_max: float) -> np.ndarray:
     """Model sigma (MHz) after each measurement count in *steps*.
 
-    *steps*: shape (n_steps,), 1-based measurement counts. *window*, *delta_d*: MHz, ``0 < delta_d <= window``.
-    *i_max*: 1/MHz^2, ``> 0``. Returns shape (n_steps,), MHz.
+    *steps*: shape (n_steps,), 1-based measurement counts. *window*, *v*: MHz and MHz per measurement,
+    ``0 < v <= window``. *j_tau*, *i_max*: 1/MHz^2, ``> 0``. Returns shape (n_steps,), MHz.
     """
-    if not (0 < delta_d <= window) or i_max <= 0:
-        raise ValueError(f"need 0 < delta_d <= window and i_max > 0, got {delta_d=}, {window=}, {i_max=}")
+    if not (0 < v <= window) or j_tau <= 0 or i_max <= 0:
+        raise ValueError(f"need 0 < v <= window, j_tau > 0, i_max > 0, got {v=}, {window=}, {j_tau=}, {i_max=}")
     n = np.asarray(steps, dtype=float)
-    search = np.clip(window - n * delta_d, 0.0, None) ** 3 / (12.0 * window)
-    n_cells = round(window / delta_d)
-    found = np.zeros_like(n)
-    for i, n_i in enumerate(n):
-        m = int(min(n_i, n_cells))
-        if m > 0:
-            lags = n_i - np.arange(1, m + 1)  # n - nd, shape (m,)
-            found[i] = delta_d / window * np.sum(1.0 / (12.0 / delta_d**2 + lags * i_max))
-    return np.sqrt(search + found)
+    search = np.clip(window - n * v, 0.0, None) ** 3 / (12.0 * window)
+    w = detection_weights(window, v)  # shape (N,)
+    lags = n[:, None] - np.arange(1, w.size + 1)[None, :]  # n - n_d, shape (n_steps, N)
+    vt = np.where(lags >= 0, w[None, :] / (j_tau + np.clip(lags, 0.0, None) * i_max), 0.0)
+    return np.sqrt(search + vt.sum(axis=1))
 
 
 def fit_search_curve(sigma: np.ndarray, window_mhz: float | None = None) -> dict:
@@ -40,8 +57,9 @@ def fit_search_curve(sigma: np.ndarray, window_mhz: float | None = None) -> dict
 
     *sigma*: shape (n_steps,), MHz, claimed sigma after step 1..n_steps, all positive. *window_mhz*: the search
     window ``W`` when known (the drive window of a lab run); otherwise the prior spread of Eq. ``prior``,
-    ``W = sqrt(12) * sigma[0]``. Returns ``window_mhz``, ``delta_d_mhz``, ``i_max_per_mhz2``,
-    ``rms_log`` (rms of ``ln(model/data)``) and ``model``, shape (n_steps,), MHz. Raises if the fit fails.
+    ``W = sqrt(12) * sigma[0]``. Returns ``version``, ``window_mhz``, ``v_mhz_per_step``, ``j_tau_per_mhz2``,
+    ``i_max_per_mhz2``, ``search_end_step`` (``W / v``), ``rms_log`` (rms of ``ln(model/data)``) and ``model``,
+    shape (n_steps,), MHz. Raises if the fit fails.
     """
     sigma = np.asarray(sigma, dtype=float)
     if sigma.ndim != 1 or sigma.size < 3 or not np.all(sigma > 0):
@@ -51,27 +69,36 @@ def fit_search_curve(sigma: np.ndarray, window_mhz: float | None = None) -> dict
     log_data = np.log(sigma)
 
     def residual(p: np.ndarray) -> np.ndarray:
-        return np.log(search_model_sigma(steps, window, float(np.exp(p[0])), float(np.exp(p[1])))) - log_data
+        v, j_tau, i_max = np.exp(p)
+        return np.log(search_model_sigma(steps, window, float(v), float(j_tau), float(i_max))) - log_data
 
-    # Late-time sigma ~ 1/sqrt(n i_max) fixes the i_max start; the reach starts at a tenth of the window.
+    # Late-time sigma ~ 1/sqrt(n I_max) fixes the I_max start; J_tau starts at a cell of a tenth or a hundredth of W.
     i0 = 1.0 / (sigma[-1] ** 2 * steps[-1])
+    lo = np.log([window / 1000.0, 12.0 / window**2, 1e-12])
+    hi = np.log([window, 1e12, 1e12])
     best = None
-    for dd0 in (0.5, 0.2, 0.1, 0.05, 0.02, 0.01):
-        for i_scale in (0.3, 1.0, 3.0):
-            res = least_squares(
-                residual,
-                x0=np.log([dd0 * window, i0 * i_scale]),
-                bounds=(np.log([window / 1000.0, 1e-12]), np.log([window, 1e12])),
-            )
-            if res.success and (best is None or res.cost < best.cost):
-                best = res
+    for v0 in (0.3, 0.05, 0.01, 0.003):
+        for cell in (0.1, 0.01):
+            for i_scale in (0.3, 3.0):
+                x0 = np.clip(np.log([v0 * window, 12.0 / (cell * window) ** 2, i0 * i_scale]), lo + 1e-9, hi - 1e-9)
+                res = least_squares(residual, x0=x0, bounds=(lo, hi))
+                if res.success and (best is None or res.cost < best.cost):
+                    best = res
     if best is None:
         raise RuntimeError("search-phase fit did not converge")
-    delta_d, i_max = float(np.exp(best.x[0])), float(np.exp(best.x[1]))
+    v, j_tau, i_max = (float(x) for x in np.exp(best.x))
     return {
+        "version": SEARCH_FIT_VERSION,
         "window_mhz": window,
-        "delta_d_mhz": delta_d,
+        "v_mhz_per_step": v,
+        "j_tau_per_mhz2": j_tau,
         "i_max_per_mhz2": i_max,
+        "search_end_step": window / v,
         "rms_log": float(np.sqrt(np.mean(best.fun**2))),
-        "model": search_model_sigma(steps, window, delta_d, i_max),
+        "model": search_model_sigma(steps, window, v, j_tau, i_max),
     }
+
+
+def is_current(fit: dict | None) -> bool:
+    """Whether a stored fit is from the current model (see ``SEARCH_FIT_VERSION``)."""
+    return fit is not None and fit.get("version") == SEARCH_FIT_VERSION
