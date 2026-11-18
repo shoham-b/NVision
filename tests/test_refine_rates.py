@@ -139,3 +139,27 @@ def test_the_convergence_rule_is_recorded_but_never_stops_a_run():
     assert not SequentialBayesianLocator._acquisition_done(loc)  # the run still measures its whole budget
     loc.inference_step_count = 10
     assert SequentialBayesianLocator._acquisition_done(loc)
+
+
+def test_true_signal_is_rebuilt_with_the_repeat_stratum():
+    """The study generator stratifies zeeman_shift over the repeats; the rebuild must pass repeat_idx and the total."""
+    import random
+
+    from nvision.metrics.refine_rates_runs import rebuild_true_signal
+    from nvision.runner.repeat_keys import repeat_seed_int, signal_repeat_key
+    from nvision.sim.gen.nv_center_generator import NVCenterCoreGenerator
+
+    gen = NVCenterCoreGenerator(variant="lorentzian", with_zeeman_splitting=True)
+    name, seed, idx, total = "NVCenter-test", 1234, 3, 8
+    drawn = gen.generate(
+        random.Random(repeat_seed_int(signal_repeat_key(seed, name, idx))), repeat_idx=idx, n_repeats=total
+    )
+    scan = {"true_params": {"params": drawn.parameter_values()}}
+
+    rebuilt = rebuild_true_signal(gen, name, idx, {"seed": seed, "repeats": total}, scan)
+    assert rebuilt.get_param_value("zeeman_shift") == drawn.get_param_value("zeeman_shift")
+    # Another total puts the repeat in another stratum: the stored-params check catches it.
+    with pytest.raises(ValueError, match="differs from the stored one in zeeman_shift"):
+        rebuild_true_signal(gen, name, idx, {"seed": seed, "repeats": total // 2}, scan)
+    with pytest.raises(ValueError, match="no total repeat count"):
+        rebuild_true_signal(gen, name, idx, {"seed": seed}, scan)

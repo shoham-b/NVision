@@ -857,23 +857,14 @@ def generate_attempt_plots(
         posterior_metrics = compute_posterior_metrics(run_result, entry_base.get("stage_primary_param"), entry_base)
         try:
             from nvision.metrics.series import (
-                _round_sig,
                 attach_posterior_series,
                 extract_refine_series,
                 extract_step_series,
             )
 
+            # Ends on the reported (fit) estimate for sweeps; see extract_step_series.
             step_series = extract_step_series(run_result)
             if step_series:
-                # The finalize fit (e.g. a sweep's dip fit) can land outside the
-                # belief snapshots; the series endpoint must match the reported
-                # final metrics so the anytime curve ends at the true accuracy.
-                final_err = entry_base.get("abs_err_x")
-                final_unc = entry_base.get("uncert")
-                if isinstance(final_err, int | float) and math.isfinite(final_err):
-                    step_series["e"][-1] = _round_sig(float(final_err))
-                if isinstance(final_unc, int | float) and math.isfinite(final_unc):
-                    step_series["u"][-1] = _round_sig(float(final_unc))
                 # Refine stage aligned to its start, for runs that reached it (``r``, see extract_refine_series).
                 refine_step = entry_base.get("refine_start_step")
                 stage_param = entry_base.get("stage_primary_param")
