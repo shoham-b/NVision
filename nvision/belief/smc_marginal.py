@@ -27,7 +27,10 @@ from nvision.spectra.unit_cube import UnitCubeSignalModel
 load_dotenv()
 
 NVISION_SMC_NUM_PARTICLES: int = int(os.getenv("NVISION_SMC_NUM_PARTICLES", "10000"))
-NVISION_SMC_ESS_THRESHOLD: float = float(os.getenv("NVISION_SMC_ESS_THRESHOLD", "0.2"))
+# Resample when the effective sample size drops below this share of the particles. 0.5 (OptBayesExpt's value) over
+# 0.2: on the final configuration (Lorentzian belief, a = 0.85, 10,000 particles) it smoothed the claimed sigma of the
+# narrow-window runs (largest log-step 1.5 -> 0.02) and raised their 2-sigma coverage 0.80 -> 1.00, errors unchanged.
+NVISION_SMC_ESS_THRESHOLD: float = float(os.getenv("NVISION_SMC_ESS_THRESHOLD", "0.5"))
 # Liu-West shrinkage. 0.98 (OptBayesExpt's value) jitters by only ~0.2x the cloud's spread per resample: at high SNR the
 # line-shape nuisances froze on a wrong shape in ~70% of runs (2026-11-17 a x ESS grid, docs/evaluation_metrics.md).
 NVISION_SMC_A_PARAM: float = float(os.getenv("NVISION_SMC_A_PARAM", "0.85"))

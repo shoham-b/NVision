@@ -42,7 +42,7 @@ Its fatter tails do not reward an under-confident σ for coincidentally matching
 
 $$\text{ESS} = \frac{1}{\sum_i w_i^2}$$
 
-Resampling is triggered when ESS < r_thr · N, where r_thr = `ess_threshold` = 0.20 (default) and N = `num_particles`.
+Resampling is triggered when ESS < r_thr · N, where r_thr = `ess_threshold` = 0.50 (default) and N = `num_particles`.
 
 ### 1.3 Systematic Resampling
 
@@ -396,7 +396,7 @@ every locator (`nvision/metrics/milestones.py`, `nvision/metrics/stages.py`).
 | Symbol | Name | Default | Unit |
 |---|---|---|---|
 | N | `NVISION_SMC_NUM_PARTICLES` | 10 000 | — |
-| r_thr | `NVISION_SMC_ESS_THRESHOLD` | 0.20 | — |
+| r_thr | `NVISION_SMC_ESS_THRESHOLD` | 0.50 | — |
 | a | `NVISION_SMC_A_PARAM` | 0.85 | — |
 | N_EIG | `NVISION_SMC_EIG_PARTICLES` | 500 | — |
 | — | `NVISION_SBED_CANDIDATE_STEP_HWHM_FRACTION` | 0.1 | × HWHM |

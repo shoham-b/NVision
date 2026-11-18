@@ -394,6 +394,12 @@ wrong shape (jitter ≈ 0.2 × the cloud's spread at a = 0.98). An a × ESS grid
 SNR 20 and 2) showed a ≤ 0.85 removes it at any ESS (stuck 0-5 %, coverage 0.9-1.0 at SNR 20; SNR 2 not hurt), so
 `NVISION_SMC_A_PARAM` defaults to 0.85. Checked on windows 1.6 and 3 (SNR 10) and 5 (SNR 5): stuck 30/35/20 % →
 5/10/0 %, RMS error 3-5x lower; the 1.6-linewidth window stays somewhat overconfident (2σ coverage 0.70).
+Final configuration (2026-11-18): the Gaussian-share-0 window-grid signals use a Lorentzian belief (no `sigma_inhom`;
+with a = 0.98 it still stuck in 20-35 % of runs on width and contrast, with a = 0.85 in none), 10,000 particles
+(smoother claimed σ, ~4x the run time, 1.4 GB peak per 2500-step repeat) and resampling below 0.5 N_p (on the
+1.6-linewidth window, SNR 10, it cut the typical run's largest log-σ step from 1.5 to 0.02 and raised 2σ coverage
+from 0.80 to 1.00; 10 repeats per arm). A rare single σ spike (log-step ≈ 3-6, one seed per cell) is the same at
+ESS 0.2 and 0.5, so it is not from resampling; not yet traced.
 Lab runs (`nv matlab`) store it in the run record and print it; replayed shots are reused (`shot_reuse` draws per
 distinct shot) and count as independent observations, so there D is inflated by about `shot_reuse` and the printed
 flag compares against `STUCK_FIT_GAP × shot_reuse`.
