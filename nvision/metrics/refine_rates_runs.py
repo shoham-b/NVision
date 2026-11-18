@@ -3,8 +3,9 @@
 The cache keeps no belief snapshots, so the oracle efficiency ``eta_t`` of a cached run is rebuilt from three things it
 does keep:
 
-* the **true signal**: ``generator.generate(Random(repeat_seed_int(signal_repeat_key(seed, generator, repeat))))``, the
-  same draw every locator of the repeat saw. It is compared with the stored ``true_params`` and a mismatch raises (the
+* the **true signal**: ``generator.generate(Random(repeat_seed_int(signal_repeat_key(seed, generator, repeat))),
+  repeat_idx=repeat, n_repeats=N)`` with ``N`` the study's total repeat count, the same draw every locator of the
+  repeat saw. It is compared with the stored ``true_params`` and a mismatch raises (the
   generator code changed since the run);
 * **where each measurement was taken**: Bayesian-SBED's from the scan figure (``measurements.x``, float16 rescaled
   into the drive window, so about 1e-3 of the window, far below the HWHM); a plain sweep's from its design (the grid
@@ -135,6 +136,29 @@ def _check_true_params(true_signal: Any, stored: dict[str, float]) -> None:
             )
 
 
+def rebuild_true_signal(
+    generator: Any, generator_name: str, repeat_idx: int, row: dict[str, Any], scan: dict[str, Any]
+) -> Any:
+    """The true signal repeat ``repeat_idx`` of the run saw, checked against the stored ``true_params``.
+
+    Drawn as the executor draws it (``RunTaskExecutor._build_signal_experiment``): the repeat's own seed, and
+    ``repeat_idx`` / ``n_repeats`` because the generator stratifies ``zeeman_shift`` across the repeats.
+    ``n_repeats`` is the study's total repeat count (``task.repeat_total or repeats``), which the result row stores
+    as ``repeats``; the combo's achieved count is not used, because it is smaller while a run is in progress.
+    Raises ``ValueError`` when the row lacks it or the rebuilt parameters differ from the stored ones.
+    """
+    n_repeats = row.get("repeats")
+    if n_repeats is None:
+        raise ValueError("The result row has no total repeat count ('repeats'), so the true signal cannot be rebuilt.")
+    true_signal = generator.generate(
+        random.Random(repeat_seed_int(signal_repeat_key(row["seed"], generator_name, repeat_idx))),
+        repeat_idx=repeat_idx,
+        n_repeats=int(n_repeats),
+    )
+    _check_true_params(true_signal, (scan.get("true_params") or {}).get("params") or {})
+    return true_signal
+
+
 def _sbed_positions_phys(scan_entry: dict[str, Any], n_steps: int, x_lo_phys: float, x_hi_phys: float) -> np.ndarray:
     """Drive frequencies (Hz) of a run; shape (n_steps,), one per measurement, in order.
 
@@ -242,12 +266,9 @@ def build_run_trace(
             **common,
         )
 
-    true_signal = generator.generate(
-        random.Random(repeat_seed_int(signal_repeat_key(row["seed"], generator_name, repeat_idx)))
-    )
+    true_signal = rebuild_true_signal(generator, generator_name, repeat_idx, row, scan)
     if true_signal.model.controls_drive:
         raise ValueError("Drive-controlled signals are not covered (their sensitivity depends on the drive setting).")
-    _check_true_params(true_signal, (scan.get("true_params") or {}).get("params") or {})
     x_lo, x_hi = true_signal.get_param_bounds("zero_field_freq")
     if abs((x_hi - x_lo) - float(row["stage_window_phys"])) > 1e-6 * (x_hi - x_lo):
         raise ValueError("The rebuilt drive window differs from the stored one.")
