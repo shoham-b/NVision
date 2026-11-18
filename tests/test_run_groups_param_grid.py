@@ -207,7 +207,10 @@ def test_snr_window_strategy_config_matches_the_signal_isotope():
     for name, gen in sim_presets.voigt_snr_window_param_grid_generators():
         combo = CombinationGrid().resolve(name, sim_presets.snr_study_noises()[0][0], "Bayesian-SBED")
         assert combo is not None
-        assert combo.strategy["config"]["lineshape"] == "voigt"
+        # A signal with no Gaussian part is inferred as a Lorentzian (the article's particle filter); else as a Voigt.
+        lorentzian = gen.gaussian_share == 0.0
+        assert combo.strategy["config"]["lineshape"] == ("lorentzian" if lorentzian else "voigt")
+        assert combo.strategy["config"].get("voigt_bounds_as_lorentzian", False) == lorentzian
         assert combo.strategy["config"]["hyperfine"] == gen.hyperfine
         assert not combo.strategy["config"].get("infer_hyperfine", False)
 
