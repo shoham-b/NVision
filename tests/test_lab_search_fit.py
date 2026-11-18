@@ -19,23 +19,23 @@ def test_detection_weights_sum_to_one_with_partial_last_cell():
 
 def test_model_starts_near_prior_and_ends_at_cramer_rao():
     steps = np.arange(1, 2001)
-    s = search_model_sigma(steps, window=30.0, v=1.0, j_tau=12.0, i_max=100.0)
+    s = search_model_sigma(steps, window=30.0, v=1.0, j_d=12.0, i_max=100.0)
     assert s[0] == pytest.approx(30.0 / 12**0.5, rel=0.1)
     assert s[-1] == pytest.approx(1 / np.sqrt(2000 * 100.0), rel=0.05)
     assert np.all(np.diff(s) < 0)
 
 
-def test_van_trees_starts_at_detection_with_j_tau():
-    # Window cleared at the first measurement: every run detects at n_d = 1 and follows 1/(J_tau + (n-1) I).
+def test_van_trees_starts_at_detection_with_j_d():
+    # Window cleared at the first measurement: every run detects at n_d = 1 and follows 1/(J_d + (n-1) I).
     steps = np.arange(1, 50)
-    s = search_model_sigma(steps, window=2.0, v=2.0, j_tau=3.0, i_max=7.0)
+    s = search_model_sigma(steps, window=2.0, v=2.0, j_d=3.0, i_max=7.0)
     assert s == pytest.approx(1 / np.sqrt(3.0 + (steps - 1) * 7.0))
 
 
 def test_slow_search_does_not_pin_the_dip_at_detection():
-    # v and J_tau are independent: a slow search (v small) with a loose detection (small J_tau).
+    # v and J_d are independent: a slow search (v small) with a loose detection (small J_d).
     steps = np.arange(1, 301)
-    s = search_model_sigma(steps, window=50.0, v=0.5, j_tau=0.05, i_max=0.3)
+    s = search_model_sigma(steps, window=50.0, v=0.5, j_d=0.05, i_max=0.3)
     after = s[100:]  # search over: what is left is the van Trees average
     assert after[0] > 0.1  # not the 12/v^2 cell (sigma ~ 0.14 MHz) the old model forced
 
