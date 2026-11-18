@@ -28,6 +28,9 @@ uses the names on the right. Docs describing the algorithm use the article's ter
 | search / localize / refine | search / localize / refine (persisted fields keep the old name: `focus_found_step`, `refine_start_step`, `stage{1,2,3}_*`) | Same names. The middle stage was called *focus* before; the *focus window / focus sections* (`FocusRegion`) are a different thing and keep their name. See Known deviations in [locator comparison](locator_comparison.md). |
 | SimpleSweep | `SimpleSweep-optimal`, `SimpleSweep-optimal-x0.5`, `-x2` | $\Gamma_0$ = FWHM of the prior-mean line; SimpleSweep spacing $\Gamma_0/k$: $k = m\,k^*$ with $m \in \{0.5, 1, 2\}$ and the per-task optimum $k^*$ = argmin of $\overline{P(k,\varphi)}\,n(k)$ (whole passes $P$ times points per pass $n$). |
 | Bayesian SBED | `Bayesian-SBED` | |
+| $R(n)$ (information against the bound) | `claims.bound_ratio` | $1/\overline{e^2 (J_0 + n I_{\max})}$ over runs; $\le 1$ (+1 %) for the true error. |
+| $q$, $n_0$ (Eq. strategy-numbers) | `RateFit.q`, `RateFit.n0` (`refine_rates.fit_rate_line`), gated by `claims.fit_with_gate` | Slope of $1/\mathrm{MSE}$ in units of $I_{\max}$ and its intercept on the late window. |
+| coverage | `claims.coverage_curve`, `claims.coverage_from_z` | Share of runs with $|e| \le k\hat\sigma$ ($k=1,2$); nominal 68 % / 95 %. |
 
 ## Frequencies and shifts
 

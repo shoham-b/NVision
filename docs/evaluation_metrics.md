@@ -252,6 +252,33 @@ Reading it on the current cache (2026-11-15): the SNR × window study's drawn W 
 probe cells and the bounds are far below the measured search (κ_eff/κ̄ ≈ 0.01–0.09 for all four locators, none near 1/(1−2t/W));
 a real test of the search claim needs the larger windows. Rows of the fixed-step sweeps (`SimpleSweep-<k>perFWHM`, only in older caches) carry a stored J₀ that is not 4π²/W²
 (older prior), flagged in the panel; nothing here reads it.
+## Testing the article's claims (`nvision/metrics/claims.py`)
+
+Code: `claims.py` (pure maths), `claims_report.py` (one locator in one use case), `GET /api/claims?generator=..&noise=..`
+(`nvision/cli/claims_api.py`). Everything is computed from stored data (the per-step series `s`, `e`, `u`, and the stored
+scalars), so `nv serve` on an existing cache is enough: **no re-run, no `nv render`, no physics fingerprint or cache schema
+change.** Each number is a measurement that can fail its claim; a window or a use case that cannot support a number returns
+`None` and says why. The `(n0, q)` line, the sweep theory, the search bounds, localize and the posterior series are the
+existing sections of this page; this section adds only what they did not make:
+
+| Claim (article) | Metric | Fails when |
+|---|---|---|
+| Gap before any measurement $\sqrt{J_0/J_{0,\mathrm{var}}} = \pi/\sqrt3$ | `prior_gap`, `truth_spread_ratio` (rms of the drawn truths about the window centre over $W/\sqrt{12}$) | the stored columns disagree, or the truths are not uniform over the prior (ratio far from 1) |
+| van Trees: run-averaged true error never below $(J_0 + nI_{\max})^{-1/2}$ | `bound_ratio` $R(n)$, bootstrap interval, `bound_violated` | the lower end of $R$'s interval is above 1.01 anywhere (a defect in $J_0$ or $I_{\max}$) |
+| Three regimes: plateau at the prior, one detection step, $-1/2$ tail of the mean curve | `regimes`: plateau level over $\sigma_0$, `n_half` (first $n$ with rms error $\le \sigma_0/2$), `drop_factor`, tail slope on $n \ge 2 n_{\rm half}$ | no `n_half`, no plateau, or the budget ends before the tail (`why`); the slope is steeper than $-1/2$ by $n/(n-n_0)$, so read it with $n_0$ |
+| $1/\mathrm{MSE}$ linear in $n$ late in the run, slope $q \le 1$ | `fit_with_gate`: `refine_rates.fit_rate_line` on `late_window`, bootstrap intervals over repeats, and a **linearity gate** (the $q$ of the two halves of the window must have overlapping intervals) | `linear` is false: the window is not the late regime and $q$ is then not a refine rate (it is still returned, flagged) |
+| Information rate above 1 means overconfident | `rate_ratio` = $q_{\rm claimed}/q_{\rm true}$ over the same window | the ratio is near 1 (the claim would be contradicted); above 1 confirms it |
+| Coverage of $\hat\sigma_N$: 68 % / 95 %, tested only once the posterior is Gaussian | `coverage_curve` per $n$, runs counted from `refine_start_step` (`within_k`) and all runs (`within_k_all`), Wilson intervals; `coverage_from_z` from the signed series `z` (also the mean and std of $z$) | the interval excludes 0.683 / 0.954 |
+| Sensitivity $\eta/\sqrt q$ | `sensitivity_ratio` = $\sqrt{I_{\max}\,\mathrm{MSE}\,n}$ on the window | by construction it equals $1/\sqrt q \cdot \sqrt{n/(n-n_0)}$, so it only cross-checks the fit |
+
+Every run measures the whole budget, so a run's last stored value is held after its last stored step (the rule of
+`refine_rates.inverse_mse_curve`) and all repeats are present at every $n$. Series have at most 80 stored points per run and
+are interpolated linearly. A sweep's `e` / `u` come from the SMC belief it carries (its own fit is not stored).
+
+**Not made, needs a re-run.** Coverage from quantiles of the particle distribution (the PIT, the posterior CDF at the truth)
+needs the particles, which the cache does not keep, so it would be a run-time column. The article names it next to the
+Gaussian coverage; `coverage_from_z` (Gaussian $z$) is the part that can be tested today.
+
 ## Refine rates and the speedup over a sweep
 
 Code: `nvision/metrics/refine_rates.py` (pure maths), `nvision/metrics/refine_rates_runs.py` (rebuilding cached runs),
