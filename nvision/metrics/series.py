@@ -172,6 +172,19 @@ def extract_step_series(
     if not steps:
         return None
 
+    # A locator whose reported estimate is a fit (sweeps: ``finalize()``'s least-squares fit, which
+    # ``final_err_primary`` scores) ends the series on that estimate, not on its belief, so the curve's final
+    # point is the run's reported accuracy. The fit exists only after the last measurement; earlier steps stay
+    # the belief, the only per-step estimate a sweep has.
+    fit_est = (run_result.fit_mode_estimates or {}).get(param)
+    if fit_est is not None:
+        if steps[-1] != len(run_result.snapshots):
+            raise ValueError("The run has a fit estimate but no final belief snapshot to put it on.")
+        errs[-1] = abs(float(fit_est) - true_value) if math.isfinite(fit_est) else None
+        fit_unc = (run_result.fit_mode_uncertainties or {}).get(param)
+        if fit_unc is not None and math.isfinite(fit_unc):  # NaN (no covariance): keep the belief's, as convert.py
+            uncerts[-1] = float(fit_unc)
+
     keep = _downsample_indices(len(steps), max_points)
     series: dict[str, Any] = {
         "s": [steps[i] for i in keep],

@@ -3,6 +3,7 @@
 from itertools import pairwise
 
 import numpy as np
+import pytest
 
 from nvision.belief.grid_marginal import GridMarginalDistribution, GridParameter
 from nvision.metrics.series import _downsample_indices, extract_step_series
@@ -237,3 +238,18 @@ def test_downsample_indices_bounds_and_count():
     assert idx[0] == 0
     assert idx[-1] == 9_999
     assert all(a < b for a, b in pairwise(idx))
+
+
+def test_extract_step_series_ends_on_the_fit_estimate():
+    """A sweep reports its least-squares fit, so the series' last point is the fit's error and uncertainty."""
+    run = _make_run(n_steps=10, true_value=0.5)
+    belief_only = extract_step_series(run, param="zero_field_freq")
+    run.fit_mode_estimates = {"zero_field_freq": 0.503}
+    run.fit_mode_uncertainties = {"zero_field_freq": 0.004}
+    series = extract_step_series(run, param="zero_field_freq")
+    assert series["e"][:-1] == belief_only["e"][:-1]  # earlier steps stay the belief
+    assert series["e"][-1] == pytest.approx(0.003)
+    assert series["u"][-1] == pytest.approx(0.004)
+    # No fit covariance (NaN): the uncertainty stays the belief's.
+    run.fit_mode_uncertainties = {"zero_field_freq": float("nan")}
+    assert extract_step_series(run, param="zero_field_freq")["u"][-1] == belief_only["u"][-1]
