@@ -30,7 +30,7 @@ and its update are shared (article `methods.tex` §Bayesian inference, numbers i
   (prior shape 10, scale from the geometric mean of the $\sigma$ prior range, discount 0.99 per measurement), so $\sigma^2$
   is integrated out exactly (Rao-Blackwellized filter) and a measurement reweights each particle by a Student-$t$
   predictive. `noise_model` is mandatory.
-- **Resampling.** Systematic, when the effective sample size falls below $0.2\,N_p$, followed by Liu-West
+- **Resampling.** Systematic, when the effective sample size falls below $0.5\,N_p$, followed by Liu-West
   rejuvenation ($a = 0.85$) with a variance floor $(0.01\,e^{-n/25})^2$ of each unit range and reflection of particles that
   leave the unit cube. Each particle's noise posterior is recomputed from the full history afterwards.
 - **Reported uncertainty.** `uncertainty()` is the weighted particle standard deviation $\hat\sigma_N$, the
