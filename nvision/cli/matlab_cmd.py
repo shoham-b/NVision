@@ -673,6 +673,15 @@ def _matlab_run_one(
             elif f"ref_{name}_at_bound" in holdout_cols:
                 typer.echo(f"  {name:20s}: no z (the reference fit sits on the prior bound: not resolved)")
 
+    # Truth-free stuck-belief check (nvision/metrics/fit_gap.py). Replayed shots are reused (``shot_reuse`` draws per
+    # distinct shot) and count as independent observations, so D here is inflated by about that factor.
+    from nvision.metrics.fit_gap import STUCK_FIT_GAP, compute_fit_gap
+
+    fit_gap = compute_fit_gap(locator.belief, "zeeman_shift")
+    if fit_gap["belief_fit_gap"] is not None:
+        flag = "  (STUCK?)" if fit_gap["belief_fit_gap"] > STUCK_FIT_GAP * shot_reuse else ""
+        typer.echo(f"\nBelief vs best fit: D = {fit_gap['belief_fit_gap']:.1f} (shot reuse {shot_reuse:.1f}){flag}")
+
     noise_name = "real-holdout" if holdout else "real"
     record: dict[str, Any] = {
         "run_name": run_name,
@@ -690,6 +699,7 @@ def _matlab_run_one(
         "shot_reuse": shot_reuse,
         "estimates": {k: float(v) for k, v in final_est.items()},
         "uncertainties": {k: float(v) for k, v in final_unc.items()},
+        **fit_gap,
     }
     if holdout_cols:
         record["holdout"] = holdout_cols
@@ -733,7 +743,7 @@ def _matlab_run_one(
             primary_converged_step=primary_converged_step,
             all_converged_step=all_converged_step,
             noise_name=noise_name,
-            extra_metrics={"shot_reuse": shot_reuse, **holdout_cols},
+            extra_metrics={"shot_reuse": shot_reuse, **holdout_cols, **fit_gap},
         )
         typer.echo(f"\nIn `nv serve`: Study 'MATLAB (real data)', generator '{gen_name}', noise '{noise_name}'.")
 

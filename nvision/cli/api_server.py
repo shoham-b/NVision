@@ -26,6 +26,7 @@ from nvision.cache.locator_keys import MIN_VIEWABLE_CACHE_SCHEMA_VERSION, combin
 from nvision.cli.refine_rates_api import add_refine_rates_route
 from nvision.cli.search_bounds_api import add_search_bounds_route
 from nvision.gui.report import _STATIC_DIR, render_index_html
+from nvision.metrics.fit_gap import FIT_GAP_METRIC_KEYS
 from nvision.metrics.posterior import POSTERIOR_METRIC_KEYS
 from nvision.runner.cache import _decompress_text
 from nvision.sim.combinations import PLAIN_SWEEP_STRATEGIES, CombinationGrid
@@ -231,6 +232,8 @@ _COMPARE_FIELDS = (
     # Run-time posterior metrics of the primary parameter (nvision/metrics/posterior.py); per-step values are in the
     # scan entry's ``series`` (``z``, ``g``, ``m``, ``j``, ``x``).
     *POSTERIOR_METRIC_KEYS,
+    # Truth-free stuck-belief check of the final belief (nvision/metrics/fit_gap.py).
+    *FIT_GAP_METRIC_KEYS,
 )
 
 

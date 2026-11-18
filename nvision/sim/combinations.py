@@ -251,7 +251,14 @@ class CombinationGrid:
             resolved = self._resolve_generators.get(generator_name)
             if resolved is None:
                 raise ValueError(f"unknown SNR-window generator {generator_name!r}")
-            nv_smc_config["lineshape"] = "voigt"
+            # A signal with no Gaussian part is a Lorentzian: the belief infers the line as one (the article's
+            # particle filter holds the Zeeman shift, the width and the contrast only). A free Gaussian width there
+            # is a near-degenerate extra dimension the particle filter got stuck in (docs/evaluation_metrics.md).
+            if resolved.gaussian_share == 0.0:
+                nv_smc_config["lineshape"] = "lorentzian"
+                nv_smc_config["voigt_bounds_as_lorentzian"] = True
+            else:
+                nv_smc_config["lineshape"] = "voigt"
             nv_smc_config["hyperfine"] = resolved.hyperfine
         elif generator_name.startswith("NVCenter-voigt-w"):
             nv_smc_config["lineshape"] = "voigt"

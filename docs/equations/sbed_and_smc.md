@@ -60,7 +60,7 @@ $$\theta_i \leftarrow a \cdot \theta_i + (1 - a) \cdot \mu$$
 
 $$\theta_i \leftarrow \theta_i + \varepsilon_i, \quad \varepsilon_i \sim \mathcal{N}\!\left(\mathbf{0},\, (1 - a^2)\Sigma\right)$$
 
-where Σ is the pre-resample weighted covariance and a = `a_param` = 0.98 (default).
+where Σ is the pre-resample weighted covariance and a = `a_param` = 0.85 (default).
 
 The nudge covariance C = (1−a²)Σ has its diagonal floored to enforce exploration:
 
@@ -397,7 +397,7 @@ every locator (`nvision/metrics/milestones.py`, `nvision/metrics/stages.py`).
 |---|---|---|---|
 | N | `NVISION_SMC_NUM_PARTICLES` | 1 000 | — |
 | r_thr | `NVISION_SMC_ESS_THRESHOLD` | 0.20 | — |
-| a | `NVISION_SMC_A_PARAM` | 0.98 | — |
+| a | `NVISION_SMC_A_PARAM` | 0.85 | — |
 | N_EIG | `NVISION_SMC_EIG_PARTICLES` | 500 | — |
 | — | `NVISION_SBED_CANDIDATE_STEP_HWHM_FRACTION` | 0.1 | × HWHM |
 | T_f | `NVISION_ZERO_FIELD_FREQ_CONVERGENCE_THRESHOLD` | 100 000 | Hz |

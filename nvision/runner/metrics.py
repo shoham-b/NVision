@@ -10,6 +10,7 @@ from typing import Any
 
 import polars as pl
 
+from nvision.metrics.fit_gap import FIT_GAP_METRIC_KEYS, compute_fit_gap
 from nvision.metrics.milestones import calculate_zeeman_metrics, detect_all_converged_step, resolve_primary_param
 from nvision.metrics.posterior import POSTERIOR_METRIC_KEYS, compute_posterior_metrics
 from nvision.metrics.stages import STAGE_METRIC_KEYS, compute_stage_metrics
@@ -121,6 +122,12 @@ def generate_attempt_metrics(
         # per-step series are attached to the scan entry in runner/plots.py from the same (memoised) computation.
         posterior = compute_posterior_metrics(run_result, stage_metrics["stage_primary_param"], stage_metrics)
         for k, v in posterior["scalars"].items():
+            metrics_serialized[k] = _maybe_finite(v)
+        # Truth-free stuck-belief check: the final belief against a least-squares fit of the same data
+        # (metrics/fit_gap.py). None for locators without a particle belief.
+        final_belief = run_result.snapshots[-1].belief if run_result.snapshots else None
+        fit_gap = compute_fit_gap(final_belief, stage_metrics["stage_primary_param"])
+        for k, v in fit_gap.items():
             metrics_serialized[k] = _maybe_finite(v)
 
     sweep_steps: int | None = None
@@ -313,6 +320,7 @@ def generate_attempt_metrics(
         "all_converged_step": all_converged_step,
         **{key: metrics_serialized.get(key) for key in STAGE_METRIC_KEYS},
         **{key: metrics_serialized.get(key) for key in POSTERIOR_METRIC_KEYS},
+        **{key: metrics_serialized.get(key) for key in FIT_GAP_METRIC_KEYS},
         "failure_reason": failure_reason,
         "metrics": metrics_serialized,
     }

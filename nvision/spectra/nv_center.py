@@ -332,6 +332,9 @@ def physics_config_fingerprint() -> str:
         # Bumped when SBED's candidates became one uniform grid (step 0.1 x posterior-mean HWHM, whole window,
         # restricted to the focus) instead of 800 quantiles of a slope/dip/flat mixture thinned to 100 kHz.
         "sbed-uniform-grid-v1",
+        # Bumped when the Liu-West shrinkage default went from a = 0.98 to 0.85 (NVISION_SMC_A_PARAM): every SMC
+        # trajectory differs.
+        "smc-liu-west-a085-v1",
         NV_ZEEMAN_EDGE_PAD_FWHM,
         MIN_HWHM,
         MAX_HWHM,

@@ -79,6 +79,7 @@ def nv_center_smc_belief(
     lineshape: str = "lorentzian",
     seed: int | None = None,
     fixed_drive: DriveSetting | None = None,
+    voigt_bounds_as_lorentzian: bool = False,
 ) -> SMCMarginalDistribution:
     """NV-center belief: **unit** parameter particles, **physical** signal model.
 
@@ -115,6 +116,11 @@ def nv_center_smc_belief(
     ``fixed_drive`` (drive-controlled lineshapes only) builds the belief on the model's fixed-drive
     view: for locators that do not choose the drive, every measurement is taken at that one drive.
     Without it a drive-controlled belief needs every observation's drive (drive-choosing locators).
+
+    ``voigt_bounds_as_lorentzian`` (``lineshape="lorentzian"`` only): ``parameter_bounds`` come from a Voigt signal
+    with no Gaussian part (the SNR x window study at Gaussian share 0), which is exactly a Lorentzian whose ``hwhm`` is
+    the Voigt's ``hwhm_lorentz``. That width's bounds and prior are read under the Lorentzian name; the Voigt's
+    ``sigma_inhom`` is not a belief dimension. Raises if the bounds carry no ``hwhm_lorentz``.
     """
     if noise_model is None:
         raise ValueError(
@@ -199,6 +205,17 @@ def nv_center_smc_belief(
             infer_hyperfine=infer_hyperfine,
             with_zeeman_splitting=with_zeeman_splitting,
         )
+
+    if voigt_bounds_as_lorentzian:
+        if lineshape != "lorentzian":
+            raise ValueError(f"voigt_bounds_as_lorentzian needs lineshape='lorentzian', got {lineshape!r}.")
+        if not parameter_bounds or "hwhm_lorentz" not in parameter_bounds:
+            raise ValueError("voigt_bounds_as_lorentzian needs Voigt parameter bounds carrying 'hwhm_lorentz'.")
+        parameter_bounds = {("hwhm" if k == "hwhm_lorentz" else k): v for k, v in parameter_bounds.items()}
+        if "_priors" in parameter_bounds:
+            parameter_bounds["_priors"] = {
+                ("hwhm" if k == "hwhm_lorentz" else k): v for k, v in parameter_bounds["_priors"].items()
+            }
 
     if parameter_bounds:
         for name in merged_bounds:
