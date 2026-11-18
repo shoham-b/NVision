@@ -35,7 +35,7 @@ from nvision.runner.sweep_cache import (
     _create_sweep_belief,
     precompute_sweep,
 )
-from nvision.runner.sweep_data import SWEEP_WAIT_S, SweepLoader, SweepReplay, load_sweep_data
+from nvision.runner.sweep_data import SweepLoader, load_sweep_data
 from nvision.sim.combinations import CombinationGrid
 from nvision.sim.locs.bayesian.sequential_bayesian_locator import SequentialBayesianLocator
 from nvision.sim.locs.coarse import SweepingLocator
@@ -111,7 +111,6 @@ def run_loop(
     rng: random.Random,
     sweep_cache: SweepCache | None = None,
     n_shots: int = 1,
-    search_replay: SweepReplay | None = None,
     **locator_config: Any,
 ) -> Iterator[Locator]:
     """Run one repeat's measurement loop and yield locator states.
@@ -182,9 +181,6 @@ def run_loop(
                 drive=_replayed_drive(cached_obs, drive),
             )
 
-        if obs is None and search_replay is not None and getattr(locator, "picked_in_search", False):
-            # The search phase of a smart locator is the reference sweep: take its measurement at this grid point.
-            obs = search_replay.take(experiment, drive_freq_unit)
         if obs is None:
             obs = experiment.measure(drive_freq_unit, rng, n_shots=n_shots, shot_index=shot_index, drive=drive)
         shot_index += n_shots
@@ -837,19 +833,6 @@ class _TaskRunner:
         combo_kw = self._combo_kw()
         return lambda rid: load_sweep_data(self.cache, combo_kw, rid)
 
-    def _search_replay(self, locator_class: type[Locator], experiment: CoreExperiment, rid: int) -> SweepReplay | None:
-        """The persisted reference sweep of repeat ``rid`` for a locator whose search phase replays it, else None.
-
-        Fails fast (``MissingSweepDataError``) when the sweep is not in the cache; it is waited for only if this run
-        computes it (``task.sweep_pending``).
-        """
-        if not getattr(locator_class, "REPLAYS_REFERENCE_SWEEP", False):
-            return None
-        if experiment.drift is not None or experiment.true_signal.model.controls_drive:
-            return None
-        wait_s = SWEEP_WAIT_S if self.task.sweep_pending else 0.0
-        return SweepReplay(load_sweep_data(self.cache, self._combo_kw(), rid, wait_s=wait_s))
-
     def _combo_kw(self) -> dict[str, Any]:
         """``save_repeat`` keyword arguments identifying this combination (built once per task)."""
         if self._combo_kw_memo is None:
@@ -1341,7 +1324,6 @@ class _TaskRunner:
         token = set_combination_log_initials(self.generator_name, self.noise_name, self.strategy_name, repeat_idx=rid)
 
         try:
-            replay = self._search_replay(locator_class, experiment, rid)
             result = observer.watch(
                 run_loop(
                     locator_class,
@@ -1349,7 +1331,6 @@ class _TaskRunner:
                     rng,
                     self._sweep_cache,
                     n_shots=n_shots,
-                    search_replay=replay,
                     **cfg,
                 )
             )

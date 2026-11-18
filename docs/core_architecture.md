@@ -30,8 +30,8 @@ and its update are shared (article `methods.tex` §Bayesian inference, numbers i
   (prior shape 10, scale from the geometric mean of the $\sigma$ prior range, discount 0.99 per measurement), so $\sigma^2$
   is integrated out exactly (Rao-Blackwellized filter) and a measurement reweights each particle by a Student-$t$
   predictive. `noise_model` is mandatory.
-- **Resampling.** Systematic, when the effective sample size falls below $0.2\,N_p$, followed by Liu-West
-  rejuvenation ($a = 0.98$) with a variance floor $(0.01\,e^{-n/25})^2$ of each unit range and reflection of particles that
+- **Resampling.** Systematic, when the effective sample size falls below $0.5\,N_p$, followed by Liu-West
+  rejuvenation ($a = 0.85$) with a variance floor $(0.01\,e^{-n/25})^2$ of each unit range and reflection of particles that
   leave the unit cube. Each particle's noise posterior is recomputed from the full history afterwards.
 - **Reported uncertainty.** `uncertainty()` is the weighted particle standard deviation $\hat\sigma_N$, the
   **claimed uncertainty**. It is a moment of the posterior, defined at every $N$, and is only a 68 % interval once the
@@ -63,12 +63,10 @@ the inference, and $\hat\sigma_N$ means the same for all of them. All run under 
   scale. Every contiguous stretch of measured drive frequencies whose span lies in the prior range of the linewidth gets
   the boxcar score $\sum z_n/\sqrt n$; it is significant when it passes the Bonferroni threshold at family-wise
   false-alarm probability $p_{FA} = 0.1$ (`NVISION_DIP_P_FA`). Each connected run of significant stretches is one dip.
-- **Sweep family.** `SimpleSweep-3perFWHM` (the reference) and `SimpleSweep-optimal` measure a uniform grid of spacing
-  $\Gamma_0/k$ and repeat whole passes; $k = 3$ for the reference, and the optimal sweep uses the fractional $k^*$ that
+- **Sweep family.** `SimpleSweep-optimal` (the reference) and its multiples `SimpleSweep-optimal-x0.5` / `-x2` measure a
+  uniform grid of spacing $\Gamma_0/k$ and repeat whole passes; $k = m\,k^*$ with multiplier $m \in \{0.5, 1, 2\}$, where the fractional $k^*$
   minimises $\overline{P(k,\varphi)}\,n(k)$, the whole passes times points per pass the stop rules need
-  ([locator comparison](locator_comparison.md)); `Smart-Sweep` sweeps at $\Gamma_0/3$ until the dip test finds a dip, then at $\Gamma_0/10$ inside the
-  focus, then measures only at the maxima of $(\partial\mu/\partial\theta)^2$ at the posterior mean once the posterior expects each point to
-  carry at least 90 % of the optimal information. Details: [locator comparison](locator_comparison.md).
+  (details: [locator comparison](locator_comparison.md)).
 - **Bayesian SBED** (`nvision/sim/locs/bayesian/sbed_locator.py`). After every resampling, 800 candidate drive
   frequencies are placed at quantiles of a density with Gaussian kernels on the two sides of the posterior-mean dip
   ($\pm$ HWHM from its centre), kernels on the dips found and a flat share, thinned to at least 100 kHz spacing. The

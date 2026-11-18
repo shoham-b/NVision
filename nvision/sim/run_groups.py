@@ -13,11 +13,11 @@ group                 generators                                  noise         
 ====================  ==========================================  ==================  ===========================
 ``voigt-grid``        Voigt window/FWHM x share x isotope         SNR grid            locator study (below)
 ``drive-control``     CW / pulsed drive-controlled NV x isotope   SNR grid (nominal)  Bayesian-SBED, -SBED-Drive
-``all``               the two above                               the two above       each scenario's own set
+``all``               ``voigt-grid`` only (not ``drive-control``) SNR grid            locator study (below)
 ====================  ==========================================  ==================  ===========================
 
-The locator study is SimpleSweep-3perFWHM (the reference sweep), SimpleSweep-optimal (the sweep at its task's
-analytically optimal step k*), Smart-Sweep, Bayesian-SBED and Smart-SBED.
+The locator study is SimpleSweep-optimal (the sweep at its task's analytically optimal step k*, the reference),
+its multiples SimpleSweep-optimal-x0.5 and -x2, and Bayesian-SBED.
 """
 
 from __future__ import annotations
@@ -28,8 +28,7 @@ from functools import lru_cache
 
 from nvision.sim import presets as sim_presets
 from nvision.sim.combinations import PLAIN_SWEEP_STRATEGIES
-from nvision.sim.grid_enums import sweep_strategy_name
-from nvision.sim.locs.search_grid import SWEEP_POINTS_PER_FWHM
+from nvision.sim.grid_enums import OPTIMAL_SWEEP_STRATEGY
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,19 +60,16 @@ class RunGroup:
         return len(self.combinations())
 
 
-_DEFAULT_SWEEP = sweep_strategy_name(SWEEP_POINTS_PER_FWHM)
+_DEFAULT_SWEEP = OPTIMAL_SWEEP_STRATEGY
 
-# The locators compared on the standard scenarios: the plain sweeps (the reference at 3 points per FWHM and the one at
-# the optimal step), the plain SBED, and the two locators that search coarsely first and then work inside the focus
-# (docs/locator_comparison.md).
+# The locators compared on the standard scenarios: the plain sweeps (at the optimal step k* and at multiples of it),
+# and the plain SBED (docs/locator_comparison.md).
 _LOCATOR_STUDY_STRATEGIES = [
     *PLAIN_SWEEP_STRATEGIES,
-    "Smart-Sweep",
     "Bayesian-SBED",
-    "Smart-SBED",
 ]
 
-_STUDY_LOCATORS = "all locators (sweeps, Smart-Sweep, Bayesian-SBED, Smart-SBED)"
+_STUDY_LOCATORS = "all locators (sweeps, Bayesian-SBED)"
 
 
 def _voigt_snr_window_param_grid() -> dict[str, object]:
@@ -156,15 +152,16 @@ def _voigt_grid_up_to_window(group: RunGroup, max_window_fwhm: float) -> RunGrou
 
 
 def _group_all() -> RunGroup:
-    """Every scenario with every locator used in it."""
-    members = (_group_voigt_grid(), _group_drive_control())
+    """Every standard scenario with every locator used in it. ``drive-control`` is run explicitly, not as part of
+    ``all``."""
+    members = (_group_voigt_grid(),)
 
     def union(lists):
         return list(dict.fromkeys(x for xs in lists for x in xs))
 
     return RunGroup(
         name="all",
-        description=("Every scenario above with all of its locators (voigt-grid + drive-control)."),
+        description="The standard scenario (voigt-grid) with all of its locators; drive-control is not included.",
         generator_names=union(m.generator_names for m in members),
         noise_names=union(m.noise_names for m in members),
         strategy_names=union(m.strategy_names for m in members),

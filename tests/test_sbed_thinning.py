@@ -7,7 +7,7 @@ from nvision.spectra.unit_cube import UnitCubeSignalModel
 from tests.noise import gaussian_noise
 
 
-def test_sbed_candidate_thinning():
+def test_sbed_candidates_are_the_uniform_grid_inside_the_focus():
     # Setup standard NV center model
     model = NVCenterLorentzianModel()
     phys_bounds = {
@@ -32,11 +32,10 @@ def test_sbed_candidate_thinning():
         noise_model=gaussian_noise(),
     )
 
-    # Initialize locator with a step size that gives ~100 candidates
+    # Initialize locator (the belief's uniform grid is used as is, no extra thinning)
     locator = SequentialBayesianExperimentDesignLocator(
         belief=belief,
         max_steps=10,
-        candidate_step_hz=200e3,
     )
 
     # Mock belief.select_max_information_gain to inspect candidates passed to it
@@ -56,11 +55,14 @@ def test_sbed_candidate_thinning():
     # Run locator._acquire()
     locator.next()
 
-    # The thinned candidates length should be at most 105 to allow minor floating-point differences
+    # The EIG candidates are exactly the belief's uniform grid restricted to the focus.
     assert len(passed_candidates) == 1
-    assert len(passed_candidates[0]) <= 105
-    print(f"Thinned candidates count: {len(passed_candidates[0])}")
+    grid = belief.get_candidate_drive_freq_phys()
+    inside = grid[locator._focus.contains(grid)]
+    np.testing.assert_array_equal(passed_candidates[0], inside)
+    steps = np.diff(passed_candidates[0])
+    assert np.ptp(steps) < 1e-3 * steps.mean() + 1e3
 
 
 if __name__ == "__main__":
-    test_sbed_candidate_thinning()
+    test_sbed_candidates_are_the_uniform_grid_inside_the_focus()

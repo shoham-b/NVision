@@ -64,8 +64,8 @@ significant stretches is one dip.
 prior-mean line, and repeats whole passes; the spacing is the one setting a sweep has, and several are run.
 
 \paragraph{Bayesian SBED.} SBED is the particle filter choosing each $d$ by Eq.~\eqref{eq:eig-var}, maximized over
-candidate drive frequencies concentrated on the steep sides of the posterior-mean dip and on the dips found. The
-candidates are restricted to the focus: one section per detected dip, padded by one half width on each side, which
+candidate drive frequencies. The candidates are a uniform grid over the window with a step of one tenth of the
+posterior-mean half width, so the score alone decides where to measure, restricted to the focus: one section per detected dip, padded by one half width on each side, which
 widens at once when a new dip appears and narrows only after a delay. A strategy that has piled its measurements onto
 a suspected dip cannot be contradicted elsewhere, so with a small probability, largest while much of the window is
 unmeasured, SBED instead measures the middle of the widest unmeasured gap, a falsification probe.

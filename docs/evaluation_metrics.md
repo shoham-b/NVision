@@ -17,14 +17,12 @@ The yardstick is a ladder, each rung tuned before the next:
 
 | Rung | Locator | Tuned / differs by |
 |---|---|---|
-| 0 | `SimpleSweep-3perFWHM` (reference), `SimpleSweep-optimal` | grid step (k points per **prior** FWHM): 3 for the reference, the analytically optimal fractional k* of the task for `-optimal` (cost $\min_k \overline{P(k,\varphi)}\,n(k)$, see [locator comparison](locator_comparison.md)); passes averaged over the whole budget |
-| 1 | `Smart-Sweep` | coarse sweep, then sweep inside the dip, then the max-Fisher points |
-| 2 | `Smart-SBED` | same coarse grid as Smart-Sweep: only the acquisition after the dip is seen differs |
-| 3 | `Bayesian-SBED` | no coarse grid |
-| 4 | `Bayesian-SBED-Drive` | also picks the MW drive amplitude (strong to search, near the slope optimum to refine) |
+| 0 | `SimpleSweep-optimal` (reference), `SimpleSweep-optimal-x0.5`, `-x2` | grid step (k points per **prior** FWHM): $m\,k^*$ with $m = 1, 0.5, 2$ and k* the analytically optimal fractional step of the task (cost $\min_k \overline{P(k,\varphi)}\,n(k)$, see [locator comparison](locator_comparison.md)); passes averaged over the whole budget |
+| 1 | `Bayesian-SBED` | no coarse grid |
+| 2 | `Bayesian-SBED-Drive` | also picks the MW drive amplitude (strong to search, near the slope optimum to refine) |
 
 Expected story: the search stage is a tie (blind, cost of order n for everyone); SBED's distinctive win over
-Smart-Sweep is in the localize stage; in refine SBED and Smart-Sweep both measure at the Fisher-optimal points, while a
+the sweeps is in the localize stage; in refine SBED measures at the Fisher-optimal points, while a
 plain sweep keeps spreading its measurements over the whole dip.
 
 ## What drives each stage
@@ -44,7 +42,7 @@ FWHM, not against those columns.
 (e.g. prior HWHM ≈ 2.5 MHz against a true 0.5 MHz) a "k = 1" grid puts ~0.2 points per true FWHM and can step over the
 dip. k = 1 is therefore not studied (the optimal-step sweep scans k from 0.5, but its cost model prices such grids
 out); compare spacings by points per true FWHM. The realised k* of every `SimpleSweep-optimal` repeat is recorded
-(`sweep_k_opt`, with the predicted passes `sweep_passes_pred` and cost `sweep_cost_pred`).
+(`sweep_k_opt`; `sweep_k` = m k* is the step actually swept; with the predicted passes `sweep_passes_pred` and cost `sweep_cost_pred`).
 
 ## The Fisher oracle behind the stage metrics
 
@@ -160,7 +158,7 @@ columns remain for the per-stage views.
 
 A fit of three straight log-log segments to the claimed uncertainty σ̂ is not used: the bound above is the reference. On the
 2026-11-02 check (3 use cases, SNR 5, 50 repeats each), the existing `refine_start_step` sat on the cliff, not on a −1/2
-tail, in 72 of 149 Smart-SBED and 113 of 149 Smart-Sweep runs.
+tail, in many runs of the (since removed) Smart locators.
 
 ### Sensitivity and bandwidth
 
@@ -254,7 +252,7 @@ report `why` instead of a number.
 
 During the search no strategy, adaptive or not, beats the search bounds of the article (Sec. global and the SM prior
 section). The Search scope draws them next to the measured search, per use case (rule 7) and for the search locators only
-(`Bayesian-SBED`, `SimpleSweep-3perFWHM` and `SimpleSweep-optimal`; never the Smart-* variants). Everything is computed by
+(`Bayesian-SBED` and the `SimpleSweep-optimal` family). Everything is computed by
 `nvision/metrics/search_bounds.py` (formulas, unit tests in `tests/test_search_bounds.py`) from data already in the cache
 through `GET /api/search-bounds` (`nvision/cli/search_bounds_api.py`), so `nv serve` on an existing cache is enough and no
 re-run is needed. The panels are drawn by `static/search-bounds-view.js`.
@@ -292,14 +290,14 @@ re-run is needed. The panels are drawn by `static/search-bounds-view.js`.
 
 Reading it on the current cache (2026-11-15): the SNR × window study's drawn W is only 1.5–4.4 Γ, so the search is a few
 probe cells and the bounds are far below the measured search (κ_eff/κ̄ ≈ 0.01–0.09 for all four locators, none near 1/(1−2t/W));
-a real test of the search claim needs the larger windows. Rows of `SimpleSweep-3perFWHM` carry a stored J₀ that is not 4π²/W²
+a real test of the search claim needs the larger windows. Rows of the fixed-step sweeps (`SimpleSweep-<k>perFWHM`, only in older caches) carry a stored J₀ that is not 4π²/W²
 (older prior), flagged in the panel; nothing here reads it.
 ## Refine rates and the speedup over a sweep
 
 Code: `nvision/metrics/refine_rates.py` (pure maths), `nvision/metrics/refine_rates_runs.py` (rebuilding cached runs),
 `GET /api/refine-rates` (`nvision/cli/refine_rates_api.py`), UI `static/refine-rates.js` (the "Refine & speedup" section
 at the bottom of the Information tab). Theory: `articles/sections/theory.tex`, Sec. "Speedup over a drive-frequency
-sweep". Locators in scope: Bayesian-SBED and `SimpleSweep-3perFWHM` and `SimpleSweep-optimal` (the realised k* is read from `sweep_k_opt`) (never Smart-*). It reads the cache only, so it works
+sweep". Locators in scope: Bayesian-SBED and the `SimpleSweep-optimal` family (the realised k is read from `sweep_k`). It reads the cache only, so it works
 after `nv render` / `nv serve` with no re-run (it needs the live server, not a static export).
 
 After the dip is found a locator gains information about the primary parameter at `q · I_max` per measurement,
@@ -414,6 +412,39 @@ Per run, in the results row and the API's compare fields (`_COMPARE_FIELDS`):
 **Real-data (MATLAB/lab) runs get none of these fields**: `nv matlab` calls the metrics with no `run_result` (its stage and milestone metrics need a true signal too), and the posterior series attach is a no-op there.
 
 **Cost.** A KDE costs about 25 ms (68 s for a 2500-step SBED run when computed at every step), so `j`, `g` and `h` are computed only at the steps the stored series keeps (at most 80, the same indices as `s`) and at τ; `z`, `m` and `x` need no density (a weighted histogram with bins of a quarter FWHM gives the mode) and cover every step. Each distinct belief is summarised once (sweeps share a belief copy across buffered steps). Measured with three runs sharing the machine, startup included: Bayesian-SBED 190 steps 3.6 s of 34 s wall (~10 %), Bayesian-SBED at SNR(1) 2500 steps 3.0 s of 49 s, SimpleSweep 1768 steps (239 distinct beliefs) 2.8 s of 33 s.
+
+## Stuck-belief check (run-time, `nvision/metrics/fit_gap.py`)
+
+A particle-filter belief can freeze on a wrong line shape (e.g. the wrong split between the Lorentzian and Gaussian
+widths) and stay there: its claimed σ keeps falling while the true error stays put, so neither the claimed σ nor a
+1/√N curve of it shows the failure. `belief_fit_gap` detects it without the truth, so it also works on lab data. The
+final belief's own model is fitted to every observation it absorbed (bounded least squares on the unit cube, from the
+belief mean, the best particle, and a one-at-a-time ladder over each non-primary parameter), and
+
+$$D = \frac{SS_{\rm belief} - SS_{\rm fit}}{\hat\sigma^2_{\rm fit}}, \qquad \hat\sigma^2_{\rm fit} = \frac{SS_{\rm fit}}{n-k}.$$
+
+A belief that has converged sits within noise of the best fit (D of order k, a few); D > `STUCK_FIT_GAP` (20) flags a
+stuck one. `belief_fit_gap_shift_phys` is how far the primary would move to the fit (Hz). The fit's Jacobian uses a
+relative step of 1e-3 because the models compute in float32 (the default step reads a zero gradient).
+
+What it showed (2026-11-17, window 5 linewidths, SNR 20, 20 paired repeats per arm, dry runs): with a = 0.98 the true
+parameters beat the belief by Δχ² > 20 in 14 of 20 runs; D flagged all 14 and none of the 6 healthy runs, and tracked
+the truth-based gap (e.g. 1723 → 6207, 138 → 144, 39 → 33). The cause was Liu-West rejuvenation too weak to leave the
+wrong shape (jitter ≈ 0.2 × the cloud's spread at a = 0.98). An a × ESS grid (a ∈ {0.98 … 0.80}, ESS ∈ {0.2, 0.5, 0.8},
+SNR 20 and 2) showed a ≤ 0.85 removes it at any ESS (stuck 0-5 %, coverage 0.9-1.0 at SNR 20; SNR 2 not hurt), so
+`NVISION_SMC_A_PARAM` defaults to 0.85. Checked on windows 1.6 and 3 (SNR 10) and 5 (SNR 5): stuck 30/35/20 % →
+5/10/0 %, RMS error 3-5x lower; the 1.6-linewidth window stays somewhat overconfident (2σ coverage 0.70).
+Final configuration (2026-11-18): the Gaussian-share-0 window-grid signals use a Lorentzian belief (no `sigma_inhom`;
+with a = 0.98 it still stuck in 20-35 % of runs on width and contrast, with a = 0.85 in none), 10,000 particles
+(smoother claimed σ, ~4x the run time, 1.4 GB peak per 2500-step repeat) and resampling below 0.5 N_p (on the
+1.6-linewidth window, SNR 10, it cut the typical run's largest log-σ step from 1.5 to 0.02 and raised 2σ coverage
+from 0.80 to 1.00; 10 repeats per arm). A rare single σ spike (log-step ≈ 3-6, one seed per cell) is the same at
+ESS 0.2 and 0.5, so it is not from resampling; not yet traced.
+Lab runs (`nv matlab`) store it in the run record and print it; replayed shots are reused (`shot_reuse` draws per
+distinct shot) and count as independent observations, so there D is inflated by about `shot_reuse` and the printed
+flag compares against `STUCK_FIT_GAP × shot_reuse`.
+Sweeps: their SMC belief is not resampled during the sweep and their reported estimate is the curve fit, so a large D
+there describes the belief only, not the sweep's answer.
 
 ## Rules
 

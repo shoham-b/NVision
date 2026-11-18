@@ -209,7 +209,6 @@ def _split_oversized_tasks(tasks: list[LocatorTask], runners: int, min_chunk: in
                 repeat_offset=offset,
                 repeat_total=task.repeat_total,
                 defer_graphs=task.defer_graphs,
-                sweep_pending=task.sweep_pending,
             )
             split.append(sub)
             offset += chunk_size

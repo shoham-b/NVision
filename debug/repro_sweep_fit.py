@@ -57,7 +57,7 @@ sys.argv = [
     "run-single",
     "NVCenter-voigt-w0.50MHz-c0.10-si0.30MHz-hfunresolved",
     "Gauss(0.004)",
-    "SimpleSweep-3perFWHM",
+    "SimpleSweep-optimal",
     "--repeats",
     "8",
     "--runners",

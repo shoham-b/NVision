@@ -143,6 +143,9 @@ class GenericSweepLocator(ConvergenceStopRules, SweepingLocator):
         the true per-measurement sigma, to be given explicitly; the realised value is then ``spacing_divisor``).
         ``None`` selects a fixed-count sweep of exactly ``max_steps`` evenly spaced points instead (for models
         without a hwhm prior).
+    k_multiplier : float, default 1
+        Scales the optimal ``k*`` (only with ``spacing_divisor="optimal"``): the swept grid has
+        ``k_multiplier * k*`` points per FWHM, so 0.5 and 2 probe whether ``k*`` is the cheapest step.
     max_measurements : int, default NVISION_MAX_MEASUREMENTS
         Cap on the total measurements. The sweep repeats whole passes over the grid while they fit, so it makes
         ``max(1, max_measurements // grid points)`` passes (1 = a single pass, no averaging).
@@ -177,6 +180,7 @@ class GenericSweepLocator(ConvergenceStopRules, SweepingLocator):
         center_param: str | None = None,
         parameter_bounds: dict[str, tuple[float, float]] | None = None,
         spacing_divisor: float | str | None = SWEEP_POINTS_PER_FWHM,
+        k_multiplier: float = 1.0,
         max_measurements: int = NVISION_MAX_MEASUREMENTS,
         **kwargs: Any,
     ) -> GenericSweepLocator:
@@ -209,6 +213,7 @@ class GenericSweepLocator(ConvergenceStopRules, SweepingLocator):
             domain_lo=domain_lo,
             domain_hi=domain_hi,
             spacing_divisor=spacing_divisor,
+            k_multiplier=k_multiplier,
             max_measurements=max_measurements,
         )
         if parameter_bounds is not None:
@@ -229,10 +234,15 @@ class GenericSweepLocator(ConvergenceStopRules, SweepingLocator):
         domain_lo: float = 0.0,
         domain_hi: float = 1.0,
         spacing_divisor: float | str | None = SWEEP_POINTS_PER_FWHM,
+        k_multiplier: float = 1.0,
         max_measurements: int = NVISION_MAX_MEASUREMENTS,
     ):
         if max_measurements < 1:
             raise ValueError(f"max_measurements must be >= 1, got {max_measurements!r}")
+        if not (isinstance(k_multiplier, int | float) and k_multiplier > 0 and math.isfinite(k_multiplier)):
+            raise ValueError(f"k_multiplier must be positive and finite, got {k_multiplier!r}")
+        if k_multiplier != 1.0 and spacing_divisor != OPTIMAL_SPACING:
+            raise ValueError(f"k_multiplier only scales spacing_divisor={OPTIMAL_SPACING!r}, got {spacing_divisor!r}.")
         optimal = isinstance(spacing_divisor, str)
         if optimal:
             if spacing_divisor != OPTIMAL_SPACING:
@@ -298,7 +308,7 @@ class GenericSweepLocator(ConvergenceStopRules, SweepingLocator):
                 max_steps=max_steps,
                 max_measurements=max_measurements,
             )
-            spacing_divisor = self.optimal_spacing.k_opt
+            spacing_divisor = self.optimal_spacing.k_opt * k_multiplier
         self.spacing_divisor = spacing_divisor
         if spacing_divisor is None:
             # Explicit fixed-count mode: exactly max_steps evenly spaced points, no width needed.
@@ -1437,6 +1447,8 @@ class GenericSweepLocator(ConvergenceStopRules, SweepingLocator):
         if self.optimal_spacing is not None:
             # The step the sweep chose for this task and what the choice predicted (reported per repeat).
             res["sweep_k_opt"] = self.optimal_spacing.k_opt
+            # The grid points per FWHM actually swept: k* times the strategy's multiplier.
+            res["sweep_k"] = float(self.spacing_divisor)
             res["sweep_passes_pred"] = self.optimal_spacing.passes_pred
             res["sweep_cost_pred"] = self.optimal_spacing.cost_pred
         return res

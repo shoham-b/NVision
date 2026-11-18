@@ -20,13 +20,13 @@ uses the names on the right. Docs describing the algorithm use the article's ter
 | $\mathrm{SNR} = C/\sigma$ | label `SNR(x)` $= x$ = `contrast_total / noise_sigma` | **A run labeled `SNR(x)` has article SNR $x/2$.** Convert before quoting a simulated SNR next to the paper's formulas. |
 | $d_n$ | `candidate_drive_freq` that was measured, `drive_freq` | The design. |
 | $W$ | the drive window `[drive_freq_min_phys, drive_freq_max_phys]` | |
-| $N_p$ | `NVISION_SMC_NUM_PARTICLES` (1000) | |
+| $N_p$ | `NVISION_SMC_NUM_PARTICLES` (10000) | |
 | $\hat\theta_N$, $\hat\sigma_N$ | `belief.estimates()`, `belief.uncertainty()` | Posterior mean and weighted particle std. $\hat\sigma_N$ is the **claimed uncertainty**; it is *not* a 68 % interval before the posterior is Gaussian. |
 | van Trees bound | CRLB / `stage_fisher_star`, `stage_prior_info` (see [evaluation metrics](evaluation_metrics.md)) | The bound with prior information $J_0$; the code historically says "CRLB". |
 | dip test | `find_dips` (`belief/dip_detection.py`), `NVISION_DIP_P_FA` | Boxcar score over measured stretches, Bonferroni threshold. |
 | falsification probe | exploration step in SBED `_acquire` (`EXPLORE_PROBABILITY_*`) | Measures the middle of the widest unmeasured gap. |
 | search / localize / refine | search / localize / refine (persisted fields keep the old name: `focus_found_step`, `refine_start_step`, `stage{1,2,3}_*`) | Same names. The middle stage was called *focus* before; the *focus window / focus sections* (`FocusRegion`) are a different thing and keep their name. See Known deviations in [locator comparison](locator_comparison.md). |
-| SimpleSweep, Smart-Sweep | `SimpleSweep-3perFWHM`, `SimpleSweep-optimal`, `Smart-Sweep` | $\Gamma_0$ = FWHM of the prior-mean line; SimpleSweep spacing $\Gamma_0/k$: $k = 3$ (reference) or the per-task optimum $k^*$ = argmin of $\overline{P(k,\varphi)}\,n(k)$ (whole passes $P$ times points per pass $n$). |
+| SimpleSweep | `SimpleSweep-optimal`, `SimpleSweep-optimal-x0.5`, `-x2` | $\Gamma_0$ = FWHM of the prior-mean line; SimpleSweep spacing $\Gamma_0/k$: $k = m\,k^*$ with $m \in \{0.5, 1, 2\}$ and the per-task optimum $k^*$ = argmin of $\overline{P(k,\varphi)}\,n(k)$ (whole passes $P$ times points per pass $n$). |
 | Bayesian SBED | `Bayesian-SBED` | |
 
 ## Frequencies and shifts

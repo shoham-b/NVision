@@ -21,11 +21,10 @@ def test_voigt_grid_group_uses_voigt_inhom_grid_and_all_locators():
     assert group.extra_generators is not None
     assert set(group.extra_generators.keys()) == set(group.generator_names)
     assert set(group.strategy_names) == {
-        "SimpleSweep-3perFWHM",
+        "SimpleSweep-optimal-x0.5",
         "SimpleSweep-optimal",
-        "Smart-Sweep",
+        "SimpleSweep-optimal-x2",
         "Bayesian-SBED",
-        "Smart-SBED",
     }
     assert group.task_count == len(group.generator_names) * len(group.noise_names) * len(group.strategy_names)
 
@@ -35,9 +34,9 @@ def test_former_group_names_are_strategy_subsets_of_their_scenario_group():
     listed = {g.name for g in sim_run_groups.run_groups()}
     assert listed == {"voigt-grid", "drive-control", "all"}
     expected = {
-        "both-sbed": ("voigt-grid", ["Bayesian-SBED", "SimpleSweep-3perFWHM"]),
+        "both-sbed": ("voigt-grid", ["Bayesian-SBED", "SimpleSweep-optimal"]),
         "both-sbed-only": ("voigt-grid", ["Bayesian-SBED"]),
-        "both-sweep-only": ("voigt-grid", ["SimpleSweep-3perFWHM"]),
+        "both-sweep-only": ("voigt-grid", ["SimpleSweep-optimal"]),
     }
     assert set(sim_run_groups.alias_names()) == set(expected)
     for alias, (canonical, strategies) in expected.items():
@@ -57,17 +56,18 @@ def test_all_group_is_the_union_of_every_scenario_with_its_own_locators():
     assert voigt_gens
     assert all(scenarios[0].extra_generators[g].window_fwhm <= sim_run_groups.MAX_WINDOW_FWHM for g in voigt_gens)
     n_voigt = len(voigt_gens) * len(scenarios[0].noise_names) * len(scenarios[0].strategy_names)
-    assert everything.task_count == n_voigt + scenarios[1].task_count
+    # ``drive-control`` is not part of ``all``.
+    assert everything.task_count == n_voigt
     combos = set(everything.combinations())
     assert len(combos) == everything.task_count
-    # Drive-choosing SBED only runs on the drive-controlled generators, not on every generator.
     drive_gens = set(scenarios[1].generator_names)
-    assert {g for g, _, s in combos if s == "Bayesian-SBED-Drive"} == drive_gens
+    assert not drive_gens & {g for g, _, _ in combos}
+    assert not {c for c in combos if c[2] == "Bayesian-SBED-Drive"}
     # Running only the sweeps across every scenario is a plain --filter-strategy on the composite group.
     sweeps = [c for c in combos if "Sweep" in c[2]]
     assert sweeps
     assert {c[0] for c in sweeps} == voigt_gens
-    assert set(everything.extra_generators) == voigt_gens | drive_gens
+    assert set(everything.extra_generators) == voigt_gens
 
 
 def test_default_run_group_is_voigt_grid():
@@ -207,7 +207,10 @@ def test_snr_window_strategy_config_matches_the_signal_isotope():
     for name, gen in sim_presets.voigt_snr_window_param_grid_generators():
         combo = CombinationGrid().resolve(name, sim_presets.snr_study_noises()[0][0], "Bayesian-SBED")
         assert combo is not None
-        assert combo.strategy["config"]["lineshape"] == "voigt"
+        # A signal with no Gaussian part is inferred as a Lorentzian (the article's particle filter); else as a Voigt.
+        lorentzian = gen.gaussian_share == 0.0
+        assert combo.strategy["config"]["lineshape"] == ("lorentzian" if lorentzian else "voigt")
+        assert combo.strategy["config"].get("voigt_bounds_as_lorentzian", False) == lorentzian
         assert combo.strategy["config"]["hyperfine"] == gen.hyperfine
         assert not combo.strategy["config"].get("infer_hyperfine", False)
 

@@ -1019,9 +1019,9 @@ function main() {
 
         // Known sweeping manners supported in NVision
         const knownSweeps = [
-            'SimpleSweep-3perFWHM',
+            'SimpleSweep-optimal-x0.5',
             'SimpleSweep-optimal',
-            'Smart-Sweep'
+            'SimpleSweep-optimal-x2'
         ];
 
         // Also discover any additional sweep strategies present in MANIFEST or scanPlots
@@ -3083,7 +3083,7 @@ function main() {
                 // First load defaults to the Lorentzian / Voigt study.
                 selectedFamilyKey = candidateKey && familyOptions.some((o) => o.key === candidateKey)
                     ? candidateKey
-                    : (familyOptions.find((o) => o.key === 'voigt') || familyOptions[0]).key;
+                    : (familyOptions.find((o) => o.key.startsWith('voigt_')) || familyOptions[0]).key;
                 scanGeneratorFamily.value = selectedFamilyKey;
                 scanGeneratorFamily.onchange = () => {
                     updateScanSignalControls(scanGeneratorFamily.value);
@@ -6239,21 +6239,28 @@ function main() {
     // older cached data) and SimpleSweep-optimal, the sweep at its task's optimal step k*. The pickers list
     // "Sweep" once and offer the spacing in a second dropdown that appears after Sweep is chosen. k* has no fixed
     // number: it sorts after every numeric spacing (SWEEP_OPTIMAL_ORDER).
+    // SimpleSweep-optimal-x<m> is the sweep at m * k* (SimpleSweep-optimal is m = 1): it sorts by m after the numeric ones.
     const SWEEP_OPTIMAL_ORDER = 1000;
+    function sweepOptimalMult(strategy) {
+        const m = /^SimpleSweep-optimal(?:-x(\d+(?:\.\d+)?))?$/.exec(strategy || '');
+        return m ? (m[1] ? Number(m[1]) : 1) : null;
+    }
     function sweepOrder(strategy) {
-        if (/^SimpleSweep-optimal/.test(strategy || '')) return SWEEP_OPTIMAL_ORDER;
-        return Number((/(\d+)perFWHM/.exec(strategy || '') || [])[1]) || 0;
+        const mult = sweepOptimalMult(strategy);
+        if (mult != null) return SWEEP_OPTIMAL_ORDER + mult;
+        return Number((/(\d+(?:\.\d+)?)perFWHM/.exec(strategy || '') || [])[1]) || 0;
     }
     function sweepParts(id) {
-        const m = /^simplesweep_(?:(\d+)perfwhm|(optimal))(.*)$/.exec(id || '');
-        return m ? { k: m[2] ? SWEEP_OPTIMAL_ORDER : Number(m[1]), rest: m[3] } : null;
+        const m = /^simplesweep_(?:(\d+(?:\.\d+)?)perfwhm|optimal(?:[-_]x(\d+(?:\.\d+)?))?)(.*)$/.exec(id || '');
+        if (!m) return null;
+        return { k: m[1] ? Number(m[1]) : SWEEP_OPTIMAL_ORDER + (m[2] ? Number(m[2]) : 1), rest: m[3] };
     }
     function pickerFamilyKey(e) {
         const sp = sweepParts(e.id);
         return sp ? 'simplesweep' + sp.rest : e.id;
     }
     function pickerFamilyLabel(e) {
-        return sweepParts(e.id) ? e.label.replace(/-(\d+perFWHM|optimal)/, '') : e.label;
+        return sweepParts(e.id) ? e.label.replace(/-(\d+(?:\.\d+)?perFWHM|optimal(?:-x\d+(?:\.\d+)?)?)/, '') : e.label;
     }
 
     // One entity picker: a family dropdown (+ a spacing dropdown for the sweep family). Calls onChange when the
@@ -6279,7 +6286,8 @@ function main() {
             for (const k of ks) {
                 const opt = document.createElement('option');
                 opt.value = String(k);
-                opt.textContent = k === SWEEP_OPTIMAL_ORDER ? 'k* (optimal step)' : `${k} per FWHM`;
+                const mult = k - SWEEP_OPTIMAL_ORDER;
+                opt.textContent = mult === 1 ? 'k* (optimal step)' : mult > 0 ? `${mult}×k*` : `${k} per FWHM`;
                 spc.appendChild(opt);
             }
             spc.hidden = ks.length < 2;
@@ -6637,21 +6645,18 @@ function main() {
     let hlPaceBands = true;   // pale 1σ/2σ/3σ bands on the pace graph; off when strategies' bands overlap too much
     const hlPaceArgs = new Map();   // use-case suffix -> { byStrategy, strategies } of its pace chart
 
-    // The plain (non-adaptive) sweeps: SimpleSweep and its SimpleSweep-d<k> spacings. Smart-Sweep is adaptive.
+    // The plain (non-adaptive) sweeps: SimpleSweep and its SimpleSweep-d<k> spacings.
     function isSweepBaseline(strategy) {
         return /^SimpleSweep/.test(strategy || '');
     }
 
-    // Display order of locators: the SBED family together (plain SBED, its drive variant, Smart-SBED), then
-    // Smart-Sweep, then the plain sweeps at their spacings (coarsest first); anything else keeps alphabetical
+    // Display order of locators: the SBED family together (plain SBED, its drive variant), then the plain sweeps at their spacings (coarsest first); anything else keeps alphabetical
     // order before them.
     function hlStrategyRank(strategy) {
         const s = strategy || '';
         if (s === 'Bayesian-SBED') return 0;
         if (s === 'Bayesian-SBED-Drive') return 1;
-        if (s === 'Smart-SBED') return 2;
-        if (s === 'Smart-Sweep') return 3;
-        if (isSweepBaseline(s)) return 4;
+        if (isSweepBaseline(s)) return 2;
         return -1;
     }
     function hlStrategyCompare(a, b) {
@@ -6909,14 +6914,16 @@ function main() {
     const SS_GAUSS_WITHIN = { 1: 0.6827, 2: 0.9545, 3: 0.9973 };
 
     function ssSpacing(strategy) {
-        if (strategy === 'SimpleSweep-optimal') return SWEEP_OPTIMAL_ORDER;
-        const m = /^SimpleSweep-(\d+)perFWHM$/.exec(strategy || '');
+        const mult = sweepOptimalMult(strategy);
+        if (mult != null) return SWEEP_OPTIMAL_ORDER + mult;
+        const m = /^SimpleSweep-(\d+(?:\.\d+)?)perFWHM$/.exec(strategy || '');
         return m ? Number(m[1]) : null;
     }
 
     function ssLabel(strategy) {
+        const mult = sweepOptimalMult(strategy);
+        if (mult != null) return mult === 1 ? 'SimpleSweep k*' : `SimpleSweep ${mult}×k*`;
         const k = ssSpacing(strategy);
-        if (k === SWEEP_OPTIMAL_ORDER) return 'SimpleSweep k*';
         return k != null ? `Sweep k=${k}` : _shortStratLabel(strategy);
     }
 
@@ -8620,15 +8627,13 @@ function main() {
                 useCases.get(key).perStrat.set(s, { search: med('stage1_steps'), focus: med('stage2_steps'), refine: med('stage3_steps'), total, n: rs.length });
             }
         }
-        const SBED = strategies.find(s => s === 'Bayesian-SBED') || strategies.find(s => /SBED/.test(s) && !/Smart|Drive/.test(s));
-        const SMART = strategies.find(s => /Smart-SBED/.test(s));
+        const SBED = strategies.find(s => s === 'Bayesian-SBED') || strategies.find(s => /SBED/.test(s) && !/Drive/.test(s));
         const sweeps = strategies.filter(isSweepBaseline);
         const fmt = (v) => Math.round(v).toLocaleString();
         const rows = [...useCases.entries()].map(([key, uc]) => {
             const sb = SBED && uc.perStrat.get(SBED);
-            const sm = SMART && uc.perStrat.get(SMART);
-            const sw = sweeps.map(s => [s, uc.perStrat.get(s)]).filter(([, v]) => v).sort((a, b) => a[1].total - b[1].total)[0] || null;
-            return { key, uc, sb, sm, sw };
+                const sw = sweeps.map(s => [s, uc.perStrat.get(s)]).filter(([, v]) => v).sort((a, b) => a[1].total - b[1].total)[0] || null;
+            return { key, uc, sb, sw };
         });
 
         const stories = [];
@@ -8644,36 +8649,29 @@ function main() {
             stories.push({ title, text: textOf(found.r, found.score), row: found.r, strats: chartStrats(found.r) });
         };
         const withSw = rows.filter(r => r.sb && r.sw);
-        const withSm = rows.filter(r => r.sb && r.sm);
 
         add(pickMax(withSw, r => Math.log(r.sw[1].total / r.sb.total)),
             'Where SBED beats the best sweep by the most',
             (r) => `${r.uc.label}: SBED takes ${fmt(r.sb.total)} measurements (median over ${r.sb.n} repeats), the best sweep (${_shortStratLabel(r.sw[0])}) ${fmt(r.sw[1].total)}, i.e. ${(r.sw[1].total / r.sb.total).toFixed(1)}× more.`,
-            (r) => [SBED, SMART, r.sw[0]]);
+            (r) => [SBED, r.sw[0]]);
         add(pickMax(withSw, r => Math.log(r.sb.total / r.sw[1].total)),
             'Where SBED loses to a sweep',
             (r, sc) => sc > 0
                 ? `${r.uc.label}: the best sweep (${_shortStratLabel(r.sw[0])}) needs ${fmt(r.sw[1].total)} measurements, SBED ${fmt(r.sb.total)} (${(r.sb.total / r.sw[1].total).toFixed(1)}× more). The stack shows which stage the extra cost is in.`
                 : `${r.uc.label}: SBED is never worse than the best sweep in this data; the closest case is ${fmt(r.sb.total)} vs ${fmt(r.sw[1].total)} measurements (${_shortStratLabel(r.sw[0])}).`,
-            (r) => [SBED, SMART, r.sw[0]]);
-        add(pickMax(withSm, r => Math.abs(Math.log(r.sm.total / r.sb.total))),
-            'Where Smart-SBED and SBED differ the most',
-            (r) => r.sm.total < r.sb.total
-                ? `${r.uc.label}: Smart-SBED needs ${fmt(r.sm.total)} measurements against SBED's ${fmt(r.sb.total)} (${(r.sb.total / r.sm.total).toFixed(1)}× fewer); its search takes ${fmt(r.sm.search)} steps against ${fmt(r.sb.search)}.`
-                : `${r.uc.label}: SBED needs ${fmt(r.sb.total)} measurements against Smart-SBED's ${fmt(r.sm.total)} (${(r.sm.total / r.sb.total).toFixed(1)}× fewer); Smart-SBED's localize takes ${fmt(r.sm.focus)} steps against ${fmt(r.sb.focus)}.`,
-            (r) => [SBED, SMART]);
+            (r) => [SBED, r.sw[0]]);
         add(pickMax(rows.filter(r => r.sb && r.sb.search > 0), r => r.sb.search / r.sb.total),
             'Where SBED spends almost everything searching',
             (r) => `${r.uc.label}: ${Math.round(100 * r.sb.search / r.sb.total)}% of SBED's ${fmt(r.sb.total)} measurements go to finding the dip (${fmt(r.sb.search)} steps), only ${fmt(r.sb.focus)} to localize and ${fmt(r.sb.refine || 0)} to refine.`,
-            (r) => [SBED, SMART, r.sw && r.sw[0]]);
+            (r) => [SBED, r.sw && r.sw[0]]);
         add(pickMax(rows.filter(r => r.sb && r.sb.focus != null), r => r.sb.focus / r.sb.total),
             'Where SBED spends the most on focusing',
             (r) => `${r.uc.label}: ${Math.round(100 * r.sb.focus / r.sb.total)}% of SBED's ${fmt(r.sb.total)} measurements are spent in localize (${fmt(r.sb.focus)} steps) after only ${fmt(r.sb.search)} to search.`,
-            (r) => [SBED, SMART]);
+            (r) => [SBED]);
         add(pickMax(rows.filter(r => r.sb), r => Math.log(r.sb.total)),
             'The hardest case for SBED',
             (r) => `${r.uc.label}: SBED needs ${fmt(r.sb.total)} measurements, more than anywhere else in the data.${r.sw ? ` The best sweep needs ${fmt(r.sw[1].total)}.` : ''}`,
-            (r) => [SBED, SMART, r.sw && r.sw[0]]);
+            (r) => [SBED, r.sw && r.sw[0]]);
 
         if (!stories.length) { body.innerHTML = '<p style="color:#94a3b8;padding:1em;">Not enough use cases with several locators and at least 3 repeats each to find stories.</p>'; return; }
         body.innerHTML = stories.map((st, i) => `<section style="margin:1em 0 1.5em; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:12px;">

@@ -62,7 +62,7 @@ posterior may therefore be multimodal, and it is handled as follows:
 
 * The SMC carries `rabi_per_amp` as an ordinary particle dimension, so its weighted particles can
   hold several modes between resamples. **The resampling step is not mode-aware, though**: Liu–West
-  shrinks every particle toward the *global* mean (`a = 0.98`) and nudges with the *global*
+  shrinks every particle toward the *global* mean (`a = 0.85`) and nudges with the *global*
   covariance, which drags particles into the gap between aliased modes (see Limitations).
 * The calibration uses the posterior's **dominant mode** (`dominant_mode` in
   `sbed_drive_locator.py`), never the weighted mean. The mean between two aliased modes is a

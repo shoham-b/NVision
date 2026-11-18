@@ -29,11 +29,11 @@ _TRUTH = NVCenterLorentzianSpectrum(
 )
 
 
-def _belief(*, auto_resample: bool) -> SMCMarginalDistribution:
+def _belief(*, auto_resample: bool, num_particles: int = 64) -> SMCMarginalDistribution:
     unit_model = UnitCubeSignalModel(_MODEL, param_bounds_phys=dict(_BOUNDS), x_bounds_phys=(_LO, _HI))
     return SMCMarginalDistribution(
         unit_model,
-        num_particles=64,
+        num_particles=num_particles,
         physical_param_bounds=unit_model.param_bounds_phys,
         drive_freq_bounds_phys=(_LO, _HI),
         noise_model=gaussian_noise(),
@@ -94,9 +94,13 @@ def test_belief_is_complete_at_every_pass_end(monkeypatch):
 
 
 def test_chunked_update_keeps_calibrated_uncertainty_with_resampling(monkeypatch):
-    """With resampling on the random stream differs, but the estimate must stay near the truth and finite."""
+    """With resampling on the random stream differs, but the estimate must stay near the truth and finite.
+
+    Calibration needs a realistic cloud: over 40 seeds a 64-particle cloud misses 5 sigma in ~28 % of runs at any
+    Liu-West a (it passed on seed luck), a 1000-particle cloud at the default a in none.
+    """
     monkeypatch.setattr(gsl, "NVISION_SWEEP_BELIEF_CHUNK", 8)
-    loc = _locator(_belief(auto_resample=True))
+    loc = _locator(_belief(auto_resample=True, num_particles=1000))
     _drive(loc)
     est = loc.belief.estimates()["zero_field_freq"]
     unc = loc.belief.uncertainty()["zero_field_freq"]

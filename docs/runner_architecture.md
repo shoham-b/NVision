@@ -12,22 +12,16 @@ Instead of running a single long simulation, the runner breaks down tasks into *
 - Measurements within a single repeat are deterministic given that repeat's specific seed.
 - If a repeat is aborted, it can be resumed later without affecting others.
 
-### 2. The reference sweep (`SimpleSweep-3perFWHM`)
-There is no separate baseline run. The plain sweep with `SWEEP_POINTS_PER_FWHM` (3) grid points per prior FWHM is
+### 2. The reference sweep (`SimpleSweep-optimal`)
+There is no separate baseline run. The plain sweep at its task's optimal step k* is
 the reference sweep: after each repeat it stores its measurements and least-squares fit on the repeat's scan entry
-(`sweep_data`, see `nvision/runner/sweep_data.py`; kept out of the manifest). Two things read it back, matched by
+(`sweep_data`, see `nvision/runner/sweep_data.py`; kept out of the manifest). It is read back, matched by
 generator, noise, seed and repeat index (the repeat's generated signal is shared across strategies):
 
-* the scan figure of every Bayesian strategy overlays the sweep's points and fit (no overlay, with a warning, if
-  the sweep repeat is not cached);
-* **Smart-Sweep / Smart-SBED**: their search phase is the same 3-per-FWHM grid until the focus, and each search
-  measurement is the sweep's own measurement at that grid point (`SweepReplay`, via `run_loop(search_replay=...)`).
-  A point the search comes back to (the grid was covered without a dip) is measured afresh.
+The scan figure of every Bayesian strategy overlays the sweep's points and fit (no overlay, with a warning, if
+the sweep repeat is not cached).
 
-A missing sweep repeat is an error for the smart locators (`MissingSweepDataError`), never a silent re-simulation.
-`build_task_list` puts the reference-sweep tasks first and marks the tasks of the same generator and noise
-(`sweep_pending`), so a smart task waits for a sweep repeat still being computed by another worker; without the
-sweep in the same run it fails at once ("run that strategy first").
+A missing sweep repeat is never silently re-simulated: loading it raises `MissingSweepDataError` ("run that strategy first").
 
 ### 3. The Main Locator Phase
 A fresh belief is instantiated for the primary locator strategy.

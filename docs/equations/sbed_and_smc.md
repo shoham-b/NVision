@@ -42,7 +42,7 @@ Its fatter tails do not reward an under-confident σ for coincidentally matching
 
 $$\text{ESS} = \frac{1}{\sum_i w_i^2}$$
 
-Resampling is triggered when ESS < r_thr · N, where r_thr = `ess_threshold` = 0.20 (default) and N = `num_particles`.
+Resampling is triggered when ESS < r_thr · N, where r_thr = `ess_threshold` = 0.50 (default) and N = `num_particles`.
 
 ### 1.3 Systematic Resampling
 
@@ -60,7 +60,7 @@ $$\theta_i \leftarrow a \cdot \theta_i + (1 - a) \cdot \mu$$
 
 $$\theta_i \leftarrow \theta_i + \varepsilon_i, \quad \varepsilon_i \sim \mathcal{N}\!\left(\mathbf{0},\, (1 - a^2)\Sigma\right)$$
 
-where Σ is the pre-resample weighted covariance and a = `a_param` = 0.98 (default).
+where Σ is the pre-resample weighted covariance and a = `a_param` = 0.85 (default).
 
 The nudge covariance C = (1−a²)Σ has its diagonal floored to enforce exploration:
 
@@ -122,58 +122,19 @@ where d is the number of parameters.  The log-determinant is computed via `slogd
 
 ### 1.8 Epoch Candidate Grid
 
-After each resample, the candidate grid is rebuilt as a single deterministic
-**quantile placement** against a continuous density mixture over the drive-frequency axis
-domain `[f_lo, f_hi]`, rather than the union of several independently-sized
-uniform grids. `_generate_epoch_candidate_drive_freq()` (`smc_marginal.py`) builds three
-kinds of Gaussian-kernel-weight `(center, bandwidth, weight)` mixture
-components, plus an optional flat baseline term:
+After each resample (and on `refresh_candidates`) the candidates are rebuilt by
+`_generate_epoch_candidate_drive_freq()` (`smc_marginal.py`) as **one uniform grid**
+over the whole drive-frequency window `[f_lo, f_hi]`, the same rule in every phase:
 
-- **Slope kernels.** One per slope point — two per dip (dip center ±
-  hwhm HWHM), for every Zeeman-group × hyperfine-offset combination:
+$$\Delta f = \texttt{NVISION\_SBED\_CANDIDATE\_STEP\_HWHM\_FRACTION} \times \bar\Omega,$$
 
-  $$\text{slope points} = \{f_B \pm \Delta f_{\rm hf}\} \pm \Omega_{\rm hw}$$
-
-  where f_B = posterior mean zero_field_freq (the fixed zero-field D when zero_field_freq is not
-  inferred), Δf_hf = posterior mean hyperfine_shift, Ω_hw = posterior mean hwhm (HWHM). A slope
-  point that falls outside the drive-frequency window is measured at its mirror image about f_B
-  (`2 f_B − s`) when that lies inside it, so the lower Zeeman group's slopes land on the
-  upper half instead of wasting kernel mass outside the window. Each slope kernel has bandwidth
-  σ_eff = √(σ_f² + σ_Ω²) (floored at Δ_min = `NVISION_SMC_EPOCH_GRID_MIN_STEP_HZ`
-  = 10 kHz) and mixture weight 1 — this bandwidth reproduces the old uniform
-  slope window's 3σ_eff half-width as the kernel's ≈3σ span.
-
-- **Dip kernels.** Once ≥5 observations exist, one per dip the measured scan shows
-  (`find_dips`, `belief/dip_detection.py`, §3.5). Each dip
-  kernel's bandwidth is its detection window / 3, where the window is
-  max(3Ω, σ_eff, `NVISION_SMC_DIP_WINDOW_MIN_HZ` = 5 MHz) (also floored at
-  Δ_min). The dip family's *total* weight always equals the slope family's
-  total weight (i.e. the number of slope kernels), split among individual
-  dips by detection significance — the same proportional split the old
-  100-point dip budget used, just expressed as mixture weight instead of a
-  point count.
-
-- **Flat baseline term.** Always present: its mass is 20% of the combined slope+dip
-  weight — domain-wide backstop coverage, scaled so its share stays roughly constant
-  regardless of how many slope/dip kernels exist.
-
-`NVISION_SMC_EPOCH_CANDIDATE_BUDGET` = 800 points are then placed at the
-mixture's evenly-spaced CDF quantiles: the density is evaluated on an adaptive
-scaffold grid (locally dense around each kernel, coarse elsewhere), its CDF
-built by trapezoidal integration, and quantile positions read off by linear
-interpolation (`_quantile_place_candidate_drive_freq`). This is deterministic —
-evenly-spaced quantile levels, not a random draw — so it does not touch
-`NVISION_RNG_SEED`-based reproducibility. The result is snapped to Δ_min,
-clipped to `[f_lo, f_hi]`, and deduplicated, which may reduce the final count
-below 800.
-
-This replaces the previous three independently-tuned grids (a global grid
-whose point count was governed by `POINTS_PER_MIN_FEATURE`, per-slope uniform
-windows, and a separately-budgeted dip grid) and their "uniform density inside
-the window, then a cliff at the window edge" failure mode: because the final
-candidates are quantile-placed against a smooth mixture rather than
-uniform-then-truncated, density now actually peaks at each kernel's center and
-decays smoothly, instead of being flat out to an arbitrary window boundary.
+with default fraction 0.1 and $ar\Omega$ the posterior-mean effective HWHM (at the widest
+reference drive amplitude for drive-controlled models). Both ends are included and the step is
+shrunk slightly to divide the window evenly (`uniform_candidate_grid_phys`). It raises
+`ValueError` if the HWHM or fraction is not positive or the grid would exceed 200 000 points.
+No density is placed on the dip slopes: the EIG score alone decides where to measure. SBED keeps only
+the grid points inside the focus. The detected dips (`current_dips`, §3.5) are still refreshed each epoch
+because the focus is decided from them, but they do not shape the candidates.
 
 ---
 
@@ -254,7 +215,7 @@ The locator calls `belief.select_max_information_gain(candidates)`, which maximi
 
 $$x^* = \arg\max_x \frac{1}{2}\ln\!\left(1 + \frac{\sigma^2_{\rm pred}(x)}{\sigma^2_{\rm noise}}\right)$$
 
-Candidates come from the belief's slope-targeted epoch grid and are thinned to a minimum physical spacing of `candidate_step_hz` (default = 100 kHz = the zero_field_freq convergence threshold).
+Candidates are the belief's uniform epoch grid (§1.8) restricted to the focus; there is no further thinning.
 
 **Boltzmann chunk selection:** EIG scores are split into chunks of 64; each chunk's argmax competes via a softmax with temperature τ = 0.01,
 
@@ -434,13 +395,11 @@ every locator (`nvision/metrics/milestones.py`, `nvision/metrics/stages.py`).
 
 | Symbol | Name | Default | Unit |
 |---|---|---|---|
-| N | `NVISION_SMC_NUM_PARTICLES` | 1 000 | — |
-| r_thr | `NVISION_SMC_ESS_THRESHOLD` | 0.20 | — |
-| a | `NVISION_SMC_A_PARAM` | 0.98 | — |
+| N | `NVISION_SMC_NUM_PARTICLES` | 10 000 | — |
+| r_thr | `NVISION_SMC_ESS_THRESHOLD` | 0.50 | — |
+| a | `NVISION_SMC_A_PARAM` | 0.85 | — |
 | N_EIG | `NVISION_SMC_EIG_PARTICLES` | 500 | — |
-| Δ_min | `NVISION_SMC_EPOCH_GRID_MIN_STEP_HZ` | 10 000 | Hz |
-| — | `NVISION_SMC_DIP_WINDOW_MIN_HZ` | 5 000 000 | Hz |
-| — | `NVISION_SMC_EPOCH_CANDIDATE_BUDGET` | 800 | — (fixed, not env-configurable) |
+| — | `NVISION_SBED_CANDIDATE_STEP_HWHM_FRACTION` | 0.1 | × HWHM |
 | T_f | `NVISION_ZERO_FIELD_FREQ_CONVERGENCE_THRESHOLD` | 100 000 | Hz |
 | K_safety | `NVISION_ZERO_FIELD_FREQ_CRLB_SAFETY_FACTOR` | 4.0 | — |
 | patience | `NVISION_CONVERGENCE_PATIENCE` | 8 | steps |

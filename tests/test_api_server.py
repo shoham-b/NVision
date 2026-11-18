@@ -376,4 +376,5 @@ def test_sweep_spacings_lists_the_studied_sweep_strategies(tmp_path):
     client = TestClient(build_app(cache_dir, static_dir))
 
     names = client.get("/api/sweep-spacings").json()
-    assert names == list(PLAIN_SWEEP_STRATEGIES) == ["SimpleSweep-3perFWHM", "SimpleSweep-optimal"]
+    assert names == list(PLAIN_SWEEP_STRATEGIES)
+    assert names == ["SimpleSweep-optimal-x0.5", "SimpleSweep-optimal", "SimpleSweep-optimal-x2"]

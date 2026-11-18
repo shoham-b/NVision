@@ -329,6 +329,17 @@ def physics_config_fingerprint() -> str:
         # inside the i-th of N equal slices of the drawn range): the true signal of every repeat differs. Same
         # bump: the convergence rule no longer stops a run, so every run measures its whole budget.
         "stratified-zeeman-v1",
+        # Bumped when SBED's candidates became one uniform grid (step 0.1 x posterior-mean HWHM, whole window,
+        # restricted to the focus) instead of 800 quantiles of a slope/dip/flat mixture thinned to 100 kHz.
+        "sbed-uniform-grid-v1",
+        # Bumped when the Liu-West shrinkage default went from a = 0.98 to 0.85 (NVISION_SMC_A_PARAM): every SMC
+        # trajectory differs.
+        "smc-liu-west-a085-v1",
+        # Bumped when the default SMC particle count rose from 1,000 to 10,000 (NVISION_SMC_NUM_PARTICLES), after the
+        # SNR x window study's Gaussian-share-0 signals switched to a Lorentzian belief: every SMC trajectory differs.
+        "smc-10k-particles-v1",
+        # Bumped when the default resampling threshold went from ESS < 0.2 N to ESS < 0.5 N (NVISION_SMC_ESS_THRESHOLD).
+        "smc-ess-0p5-v1",
         NV_ZEEMAN_EDGE_PAD_FWHM,
         MIN_HWHM,
         MAX_HWHM,
