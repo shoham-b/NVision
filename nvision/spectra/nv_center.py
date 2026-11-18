@@ -335,6 +335,9 @@ def physics_config_fingerprint() -> str:
         # Bumped when the Liu-West shrinkage default went from a = 0.98 to 0.85 (NVISION_SMC_A_PARAM): every SMC
         # trajectory differs.
         "smc-liu-west-a085-v1",
+        # Bumped when the default SMC particle count rose from 1,000 to 10,000 (NVISION_SMC_NUM_PARTICLES), after the
+        # SNR x window study's Gaussian-share-0 signals switched to a Lorentzian belief: every SMC trajectory differs.
+        "smc-10k-particles-v1",
         NV_ZEEMAN_EDGE_PAD_FWHM,
         MIN_HWHM,
         MAX_HWHM,

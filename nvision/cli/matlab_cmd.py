@@ -258,7 +258,7 @@ def matlab(
     ] = False,
     particles: Annotated[
         int,
-        typer.Option("--particles", help="Sweeps: SMC particle count (default 10x the simulation default)."),
+        typer.Option("--particles", help="Sweeps: SMC particle count (default 10,000, as in simulation)."),
     ] = _DEFAULT_PARTICLES,
     infer_zero_field_freq: Annotated[
         bool,
@@ -597,9 +597,9 @@ def _matlab_run_one(
             data, locator_bounds, infer_zero_field_freq, label="Lab averaged sweep (all shots)"
         )
 
-    # The SMC default (1000 particles, 1% exploration) is tuned for a live instrument,
+    # The simulation once used 1000 particles with 1% exploration (now 10,000 and 1%), tuned for a live instrument
     # where each measurement is expensive and the run must stay cheap. On these
-    # 4-parameter real-data posteriors it is too thin to resolve the modes reliably:
+    # 4-parameter real-data posteriors 1000 was too thin to resolve the modes reliably:
     # repeated runs over both files in data/matlab/ landed on a badly wrong mode 1 run in
     # 5 and 3 in 5 respectively. 10k particles at 5% exploration hit the best achievable
     # fit on 5/5 runs of both files with run-to-run spread in the 4th decimal, for ~2s a
