@@ -20,7 +20,7 @@ uses the names on the right. Docs describing the algorithm use the article's ter
 | $\mathrm{SNR} = C/\sigma$ | label `SNR(x)` $= x$ = `contrast_total / noise_sigma` | **A run labeled `SNR(x)` has article SNR $x/2$.** Convert before quoting a simulated SNR next to the paper's formulas. |
 | $d_n$ | `candidate_drive_freq` that was measured, `drive_freq` | The design. |
 | $W$ | the drive window `[drive_freq_min_phys, drive_freq_max_phys]` | |
-| $N_p$ | `NVISION_SMC_NUM_PARTICLES` (1000) | |
+| $N_p$ | `NVISION_SMC_NUM_PARTICLES` (10000) | |
 | $\hat\theta_N$, $\hat\sigma_N$ | `belief.estimates()`, `belief.uncertainty()` | Posterior mean and weighted particle std. $\hat\sigma_N$ is the **claimed uncertainty**; it is *not* a 68 % interval before the posterior is Gaussian. |
 | van Trees bound | CRLB / `stage_fisher_star`, `stage_prior_info` (see [evaluation metrics](evaluation_metrics.md)) | The bound with prior information $J_0$; the code historically says "CRLB". |
 | dip test | `find_dips` (`belief/dip_detection.py`), `NVISION_DIP_P_FA` | Boxcar score over measured stretches, Bonferroni threshold. |

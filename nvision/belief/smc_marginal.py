@@ -26,7 +26,7 @@ from nvision.spectra.unit_cube import UnitCubeSignalModel
 
 load_dotenv()
 
-NVISION_SMC_NUM_PARTICLES: int = int(os.getenv("NVISION_SMC_NUM_PARTICLES", "1000"))
+NVISION_SMC_NUM_PARTICLES: int = int(os.getenv("NVISION_SMC_NUM_PARTICLES", "10000"))
 NVISION_SMC_ESS_THRESHOLD: float = float(os.getenv("NVISION_SMC_ESS_THRESHOLD", "0.2"))
 # Liu-West shrinkage. 0.98 (OptBayesExpt's value) jitters by only ~0.2x the cloud's spread per resample: at high SNR the
 # line-shape nuisances froze on a wrong shape in ~70% of runs (2026-11-17 a x ESS grid, docs/evaluation_metrics.md).
