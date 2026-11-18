@@ -152,6 +152,31 @@ def discover_labs(roots: list[Path]) -> dict[str, Path]:
     return labs
 
 
+def lab_mat_dir(stats: Path) -> Path:
+    """Folder holding the .mat runs behind the processed statistics folder *stats*.
+
+    Drive labs (``<artifacts>/labs/<label>/<folder>/convergence_statistics``) were downloaded to
+    ``<artifacts>/downloads/<label>/<folder>``; a local folder was processed in place (the runs sit beside
+    ``convergence_statistics``).
+    """
+    folder = stats.parent if stats.name == "convergence_statistics" else stats
+    for ancestor in folder.parents:
+        if ancestor.name == "labs" and (ancestor.parent / "downloads").is_dir():
+            return ancestor.parent / "downloads" / folder.relative_to(ancestor)
+    return folder
+
+
+def lab_run_files(stats: Path) -> list[str]:
+    """Names of the Bayesian ESR runs (``*.mat``) of the lab whose statistics folder is *stats*, sorted.
+
+    Only the folder's own files, as the statistics are built per folder; non-Bayesian files are skipped.
+    """
+    from nvision.tools.lab_sources import classify_mat
+
+    mats = sorted(lab_mat_dir(stats).glob("*.mat"))
+    return [p.name for p in mats if classify_mat(p) == "bayesian"]
+
+
 def labs_dir(artifacts_dir: Path) -> Path:
     """Where ``nv matlab`` keeps Drive labs under an artifacts directory; ``nv serve`` lists them automatically."""
     return artifacts_dir / "labs"

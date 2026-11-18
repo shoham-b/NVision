@@ -390,8 +390,9 @@ def _add_lab_study_route(app: FastAPI, lab_dirs: list[Path], run_dir: Path) -> N
     :data:`~nvision.metrics.lab_reference.SWEEPS_LAB_NAME` once raw sweeps were processed),
     ``/api/lab-study?name=`` (one lab's :func:`nvision.metrics.lab_study.lab_study_payload`) and
     ``/api/lab-sweeps`` (:func:`nvision.metrics.lab_reference.lab_sweeps_payload` over *run_dir*'s sources)."""
+    from nvision.metrics.lab_process import run_trace
     from nvision.metrics.lab_reference import SWEEPS_LAB_NAME, lab_sweeps_payload
-    from nvision.metrics.lab_study import discover_labs, lab_study_payload
+    from nvision.metrics.lab_study import discover_labs, lab_mat_dir, lab_run_files, lab_study_payload
     from nvision.tools.lab_sources import load_sweep_records
 
     @app.get("/api/lab-studies")
@@ -402,6 +403,26 @@ def _add_lab_study_route(app: FastAPI, lab_dirs: list[Path], run_dir: Path) -> N
     @app.get("/api/lab-sweeps")
     def lab_sweeps() -> dict:
         return lab_sweeps_payload(load_sweep_records(run_dir))
+
+    @app.get("/api/lab-runs")
+    def lab_runs(name: str) -> list[str]:
+        labs = discover_labs(lab_dirs)
+        if name not in labs:
+            raise HTTPException(status_code=404, detail=f"No lab named {name!r}")
+        return lab_run_files(labs[name])
+
+    @app.get("/api/lab-run")
+    def lab_run(name: str, file: str) -> dict:
+        """One run's per-step trace (``lab_process.run_trace``); *file* must be one of ``/api/lab-runs``."""
+        labs = discover_labs(lab_dirs)
+        if name not in labs:
+            raise HTTPException(status_code=404, detail=f"No lab named {name!r}")
+        if file not in lab_run_files(labs[name]):
+            raise HTTPException(status_code=404, detail=f"No run {file!r} in lab {name!r}")
+        try:
+            return run_trace(lab_mat_dir(labs[name]) / file)
+        except (ValueError, OSError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     @app.get("/api/lab-study")
     def lab_study(name: str) -> dict:
