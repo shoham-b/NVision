@@ -69,6 +69,52 @@ def _load_run(path: Path) -> dict | None:
     }
 
 
+def run_trace(path: Path) -> dict:
+    """One Bayesian ESR run, step by step, for the lab page's live replay (all drive-frequency values in MHz).
+
+    ``history`` columns saved by the lab: 0 posterior mean, 1 posterior std, 4/5 focus window lo/hi in force
+    after the step, 6 focus locked. Every per-step list has length ``n_steps``; ``candidates`` is None for runs
+    saved before the lab recorded them, else per step a list of ``[lo, hi]`` candidate windows.
+    """
+    mat = sio.loadmat(path, squeeze_me=True, struct_as_record=False, variable_names=["myStruct"])
+    esr = getattr(mat.get("myStruct"), "BayesianESR", None)
+    if esr is None or not hasattr(esr, "state"):
+        raise ValueError(f"{path.name} holds no Bayesian ESR run")
+    state = esr.state
+    history = np.asarray(state.history, dtype=float)  # shape: (n_steps, 7)
+    if history.ndim != 2 or history.shape[1] < 7:
+        raise ValueError(f"{path.name}: history has shape {history.shape}, expected (n_steps, 7)")
+    freqs = np.atleast_1d(np.asarray(state.frequenciesMHz, dtype=float))  # shape: (n_steps,)
+    n = history.shape[0]
+    if freqs.shape[0] != n:
+        raise ValueError(f"{path.name}: {freqs.shape[0]} frequencies for {n} history rows")
+    candidates = None
+    if hasattr(state, "focusCandidatesHistoryMHz"):
+        candidates = [
+            np.asarray(c, dtype=float).reshape(-1, 2).tolist() if np.size(c) else []
+            for c in state.focusCandidatesHistoryMHz
+        ]
+    lo, hi = np.asarray(esr.config.scanRangeMHz, dtype=float)
+    return {
+        "file": path.name,
+        "n_steps": n,
+        "scan_range_mhz": [float(lo), float(hi)],
+        "step": list(range(1, n + 1)),
+        "drive_freq_mhz": freqs.tolist(),
+        "signal": np.atleast_1d(np.asarray(state.values, dtype=float)).tolist(),  # measured signal per step
+        "exploration": np.asarray(state.wasExploration, dtype=int).tolist()
+        if hasattr(state, "wasExploration")
+        else None,
+        "mean_mhz": history[:, 0].tolist(),
+        "std_mhz": history[:, 1].tolist(),
+        "window_lo_mhz": history[:, 4].tolist(),
+        "window_hi_mhz": history[:, 5].tolist(),
+        "locked": history[:, 6].astype(int).tolist(),
+        "candidates": candidates,
+        "stop_reason": str(state.stopReason),
+    }
+
+
 def write_statistics(runs: list[dict], out_dir: Path) -> Path:
     """Write ``window<W>MHz_*`` CSVs for every Bayesian ESR run in *folder*; return the output dir.
 
