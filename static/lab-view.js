@@ -217,13 +217,14 @@ async function renderLabStudy(container, name) {
             sf
                 ? { x: c.step, y: sf.model, mode: 'lines', line: { color: fitColor, width: 3, dash: 'dot' }, name: `${name} search + van Trees model (v=${sf.v_mhz_per_step.toPrecision(2)} MHz/meas, J_d=${sf.j_d_per_mhz2.toPrecision(2)}, I=${sf.i_max_per_mhz2.toPrecision(2)}/MHz², rms ln ${sf.rms_log.toPrecision(2)})`, legendgroup: name + 'f' }
                 : { x: c.step, y: c.step.map((n) => infoSigma(n, fit)), mode: 'lines', line: { color: fitColor, width: 3, dash: 'dot' }, name: `${name} fit (I=${fit.I.toPrecision(2)}/meas, n0=${fit.n0})`, legendgroup: name + 'f' });
-        // Van Trees fitted only from the median run's detection step on (sigma below a tenth of the prior), with a marker at that step.
+        // Van Trees fitted to the runs aligned at their own detection (each run's first steep, lasting drop of sigma),
+        // drawn from the median detection step, with a marker there. Fits stored before version 5 have no n_detected.
         const det = sf && sf.detection;
-        if (det) {
+        if (det && det.n_detected !== undefined) {
             fitTraces.push({
                 x: det.steps, y: det.model, mode: 'lines+markers', line: { color: fitColor, width: 2, dash: 'dashdot' },
                 marker: { size: det.steps.map((n, i) => (i === 0 ? 11 : 0)), symbol: 'diamond', color: fitColor },
-                name: `${name} van Trees from detection n_d=${det.step} (J_d=${det.j_d_per_mhz2.toPrecision(2)}, I=${det.i_max_per_mhz2.toPrecision(2)}/MHz², rms ln ${det.rms_log.toPrecision(2)})`,
+                name: `${name} van Trees from each run's detection, median n_d=${det.step} [${det.step_q25.toFixed(0)}–${det.step_q75.toFixed(0)}], ${det.n_detected}/${det.n_runs} runs (J_d=${det.j_d_per_mhz2.toPrecision(2)}, I=${det.i_max_per_mhz2.toPrecision(2)}/MHz², rms ln ${det.rms_log.toPrecision(2)})`,
                 legendgroup: name + 'f',
             });
         }
@@ -274,11 +275,23 @@ function renderLabPerRun(pane, data) {
             No per-run claimed σ histories in this lab study: it was imported before they were saved. Re-sync its source with <code>nv matlab</code> to add them.</div>`;
         return;
     }
-    // Detection step: the first step (1-based) at which the run's claimed σ falls below a tenth of the prior σ = W/√12.
+    // Detection step, as in nvision/metrics/lab_search_fit.py detection_step (keep the two in sync): the step (1-based)
+    // right after the run's first steep, lasting one-step drop of claimed σ. Steep: ln σ falls by at least
+    // DETECTION_STEEP_FRACTION of the run's steepest one-step fall. Lasting: σ never later climbs back above the geometric
+    // mean of its values before and after the drop.
+    const DETECTION_STEEP_FRACTION = 0.7;
     const priorOf = (w) => data.curves[String(w)].prior_sigma_mhz;
-    const detectionStep = (r, w) => {
-        const k = r.std_mhz.findIndex((s) => s < priorOf(w) / 10);
-        return k < 0 ? null : k + 1;
+    const detectionStep = (r) => {
+        const ls = r.std_mhz.map(Math.log);
+        const drops = ls.slice(1).map((v, k) => v - ls[k]);
+        const steepest = Math.min(...drops);
+        if (!(steepest < 0)) return null;
+        for (let k = 0; k < drops.length; k++) {
+            if (drops[k] > DETECTION_STEEP_FRACTION * steepest) continue;
+            const mid = 0.5 * (ls[k] + ls[k + 1]);
+            if (ls.slice(k + 1).every((v) => v <= mid)) return k + 2;
+        }
+        return null;
     };
     // The lab names runs Run_<W>MHz_<n>: list them in natural order (2 before 10), not the lexical order of run_number.
     const ordered = (w) => [...runsOf(w)].sort((a, b) => a.file.localeCompare(b.file, undefined, { numeric: true }));
@@ -295,15 +308,15 @@ function renderLabPerRun(pane, data) {
             </div>
         </div>
         <p id="lab-run-summary" style="margin:0 0 0.5em; color:#475569; font-size:0.85em;"></p>
-        ${labPlotHead('Claimed σ and error of one run', "Solid blue: this run's self-reported posterior std after each measurement. Red: its actual error |posterior mean − reference resonance| (the reference is the median final mean of the study's converged runs); red above blue means the run claims more precision than it has. Grey: the median and quartiles over all runs of the window, as on the Aggregated tab. Dotted: the prior σ = W/√12 of the drive_freq window and a tenth of it; the diamond marks the step at which this run's σ first falls below that tenth (its detection), the circle the step at which the precision stop fired (replayed for full-budget runs).", 'lab-run-sigma')}
+        ${labPlotHead('Claimed σ and error of one run', "Solid blue: this run's self-reported posterior std after each measurement. Red: its actual error |posterior mean − reference resonance| (the reference is the median final mean of the study's converged runs); red above blue means the run claims more precision than it has. Grey: the median and quartiles over all runs of the window, as on the Aggregated tab. Dotted: the prior σ = W/√12 of the drive_freq window. The diamond marks this run's detection: the step right after its first steep, lasting drop of claimed σ (ln σ falls by at least 0.7 of the run's steepest one-step fall, and σ never climbs back above the geometric mean of its values before and after); the circle the step at which the precision stop fired (replayed for full-budget runs).", 'lab-run-sigma')}
         <div id="lab-run-sigma" style="height:520px"></div>`;
     const winSel = pane.querySelector('#lab-run-window');
     const runSel = pane.querySelector('#lab-run');
     const fillRuns = () => {
         const w = Number(winSel.value);
         runSel.innerHTML = ordered(w).map((r, i) => {
-            const det = detectionStep(r, w);
-            return `<option value="${i}">${r.file} · σ &lt; prior/10 at ${det ?? '–'} · stop ${r.converged ? r.steps_to_convergence : 'none'}</option>`;
+            const det = detectionStep(r);
+            return `<option value="${i}">${r.file} · detection at ${det ?? '–'} · stop ${r.converged ? r.steps_to_convergence : 'none'}</option>`;
         }).join('');
     };
     const draw = () => {
@@ -311,7 +324,7 @@ function renderLabPerRun(pane, data) {
         const r = ordered(w)[Number(runSel.value)];
         const c = data.curves[String(w)];
         const steps = r.std_mhz.map((_, k) => k + 1);
-        const prior = priorOf(w), det = detectionStep(r, w);
+        const prior = priorOf(w), det = detectionStep(r);
         const xEnd = Math.max(steps.length, c.step[c.step.length - 1]);
         const runColor = '#2563eb', grey = '#94a3b8';
         const hline = (y, name) => ({ x: [1, xEnd], y: [y, y], mode: 'lines', line: { color: '#64748b', width: 1.5, dash: 'dot' }, name, hoverinfo: 'skip' });
@@ -321,13 +334,12 @@ function renderLabPerRun(pane, data) {
             { x: c.step, y: c.claimed_q25, mode: 'lines', line: { width: 0 }, fill: 'tonexty', fillcolor: grey + '40', name: `${w} MHz quartiles (all runs)`, hoverinfo: 'skip', legendgroup: 'win' },
             { x: c.step, y: c.claimed_median, mode: 'lines', line: { color: grey, width: 2 }, name: `${w} MHz median`, legendgroup: 'win' },
             hline(prior, `prior σ = W/√12 (${prior.toPrecision(3)} MHz)`),
-            hline(prior / 10, 'prior σ / 10'),
             { x: steps, y: r.std_mhz, mode: 'lines', line: { color: runColor, width: 2.5 }, name: `${r.file} claimed σ` },
             { x: steps, y: r.err_mhz.map(Math.abs), mode: 'lines', line: { color: '#dc2626', width: 1.8 }, name: `${r.file} |mean − reference|` },
         ];
-        if (det !== null) traces.push(at(det, 'diamond', `σ < prior/10 at step ${det}`));
+        if (det !== null) traces.push(at(det, 'diamond', `detection (first steep, lasting drop) at step ${det}`));
         if (r.converged) traces.push(at(r.steps_to_convergence, 'circle', `precision stop at step ${r.steps_to_convergence}`));
-        pane.querySelector('#lab-run-summary').textContent = `${r.file} (run ${Number(runSel.value) + 1} of ${runsOf(w).length} in the ${w} MHz window): ${steps.length} measurements; claimed σ first below a tenth of the prior at step ${det ?? '– (never)'}; precision stop ${r.converged ? `at step ${r.steps_to_convergence}` : 'never fired'}; final error ${Math.abs(r.err_mhz[r.err_mhz.length - 1]).toPrecision(2)} MHz against claimed σ ${r.std_mhz[r.std_mhz.length - 1].toPrecision(2)} MHz.`;
+        pane.querySelector('#lab-run-summary').textContent = `${r.file} (run ${Number(runSel.value) + 1} of ${runsOf(w).length} in the ${w} MHz window): ${steps.length} measurements; detection (first steep, lasting drop of claimed σ) at step ${det ?? '– (none)'}; precision stop ${r.converged ? `at step ${r.steps_to_convergence}` : 'never fired'}; final error ${Math.abs(r.err_mhz[r.err_mhz.length - 1]).toPrecision(2)} MHz against claimed σ ${r.std_mhz[r.std_mhz.length - 1].toPrecision(2)} MHz.`;
         // Legend under the axis title, two entries per row, sized as on the Aggregated tab (labExport reads dataset.rows).
         const rows = Math.ceil(traces.filter((t) => t.showlegend !== false).length / 2);
         const bottom = 70 + 24 * rows, plotH = 380;

@@ -24,10 +24,14 @@ from scipy.optimize import least_squares
 # Stored fits (window*MHz_search_fit.json, a MATLAB record's search_fit) carry this; a fit without it is from the
 # older models (version 2 called J_d "j_tau"; before that v = delta_d and J_d = 12 / delta_d^2) and is refitted
 # when read.
-SEARCH_FIT_VERSION = 4  # 4 adds the van Trees fit from the detection step ("detection")
+# 4 added the van Trees fit from detection ("detection"); 5 aligned each run at its own detection; 6 detects the dip
+# by the run's first steep, lasting drop of sigma instead of a sigma level.
+SEARCH_FIT_VERSION = 6
 
-# A claimed sigma below this fraction of the prior width W / sqrt(12) counts as detected (detection_step).
-DETECTION_FRACTION = 0.1
+# A one-step drop of ln sigma counts as steep when it is at least this fraction of the run's steepest one-step drop
+# (detection_step). 0.7 is where the lab runs' detection steps stop moving with it and the van Trees fit after
+# detection is best; lower values detect on an earlier step of a wide window's staircase.
+DETECTION_STEEP_FRACTION = 0.7
 
 
 def detection_weights(window: float, v: float) -> np.ndarray:
@@ -57,14 +61,19 @@ def search_model_sigma(steps: np.ndarray, window: float, v: float, j_d: float, i
     return np.sqrt(search + vt.sum(axis=1))
 
 
-def fit_search_curve(sigma: np.ndarray, window_mhz: float | None = None) -> dict:
+def fit_search_curve(
+    sigma: np.ndarray, window_mhz: float | None = None, run_sigmas: list[np.ndarray] | None = None
+) -> dict:
     """Fit the model to a claimed-sigma history, least squares on log sigma.
 
     *sigma*: shape (n_steps,), MHz, claimed sigma after step 1..n_steps, all positive. *window_mhz*: the search
     window ``W`` when known (the drive window of a lab run); otherwise the prior spread of Eq. ``prior``,
-    ``W = sqrt(12) * sigma[0]``. Returns ``version``, ``window_mhz``, ``v_mhz_per_step``, ``j_d_per_mhz2``,
+    ``W = sqrt(12) * sigma[0]``. *run_sigmas*: every run's own claimed-sigma history (MHz, each shape
+    (n_steps_run,), lengths may differ) for the van Trees fit from detection; a single run passes ``[sigma]``, and
+    None means no detection fit. Returns ``version``, ``window_mhz``, ``v_mhz_per_step``, ``j_d_per_mhz2``,
     ``i_max_per_mhz2``, ``search_end_step`` (``W / v``), ``rms_log`` (rms of ``ln(model/data)``), ``model``,
-    shape (n_steps,), MHz, and ``detection`` (:func:`fit_van_trees_from_detection`). Raises if the fit fails.
+    shape (n_steps,), MHz, and ``detection`` (:func:`fit_van_trees_from_run_detection`, None without *run_sigmas*).
+    Raises if the fit fails.
     """
     sigma = np.asarray(sigma, dtype=float)
     if sigma.ndim != 1 or sigma.size < 3 or not np.all(sigma > 0):
@@ -101,52 +110,90 @@ def fit_search_curve(sigma: np.ndarray, window_mhz: float | None = None) -> dict
         "search_end_step": window / v,
         "rms_log": float(np.sqrt(np.mean(best.fun**2))),
         "model": search_model_sigma(steps, window, v, j_d, i_max),
-        "detection": fit_van_trees_from_detection(sigma, window),
+        "detection": None if run_sigmas is None else fit_van_trees_from_run_detection(run_sigmas),
     }
 
 
-def detection_step(sigma: np.ndarray, window: float) -> int | None:
-    """First step (1-based) at which *sigma* (shape (n_steps,), MHz) falls below ``DETECTION_FRACTION`` of the prior
-    width ``W / sqrt(12)``; None if it never does. On the median claimed sigma this is the median run's detection.
-    """
-    below = np.flatnonzero(np.asarray(sigma, dtype=float) < DETECTION_FRACTION * window / np.sqrt(12.0))
-    return int(below[0]) + 1 if below.size else None
+def detection_step(sigma: np.ndarray) -> int | None:
+    """One run's detection: the step (1-based) right after its first steep, lasting one-step drop of sigma.
 
-
-def fit_van_trees_from_detection(sigma: np.ndarray, window: float) -> dict | None:
-    """Van Trees form ``(J_d + (n - n_d) I_max)^-1/2`` fitted only to the steps from the detection step on.
-
-    *sigma*: shape (n_steps,), MHz. Returns ``step`` (n_d), ``j_d_per_mhz2``, ``i_max_per_mhz2``, ``rms_log`` and
-    ``steps`` / ``model``, plain lists of the steps ``n >= n_d`` and the curve there (MHz). None when sigma never falls
-    to the detection level or fewer than 3 steps follow it (nothing to fit).
+    *sigma*: shape (n_steps,), the run's claimed sigma after each measurement, all positive. A drop is steep when
+    ``ln sigma`` falls by at least ``DETECTION_STEEP_FRACTION`` of the run's steepest one-step fall, and lasting when
+    sigma never later climbs back above the geometric mean of its values before and after the drop (a candidate the
+    run settled on and then rejected does not count). Uses only the run's own history: no sigma level, no window.
+    None if sigma never falls or no steep drop lasts.
     """
     sigma = np.asarray(sigma, dtype=float)
-    n_d = detection_step(sigma, window)
-    if n_d is None or sigma.size - n_d + 1 < 3:
+    if sigma.ndim != 1 or sigma.size < 2 or not np.all(sigma > 0) or not np.all(np.isfinite(sigma)):
+        raise ValueError("sigma must be a positive, finite 1-D history of at least 2 steps")
+    log_s = np.log(sigma)
+    drops = np.diff(log_s)  # drops[k]: change of ln sigma from step k+1 to step k+2, shape (n_steps - 1,)
+    steepest = drops.min()
+    if steepest >= 0:
         return None
-    steps = np.arange(n_d, sigma.size + 1, dtype=float)
-    log_data = np.log(sigma[n_d - 1 :])
+    for k in np.flatnonzero(drops <= DETECTION_STEEP_FRACTION * steepest):
+        if np.all(log_s[k + 1 :] <= 0.5 * (log_s[k] + log_s[k + 1])):
+            return int(k) + 2
+    return None
+
+
+def fit_van_trees_from_run_detection(run_sigmas: list[np.ndarray]) -> dict | None:
+    """Van Trees form ``(J_d + k I_max)^-1/2`` fitted to the runs aligned at their own detection, ``k = n - n_d``.
+
+    Each run's ``n_d`` is :func:`detection_step` of its own history, so the median at each lag ``k`` is not smeared
+    by when the runs detected (the median over runs at a fixed step mixes runs still searching with runs that already
+    found the dip). *run_sigmas*: per-run histories in MHz, each shape (n_steps_run,). A lag is used while at least
+    half of the detected runs still have a step there. ``J_d`` is not fitted but pinned to the aligned median at
+    detection, ``J_d = 1 / sigma(k=0)^2``, so the curve starts on the data; only ``I_max`` is fitted, to the later lags.
+
+    Returns ``step`` (median ``n_d`` over the detected runs, where the curve is drawn from), ``step_q25`` /
+    ``step_q75``, ``n_detected`` / ``n_runs``, ``j_d_per_mhz2``, ``i_max_per_mhz2``, ``rms_log``, and plain lists over
+    the lags: ``steps`` (``step + k``), ``aligned_median`` (median sigma at each lag, MHz) and ``model`` (MHz). None
+    when no run detects or fewer than 3 lags remain (nothing to fit).
+    """
+    histories = [np.asarray(s, dtype=float) for s in run_sigmas]
+    if not histories or any(h.ndim != 1 for h in histories):
+        raise ValueError("run_sigmas must be a non-empty list of 1-D histories")
+    detected = [(n_d, h) for h in histories if (n_d := detection_step(h)) is not None]
+    if not detected:
+        return None
+    n_ds = np.array([n_d for n_d, _ in detected], dtype=float)
+    tails = [h[n_d - 1 :] for n_d, h in detected]  # each run from its own detection on: lag k = 0, 1, ...
+    min_runs = int(np.ceil(len(tails) / 2))
+    n_lags = 0
+    while sum(t.size > n_lags for t in tails) >= min_runs:
+        n_lags += 1
+    if n_lags < 3:
+        return None
+    aligned = np.array([np.median([t[k] for t in tails if t.size > k]) for k in range(n_lags)])  # (n_lags,)
+    lags = np.arange(n_lags, dtype=float)
+    log_data = np.log(aligned)
+    j_d = float(1.0 / aligned[0] ** 2)  # pinned: the curve passes through the data at detection
 
     def residual(p: np.ndarray) -> np.ndarray:
-        j_d, i_max = np.exp(p)
-        return -0.5 * np.log(j_d + (steps - n_d) * i_max) - log_data
+        return -0.5 * np.log(j_d + lags * np.exp(p[0])) - log_data
 
     best = None
-    for j0 in (1.0 / sigma[n_d - 1] ** 2, 10.0 / sigma[n_d - 1] ** 2):
-        for i0 in (0.1, 3.0):
-            res = least_squares(residual, x0=np.log([j0, i0]))
-            if res.success and (best is None or res.cost < best.cost):
-                best = res
+    for i0 in (0.1 * j_d, j_d, 10.0 * j_d):
+        res = least_squares(residual, x0=np.log([i0]))
+        if res.success and (best is None or res.cost < best.cost):
+            best = res
     if best is None:
         raise RuntimeError("van Trees fit from detection did not converge")
-    j_d, i_max = (float(x) for x in np.exp(best.x))
+    i_max = float(np.exp(best.x[0]))
+    step = round(float(np.median(n_ds)))
     return {
-        "step": n_d,
+        "step": step,
+        "step_q25": float(np.quantile(n_ds, 0.25)),
+        "step_q75": float(np.quantile(n_ds, 0.75)),
+        "n_detected": len(detected),
+        "n_runs": len(histories),
         "j_d_per_mhz2": j_d,
         "i_max_per_mhz2": i_max,
         "rms_log": float(np.sqrt(np.mean(best.fun**2))),
-        "steps": steps.astype(int).tolist(),
-        "model": (1.0 / np.sqrt(j_d + (steps - n_d) * i_max)).tolist(),
+        "steps": (step + lags).astype(int).tolist(),
+        "aligned_median": aligned.tolist(),
+        "model": (1.0 / np.sqrt(j_d + lags * i_max)).tolist(),
     }
 
 
