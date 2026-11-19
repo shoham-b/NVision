@@ -834,12 +834,7 @@ def cache_clean(
         from nvision.sim import presets as sim_presets
 
         wide_window_generators = {
-            name
-            for name, gen in [
-                *sim_presets.voigt_snr_window_param_grid_generators(),
-                *sim_presets.voigt_wide_window_param_grid_generators(),
-            ]
-            if gen.window_fwhm > window_above
+            name for name, gen in sim_presets.voigt_snr_window_param_grid_generators() if gen.window_fwhm > window_above
         }
 
     # (CategoryName, CacheInstance, Key, Payload)

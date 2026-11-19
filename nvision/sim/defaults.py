@@ -218,12 +218,12 @@ NVISION_SBED_SNR_VALUES: tuple[float, ...] = tuple(
     float(v) for v in os.getenv("NVISION_SBED_SNR_VALUES", "1,2,5,10,20").split(",") if v.strip()
 )
 # Window as a multiple of the width one dip group covers (its hyperfine lines' FWHM intervals, overlap counted
-# once), so the same span is a different absolute window per isotope; occupancy = 1 / span. Default 1.6,2,3,5: the
-# window's own prior (uniform, variance W^2/12) dominates the claimed uncertainty over time, so wide windows hide
-# the locator and only windows close to the signal are worth comparing. 1.6 is about the tightest window every
-# isotope fits (N-15 needs span > 1.572).
+# once), so the same span is a different absolute window per isotope; occupancy = 1 / span. Default
+# 1.6,2,3,5,10,20,50: the narrow windows (<= 5) compare the locators once the dip is in view, and the wide ones
+# (10-50), where finding the dip takes a sizeable part of the budget, carry the search / localize / speedup results.
+# 1.6 is about the tightest window every isotope fits (N-15 needs span > 1.572).
 NVISION_SBED_WINDOW_SPANS: tuple[float, ...] = tuple(
-    float(v) for v in os.getenv("NVISION_SBED_WINDOW_SPANS", "1.6,2,3,5").split(",") if v.strip()
+    float(v) for v in os.getenv("NVISION_SBED_WINDOW_SPANS", "1.6,2,3,5,10,20,50").split(",") if v.strip()
 )
 NVISION_SBED_FWHM: float = float(os.getenv("NVISION_SBED_FWHM", "2e6"))
 NVISION_SBED_GAUSSIAN_SHARES: tuple[float, ...] = tuple(

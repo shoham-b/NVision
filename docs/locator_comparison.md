@@ -44,10 +44,10 @@ sigma and linewidth separately, and each axis changes one thing:
   the budget, and at 2 and below nearly every run does (the sweep fit finds no dip at SNR 1). 1 is the smallest SNR
   worth running.
 - **Window span.** The window is a multiple of the width one dip group covers: `window = x * covered`, for `x` in
-  `NVISION_SBED_WINDOW_SPANS` (default 1.6, 2, 3, 5; `span<x>` in the generator name). The results and UI report the
-  inverse, the signal occupancy `1 / x` (`grid_signal_occupancy`). Wide windows are dominated by the window's own
-  uniform prior (variance `W^2/12`), so the study stays close to the signal; 1.6 is about the tightest window every
-  isotope fits (N-15 needs `x` > 1.572). `covered` is the union of the dip group's hyperfine lines' FWHM intervals
+  `NVISION_SBED_WINDOW_SPANS` (default 1.6, 2, 3, 5, 10, 20, 50; `span<x>` in the generator name). The results and UI
+  report the inverse, the signal occupancy `1 / x` (`grid_signal_occupancy`). The narrow windows (up to 5) compare
+  the locators once the dip is in view; the wide ones (10-50), where finding the dip takes a sizeable part of the
+  budget, carry the search / localize / speedup results. 1.6 is about the tightest window every isotope fits (N-15 needs `x` > 1.572). `covered` is the union of the dip group's hyperfine lines' FWHM intervals
   (ONE total FWHM shared by every signal, `NVISION_SBED_FWHM`, 2 MHz): one line for the unresolved isotope, two for N-15
   (`2 FWHM - overlap`), three for N-14 (`3 FWHM - 2 overlaps`), where lines closer than one FWHM overlap by
   `FWHM - spacing` (none at the default FWHM). So the same span is the same share of signal in view for every
