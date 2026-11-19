@@ -3,8 +3,10 @@ import pytest
 
 from nvision.metrics.lab_search_fit import (
     SEARCH_FIT_VERSION,
+    detection_step,
     detection_weights,
     fit_search_curve,
+    fit_van_trees_from_detection,
     is_current,
     search_model_sigma,
 )
@@ -51,6 +53,25 @@ def test_fit_recovers_generating_parameters():
     assert fit["i_max_per_mhz2"] == pytest.approx(2.0, rel=0.3)
     assert fit["search_end_step"] == pytest.approx(60.0, rel=0.2)
     assert fit["rms_log"] < 0.1
+
+
+def test_van_trees_fit_from_detection_recovers_parameters():
+    # Prior-width plateau for 20 steps, then van Trees from n_d = 21 with J_d = 2, I = 2
+    # (sigma 0.71 MHz at n_d, below a tenth of the prior width, 0.87 MHz).
+    w = 30.0
+    n = np.arange(1, 201, dtype=float)
+    sigma = np.where(n < 21, w / np.sqrt(12), 1 / np.sqrt(2.0 + np.clip(n - 21, 0, None) * 2.0))
+    assert detection_step(sigma, w) == 21
+    det = fit_van_trees_from_detection(sigma, w)
+    assert det["step"] == 21
+    assert det["j_d_per_mhz2"] == pytest.approx(2.0, rel=0.05)
+    assert det["i_max_per_mhz2"] == pytest.approx(2.0, rel=0.05)
+    assert det["steps"][0] == 21
+    assert len(det["model"]) == len(det["steps"]) == 180
+
+
+def test_no_detection_gives_none():
+    assert fit_van_trees_from_detection(np.full(50, 5.0), 20.0) is None
 
 
 def test_old_two_parameter_fit_is_not_current():

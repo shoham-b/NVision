@@ -24,7 +24,10 @@ from scipy.optimize import least_squares
 # Stored fits (window*MHz_search_fit.json, a MATLAB record's search_fit) carry this; a fit without it is from the
 # older models (version 2 called J_d "j_tau"; before that v = delta_d and J_d = 12 / delta_d^2) and is refitted
 # when read.
-SEARCH_FIT_VERSION = 3
+SEARCH_FIT_VERSION = 4  # 4 adds the van Trees fit from the detection step ("detection")
+
+# A claimed sigma below this fraction of the prior width W / sqrt(12) counts as detected (detection_step).
+DETECTION_FRACTION = 0.1
 
 
 def detection_weights(window: float, v: float) -> np.ndarray:
@@ -60,8 +63,8 @@ def fit_search_curve(sigma: np.ndarray, window_mhz: float | None = None) -> dict
     *sigma*: shape (n_steps,), MHz, claimed sigma after step 1..n_steps, all positive. *window_mhz*: the search
     window ``W`` when known (the drive window of a lab run); otherwise the prior spread of Eq. ``prior``,
     ``W = sqrt(12) * sigma[0]``. Returns ``version``, ``window_mhz``, ``v_mhz_per_step``, ``j_d_per_mhz2``,
-    ``i_max_per_mhz2``, ``search_end_step`` (``W / v``), ``rms_log`` (rms of ``ln(model/data)``) and ``model``,
-    shape (n_steps,), MHz. Raises if the fit fails.
+    ``i_max_per_mhz2``, ``search_end_step`` (``W / v``), ``rms_log`` (rms of ``ln(model/data)``), ``model``,
+    shape (n_steps,), MHz, and ``detection`` (:func:`fit_van_trees_from_detection`). Raises if the fit fails.
     """
     sigma = np.asarray(sigma, dtype=float)
     if sigma.ndim != 1 or sigma.size < 3 or not np.all(sigma > 0):
@@ -98,6 +101,52 @@ def fit_search_curve(sigma: np.ndarray, window_mhz: float | None = None) -> dict
         "search_end_step": window / v,
         "rms_log": float(np.sqrt(np.mean(best.fun**2))),
         "model": search_model_sigma(steps, window, v, j_d, i_max),
+        "detection": fit_van_trees_from_detection(sigma, window),
+    }
+
+
+def detection_step(sigma: np.ndarray, window: float) -> int | None:
+    """First step (1-based) at which *sigma* (shape (n_steps,), MHz) falls below ``DETECTION_FRACTION`` of the prior
+    width ``W / sqrt(12)``; None if it never does. On the median claimed sigma this is the median run's detection.
+    """
+    below = np.flatnonzero(np.asarray(sigma, dtype=float) < DETECTION_FRACTION * window / np.sqrt(12.0))
+    return int(below[0]) + 1 if below.size else None
+
+
+def fit_van_trees_from_detection(sigma: np.ndarray, window: float) -> dict | None:
+    """Van Trees form ``(J_d + (n - n_d) I_max)^-1/2`` fitted only to the steps from the detection step on.
+
+    *sigma*: shape (n_steps,), MHz. Returns ``step`` (n_d), ``j_d_per_mhz2``, ``i_max_per_mhz2``, ``rms_log`` and
+    ``steps`` / ``model``, plain lists of the steps ``n >= n_d`` and the curve there (MHz). None when sigma never falls
+    to the detection level or fewer than 3 steps follow it (nothing to fit).
+    """
+    sigma = np.asarray(sigma, dtype=float)
+    n_d = detection_step(sigma, window)
+    if n_d is None or sigma.size - n_d + 1 < 3:
+        return None
+    steps = np.arange(n_d, sigma.size + 1, dtype=float)
+    log_data = np.log(sigma[n_d - 1 :])
+
+    def residual(p: np.ndarray) -> np.ndarray:
+        j_d, i_max = np.exp(p)
+        return -0.5 * np.log(j_d + (steps - n_d) * i_max) - log_data
+
+    best = None
+    for j0 in (1.0 / sigma[n_d - 1] ** 2, 10.0 / sigma[n_d - 1] ** 2):
+        for i0 in (0.1, 3.0):
+            res = least_squares(residual, x0=np.log([j0, i0]))
+            if res.success and (best is None or res.cost < best.cost):
+                best = res
+    if best is None:
+        raise RuntimeError("van Trees fit from detection did not converge")
+    j_d, i_max = (float(x) for x in np.exp(best.x))
+    return {
+        "step": n_d,
+        "j_d_per_mhz2": j_d,
+        "i_max_per_mhz2": i_max,
+        "rms_log": float(np.sqrt(np.mean(best.fun**2))),
+        "steps": steps.astype(int).tolist(),
+        "model": (1.0 / np.sqrt(j_d + (steps - n_d) * i_max)).tolist(),
     }
 
 
