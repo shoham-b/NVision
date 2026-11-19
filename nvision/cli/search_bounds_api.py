@@ -95,14 +95,18 @@ class _Run:
         self.steps = np.array([series["s"][i] for i in keep], dtype=float)
         self.errs = np.array([series["e"][i] for i in keep], dtype=float)
         # The series parameter is chosen by the series exporter, not by stage_primary_param: confirm it is the
-        # zeeman_shift error through the stage metrics' error after the run's last measurement (the last reached
-        # stage ends at the last step; the series is rounded to 4 significant digits). ``final_err_primary`` is not
-        # that quantity (for sweeps it is the fit's error), so it is not used.
+        # zeeman_shift error through its last point (the series is rounded to 4 significant digits). That point is
+        # the belief's error after the last measurement (the stage metrics' error of the last reached stage) for a
+        # belief locator, and the fit's error ``final_err_primary`` for a sweep, whose series ends on its fit
+        # estimate (nvision.metrics.series.extract_step_series; series cached before that change end on the belief).
+        # Both are errors of the primary parameter, so either identifies the series.
         last_err = next((field(f"stage{k}_err_end") for k in (3, 2, 1) if field(f"stage{k}_err_end") is not None), None)
-        if last_err is None or not math.isclose(float(self.errs[-1]), float(last_err), rel_tol=_FINAL_ERR_REL_TOL):
+        candidates = [float(v) for v in (last_err, field("final_err_primary")) if v is not None]
+        if not any(math.isclose(float(self.errs[-1]), v, rel_tol=_FINAL_ERR_REL_TOL) for v in candidates):
             raise UseCaseError(
-                f"the last point of the true-error series ({self.errs[-1]:g}) is not the stage metrics' error after "
-                f"the last measurement ({last_err}): the series is not the primary parameter's error"
+                f"the last point of the true-error series ({self.errs[-1]:g}) is neither the stage metrics' error "
+                f"after the last measurement ({last_err}) nor the final error ({field('final_err_primary')}): the "
+                "series is not the primary parameter's error"
             )
         true = scan.get("true_params") or {}
         self.params = dict(true.get("params") or {})
@@ -163,7 +167,9 @@ def _line_statistics(
             f"stored zeeman_shift range ({width_phys:g} Hz) differs from the generator's drawn range "
             f"({drawn_hi - drawn_lo:g} Hz)"
         )
-    signal = gen.generate(random.Random(0))
+    # Any repeat gives the same fixed line (zeeman_shift is overwritten below); the generator stratifies
+    # zeeman_shift across repeats, so it needs a repeat index.
+    signal = gen.generate(random.Random(0), repeat_idx=0, n_repeats=1)
     if signal.model.controls_drive:
         raise UseCaseError("drive-controlled signals have no fixed line to integrate")
     x_lo, x_hi = float(gen.drive_freq_min_phys), float(gen.drive_freq_max_phys)
