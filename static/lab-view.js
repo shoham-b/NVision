@@ -306,11 +306,16 @@ async function renderLabReplay(host, name, referenceMhz) {
             shapes.push({ type: 'line', xref: 'x', yref: 'paper', x0: referenceMhz, x1: referenceMhz, y0: 0, y1: 1, line: { width: 1.5, color: '#16a34a', dash: 'dash' } });
             annotations.push({ text: 'reference resonance', x: referenceMhz, xref: 'x', y: 1, yref: 'paper', yanchor: 'bottom', xanchor: 'center', showarrow: false, font: { size: 11, color: '#16a34a' } });
         }
+        // Dense x grid, with extra points around the centre so a narrow dip stays smooth on a wide scan.
+        const curveX = [...Array.from({ length: 600 }, (_, i) => tr.scan_range_mhz[0] + ((tr.scan_range_mhz[1] - tr.scan_range_mhz[0]) * i) / 599),
+            ...Array.from({ length: 201 }, (_, i) => mean + ((i - 100) * tr.model.fwhm_mhz) / 20)].sort((p, q) => p - q);
         Plotly.react('lab-replay-signal', [
             { x: f, y: sig, mode: 'markers', name: 'measurements', marker: { size: 7, color: x, colorscale: 'Viridis', cmin: 1, cmax: tr.n_steps, colorbar: { title: { text: 'step' } } },
               hovertemplate: 'step %{marker.color}<br>%{x:.2f} MHz<br>signal %{y:.4g}<extra></extra>' },
             { x: [f[last]], y: [sig[last]], mode: 'markers', showlegend: false, hoverinfo: 'skip', marker: { size: 15, color: 'rgba(0,0,0,0)', line: { color: '#dc2626', width: 2 } } },
             { x: [mean, mean], y: [Math.min(...tr.signal), Math.max(...tr.signal)], mode: 'lines', name: 'posterior mean', line: { color: '#2563eb', width: 2 }, hoverinfo: 'skip' },
+            { x: curveX, y: curveX.map((v) => tr.model.baseline * (1 - tr.model.contrast / (1 + ((v - mean) / (tr.model.fwhm_mhz / 2)) ** 2))), mode: 'lines', name: 'most likely signal',
+              line: { color: '#dc2626', width: 2.5 }, hovertemplate: '%{x:.2f} MHz<br>%{y:.4f}<extra>most likely signal</extra>' },
         ], {
             margin: { t: 24, r: 10, b: 50, l: 70 }, font: { size: 13 }, shapes, annotations,
             xaxis: { title: 'drive_freq (MHz)', range: tr.scan_range_mhz, gridcolor: '#eeeeee' },

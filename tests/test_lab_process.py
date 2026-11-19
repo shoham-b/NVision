@@ -22,7 +22,15 @@ def _save_trace_run(path: Path, *, n_freqs: int) -> None:
         "wasExploration": np.array([1, 1, 0, 0], dtype=np.uint8),
         "stopReason": "budget",
     }
-    config = {"scanRangeMHz": np.array([80, 120])}
+    config = {
+        "scanRangeMHz": np.array([80, 120]),
+        "baseline": 1.0,
+        "contrast": 0.14,
+        "linewidthMHz": 1.8,
+        "inferBaseline": 0,
+        "inferContrast": 0,
+        "inferLinewidth": 0,
+    }
     sio.savemat(path, {"myStruct": {"BayesianESR": {"config": config, "state": state, "noConvergenceStop": 1}}})
 
 
@@ -33,6 +41,7 @@ def test_run_trace_is_step_by_step(tmp_path):
     assert t["drive_freq_mhz"] == [90.0, 110.0, 100.5, 99.0]
     assert (t["window_lo_mhz"][0], t["window_hi_mhz"][0], t["locked"]) == (80.0, 120.0, [0, 0, 1, 1])
     assert t["candidates"] is None
+    assert t["model"] == {"baseline": 1.0, "contrast": 0.14, "fwhm_mhz": 1.8, "shape_final_only": False}
 
 
 def test_run_trace_rejects_mismatched_frequencies(tmp_path):
