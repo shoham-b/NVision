@@ -22,9 +22,30 @@ function resolveAssetPath(relativePath) {
     return prefix + cleaned;
 }
 
+// The locator comparison tabs choose which strategies to show with the chips at the top
+// of the page. A legend click would hide/isolate a strategy a second, inconsistent way,
+// so charts inside those tabs get a read-only legend.
+const LOCATOR_COMPARISON_VIEWS = '#stories-view, #stages-view, #scaling-view, #accuracy-view, #stepsize-view';
+function lockLegendInComparisonViews() {
+    const P = window.Plotly;
+    if (!P || P._legendLocked) return;
+    P._legendLocked = true;
+    for (const fn of ['newPlot', 'react']) {
+        const orig = P[fn];
+        P[fn] = function (gd, data, layout, config) {
+            const el = typeof gd === 'string' ? document.getElementById(gd) : gd;
+            if (el && el.closest && el.closest(LOCATOR_COMPARISON_VIEWS)) {
+                layout = { ...layout, legend: { ...(layout && layout.legend), itemclick: false, itemdoubleclick: false } };
+            }
+            return orig.call(this, gd, data, layout, config);
+        };
+    }
+}
+
 let plotlyLoadPromise = null;
 function ensurePlotly() {
     if (window.Plotly) {
+        lockLegendInComparisonViews();
         return Promise.resolve();
     }
     if (!plotlyLoadPromise) {
@@ -32,7 +53,7 @@ function ensurePlotly() {
             const s = document.createElement('script');
             s.src = 'https://cdn.plot.ly/plotly-2.27.0.min.js';
             s.async = true;
-            s.onload = () => resolve();
+            s.onload = () => { lockLegendInComparisonViews(); resolve(); };
             s.onerror = () => reject(new Error('Plotly failed to load'));
             document.head.appendChild(s);
         });
