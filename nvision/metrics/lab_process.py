@@ -95,8 +95,18 @@ def run_trace(path: Path) -> dict:
             for c in state.focusCandidatesHistoryMHz
         ]
     lo, hi = np.asarray(esr.config.scanRangeMHz, dtype=float)
+    cfg = esr.config
+    baseline, contrast, fwhm = float(cfg.baseline), float(cfg.contrast), float(cfg.linewidthMHz)
+    inferred = [bool(cfg.inferBaseline), bool(cfg.inferContrast), bool(cfg.inferLinewidth)]
+    if any(inferred):
+        # Only the final particles are saved: inferred shape parameters are their weighted means (final, not per step).
+        theta = np.asarray(state.theta, dtype=float)  # shape: (n_particles, 4): centre, baseline, contrast, FWHM
+        w = np.asarray(state.weights, dtype=float)  # shape: (n_particles,)
+        baseline, contrast, fwhm = (float(v) for v in (w / w.sum()) @ theta[:, 1:4])
     return {
         "file": path.name,
+        # Dip: baseline * (1 - contrast / (1 + ((x - centre) / (fwhm / 2))^2)); centre = the step's posterior mean.
+        "model": {"baseline": baseline, "contrast": contrast, "fwhm_mhz": fwhm, "shape_final_only": any(inferred)},
         "n_steps": n,
         "scan_range_mhz": [float(lo), float(hi)],
         "step": list(range(1, n + 1)),
