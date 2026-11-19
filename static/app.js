@@ -3317,12 +3317,19 @@ function main() {
         renderMultiSelectNoiseControl(scanNoise, noiseItems, prev.length ? prev : null);
     }
 
+    // A manifest entry that carries the scan graph itself (the Run view and Bayesian
+    // analysis render from it). Metrics-only entries (sweeps, or repeats past the
+    // plotted sample) have no path and would leave the Run view empty.
+    function hasScanGraph(p) {
+        return !!p.path && /(^|\/)scan[^/]*$/.test(p.path);
+    }
+
     function updateScanStrategyControl() {
         const selectedScanGenerator = controlValue(scanGenerator);
         const selectedScanNoise = getEffectiveScanNoise();
         const availableFromPlots = new Set(
             scanPlots
-                .filter((p) => p.generator === selectedScanGenerator && p.noise === selectedScanNoise)
+                .filter((p) => p.generator === selectedScanGenerator && p.noise === selectedScanNoise && hasScanGraph(p))
                 .map((p) => p.strategy),
         );
         const gridStrategies =
@@ -3351,7 +3358,8 @@ function main() {
                     p.generator === selectedScanGenerator &&
                     p.noise === selectedScanNoise &&
                     p.strategy === selectedScanStrategy &&
-                    isSuccessRun(p)
+                    isSuccessRun(p) &&
+                    hasScanGraph(p)
             )
             .map((p) => String(p.repeat ?? p.attempt ?? 1));
         const { value: selectedRepeat, items: repeatItems } = renderSelectControl(
