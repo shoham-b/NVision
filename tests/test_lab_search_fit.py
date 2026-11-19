@@ -56,16 +56,44 @@ def test_fit_recovers_generating_parameters():
 
 
 def _run(n_d: int, n_steps: int, w: float, j_d: float = 2.0, i_max: float = 2.0) -> np.ndarray:
-    """Prior-width plateau, then van Trees from *n_d* (sigma 1/sqrt(j_d) at n_d, below a tenth of the prior)."""
+    """Prior-width plateau, then van Trees from *n_d*: one steep drop onto sigma = 1/sqrt(j_d) at step n_d."""
     n = np.arange(1, n_steps + 1, dtype=float)
     return np.where(n < n_d, w / np.sqrt(12), 1 / np.sqrt(j_d + np.clip(n - n_d, 0, None) * i_max))
 
 
+def test_detection_is_the_step_after_the_drop():
+    assert detection_step(_run(21, 200, 30.0)) == 21
+
+
+def test_detection_skips_a_drop_the_run_later_undoes():
+    # Settles on a candidate at step 5 (sigma 8 -> 0.6, the run's steepest fall), rejects it (back to 6), then finds
+    # the dip at step 30 (6 -> 0.5).
+    sigma = np.full(100, 8.0)
+    sigma[4:10] = 0.6
+    sigma[10:29] = 6.0
+    sigma[29:] = 0.5 / np.sqrt(1 + np.arange(71) * 0.5)
+    assert detection_step(sigma) == 30
+
+
+def test_detection_skips_drops_much_shallower_than_the_steepest():
+    # A halving at step 10 is far below 0.7 of the run's steepest fall (x20 at step 40), so it is search, not detection.
+    sigma = np.full(80, 10.0)
+    sigma[9:39] = 5.0
+    sigma[39:] = 0.25
+    assert detection_step(sigma) == 40
+
+
+def test_detection_is_none_when_sigma_never_falls():
+    assert detection_step(np.full(50, 5.0)) is None
+
+
+def test_detection_rejects_non_positive_sigma():
+    with pytest.raises(ValueError, match="positive"):
+        detection_step(np.array([1.0, 0.0, 0.5]))
+
+
 def test_van_trees_fit_from_detection_recovers_parameters():
-    w = 30.0
-    sigma = _run(21, 200, w)
-    assert detection_step(sigma, w) == 21
-    det = fit_van_trees_from_run_detection([sigma], w)
+    det = fit_van_trees_from_run_detection([_run(21, 200, 30.0)])
     assert det["step"] == 21
     assert det["j_d_per_mhz2"] == pytest.approx(2.0, rel=0.05)
     assert det["i_max_per_mhz2"] == pytest.approx(2.0, rel=0.05)
@@ -76,9 +104,8 @@ def test_van_trees_fit_from_detection_recovers_parameters():
 def test_runs_aligned_at_their_own_detection_start_on_the_data():
     # Runs detect at steps 10..50: the median over runs at a fixed step is a smeared cliff, but aligned at each run's
     # detection every run is the same van Trees curve, so the fit starts on sigma(n_d) = 1/sqrt(J_d).
-    w = 30.0
-    runs = [_run(n_d, 300, w) for n_d in range(10, 51, 5)]
-    det = fit_van_trees_from_run_detection(runs, w)
+    runs = [_run(n_d, 300, 30.0) for n_d in range(10, 51, 5)]
+    det = fit_van_trees_from_run_detection(runs)
     assert det["n_detected"] == det["n_runs"] == 9
     assert det["step"] == 30
     assert det["aligned_median"][0] == pytest.approx(1 / np.sqrt(2.0))
@@ -89,23 +116,21 @@ def test_runs_aligned_at_their_own_detection_start_on_the_data():
 
 def test_pinned_start_holds_when_the_tail_is_not_van_trees():
     # A first aligned point above the van Trees line: a free J_d would move the start off it, the pinned one cannot.
-    w = 30.0
-    sigma = _run(10, 200, w)
-    sigma[9] = 0.8  # below the detection level (0.87 MHz), above the line's 0.71 MHz
-    det = fit_van_trees_from_run_detection([sigma], w)
+    sigma = _run(10, 200, 30.0)
+    sigma[9] = 0.8  # above the line's 0.71 MHz, still the run's steepest drop
+    det = fit_van_trees_from_run_detection([sigma])
     assert det["step"] == 10
     assert det["model"][0] == pytest.approx(0.8)
     assert det["j_d_per_mhz2"] == pytest.approx(1 / 0.8**2)
 
 
 def test_lags_kept_while_half_the_detected_runs_reach_them():
-    w = 30.0
-    det = fit_van_trees_from_run_detection([_run(5, 20, w), _run(5, 100, w), _run(5, 100, w)], w)
+    det = fit_van_trees_from_run_detection([_run(5, 20, 30.0), _run(5, 100, 30.0), _run(5, 100, 30.0)])
     assert len(det["steps"]) == 96  # two of three runs reach lag 95
 
 
 def test_no_detection_gives_none():
-    assert fit_van_trees_from_run_detection([np.full(50, 5.0)], 20.0) is None
+    assert fit_van_trees_from_run_detection([np.full(50, 5.0)]) is None
 
 
 def test_search_fit_without_runs_has_no_detection():

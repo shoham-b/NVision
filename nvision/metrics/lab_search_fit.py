@@ -24,10 +24,14 @@ from scipy.optimize import least_squares
 # Stored fits (window*MHz_search_fit.json, a MATLAB record's search_fit) carry this; a fit without it is from the
 # older models (version 2 called J_d "j_tau"; before that v = delta_d and J_d = 12 / delta_d^2) and is refitted
 # when read.
-SEARCH_FIT_VERSION = 5  # 4 added the van Trees fit from detection ("detection"); 5 aligns each run at its own detection
+# 4 added the van Trees fit from detection ("detection"); 5 aligned each run at its own detection; 6 detects the dip
+# by the run's first steep, lasting drop of sigma instead of a sigma level.
+SEARCH_FIT_VERSION = 6
 
-# A claimed sigma below this fraction of the prior width W / sqrt(12) counts as detected (detection_step).
-DETECTION_FRACTION = 0.1
+# A one-step drop of ln sigma counts as steep when it is at least this fraction of the run's steepest one-step drop
+# (detection_step). 0.7 is where the lab runs' detection steps stop moving with it and the van Trees fit after
+# detection is best; lower values detect on an earlier step of a wide window's staircase.
+DETECTION_STEEP_FRACTION = 0.7
 
 
 def detection_weights(window: float, v: float) -> np.ndarray:
@@ -106,19 +110,34 @@ def fit_search_curve(
         "search_end_step": window / v,
         "rms_log": float(np.sqrt(np.mean(best.fun**2))),
         "model": search_model_sigma(steps, window, v, j_d, i_max),
-        "detection": None if run_sigmas is None else fit_van_trees_from_run_detection(run_sigmas, window),
+        "detection": None if run_sigmas is None else fit_van_trees_from_run_detection(run_sigmas),
     }
 
 
-def detection_step(sigma: np.ndarray, window: float) -> int | None:
-    """First step (1-based) at which *sigma* (shape (n_steps,), MHz) falls below ``DETECTION_FRACTION`` of the prior
-    width ``W / sqrt(12)``; None if it never does. Applied to one run's history, it is that run's detection.
+def detection_step(sigma: np.ndarray) -> int | None:
+    """One run's detection: the step (1-based) right after its first steep, lasting one-step drop of sigma.
+
+    *sigma*: shape (n_steps,), the run's claimed sigma after each measurement, all positive. A drop is steep when
+    ``ln sigma`` falls by at least ``DETECTION_STEEP_FRACTION`` of the run's steepest one-step fall, and lasting when
+    sigma never later climbs back above the geometric mean of its values before and after the drop (a candidate the
+    run settled on and then rejected does not count). Uses only the run's own history: no sigma level, no window.
+    None if sigma never falls or no steep drop lasts.
     """
-    below = np.flatnonzero(np.asarray(sigma, dtype=float) < DETECTION_FRACTION * window / np.sqrt(12.0))
-    return int(below[0]) + 1 if below.size else None
+    sigma = np.asarray(sigma, dtype=float)
+    if sigma.ndim != 1 or sigma.size < 2 or not np.all(sigma > 0) or not np.all(np.isfinite(sigma)):
+        raise ValueError("sigma must be a positive, finite 1-D history of at least 2 steps")
+    log_s = np.log(sigma)
+    drops = np.diff(log_s)  # drops[k]: change of ln sigma from step k+1 to step k+2, shape (n_steps - 1,)
+    steepest = drops.min()
+    if steepest >= 0:
+        return None
+    for k in np.flatnonzero(drops <= DETECTION_STEEP_FRACTION * steepest):
+        if np.all(log_s[k + 1 :] <= 0.5 * (log_s[k] + log_s[k + 1])):
+            return int(k) + 2
+    return None
 
 
-def fit_van_trees_from_run_detection(run_sigmas: list[np.ndarray], window: float) -> dict | None:
+def fit_van_trees_from_run_detection(run_sigmas: list[np.ndarray]) -> dict | None:
     """Van Trees form ``(J_d + k I_max)^-1/2`` fitted to the runs aligned at their own detection, ``k = n - n_d``.
 
     Each run's ``n_d`` is :func:`detection_step` of its own history, so the median at each lag ``k`` is not smeared
@@ -135,7 +154,7 @@ def fit_van_trees_from_run_detection(run_sigmas: list[np.ndarray], window: float
     histories = [np.asarray(s, dtype=float) for s in run_sigmas]
     if not histories or any(h.ndim != 1 for h in histories):
         raise ValueError("run_sigmas must be a non-empty list of 1-D histories")
-    detected = [(n_d, h) for h in histories if (n_d := detection_step(h, window)) is not None]
+    detected = [(n_d, h) for h in histories if (n_d := detection_step(h)) is not None]
     if not detected:
         return None
     n_ds = np.array([n_d for n_d, _ in detected], dtype=float)
