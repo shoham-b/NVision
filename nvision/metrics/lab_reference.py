@@ -22,6 +22,7 @@ from dataclasses import dataclass
 import numpy as np
 from scipy.optimize import curve_fit
 
+from nvision.metrics.lab_search_fit import fit_search_curve, is_current
 from nvision.spectra.numba_kernels import nv_center_zeeman_lorentzian_eval
 from nvision.spectra.nv_center import _check_hyperfine
 
@@ -241,6 +242,9 @@ def _sigma_curves(full: dict, held: dict, ref: dict) -> dict | None:
         out[f"all_{param}"] = [_mhz(s) for s in full["sigma_history"][param]]
         # Fitted at import (nv matlab) and stored in the record; records from before that have none.
         fit = (full.get("search_fit") or {}).get(param)
+        if fit is not None and not is_current(fit):  # older model: refit from the stored history (Hz -> MHz)
+            fit = fit_search_curve(np.asarray(full["sigma_history"][param], dtype=float) / 1e6)
+            fit["model"] = fit["model"].tolist()
         out[f"searchfit_{param}"] = None if fit is None else fit["model"]
         out[f"searchfit_{param}_params"] = None if fit is None else {k: v for k, v in fit.items() if k != "model"}
         out[f"even_{param}"] = [_mhz(s) for s in held["sigma_history"][param]]

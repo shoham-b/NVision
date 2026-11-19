@@ -187,8 +187,18 @@ async function renderLabStudy(container, name) {
             { x: c.actual_step, y: c.across_run_std, mode: 'lines', line: { color: spreadColor, width: 2.5, dash: 'dash' }, name: `${name} across-run spread`, legendgroup: name + 's' });
         fitTraces.push(...band(name + 'f'), claimed(name + 'f'),
             sf
-                ? { x: c.step, y: sf.model, mode: 'lines', line: { color: fitColor, width: 3, dash: 'dot' }, name: `${name} search model (Δd=${sf.delta_d_mhz.toPrecision(2)} MHz, I=${sf.i_max_per_mhz2.toPrecision(2)}/MHz², rms ln ${sf.rms_log.toPrecision(2)})`, legendgroup: name + 'f' }
+                ? { x: c.step, y: sf.model, mode: 'lines', line: { color: fitColor, width: 3, dash: 'dot' }, name: `${name} search + van Trees model (v=${sf.v_mhz_per_step.toPrecision(2)} MHz/meas, J_d=${sf.j_d_per_mhz2.toPrecision(2)}, I=${sf.i_max_per_mhz2.toPrecision(2)}/MHz², rms ln ${sf.rms_log.toPrecision(2)})`, legendgroup: name + 'f' }
                 : { x: c.step, y: c.step.map((n) => infoSigma(n, fit)), mode: 'lines', line: { color: fitColor, width: 3, dash: 'dot' }, name: `${name} fit (I=${fit.I.toPrecision(2)}/meas, n0=${fit.n0})`, legendgroup: name + 'f' });
+        // Van Trees fitted only from the median run's detection step on (sigma below a tenth of the prior), with a marker at that step.
+        const det = sf && sf.detection;
+        if (det) {
+            fitTraces.push({
+                x: det.steps, y: det.model, mode: 'lines+markers', line: { color: fitColor, width: 2, dash: 'dashdot' },
+                marker: { size: det.steps.map((n, i) => (i === 0 ? 11 : 0)), symbol: 'diamond', color: fitColor },
+                name: `${name} van Trees from detection n_d=${det.step} (J_d=${det.j_d_per_mhz2.toPrecision(2)}, I=${det.i_max_per_mhz2.toPrecision(2)}/MHz², rms ln ${det.rms_log.toPrecision(2)})`,
+                legendgroup: name + 'f',
+            });
+        }
     });
     // The legend sits under the axis title and needs room for every entry: size the bottom margin and the plot height from the
     // number of legend rows (spread: two entries per row, fit: one long entry per row), so it never overlaps the plot or the axis title.
@@ -408,7 +418,7 @@ function renderLabSigmaGraph(files) {
                 { x: c.steps, y: c[`even_${param}`], mode: 'lines', line: { color, width: 2, dash: 'dash' }, name: `${label}SBED, even sweeps`, legendgroup: f.id },
                 ...(c[`searchfit_${param}`] ? [{
                     x: c.steps, y: c[`searchfit_${param}`], mode: 'lines', line: { color, width: 2, dash: 'longdash' },
-                    name: `${label}search-model fit (Δd ${c[`searchfit_${param}_params`].delta_d_mhz.toPrecision(2)} MHz, rms ln ${c[`searchfit_${param}_params`].rms_log.toPrecision(2)})`,
+                    name: `${label}search + van Trees fit (v ${c[`searchfit_${param}_params`].v_mhz_per_step.toPrecision(2)} MHz/meas, J_d ${c[`searchfit_${param}_params`].j_d_per_mhz2.toPrecision(2)}/MHz², I ${c[`searchfit_${param}_params`].i_max_per_mhz2.toPrecision(2)}/MHz², rms ln ${c[`searchfit_${param}_params`].rms_log.toPrecision(2)})`,
                     legendgroup: f.id,
                 }] : []),
                 ...hline(c[`ref_${param}`], 'odd-sweep fit σ', 'dot'),

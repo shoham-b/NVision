@@ -16,6 +16,8 @@ from pathlib import Path
 import numpy as np
 import polars as pl
 
+from nvision.metrics.lab_search_fit import fit_search_curve, is_current
+
 _WINDOW_RE = re.compile(r"window(\d+)MHz_statistics_perRun\.csv")
 
 
@@ -79,10 +81,15 @@ def lab_study_payload(root: Path) -> dict:
     for w in windows:
         claimed = pl.read_csv(root / f"window{w}MHz_self_reported_std_vs_step.csv")
         actual = pl.read_csv(root / f"window{w}MHz_resonance_std_vs_step_retained.csv")
-        # Written at import (nv matlab); folders processed before that have none.
+        # Written at import (nv matlab); folders processed before that have none. A fit from the older model
+        # (without the current version) is refitted here from the median claimed sigma.
         fit_path = root / f"window{w}MHz_search_fit.json"
+        search_fit = json.loads(fit_path.read_text()) if fit_path.exists() else None
+        if search_fit is not None and not is_current(search_fit):
+            search_fit = fit_search_curve(np.asarray(claimed["medianPosteriorStdMHz"], dtype=float), float(w))
+            search_fit["model"] = search_fit["model"].tolist()
         curves[str(w)] = {
-            "search_fit": json.loads(fit_path.read_text()) if fit_path.exists() else None,
+            "search_fit": search_fit,
             "step": claimed["measurementStep"].to_list(),
             "claimed_median": claimed["medianPosteriorStdMHz"].to_list(),
             "claimed_q25": claimed["q25PosteriorStdMHz"].to_list(),
