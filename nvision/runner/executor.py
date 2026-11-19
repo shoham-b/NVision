@@ -739,8 +739,12 @@ class _TaskRunner:
                 raise
             inference_s = time.perf_counter() - repeat_start_times[i]
             stop_reasons[i] = stop_reason
-            run_results.append(run_result)
-            finalize_records.append(finalize_record)
+            if not is_streaming:
+                # Only the batched path reads these after the loop. A streaming run builds each
+                # repeat's outputs right away, so keeping every repeat's RunResult (one belief
+                # copy, i.e. the whole particle set, per step) would hold all repeats in memory.
+                run_results.append(run_result)
+                finalize_records.append(finalize_record)
 
             if self.skip_cache:
                 self._purge_cache_if_needed()
@@ -795,8 +799,10 @@ class _TaskRunner:
                         graph_mode,
                     )
 
-                # FREE MEMORY: hist_df is no longer needed locally
-                del hist_df
+                # FREE MEMORY: this repeat's history and run state are no longer needed locally.
+                # Without dropping them, the finished repeat stays alive through the whole next
+                # repeat (a deferred graph job keeps its own reference until it is spooled).
+                del hist_df, run_result, artifacts_single, res_single, entries
             else:
                 if not hist_df.is_empty():
                     history_dfs.append(hist_df)
