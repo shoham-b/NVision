@@ -364,7 +364,7 @@ def sync_source(
     record under ``<dir>/labs/<label>/sweeps/<path>.json`` (both SBED runs, or the error); a record whose
     source size/mtime and :data:`~nvision.tools.lab_sources.PROCESSING_VERSION` still match is not redone.
     """
-    from nvision.metrics.lab_process import load_bayesian_runs, write_statistics
+    from nvision.metrics.lab_process import PER_RUN_HISTORY_SUFFIX, load_bayesian_runs, write_statistics
     from nvision.metrics.lab_study import labs_dir
     from nvision.tools.lab_sources import FileIndex, resolve_source, sweep_record_is_current, sweep_record_path
 
@@ -387,12 +387,14 @@ def sync_source(
     for folder, folder_files in by_folder.items():
         rel = folder.relative_to(base)
         stats_dir = label_dir / rel / "convergence_statistics"
-        # A folder processed before window_focus.csv or the search-phase fit existed is redone (the lab's own
-        # summaries never get either).
+        # A folder processed before window_focus.csv, the search-phase fit or the per-run histories existed is
+        # redone (the lab's own summaries never get any of them).
         own_summary = (stats_dir / "window_summary.csv").exists()
         has_focus = (stats_dir / "window_focus.csv").exists() or own_summary
         has_search_fit = any(stats_dir.glob("window*MHz_search_fit.json")) or own_summary
-        if not index.folder_changed(folder_files, base) and stats_dir.exists() and has_focus and has_search_fit:
+        has_per_run = any(stats_dir.glob(f"window*MHz{PER_RUN_HISTORY_SUFFIX}")) or own_summary
+        current = has_focus and has_search_fit and has_per_run
+        if not index.folder_changed(folder_files, base) and stats_dir.exists() and current:
             continue
         own = folder / "convergence_statistics"
         try:
