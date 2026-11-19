@@ -8,7 +8,38 @@ import polars as pl
 import pytest
 import scipy.io as sio
 
-from nvision.metrics.lab_process import process_bayesian_runs
+from nvision.metrics.lab_process import process_bayesian_runs, run_trace
+
+
+def _save_trace_run(path: Path, *, n_freqs: int) -> None:
+    n = 4
+    history = np.zeros((n, 7))
+    history[:, 0], history[:, 1] = 100.0, [5.0, 3.0, 0.9, 0.5]
+    history[:, 4], history[:, 5], history[:, 6] = 80.0, 120.0, [0, 0, 1, 1]
+    state = {
+        "history": history,
+        "frequenciesMHz": np.array([90.0, 110.0, 100.5, 99.0])[:n_freqs],
+        "values": np.array([1.0, 0.9, 0.5, 0.4]),
+        "wasExploration": np.array([1, 1, 0, 0], dtype=np.uint8),
+        "stopReason": "budget",
+    }
+    config = {"scanRangeMHz": np.array([80, 120])}
+    sio.savemat(path, {"myStruct": {"BayesianESR": {"config": config, "state": state, "noConvergenceStop": 1}}})
+
+
+def test_run_trace_is_step_by_step(tmp_path):
+    _save_trace_run(tmp_path / "a.mat", n_freqs=4)
+    t = run_trace(tmp_path / "a.mat")
+    assert (t["n_steps"], t["step"], t["scan_range_mhz"]) == (4, [1, 2, 3, 4], [80.0, 120.0])
+    assert t["drive_freq_mhz"] == [90.0, 110.0, 100.5, 99.0]
+    assert (t["window_lo_mhz"][0], t["window_hi_mhz"][0], t["locked"]) == (80.0, 120.0, [0, 0, 1, 1])
+    assert t["candidates"] is None
+
+
+def test_run_trace_rejects_mismatched_frequencies(tmp_path):
+    _save_trace_run(tmp_path / "a.mat", n_freqs=2)
+    with pytest.raises(ValueError, match="frequencies"):
+        run_trace(tmp_path / "a.mat")
 
 
 def _save_run(path: Path, *, no_stop: int, std: list[float], stop_reason: str, step_count: int) -> None:

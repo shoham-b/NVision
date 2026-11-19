@@ -152,7 +152,10 @@ async function renderLabStudy(container, name) {
             <button type="button" class="bayes-tab-button is-active" role="tab" aria-selected="true" data-lab-tab="aggregated">Aggregated</button>
             <button type="button" class="bayes-tab-button" role="tab" aria-selected="false" data-lab-tab="per-run">Per Run</button>
         </div>
-        <div class="bayes-tab-panel" role="tabpanel" data-lab-pane="per-run" id="lab-per-run"></div>
+        <div class="bayes-tab-panel" role="tabpanel" data-lab-pane="per-run">
+            <div id="lab-per-run"></div>
+            <div id="lab-replay" style="margin:1.2em 0;"></div>
+        </div>
         <div class="bayes-tab-panel is-active" role="tabpanel" data-lab-pane="aggregated">
         <table style="border-collapse:collapse; width:100%; font-size:0.9em; background:#fff;">
             <thead><tr>${cols.map((c) => `<th style="${cell} background:#f8fafc; color:#475569;">${c[0]}</th>`).join('')}</tr></thead>
@@ -166,7 +169,8 @@ async function renderLabStudy(container, name) {
             <div><h3 style="margin:0 0 0.3em; font-size:1em;">Steps to convergence <span tabindex="0" class="help-icon-visible" title="Median number of measurements until the run's own stop rule fired, with the interquartile range, per drive_freq window.">?</span></h3><div id="lab-steps" style="height:420px"></div></div>
         </div>
         </div>`;
-    // Per Run is drawn the first time it is shown: Plotly lays out a hidden pane at zero width.
+    // Per Run (the run's claimed sigma and error, then the live replay of one run) is drawn the first time it is shown:
+    // Plotly lays out a hidden pane at zero width.
     let perRunDrawn = false;
     body.querySelectorAll('[data-lab-tab]').forEach((btn) => btn.addEventListener('click', () => {
         const tab = btn.dataset.labTab;
@@ -178,6 +182,7 @@ async function renderLabStudy(container, name) {
         if (tab === 'per-run' && !perRunDrawn) {
             perRunDrawn = true;
             renderLabPerRun(body.querySelector('#lab-per-run'), data);
+            renderLabReplay(body.querySelector('#lab-replay'), name, data.reference_mhz);
         }
         body.querySelectorAll(`[data-lab-pane="${tab}"] .js-plotly-plot`).forEach((gd) => Plotly.Plots.resize(gd));
     }));
@@ -351,6 +356,137 @@ function renderLabPerRun(pane, data) {
     pane.querySelector('#lab-run-prev').addEventListener('click', () => { runSel.value = String(Number(runSel.value) - 1); draw(); });
     pane.querySelector('#lab-run-next').addEventListener('click', () => { runSel.value = String(Number(runSel.value) + 1); draw(); });
     draw();
+}
+
+// Live replay of one lab run (from /api/lab-runs and /api/lab-run), laid out like the simulation's Run view: a sticky timeline
+// (Play, slider, speed) drives the measured-signal plot (samples coloured by step, focus windows shaded) and, below it, the
+// posterior evolution and parameter convergence. The lab saves the posterior of the resonance centre as a mean and a std per
+// step, so the posterior panel draws that normal approximation, not the lab's particles.
+async function renderLabReplay(host, name, referenceMhz) {
+    const api = (p) => `${window.NVISION_ASSET_PREFIX || ''}api/${p}`;
+    let files = [];
+    try {
+        const r = await fetch(api(`lab-runs?name=${encodeURIComponent(name)}`), { cache: 'no-store' });
+        if (r.ok) files = await r.json();
+    } catch (err) { /* no run files: the panel stays hidden */ }
+    if (!files.length) { host.innerHTML = ''; return; }
+    host.innerHTML = `
+        <h2 style="margin:0.6em 0 0.3em; font-size:1.2em;">Run replay <span tabindex="0" class="help-icon-visible" title="One lab run, step by step. Press Play or drag the slider: the plots show the run as it was after that many measurements.">?</span></h2>
+        <div class="sticky-selectors" style="top:0;">
+            <div class="control-row"><span class="control-label">Run:</span>
+                <select id="lab-replay-file" class="control-select" style="max-width:30em;">${files.map((f) => `<option value="${f}">${f}</option>`).join('')}</select></div>
+            <div class="global-timeline-controls">
+                <button id="lab-replay-play" class="timeline-btn" type="button"><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" style="display:inline-block; vertical-align:middle; margin-right:4px;"><path d="M8 5v14l11-7z"/></svg><span>Play</span></button>
+                <div class="timeline-slider-container">
+                    <div style="position:relative; flex:1; display:flex; align-items:center; margin-right:8px;"><input type="range" id="lab-replay-step" class="timeline-slider" min="1" max="1" value="1" style="width:100%; margin:0;"></div>
+                    <span id="lab-replay-label" class="timeline-label">Step: --</span>
+                </div>
+                <select id="lab-replay-speed" class="speed-select">
+                    <option value="500">Speed: 0.5x</option><option value="200">Speed: 1x</option><option value="100" selected>Speed: 2x</option><option value="50">Speed: 4x</option>
+                </select>
+            </div>
+        </div>
+        <div id="lab-replay-info" style="font-family:ui-monospace,monospace; font-size:0.85em; color:#334155; margin:0.5em 0 0.3em;"></div>
+        <div id="lab-replay-signal" style="width:100%; height:480px;"></div>
+        <h3 style="margin:1em 0 0.3em; font-size:1em;">Posterior evolution <span tabindex="0" class="help-icon-visible" title="Normal approximation of the posterior of the resonance centre after every step (from the posterior mean and std the lab saved), up to the shown step; the line marks the shown step. Brighter is more probable; the colour of each row is scaled to its own peak so the late, narrow posteriors stay visible.">?</span></h3>
+        <div id="lab-replay-posterior" style="width:100%; height:360px;"></div>
+        <h3 style="margin:1em 0 0.3em; font-size:1em;">Parameter convergence <span tabindex="0" class="help-icon-visible" title="Posterior std of the resonance centre against measurement step; the dot is the shown step. Dotted: the width of the focus window.">?</span></h3>
+        <div id="lab-replay-conv" style="width:100%; height:300px;"></div>`;
+    const $ = (id) => host.querySelector(`#${id}`);
+    const cfg = { responsive: true, displaylogo: false };
+    let tr = null, timer = null, heat = null;
+    const setPlaying = (on) => {
+        if (!on) { clearInterval(timer); timer = null; }
+        $('lab-replay-play').querySelector('span').textContent = on ? 'Pause' : 'Play';
+    };
+    // Posterior heatmap grid (rows: steps, columns: drive_freq), built once per run.
+    const buildHeat = () => {
+        const nx = 400, [a, b] = tr.scan_range_mhz;
+        const xs = Array.from({ length: nx }, (_, i) => a + ((b - a) * i) / (nx - 1));
+        const z = tr.mean_mhz.map((m, i) => {
+            const sd = Math.max(tr.std_mhz[i], 1e-6), row = xs.map((x) => Math.exp(-0.5 * ((x - m) / sd) ** 2));
+            const peak = Math.max(...row);
+            return row.map((v) => v / peak);
+        });
+        heat = { xs, z };
+    };
+    const draw = (k) => {
+        const last = k - 1, x = tr.step.slice(0, k), f = tr.drive_freq_mhz.slice(0, k), sig = tr.signal.slice(0, k);
+        const mean = tr.mean_mhz[last], sd = tr.std_mhz[last];
+        $('lab-replay-label').textContent = `Step: ${k}/${tr.n_steps}`;
+        $('lab-replay-step').value = k;
+        const cands = tr.candidates ? tr.candidates[last] || [] : null;
+        const lo = tr.window_lo_mhz[last], hi = tr.window_hi_mhz[last], scanW = tr.scan_range_mhz[1] - tr.scan_range_mhz[0];
+        $('lab-replay-info').textContent = `measured ${f[last].toFixed(2)} MHz${tr.exploration && tr.exploration[last] ? ' (exploration)' : ''} · posterior ${mean.toFixed(2)} ± ${sd.toFixed(2)} MHz`
+            + (cands ? ` · ${cands.length} focus candidate window(s)${cands.length ? `, narrowest ${Math.min(...cands.map(([p, q]) => q - p)).toFixed(1)} MHz` : ''}` : ` · focus window ${(hi - lo).toFixed(1)} MHz (${(100 * (hi - lo) / scanW).toFixed(0)}% of scan)${tr.locked[last] ? ', locked' : ''}`);
+
+        // Focus windows, as in the simulation view: one candidate is the settled window (solid), several are pale boxes.
+        const windows = cands !== null ? cands : (tr.locked[last] ? [[lo, hi]] : []);
+        const shapes = windows.map(([p, q]) => ({ type: 'rect', xref: 'x', yref: 'paper', x0: p, x1: q, y0: 0, y1: 1, line: { width: 0 }, layer: 'below',
+            fillcolor: windows.length === 1 ? 'rgba(245,158,11,0.22)' : 'rgba(234,88,12,0.10)' }));
+        const annotations = windows.length === 1 ? [{ text: 'focus window', x: windows[0][0], xref: 'x', y: 1, yref: 'paper', yanchor: 'bottom', xanchor: 'left', showarrow: false, font: { size: 11 } }] : [];
+        shapes.push({ type: 'rect', xref: 'x', yref: 'paper', x0: mean - sd, x1: mean + sd, y0: 0, y1: 1, line: { width: 0 }, fillcolor: 'rgba(37,99,235,0.15)', layer: 'below' });
+        if (referenceMhz != null) {
+            shapes.push({ type: 'line', xref: 'x', yref: 'paper', x0: referenceMhz, x1: referenceMhz, y0: 0, y1: 1, line: { width: 1.5, color: '#16a34a', dash: 'dash' } });
+            annotations.push({ text: 'reference resonance', x: referenceMhz, xref: 'x', y: 1, yref: 'paper', yanchor: 'bottom', xanchor: 'center', showarrow: false, font: { size: 11, color: '#16a34a' } });
+        }
+        Plotly.react('lab-replay-signal', [
+            { x: f, y: sig, mode: 'markers', name: 'measurements', marker: { size: 7, color: x, colorscale: 'Viridis', cmin: 1, cmax: tr.n_steps, colorbar: { title: { text: 'step' } } },
+              hovertemplate: 'step %{marker.color}<br>%{x:.2f} MHz<br>signal %{y:.4g}<extra></extra>' },
+            { x: [f[last]], y: [sig[last]], mode: 'markers', showlegend: false, hoverinfo: 'skip', marker: { size: 15, color: 'rgba(0,0,0,0)', line: { color: '#dc2626', width: 2 } } },
+            { x: [mean, mean], y: [Math.min(...tr.signal), Math.max(...tr.signal)], mode: 'lines', name: 'posterior mean', line: { color: '#2563eb', width: 2 }, hoverinfo: 'skip' },
+        ], {
+            margin: { t: 24, r: 10, b: 50, l: 70 }, font: { size: 13 }, shapes, annotations,
+            xaxis: { title: 'drive_freq (MHz)', range: tr.scan_range_mhz, gridcolor: '#eeeeee' },
+            yaxis: { title: 'signal', gridcolor: '#eeeeee' }, legend: { orientation: 'h', y: -0.2 },
+        }, cfg);
+
+        Plotly.react('lab-replay-posterior', [
+            { type: 'heatmap', x: heat.xs, y: tr.step.slice(0, k), z: heat.z.slice(0, k), colorscale: 'Viridis', showscale: false, hoverinfo: 'skip' },
+            { x: [mean - 2 * sd, mean + 2 * sd], y: [k, k], mode: 'lines', line: { color: '#dc2626', width: 2 }, showlegend: false, hoverinfo: 'skip' },
+        ], {
+            margin: { t: 10, r: 10, b: 50, l: 70 }, font: { size: 13 },
+            xaxis: { title: 'drive_freq (MHz)', range: tr.scan_range_mhz }, yaxis: { title: 'measurement step', range: [tr.n_steps, 1] },
+        }, cfg);
+
+        Plotly.react('lab-replay-conv', [
+            { x: tr.step, y: tr.std_mhz, mode: 'lines', name: 'posterior std', line: { color: '#cbd5e1', width: 1.5 }, hoverinfo: 'skip' },
+            { x, y: tr.std_mhz.slice(0, k), mode: 'lines', name: 'posterior std (so far)', line: { color: '#2563eb', width: 2.5 } },
+            { x: tr.step, y: tr.window_hi_mhz.map((h, i) => h - tr.window_lo_mhz[i]), mode: 'lines', name: 'focus window width', line: { color: '#f59e0b', width: 1.5, dash: 'dot' }, hoverinfo: 'skip' },
+            { x: [k], y: [sd], mode: 'markers', showlegend: false, hoverinfo: 'skip', marker: { size: 11, color: '#dc2626' } },
+        ], {
+            margin: { t: 10, r: 10, b: 60, l: 70 }, font: { size: 13 },
+            xaxis: { title: 'measurement step', range: [0, tr.n_steps + 1], gridcolor: '#eeeeee' },
+            yaxis: { title: 'MHz', type: 'log', gridcolor: '#eeeeee' }, legend: { orientation: 'h', y: -0.3 },
+        }, cfg);
+    };
+    const load = async () => {
+        setPlaying(false);
+        const r = await fetch(api(`lab-run?name=${encodeURIComponent(name)}&file=${encodeURIComponent($('lab-replay-file').value)}`), { cache: 'no-store' });
+        if (!r.ok) { $('lab-replay-info').textContent = `Failed to load run: ${(await r.json()).detail || r.status}`; return; }
+        tr = await r.json();
+        buildHeat();
+        $('lab-replay-step').max = tr.n_steps;
+        draw(tr.n_steps);
+    };
+    $('lab-replay-file').onchange = load;
+    $('lab-replay-step').oninput = (e) => { setPlaying(false); draw(Number(e.target.value)); };
+    $('lab-replay-play').onclick = () => {
+        if (timer) return setPlaying(false);
+        let k = Number($('lab-replay-step').value);
+        if (k >= tr.n_steps) k = 0;
+        setPlaying(true);
+        // The tick delay is read from the speed select every frame so changing it mid-play takes effect.
+        const tick = () => {
+            if (!timer) return;
+            k = Math.min(tr.n_steps, k + 1);
+            draw(k);
+            if (k >= tr.n_steps) return setPlaying(false);
+            timer = setTimeout(tick, Number($('lab-replay-speed').value));
+        };
+        timer = setTimeout(tick, 0);
+    };
+    load();
 }
 
 // Heading + help icon + PNG/SVG download buttons for one lab plot (wired by wireLabDownloads).

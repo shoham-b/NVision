@@ -1930,4 +1930,4 @@ tbody.ss-case.collapsed > tr:not(:first-child) { display: none; }
 #scan-section.lab-mode > *:not(.scan-controls-split):not(#lab-view) { display: none !important; }
 #scan-section.lab-mode .panel-signal > *:not(#scan-generator-family-row) { display: none !important; }
 #scan-section.lab-mode .panel-locator { display: none !important; }
-body.lab-mode #stories-view, body.lab-mode .last-run, body.lab-mode .header-actions, body.lab-mode .tab-bar { display: none !important; }
+body.lab-mode .last-run, body.lab-mode .header-actions, body.lab-mode .tab-bar { display: none !important; }
