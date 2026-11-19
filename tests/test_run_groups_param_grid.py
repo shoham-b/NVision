@@ -10,7 +10,11 @@ from nvision.sim import presets as sim_presets
 from nvision.sim import run_groups as sim_run_groups
 from nvision.sim.combinations import CombinationGrid
 from nvision.sim.gen.nv_center_generator import NVCenterCoreGenerator
-from nvision.spectra.nv_center import NV_SATURATION_C_MAX, _saturation_voigt_reparam_scalar
+from nvision.spectra.nv_center import (
+    NV_SATURATION_C_MAX,
+    _saturation_voigt_reparam_scalar,
+    max_zeeman_shift_for_window,
+)
 
 
 def test_voigt_grid_group_uses_voigt_inhom_grid_and_all_locators():
@@ -32,7 +36,7 @@ def test_voigt_grid_group_uses_voigt_inhom_grid_and_all_locators():
 def test_former_group_names_are_strategy_subsets_of_their_scenario_group():
     sim_run_groups.clear_run_group_cache()
     listed = {g.name for g in sim_run_groups.run_groups()}
-    assert listed == {"voigt-grid", "drive-control", "all"}
+    assert listed == {"voigt-grid", "voigt-wide-window", "drive-control", "all"}
     expected = {
         "both-sbed": ("voigt-grid", ["Bayesian-SBED", "SimpleSweep-optimal"]),
         "both-sbed-only": ("voigt-grid", ["Bayesian-SBED"]),
@@ -440,3 +444,41 @@ def test_signal_occupancy_counts_overlapping_lines_once(monkeypatch):
     assert nv.hyperfine_covered_width(fwhm, "n14") == pytest.approx(3 * fwhm - 2 * (fwhm - a))
     monkeypatch.setattr(nv, "hyperfine_geometry", lambda hyperfine: (a / 2.0, 0.0, 2))
     assert nv.hyperfine_covered_width(fwhm, "n15") == pytest.approx(2 * fwhm - (fwhm - a))
+
+
+def test_voigt_wide_window_group_is_the_wide_lorentzian_slice_of_the_window_grid():
+    """Spans 10/20/50 FWHM, Gaussian share 0, isotope unresolved, SNR 2/5/10, the locator study; not in ``all``."""
+    sim_run_groups.clear_run_group_cache()
+    group = sim_run_groups.get_run_group("voigt-wide-window")
+    assert group.generator_names == [
+        "NVCenter-voigt-span10-gs0-hfunresolved",
+        "NVCenter-voigt-span20-gs0-hfunresolved",
+        "NVCenter-voigt-span50-gs0-hfunresolved",
+    ]
+    assert group.noise_names == ["SNR(2)", "SNR(5)", "SNR(10)"]
+    assert group.strategy_names == sim_run_groups.get_run_group("voigt-grid").strategy_names
+    assert group.task_count == 3 * 3 * 4
+    fwhm = sim_defaults.NVISION_SBED_FWHM
+    for name, span in zip(group.generator_names, (10.0, 20.0, 50.0), strict=True):
+        gen = group.extra_generators[name]
+        assert gen.window_fwhm == pytest.approx(span)
+        assert gen.drive_freq_max_phys - gen.drive_freq_min_phys == pytest.approx(span * fwhm)
+        # The Zeeman draw range (the search width W of the search bounds) grows with the window.
+        assert gen.zeeman_max_phys == pytest.approx(max_zeeman_shift_for_window(span * fwhm))
+        assert gen.gaussian_share == 0.0
+        assert gen.hyperfine == "unresolved"
+    # The env-driven grid and ``all`` stay at windows up to MAX_WINDOW_FWHM.
+    assert not set(group.generator_names) & set(sim_run_groups.get_run_group("all").generator_names)
+
+
+def test_voigt_wide_window_generators_resolve_by_name_with_a_lorentzian_belief():
+    """``nv run-single`` resolves the wide-window names without the group, and gs0 gets the Lorentzian belief."""
+    for name, gen in sim_presets.voigt_wide_window_param_grid_generators():
+        combo = CombinationGrid().resolve(name, "SNR(2)", "Bayesian-SBED")
+        assert combo is not None
+        assert combo.generator.window_fwhm == pytest.approx(gen.window_fwhm)
+        assert combo.strategy["config"]["lineshape"] == "lorentzian"
+        assert combo.strategy["config"]["voigt_bounds_as_lorentzian"] is True
+        assert combo.strategy["config"]["hyperfine"] == "unresolved"
+        for sweep in ("SimpleSweep-optimal", "SimpleSweep-optimal-x0.5", "SimpleSweep-optimal-x2"):
+            assert CombinationGrid().resolve(name, "SNR(2)", sweep) is not None

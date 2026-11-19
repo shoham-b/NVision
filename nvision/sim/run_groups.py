@@ -12,7 +12,8 @@ To run a subset of a group's locators or signals use ``--filter-strategy`` / ``-
 group                 generators                                  noise               strategies
 ====================  ==========================================  ==================  ===========================
 ``voigt-grid``        Voigt window/FWHM x share x isotope         SNR grid            locator study (below)
-``drive-control``     CW / pulsed drive-controlled NV x isotope   SNR grid (nominal)  Bayesian-SBED, -SBED-Drive
+``voigt-wide-window`` window 10/20/50 FWHM, Lorentzian, unresolved SNR 2, 5, 10        locator study (below)
+``drive-control``    CW / pulsed drive-controlled NV x isotope   SNR grid (nominal)  Bayesian-SBED, -SBED-Drive
 ``all``               ``voigt-grid`` only (not ``drive-control``) SNR grid            locator study (below)
 ====================  ==========================================  ==================  ===========================
 
@@ -124,6 +125,26 @@ def _group_voigt_grid() -> RunGroup:
     )
 
 
+def _group_voigt_wide_window() -> RunGroup:
+    """The locator study at wide drive windows (10-50 total FWHMs), where the search for the dip takes a sizeable
+    part of the budget: the data for the search-stage claims that ``voigt-grid`` (windows up to
+    ``MAX_WINDOW_FWHM``, in practice <= 5) cannot test. Lorentzian lines (Gaussian share 0), unresolved isotope,
+    SNR 2/5/10. Run explicitly; not part of ``all``."""
+    return _group(
+        "voigt-wide-window",
+        f"Wide drive windows ({', '.join(f'{s:g}' for s in sim_presets.WIDE_WINDOW_SPANS)} FWHM), Lorentzian line, "
+        f"unresolved isotope x SNR {', '.join(f'{s:g}' for s in WIDE_WINDOW_SNR_VALUES)}; {_STUDY_LOCATORS}.",
+        dict(sim_presets.voigt_wide_window_param_grid_generators()),
+        [sim_presets.snr_noise_name(snr) for snr in WIDE_WINDOW_SNR_VALUES],
+        list(_LOCATOR_STUDY_STRATEGIES),
+    )
+
+
+# SNR levels of ``voigt-wide-window``: SNR 1 would exhaust every locator's budget on the search alone, and 20 adds
+# nothing past 10 for the search question.
+WIDE_WINDOW_SNR_VALUES: tuple[float, ...] = (2.0, 5.0, 10.0)
+
+
 def _group_drive_control() -> RunGroup:
     """Drive-choosing SBED vs fixed-drive SBED on the CW and pulsed drive-controlled generators."""
     return _group(
@@ -188,6 +209,7 @@ def alias_names() -> list[str]:
 def _run_groups_tuple() -> tuple[RunGroup, ...]:
     return (
         _group_voigt_grid(),
+        _group_voigt_wide_window(),
         _group_drive_control(),
         _group_all(),
     )

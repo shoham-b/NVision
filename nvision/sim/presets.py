@@ -299,7 +299,11 @@ def _fmt_gaussian_share(share: float) -> str:
     return f"gs{share:g}"
 
 
-def voigt_snr_window_param_grid_generators() -> list[tuple[str, object]]:
+def voigt_snr_window_param_grid_generators(
+    spans: tuple[float, ...] | None = None,
+    gaussian_shares: tuple[float, ...] | None = None,
+    hyperfine_values: tuple[str, ...] | None = None,
+) -> list[tuple[str, object]]:
     """Window-in-FWHM x Gaussian-share x isotope grid of named plain-Voigt generators (the SNR study's signals).
 
     One thing changes per axis:
@@ -321,6 +325,10 @@ def voigt_snr_window_param_grid_generators() -> list[tuple[str, object]]:
       the isotope's edge padding below ``zeeman_max`` (such as a 5-FWHM window for the 14N triplet) are omitted.
     * **SNR** is not a generator axis: every generator carries the same ``contrast_total``
       (``NVISION_SBED_SNR_CONTRAST``) and a run is named ``SNR(x)`` (:func:`snr_study_noises`).
+
+    ``spans``, ``gaussian_shares`` and ``hyperfine_values`` default to ``NVISION_SBED_WINDOW_SPANS``,
+    ``NVISION_SBED_GAUSSIAN_SHARES`` and ``NVISION_SBED_HYPERFINE_VALUES``; passing them builds another slice of the
+    same grid, with the same construction and names (:func:`voigt_wide_window_param_grid_generators`).
     """
     from nvision.sim.defaults import (
         NVISION_SBED_FWHM,
@@ -340,11 +348,15 @@ def voigt_snr_window_param_grid_generators() -> list[tuple[str, object]]:
         zeeman_shift_edge_pad,
     )
 
+    spans = NVISION_SBED_WINDOW_SPANS if spans is None else spans
+    gaussian_shares = NVISION_SBED_GAUSSIAN_SHARES if gaussian_shares is None else gaussian_shares
+    hyperfine_values = NVISION_SBED_HYPERFINE_VALUES if hyperfine_values is None else hyperfine_values
+
     generators: list[tuple[str, object]] = []
-    for span in NVISION_SBED_WINDOW_SPANS:
+    for span in spans:
         if span < 1.0:
             raise ValueError(f"Window span must be >= 1 signal width, got {span}")
-        for share in NVISION_SBED_GAUSSIAN_SHARES:
+        for share in gaussian_shares:
             if not 0.0 <= share < 1.0:
                 raise ValueError(f"Gaussian share must be in [0, 1), got {share}")
             hwhm_lorentz = (1.0 - share) * NVISION_SBED_FWHM / 2.0
@@ -356,7 +368,7 @@ def voigt_snr_window_param_grid_generators() -> list[tuple[str, object]]:
             sigma_inhom = share * NVISION_SBED_FWHM / (2.0 * _SATURATION_VOIGT_SQRT2LOG2)
             fwhm_total, _ = _voigt_reparam_scalar(hwhm_lorentz, sigma_inhom)
 
-            for hyperfine in NVISION_SBED_HYPERFINE_VALUES:
+            for hyperfine in hyperfine_values:
                 window = hyperfine_covered_width(fwhm_total, hyperfine) * span
                 zeeman_max = max_zeeman_shift_for_window(window)
                 pad = zeeman_shift_edge_pad(fwhm_total, hyperfine_geometry(hyperfine)[0])
@@ -379,6 +391,26 @@ def voigt_snr_window_param_grid_generators() -> list[tuple[str, object]]:
                     )
                 )
     return generators
+
+
+# The wide-window slice of the SNR x window grid (run group ``voigt-wide-window``): windows of 10-50 total FWHMs,
+# where finding the dip (the search stage) is a sizeable part of the budget. Pure Lorentzian (Gaussian share 0) and
+# the unresolved isotope only. Kept out of the env-driven default grid on purpose: ``voigt-grid`` stops at
+# ``run_groups.MAX_WINDOW_FWHM`` and this slice is the opt-in way past it.
+WIDE_WINDOW_SPANS: tuple[float, ...] = (10.0, 20.0, 50.0)
+WIDE_WINDOW_GAUSSIAN_SHARES: tuple[float, ...] = (0.0,)
+WIDE_WINDOW_HYPERFINE_VALUES: tuple[str, ...] = ("unresolved",)
+
+
+def voigt_wide_window_param_grid_generators() -> list[tuple[str, object]]:
+    """The wide-window slice of :func:`voigt_snr_window_param_grid_generators`, built the same way and named the same
+    way (e.g. ``NVCenter-voigt-span50-gs0-hfunresolved``): spans ``WIDE_WINDOW_SPANS``, Gaussian share 0, isotope
+    unresolved."""
+    return voigt_snr_window_param_grid_generators(
+        spans=WIDE_WINDOW_SPANS,
+        gaussian_shares=WIDE_WINDOW_GAUSSIAN_SHARES,
+        hyperfine_values=WIDE_WINDOW_HYPERFINE_VALUES,
+    )
 
 
 def saturation_voigt_param_grid_generators() -> list[tuple[str, object]]:
