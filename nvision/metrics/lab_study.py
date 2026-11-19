@@ -16,7 +16,7 @@ from pathlib import Path
 import numpy as np
 import polars as pl
 
-from nvision.metrics.lab_process import PER_RUN_STD_SUFFIX
+from nvision.metrics.lab_process import PER_RUN_HISTORY_SUFFIX
 from nvision.metrics.lab_search_fit import fit_search_curve, is_current
 
 _WINDOW_RE = re.compile(r"window(\d+)MHz_statistics_perRun\.csv")
@@ -38,8 +38,10 @@ def lab_study_payload(root: Path) -> dict:
     ``curves[window]`` holds arrays over ``step`` (1-based measurement count):
     ``claimed_median/q25/q75`` (the runs' self-reported posterior std) and ``across_run_std``
     (the std of the runs' posterior means at that step: scatter between runs, not an error against a truth).
-    ``curves[window]["runs"]`` is every run's own claimed sigma (see :func:`_per_run_stds`), or None for a folder
-    imported before those histories were written.
+    ``curves[window]["runs"]`` is every run's own estimate, claimed sigma and error against the reference (see
+    :func:`_per_run_histories`), and ``curves[window]["rms_err_mhz"]`` the rms over runs of that error at each step
+    (shape (n_steps,) over the steps every run reached); both are None for a folder imported before those histories
+    were written.
     """
     windows = _windows(root)
     runs = pl.concat(
@@ -51,6 +53,10 @@ def lab_study_payload(root: Path) -> dict:
     )
     n_runs = {w: n for w, n in runs.group_by("window").len().iter_rows()}
     conv = runs.filter(pl.col("converged") == 1)
+    if conv.is_empty():
+        raise ValueError(
+            f"No converged run in {root}: the reference resonance (median converged final mean) is undefined"
+        )
     ref = float(conv["finalMeanMHz"].median())
     conv = conv.with_columns(
         ((pl.col("finalMeanMHz") - ref).abs() / pl.col("finalStdMHz")).alias("z"),
@@ -91,9 +97,11 @@ def lab_study_payload(root: Path) -> dict:
         if search_fit is not None and not is_current(search_fit):
             search_fit = fit_search_curve(np.asarray(claimed["medianPosteriorStdMHz"], dtype=float), float(w))
             search_fit["model"] = search_fit["model"].tolist()
+        per_run = _per_run_histories(root, w, runs.filter(pl.col("window") == w), ref)
         curves[str(w)] = {
             "search_fit": search_fit,
-            "runs": _per_run_stds(root, w, runs.filter(pl.col("window") == w)),
+            "runs": per_run,
+            "rms_err_mhz": None if per_run is None else _rms_error(per_run),
             "step": claimed["measurementStep"].to_list(),
             "claimed_median": claimed["medianPosteriorStdMHz"].to_list(),
             "claimed_q25": claimed["q25PosteriorStdMHz"].to_list(),
@@ -107,15 +115,17 @@ def lab_study_payload(root: Path) -> dict:
     return {"reference_mhz": ref, "windows": rows, "curves": curves, "focus": _focus_rows(root, n_runs)}
 
 
-def _per_run_stds(root: Path, window: int, per_run_stats: pl.DataFrame) -> list[dict] | None:
-    """One window's runs as ``{"run_number", "file", "steps_to_convergence", "converged", "std_mhz"}``, or None.
+def _per_run_histories(root: Path, window: int, per_run_stats: pl.DataFrame, reference_mhz: float) -> list[dict] | None:
+    """One window's runs as ``{"run_number", "file", "steps_to_convergence", "converged", "mean_mhz", "std_mhz",
+    "err_mhz"}``, or None.
 
-    ``std_mhz`` has shape (n_steps,) in MHz: the run's self-reported posterior std after each measurement (runs may
-    differ in length). Rows follow ``statistics_perRun`` (``run_number``); ``file`` is the lab's run name. None when
-    the folder has no per-run file (imported before it existed); a file that disagrees with ``statistics_perRun``
-    raises.
+    ``mean_mhz``, ``std_mhz`` and ``err_mhz`` have shape (n_steps,) in MHz, after each measurement: the run's posterior
+    mean, its self-reported posterior std, and its error ``mean_mhz - reference_mhz`` against the lab reference
+    resonance (runs may differ in length). Rows follow ``statistics_perRun`` (``run_number``); ``file`` is the lab's
+    run name. None when the folder has no per-run file (imported before it existed); a file that disagrees with
+    ``statistics_perRun`` raises.
     """
-    path = root / f"window{window}MHz{PER_RUN_STD_SUFFIX}"
+    path = root / f"window{window}MHz{PER_RUN_HISTORY_SUFFIX}"
     if not path.exists():
         return None
     runs = json.loads(path.read_text())["runs"]
@@ -131,10 +141,19 @@ def _per_run_stds(root: Path, window: int, per_run_stats: pl.DataFrame) -> list[
             "file": r["file"],
             "steps_to_convergence": stats["stepsToConvergence"],
             "converged": bool(stats["converged"]),
+            "mean_mhz": r["mean_mhz"],
             "std_mhz": r["std_mhz"],
+            "err_mhz": (np.asarray(r["mean_mhz"], dtype=float) - reference_mhz).tolist(),
         }
         for r, stats in zip(runs, per_run_stats.iter_rows(named=True), strict=True)
     ]
+
+
+def _rms_error(per_run: list[dict]) -> list[float]:
+    """Rms over runs of ``err_mhz`` at each step, shape (n_steps,) in MHz, over the steps every run reached."""
+    n_steps = min(len(r["err_mhz"]) for r in per_run)
+    err = np.stack([np.asarray(r["err_mhz"][:n_steps], dtype=float) for r in per_run])  # (n_runs, n_steps)
+    return np.sqrt(np.mean(err**2, axis=0)).tolist()
 
 
 def _median_or_none(col: pl.Series) -> float | None:

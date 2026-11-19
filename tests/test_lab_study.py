@@ -74,8 +74,17 @@ def test_focus_rows_are_rates_over_all_runs(tmp_path):
 
 
 def _write_per_run(root: Path, w: int, run_numbers: list[int]) -> None:
-    runs = [{"run_number": n, "file": f"Run_{w}MHz_{n}", "std_mhz": [5.0, 1.0 / n]} for n in run_numbers]
-    (root / f"window{w}MHz_per_run_std.json").write_text(json.dumps({"runs": runs}))
+    # Run n: estimate 100 + n then 100 - n MHz (error +n, -n against the reference 100 MHz); run 4 has a third step.
+    runs = [
+        {
+            "run_number": n,
+            "file": f"Run_{w}MHz_{n}",
+            "mean_mhz": [100.0 + n, 100.0 - n] + ([100.0] if n == 4 else []),
+            "std_mhz": [5.0, 1.0 / n] + ([0.1] if n == 4 else []),
+        }
+        for n in run_numbers
+    ]
+    (root / f"window{w}MHz_per_run_history.json").write_text(json.dumps({"runs": runs}))
 
 
 def _with_run_numbers(root: Path, w: int) -> None:
@@ -93,16 +102,38 @@ def test_per_run_histories_are_served_with_their_stop(tmp_path):
     assert [r["steps_to_convergence"] for r in runs] == [10, 20, 30, 40]
     assert [r["converged"] for r in runs] == [True, True, True, False]
     assert runs[1]["std_mhz"] == [5.0, 0.5]
+    assert runs[1]["mean_mhz"] == [102.0, 98.0]
+    assert runs[1]["err_mhz"] == pytest.approx([2.0, -2.0])  # against the reference, 100 MHz
+    assert runs[3]["err_mhz"] == pytest.approx([4.0, -4.0, 0.0])
+
+
+def test_rms_error_is_over_runs_at_each_common_step(tmp_path):
+    _write_window(tmp_path, 40)
+    _with_run_numbers(tmp_path, 40)
+    _write_per_run(tmp_path, 40, [1, 2, 3, 4])
+    rms = lab_study_payload(tmp_path)["curves"]["40"]["rms_err_mhz"]
+    # Errors +-1..4 at both steps; the third step only run 4 reached is left out.
+    assert rms == pytest.approx([7.5**0.5, 7.5**0.5])
 
 
 def test_per_run_is_none_for_folders_imported_before_it(tmp_path):
     _write_window(tmp_path, 40)
-    assert lab_study_payload(tmp_path)["curves"]["40"]["runs"] is None
+    curve = lab_study_payload(tmp_path)["curves"]["40"]
+    assert curve["runs"] is None
+    assert curve["rms_err_mhz"] is None
 
 
 def test_per_run_file_disagreeing_with_stats_raises(tmp_path):
     _write_window(tmp_path, 40)
     _with_run_numbers(tmp_path, 40)
     _write_per_run(tmp_path, 40, [1, 2, 3])
-    with pytest.raises(ValueError, match="per_run_std"):
+    with pytest.raises(ValueError, match="per_run_history"):
+        lab_study_payload(tmp_path)
+
+
+def test_no_converged_run_has_no_reference_and_raises(tmp_path):
+    _write_window(tmp_path, 40)
+    path = tmp_path / "window40MHz_statistics_perRun.csv"
+    pl.read_csv(path).with_columns(pl.lit(0).alias("converged")).write_csv(path)
+    with pytest.raises(ValueError, match="reference"):
         lab_study_payload(tmp_path)

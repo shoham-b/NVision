@@ -161,7 +161,7 @@ async function renderLabStudy(container, name) {
         <p style="color:#475569; font-size:0.85em;">No ground truth exists for real data: error is measured against the reference, so the across-run std also contains any real drift of the resonance between runs. Read "Spread ÷ claimed σ" as an upper bound on miscalibration: the runs disagree with each other by that many times the σ each one claims.</p>
         ${focusTable}
         <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(420px, 1fr)); gap:1em;">
-            <div>${labPlotHead('Claimed σ vs across-run spread', "Solid: median self-reported posterior std (band: quartiles). Dashed: how far the runs' posterior means scatter from each other at that step (std across runs; not an error against a known truth). Dashed above solid means the runs disagree more than they claim. Both include only runs still measuring at that step.", 'lab-spread')}<div id="lab-spread" style="height:420px"></div></div>
+            <div>${labPlotHead('Claimed σ vs spread and error', "Solid: median self-reported posterior std (band: quartiles). Dashed: how far the runs' posterior means scatter from each other at that step (std across runs; not an error against a known truth). Dotted: rms over runs of each run's error (posterior mean − reference resonance) at that step: the evidence the claimed σ should match. During the search all runs sit near the window centre and agree, so the spread is small while the error is not. Dashed or dotted above solid means the runs are more uncertain than they claim. The spread includes only runs still measuring at that step, the error only the steps every run reached; folders imported before per-run histories were saved have no error curve.", 'lab-spread')}<div id="lab-spread" style="height:420px"></div></div>
             <div>${labPlotHead('Claimed σ vs fit', 'Solid: median self-reported posterior std. Dotted: the article\'s search-phase model (elimination search over the window W, then information I per measurement), fitted to the median at import with W fixed and the reach Δd and I free. Folders imported before the fit existed show the older fit σ = 1/√(J0 + I·(n − n0)) instead.', 'lab-fit')}<div id="lab-fit" style="height:420px"></div></div>
             <div><h3 style="margin:0 0 0.3em; font-size:1em;">Steps to convergence <span tabindex="0" class="help-icon-visible" title="Median number of measurements until the run's own stop rule fired, with the interquartile range, per drive_freq window.">?</span></h3><div id="lab-steps" style="height:420px"></div></div>
         </div>
@@ -205,6 +205,9 @@ async function renderLabStudy(container, name) {
         const claimed = (group) => ({ x: c.step, y: c.claimed_median, mode: 'lines', line: { color: claimedColor, width: 2.5 }, name: `${name} claimed σ`, legendgroup: group });
         spreadTraces.push(...band(name + 's'), claimed(name + 's'),
             { x: c.actual_step, y: c.across_run_std, mode: 'lines', line: { color: spreadColor, width: 2.5, dash: 'dash' }, name: `${name} across-run spread`, legendgroup: name + 's' });
+        if (c.rms_err_mhz) {
+            spreadTraces.push({ x: c.rms_err_mhz.map((_, k) => k + 1), y: c.rms_err_mhz, mode: 'lines', line: { color: spreadColor, width: 2.5, dash: 'dot' }, name: `${name} rms error vs reference`, legendgroup: name + 's' });
+        }
         fitTraces.push(...band(name + 'f'), claimed(name + 'f'),
             sf
                 ? { x: c.step, y: sf.model, mode: 'lines', line: { color: fitColor, width: 3, dash: 'dot' }, name: `${name} search + van Trees model (v=${sf.v_mhz_per_step.toPrecision(2)} MHz/meas, J_d=${sf.j_d_per_mhz2.toPrecision(2)}, I=${sf.i_max_per_mhz2.toPrecision(2)}/MHz², rms ln ${sf.rms_log.toPrecision(2)})`, legendgroup: name + 'f' }
@@ -221,7 +224,7 @@ async function renderLabStudy(container, name) {
         }
     });
     // The legend sits under the axis title and needs room for every entry: size the bottom margin and the plot height from the
-    // number of legend rows (spread: two entries per row, fit: one long entry per row), so it never overlaps the plot or the axis title.
+    // number of legend rows (one entry per row: each window's group of lines stacks vertically, and at most two groups share a row), so it never overlaps the plot or the axis title.
     const sigmaPlot = (id, traces, perRow, filename, title) => {
         const rows = Math.ceil(traces.filter((t) => t.showlegend !== false).length / perRow);
         const bottom = 70 + 24 * rows, plotH = 330;
@@ -240,9 +243,9 @@ async function renderLabStudy(container, name) {
             modeBarButtonsToAdd: [{ name: 'Download figure (PNG)', icon: Plotly.Icons.camera, click: () => labExport(id, filename, title, 'png') }],
         });
     };
-    sigmaPlot('lab-spread', spreadTraces, 2, 'claimed-sigma-vs-spread', 'Claimed σ vs across-run spread');
+    sigmaPlot('lab-spread', spreadTraces, 1, 'claimed-sigma-vs-spread', 'Claimed σ vs spread and error');
     sigmaPlot('lab-fit', fitTraces, 1, 'claimed-sigma-vs-fit', 'Claimed σ vs fit');
-    wireLabDownloads('lab-spread', 'claimed-sigma-vs-spread', 'Claimed σ vs across-run spread');
+    wireLabDownloads('lab-spread', 'claimed-sigma-vs-spread', 'Claimed σ vs spread and error');
     wireLabDownloads('lab-fit', 'claimed-sigma-vs-fit', 'Claimed σ vs fit');
     const w = data.windows;
     Plotly.newPlot('lab-steps', [{
@@ -287,7 +290,7 @@ function renderLabPerRun(pane, data) {
             </div>
         </div>
         <p id="lab-run-summary" style="margin:0 0 0.5em; color:#475569; font-size:0.85em;"></p>
-        ${labPlotHead('Claimed σ of one run', "Solid: this run's self-reported posterior std after each measurement. Grey: the median and quartiles over all runs of the window, as on the Aggregated tab. Dotted: the prior σ = W/√12 of the drive_freq window and a tenth of it; the diamond marks the step at which this run's σ first falls below that tenth (its detection), the circle the step at which the precision stop fired (replayed for full-budget runs).", 'lab-run-sigma')}
+        ${labPlotHead('Claimed σ and error of one run', "Solid blue: this run's self-reported posterior std after each measurement. Red: its actual error |posterior mean − reference resonance| (the reference is the median final mean of the study's converged runs); red above blue means the run claims more precision than it has. Grey: the median and quartiles over all runs of the window, as on the Aggregated tab. Dotted: the prior σ = W/√12 of the drive_freq window and a tenth of it; the diamond marks the step at which this run's σ first falls below that tenth (its detection), the circle the step at which the precision stop fired (replayed for full-budget runs).", 'lab-run-sigma')}
         <div id="lab-run-sigma" style="height:520px"></div>`;
     const winSel = pane.querySelector('#lab-run-window');
     const runSel = pane.querySelector('#lab-run');
@@ -315,17 +318,18 @@ function renderLabPerRun(pane, data) {
             hline(prior, `prior σ = W/√12 (${prior.toPrecision(3)} MHz)`),
             hline(prior / 10, 'prior σ / 10'),
             { x: steps, y: r.std_mhz, mode: 'lines', line: { color: runColor, width: 2.5 }, name: `${r.file} claimed σ` },
+            { x: steps, y: r.err_mhz.map(Math.abs), mode: 'lines', line: { color: '#dc2626', width: 1.8 }, name: `${r.file} |mean − reference|` },
         ];
         if (det !== null) traces.push(at(det, 'diamond', `σ < prior/10 at step ${det}`));
         if (r.converged) traces.push(at(r.steps_to_convergence, 'circle', `precision stop at step ${r.steps_to_convergence}`));
-        pane.querySelector('#lab-run-summary').textContent = `${r.file} (run ${Number(runSel.value) + 1} of ${runsOf(w).length} in the ${w} MHz window): ${steps.length} measurements; claimed σ first below a tenth of the prior at step ${det ?? '– (never)'}; precision stop ${r.converged ? `at step ${r.steps_to_convergence}` : 'never fired'}.`;
+        pane.querySelector('#lab-run-summary').textContent = `${r.file} (run ${Number(runSel.value) + 1} of ${runsOf(w).length} in the ${w} MHz window): ${steps.length} measurements; claimed σ first below a tenth of the prior at step ${det ?? '– (never)'}; precision stop ${r.converged ? `at step ${r.steps_to_convergence}` : 'never fired'}; final error ${Math.abs(r.err_mhz[r.err_mhz.length - 1]).toPrecision(2)} MHz against claimed σ ${r.std_mhz[r.std_mhz.length - 1].toPrecision(2)} MHz.`;
         // Legend under the axis title, two entries per row, sized as on the Aggregated tab (labExport reads dataset.rows).
         const rows = Math.ceil(traces.filter((t) => t.showlegend !== false).length / 2);
         const bottom = 70 + 24 * rows, plotH = 380;
         const el = document.getElementById('lab-run-sigma');
         el.dataset.rows = rows;
         el.style.height = `${plotH + bottom + 10}px`;
-        const filename = `claimed-sigma-${r.file}`, title = `Claimed σ of ${r.file}`;
+        const filename = `claimed-sigma-${r.file}`, title = `Claimed σ and error of ${r.file}`;
         Plotly.react(el, traces, {
             margin: { t: 10, r: 10, b: bottom, l: 60 }, hovermode: 'x unified', font: { size: 13 },
             xaxis: { title: { text: 'measurement step', standoff: 8 }, type: 'log', gridcolor: '#eeeeee' },
