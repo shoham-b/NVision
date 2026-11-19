@@ -1,5 +1,6 @@
 """Lab Bayesian-run processing: replayed stop for full-budget runs, kept stop for precision-stopped runs."""
 
+import json
 from pathlib import Path
 
 import numpy as np
@@ -76,3 +77,17 @@ def test_window_focus_steps_are_relative_to_the_reference(tmp_path):
 def test_window_focus_is_empty_without_recorded_candidates(tmp_path):
     _save_run(tmp_path / "a.mat", no_stop=1, std=[5.0, 3.0, 0.9, 0.5], stop_reason="budget", step_count=4)
     assert pl.read_csv(process_bayesian_runs(tmp_path) / "window_focus.csv").height == 0
+
+
+def test_per_run_std_keeps_every_runs_full_history_in_stats_order(tmp_path):
+    # Runs of different lengths: the quartile CSV keeps the common prefix, the per-run file every step of each run.
+    _save_run(tmp_path / "Run_40MHz_2.mat", no_stop=1, std=[5.0, 3.0, 0.9], stop_reason="budget", step_count=3)
+    _save_run(tmp_path / "Run_40MHz_10.mat", no_stop=1, std=[4.0, 0.8, 0.5, 0.4], stop_reason="budget", step_count=4)
+    out = process_bayesian_runs(tmp_path)
+    runs = json.loads((out / "window40MHz_per_run_std.json").read_text())["runs"]
+    stats = pl.read_csv(out / "window40MHz_statistics_perRun.csv")
+    assert [r["run_number"] for r in runs] == stats["runNumber"].to_list() == [1, 2]
+    assert [r["file"] for r in runs] == ["Run_40MHz_10", "Run_40MHz_2"]  # sorted by file name, as the stats rows
+    assert runs[0]["std_mhz"] == pytest.approx([4.0, 0.8, 0.5, 0.4])
+    assert runs[1]["std_mhz"] == pytest.approx([5.0, 3.0, 0.9])
+    assert stats["stepsToConvergence"].to_list() == [2, 3]

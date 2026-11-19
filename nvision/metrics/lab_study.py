@@ -16,6 +16,7 @@ from pathlib import Path
 import numpy as np
 import polars as pl
 
+from nvision.metrics.lab_process import PER_RUN_STD_SUFFIX
 from nvision.metrics.lab_search_fit import fit_search_curve, is_current
 
 _WINDOW_RE = re.compile(r"window(\d+)MHz_statistics_perRun\.csv")
@@ -37,6 +38,8 @@ def lab_study_payload(root: Path) -> dict:
     ``curves[window]`` holds arrays over ``step`` (1-based measurement count):
     ``claimed_median/q25/q75`` (the runs' self-reported posterior std) and ``across_run_std``
     (the std of the runs' posterior means at that step: scatter between runs, not an error against a truth).
+    ``curves[window]["runs"]`` is every run's own claimed sigma (see :func:`_per_run_stds`), or None for a folder
+    imported before those histories were written.
     """
     windows = _windows(root)
     runs = pl.concat(
@@ -90,6 +93,7 @@ def lab_study_payload(root: Path) -> dict:
             search_fit["model"] = search_fit["model"].tolist()
         curves[str(w)] = {
             "search_fit": search_fit,
+            "runs": _per_run_stds(root, w, runs.filter(pl.col("window") == w)),
             "step": claimed["measurementStep"].to_list(),
             "claimed_median": claimed["medianPosteriorStdMHz"].to_list(),
             "claimed_q25": claimed["q25PosteriorStdMHz"].to_list(),
@@ -101,6 +105,36 @@ def lab_study_payload(root: Path) -> dict:
             "prior_sigma_mhz": w / float(np.sqrt(12.0)),
         }
     return {"reference_mhz": ref, "windows": rows, "curves": curves, "focus": _focus_rows(root, n_runs)}
+
+
+def _per_run_stds(root: Path, window: int, per_run_stats: pl.DataFrame) -> list[dict] | None:
+    """One window's runs as ``{"run_number", "file", "steps_to_convergence", "converged", "std_mhz"}``, or None.
+
+    ``std_mhz`` has shape (n_steps,) in MHz: the run's self-reported posterior std after each measurement (runs may
+    differ in length). Rows follow ``statistics_perRun`` (``run_number``); ``file`` is the lab's run name. None when
+    the folder has no per-run file (imported before it existed); a file that disagrees with ``statistics_perRun``
+    raises.
+    """
+    path = root / f"window{window}MHz{PER_RUN_STD_SUFFIX}"
+    if not path.exists():
+        return None
+    runs = json.loads(path.read_text())["runs"]
+    numbers = [r["run_number"] for r in runs]
+    if numbers != per_run_stats["runNumber"].to_list():
+        raise ValueError(
+            f"{path.name} has runs {numbers}, but window{window}MHz_statistics_perRun.csv has "
+            f"{per_run_stats['runNumber'].to_list()}"
+        )
+    return [
+        {
+            "run_number": r["run_number"],
+            "file": r["file"],
+            "steps_to_convergence": stats["stepsToConvergence"],
+            "converged": bool(stats["converged"]),
+            "std_mhz": r["std_mhz"],
+        }
+        for r, stats in zip(runs, per_run_stats.iter_rows(named=True), strict=True)
+    ]
 
 
 def _median_or_none(col: pl.Series) -> float | None:

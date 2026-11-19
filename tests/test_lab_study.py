@@ -1,5 +1,6 @@
 """Lab study payload: shape and calibration arithmetic on a tiny synthetic convergence_statistics folder."""
 
+import json
 from pathlib import Path
 
 import polars as pl
@@ -70,3 +71,38 @@ def test_focus_rows_are_rates_over_all_runs(tmp_path):
     assert (row["found_rate"], row["found_step"], row["cover_step"], row["stable_step"]) == (0.25, 8.0, 10.0, 12.0)
     assert row["n_runs"] == 4
     assert row["locked_rate"] == 0.25
+
+
+def _write_per_run(root: Path, w: int, run_numbers: list[int]) -> None:
+    runs = [{"run_number": n, "file": f"Run_{w}MHz_{n}", "std_mhz": [5.0, 1.0 / n]} for n in run_numbers]
+    (root / f"window{w}MHz_per_run_std.json").write_text(json.dumps({"runs": runs}))
+
+
+def _with_run_numbers(root: Path, w: int) -> None:
+    path = root / f"window{w}MHz_statistics_perRun.csv"
+    stats = pl.read_csv(path)
+    stats.with_columns(pl.Series("runNumber", range(1, stats.height + 1))).write_csv(path)
+
+
+def test_per_run_histories_are_served_with_their_stop(tmp_path):
+    _write_window(tmp_path, 40)
+    _with_run_numbers(tmp_path, 40)
+    _write_per_run(tmp_path, 40, [1, 2, 3, 4])
+    runs = lab_study_payload(tmp_path)["curves"]["40"]["runs"]
+    assert [r["file"] for r in runs] == ["Run_40MHz_1", "Run_40MHz_2", "Run_40MHz_3", "Run_40MHz_4"]
+    assert [r["steps_to_convergence"] for r in runs] == [10, 20, 30, 40]
+    assert [r["converged"] for r in runs] == [True, True, True, False]
+    assert runs[1]["std_mhz"] == [5.0, 0.5]
+
+
+def test_per_run_is_none_for_folders_imported_before_it(tmp_path):
+    _write_window(tmp_path, 40)
+    assert lab_study_payload(tmp_path)["curves"]["40"]["runs"] is None
+
+
+def test_per_run_file_disagreeing_with_stats_raises(tmp_path):
+    _write_window(tmp_path, 40)
+    _with_run_numbers(tmp_path, 40)
+    _write_per_run(tmp_path, 40, [1, 2, 3])
+    with pytest.raises(ValueError, match="per_run_std"):
+        lab_study_payload(tmp_path)

@@ -148,6 +148,12 @@ async function renderLabStudy(container, name) {
         </table>` : '';
     body.innerHTML = `
         <p style="margin:0 0 0.5em; color:#475569; font-size:0.85em;">Lab: <b>${name}</b> · reference resonance ${fmt(data.reference_mhz, 2)} MHz (median of the converged runs' final means).</p>
+        <div class="bayes-tab-bar" role="tablist" aria-label="Lab study views">
+            <button type="button" class="bayes-tab-button is-active" role="tab" aria-selected="true" data-lab-tab="aggregated">Aggregated</button>
+            <button type="button" class="bayes-tab-button" role="tab" aria-selected="false" data-lab-tab="per-run">Per Run</button>
+        </div>
+        <div class="bayes-tab-panel" role="tabpanel" data-lab-pane="per-run" id="lab-per-run"></div>
+        <div class="bayes-tab-panel is-active" role="tabpanel" data-lab-pane="aggregated">
         <table style="border-collapse:collapse; width:100%; font-size:0.9em; background:#fff;">
             <thead><tr>${cols.map((c) => `<th style="${cell} background:#f8fafc; color:#475569;">${c[0]}</th>`).join('')}</tr></thead>
             <tbody>${data.windows.map((r) => `<tr>${cols.map((c) => `<td style="${cell} font-family:ui-monospace,monospace;">${c[1](r)}</td>`).join('')}</tr>`).join('')}</tbody>
@@ -158,7 +164,23 @@ async function renderLabStudy(container, name) {
             <div>${labPlotHead('Claimed σ vs across-run spread', "Solid: median self-reported posterior std (band: quartiles). Dashed: how far the runs' posterior means scatter from each other at that step (std across runs; not an error against a known truth). Dashed above solid means the runs disagree more than they claim. Both include only runs still measuring at that step.", 'lab-spread')}<div id="lab-spread" style="height:420px"></div></div>
             <div>${labPlotHead('Claimed σ vs fit', 'Solid: median self-reported posterior std. Dotted: the article\'s search-phase model (elimination search over the window W, then information I per measurement), fitted to the median at import with W fixed and the reach Δd and I free. Folders imported before the fit existed show the older fit σ = 1/√(J0 + I·(n − n0)) instead.', 'lab-fit')}<div id="lab-fit" style="height:420px"></div></div>
             <div><h3 style="margin:0 0 0.3em; font-size:1em;">Steps to convergence <span tabindex="0" class="help-icon-visible" title="Median number of measurements until the run's own stop rule fired, with the interquartile range, per drive_freq window.">?</span></h3><div id="lab-steps" style="height:420px"></div></div>
+        </div>
         </div>`;
+    // Per Run is drawn the first time it is shown: Plotly lays out a hidden pane at zero width.
+    let perRunDrawn = false;
+    body.querySelectorAll('[data-lab-tab]').forEach((btn) => btn.addEventListener('click', () => {
+        const tab = btn.dataset.labTab;
+        body.querySelectorAll('[data-lab-tab]').forEach((b) => {
+            b.classList.toggle('is-active', b === btn);
+            b.setAttribute('aria-selected', String(b === btn));
+        });
+        body.querySelectorAll('[data-lab-pane]').forEach((p) => p.classList.toggle('is-active', p.dataset.labPane === tab));
+        if (tab === 'per-run' && !perRunDrawn) {
+            perRunDrawn = true;
+            renderLabPerRun(body.querySelector('#lab-per-run'), data);
+        }
+        body.querySelectorAll(`[data-lab-pane="${tab}"] .js-plotly-plot`).forEach((gd) => Plotly.Plots.resize(gd));
+    }));
     await ensurePlotly();
     // Every legend entry gets its own colour (window x series), so no two lines share a hue.
     const palette = ['#2563eb', '#dc2626', '#059669', '#d97706', '#7c3aed', '#db2777', '#0891b2', '#65a30d', '#475569'];
@@ -230,6 +252,101 @@ async function renderLabStudy(container, name) {
         margin: { t: 10, r: 10, b: 50, l: 60 },
         xaxis: { title: 'drive_freq window' }, yaxis: { title: 'measurements to converge', gridcolor: '#eeeeee' },
     }, { responsive: true });
+}
+
+// Per Run tab: one lab run's claimed σ against measurement step, picked by window and run, over its window's median and
+// quartiles. data.curves[w].runs is null for folders imported before per-run histories were saved; those windows have no
+// per-run view (no fallback to the aggregate).
+function renderLabPerRun(pane, data) {
+    const windows = data.windows.map((r) => r.window_mhz);
+    const runsOf = (w) => data.curves[String(w)].runs;
+    const available = windows.filter((w) => runsOf(w) !== null);
+    if (!available.length) {
+        pane.innerHTML = `<div class="empty-state" role="status" style="padding:2em; text-align:center; color:#666; background:#fafafa; border:1px dashed #ccc; border-radius:8px; margin:1em 0;">
+            No per-run claimed σ histories in this lab study: it was imported before they were saved. Re-sync its source with <code>nv matlab</code> to add them.</div>`;
+        return;
+    }
+    // Detection step: the first step (1-based) at which the run's claimed σ falls below a tenth of the prior σ = W/√12.
+    const priorOf = (w) => data.curves[String(w)].prior_sigma_mhz;
+    const detectionStep = (r, w) => {
+        const k = r.std_mhz.findIndex((s) => s < priorOf(w) / 10);
+        return k < 0 ? null : k + 1;
+    };
+    // The lab names runs Run_<W>MHz_<n>: list them in natural order (2 before 10), not the lexical order of run_number.
+    const ordered = (w) => [...runsOf(w)].sort((a, b) => a.file.localeCompare(b.file, undefined, { numeric: true }));
+    pane.innerHTML = `
+        <div style="display:flex; flex-wrap:wrap; align-items:center; gap:0.8em; margin:0 0 0.6em;">
+            <label class="control-label" for="lab-run-window">Window:</label>
+            <select class="control-select" id="lab-run-window" aria-label="drive_freq window">
+                ${windows.map((w) => `<option value="${w}"${runsOf(w) === null ? ' disabled' : ''}>${w} MHz${runsOf(w) === null ? ' (no per-run data)' : ''}</option>`).join('')}
+            </select>
+            <div aria-label="Lab run navigation" class="repeat-picker" role="group">
+                <button aria-label="Previous run" class="control-button" id="lab-run-prev" type="button">Previous</button>
+                <select aria-label="Lab run" class="control-select" id="lab-run"></select>
+                <button aria-label="Next run" class="control-button" id="lab-run-next" type="button">Next</button>
+            </div>
+        </div>
+        <p id="lab-run-summary" style="margin:0 0 0.5em; color:#475569; font-size:0.85em;"></p>
+        ${labPlotHead('Claimed σ of one run', "Solid: this run's self-reported posterior std after each measurement. Grey: the median and quartiles over all runs of the window, as on the Aggregated tab. Dotted: the prior σ = W/√12 of the drive_freq window and a tenth of it; the diamond marks the step at which this run's σ first falls below that tenth (its detection), the circle the step at which the precision stop fired (replayed for full-budget runs).", 'lab-run-sigma')}
+        <div id="lab-run-sigma" style="height:520px"></div>`;
+    const winSel = pane.querySelector('#lab-run-window');
+    const runSel = pane.querySelector('#lab-run');
+    const fillRuns = () => {
+        const w = Number(winSel.value);
+        runSel.innerHTML = ordered(w).map((r, i) => {
+            const det = detectionStep(r, w);
+            return `<option value="${i}">${r.file} · σ &lt; prior/10 at ${det ?? '–'} · stop ${r.converged ? r.steps_to_convergence : 'none'}</option>`;
+        }).join('');
+    };
+    const draw = () => {
+        const w = Number(winSel.value);
+        const r = ordered(w)[Number(runSel.value)];
+        const c = data.curves[String(w)];
+        const steps = r.std_mhz.map((_, k) => k + 1);
+        const prior = priorOf(w), det = detectionStep(r, w);
+        const xEnd = Math.max(steps.length, c.step[c.step.length - 1]);
+        const runColor = '#2563eb', grey = '#94a3b8';
+        const hline = (y, name) => ({ x: [1, xEnd], y: [y, y], mode: 'lines', line: { color: '#64748b', width: 1.5, dash: 'dot' }, name, hoverinfo: 'skip' });
+        const at = (n, symbol, name) => ({ x: [n], y: [r.std_mhz[n - 1]], mode: 'markers', marker: { size: 12, symbol, color: runColor, line: { color: '#fff', width: 1.5 } }, name });
+        const traces = [
+            { x: c.step, y: c.claimed_q75, mode: 'lines', line: { width: 0 }, hoverinfo: 'skip', showlegend: false, legendgroup: 'win' },
+            { x: c.step, y: c.claimed_q25, mode: 'lines', line: { width: 0 }, fill: 'tonexty', fillcolor: grey + '40', name: `${w} MHz quartiles (all runs)`, hoverinfo: 'skip', legendgroup: 'win' },
+            { x: c.step, y: c.claimed_median, mode: 'lines', line: { color: grey, width: 2 }, name: `${w} MHz median`, legendgroup: 'win' },
+            hline(prior, `prior σ = W/√12 (${prior.toPrecision(3)} MHz)`),
+            hline(prior / 10, 'prior σ / 10'),
+            { x: steps, y: r.std_mhz, mode: 'lines', line: { color: runColor, width: 2.5 }, name: `${r.file} claimed σ` },
+        ];
+        if (det !== null) traces.push(at(det, 'diamond', `σ < prior/10 at step ${det}`));
+        if (r.converged) traces.push(at(r.steps_to_convergence, 'circle', `precision stop at step ${r.steps_to_convergence}`));
+        pane.querySelector('#lab-run-summary').textContent = `${r.file} (run ${Number(runSel.value) + 1} of ${runsOf(w).length} in the ${w} MHz window): ${steps.length} measurements; claimed σ first below a tenth of the prior at step ${det ?? '– (never)'}; precision stop ${r.converged ? `at step ${r.steps_to_convergence}` : 'never fired'}.`;
+        // Legend under the axis title, two entries per row, sized as on the Aggregated tab (labExport reads dataset.rows).
+        const rows = Math.ceil(traces.filter((t) => t.showlegend !== false).length / 2);
+        const bottom = 70 + 24 * rows, plotH = 380;
+        const el = document.getElementById('lab-run-sigma');
+        el.dataset.rows = rows;
+        el.style.height = `${plotH + bottom + 10}px`;
+        const filename = `claimed-sigma-${r.file}`, title = `Claimed σ of ${r.file}`;
+        Plotly.react(el, traces, {
+            margin: { t: 10, r: 10, b: bottom, l: 60 }, hovermode: 'x unified', font: { size: 13 },
+            xaxis: { title: { text: 'measurement step', standoff: 8 }, type: 'log', gridcolor: '#eeeeee' },
+            yaxis: { title: 'σ (MHz)', type: 'log', gridcolor: '#eeeeee' },
+            legend: { orientation: 'h', yanchor: 'top', y: -(60 / plotH) },
+        }, {
+            responsive: true, displaylogo: false,
+            modeBarButtonsToRemove: ['toImage'],
+            modeBarButtonsToAdd: [{ name: 'Download figure (PNG)', icon: Plotly.Icons.camera, click: () => labExport('lab-run-sigma', filename, title, 'png') }],
+        });
+        wireLabDownloads('lab-run-sigma', filename, title);
+        pane.querySelector('#lab-run-prev').disabled = Number(runSel.value) === 0;
+        pane.querySelector('#lab-run-next').disabled = Number(runSel.value) === runSel.options.length - 1;
+    };
+    winSel.value = String(available[0]);
+    fillRuns();
+    winSel.addEventListener('change', () => { fillRuns(); draw(); });
+    runSel.addEventListener('change', draw);
+    pane.querySelector('#lab-run-prev').addEventListener('click', () => { runSel.value = String(Number(runSel.value) - 1); draw(); });
+    pane.querySelector('#lab-run-next').addEventListener('click', () => { runSel.value = String(Number(runSel.value) + 1); draw(); });
+    draw();
 }
 
 // Heading + help icon + PNG/SVG download buttons for one lab plot (wired by wireLabDownloads).

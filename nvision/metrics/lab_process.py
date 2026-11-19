@@ -25,6 +25,8 @@ _Z95 = 1.959963984540054
 log = logging.getLogger(__name__)
 # fit_search_curve needs at least this many steps (it fits three parameters).
 MIN_SEARCH_FIT_STEPS = 3
+# window<W>MHz<suffix>: {"runs": [{"run_number", "file", "std_mhz": [per step]}]}, read by lab_study_payload.
+PER_RUN_STD_SUFFIX = "_per_run_std.json"
 
 
 def _load_run(path: Path) -> dict | None:
@@ -48,6 +50,7 @@ def _load_run(path: Path) -> dict | None:
             for c in state.focusCandidatesHistoryMHz
         ]
     return {
+        "file": path.stem,  # the lab's run name, e.g. Run_50MHz_7
         "window": round(float(hi - lo)),
         "focus_candidates": candidates,  # per step: (n_candidates, 2) rows of [lo, hi] in MHz
         "focus_window": np.asarray(state.focusWindowMHz, dtype=float) if hasattr(state, "focusWindowMHz") else None,
@@ -73,7 +76,8 @@ def write_statistics(runs: list[dict], out_dir: Path) -> Path:
     """Write ``window<W>MHz_*`` CSVs for every Bayesian ESR run in *folder*; return the output dir.
 
     Per window: ``statistics_perRun`` (replayed precision stop), ``self_reported_std_vs_step`` (quartiles
-    over runs of the posterior std) and ``resonance_std_vs_step_retained`` (std over runs of the posterior
+    over runs of the posterior std), ``per_run_std.json`` (every run's own posterior std history, in the
+    ``statistics_perRun`` order) and ``resonance_std_vs_step_retained`` (std over runs of the posterior
     mean). The credible interval of a replayed stop is mean +/- 1.96 std (the runs save only the final one).
     """
     if (out_dir / "window_summary.csv").exists():
@@ -112,6 +116,12 @@ def write_statistics(runs: list[dict], out_dir: Path) -> Path:
                 }
             )
         pl.DataFrame(rows).write_csv(out_dir / f"window{window}MHz_statistics_perRun.csv")
+        # Each run's full history (runs may differ in length; the quartiles below use the common prefix).
+        per_run = [
+            {"run_number": row["runNumber"], "file": r["file"], "std_mhz": r["std"].tolist()}
+            for row, r in zip(rows, group, strict=True)
+        ]
+        (out_dir / f"window{window}MHz{PER_RUN_STD_SUFFIX}").write_text(json.dumps({"runs": per_run}))
         converged_means += [r["finalMeanMHz"] for r in rows if r["converged"]]
 
         n_steps = min(len(r["std"]) for r in group)
