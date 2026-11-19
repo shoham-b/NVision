@@ -204,8 +204,34 @@ def test_api_run_rejects_series_that_is_not_the_primary_error():
     from nvision.cli.search_bounds_api import UseCaseError, _Run
 
     entries = [{"type": "scan", "series": {"s": [1], "e": [1.0]}, "true_params": {}, "metrics": {}}]
-    with pytest.raises(UseCaseError, match="not the stage metrics"):
+    with pytest.raises(UseCaseError, match="neither the stage metrics"):
         _Run(entries, {"stage_primary_param": "zeeman_shift", "stage3_err_end": 50.0})
+    with pytest.raises(UseCaseError, match="neither the stage metrics"):
+        _Run(entries, {"stage_primary_param": "zeeman_shift", "stage3_err_end": 50.0, "final_err_primary": 70.0})
+
+
+def test_api_run_accepts_a_sweep_series_that_ends_on_its_fit():
+    """A sweep's series ends on its fit estimate (extract_step_series), whose error is ``final_err_primary``, not the
+    belief's ``stage*_err_end``; the check must accept it and get as far as the next missing field."""
+    from nvision.cli.search_bounds_api import UseCaseError, _Run
+
+    entries = [{"type": "scan", "series": {"s": [1], "e": [70.0]}, "true_params": {}, "metrics": {}}]
+    with pytest.raises(UseCaseError, match="zeeman_shift bounds"):
+        _Run(entries, {"stage_primary_param": "zeeman_shift", "stage3_err_end": 50.0, "final_err_primary": 70.0})
+
+
+def test_api_line_statistics_rebuilds_a_window_grid_line():
+    """The window-grid generators stratify zeeman_shift across repeats; rebuilding their line must still work."""
+    from nvision.cli.search_bounds_api import _line_statistics
+    from nvision.sim.combinations import CombinationGrid
+
+    name = "NVCenter-voigt-span50-gs0-hfunresolved"
+    gen = CombinationGrid()._resolve_generators[name]
+    width = gen.zeeman_max_phys - gen.zeeman_min_phys
+    theta = gen.zeeman_min_phys + 0.5 * width
+    dip_sq, best_g2 = _line_statistics(name, width, 2.0e6, [theta])
+    assert dip_sq > 0.0
+    assert best_g2[theta] > 0.0
 
 
 def test_abs_errors_against_reference_centre():
