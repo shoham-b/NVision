@@ -25,7 +25,7 @@ function resolveAssetPath(relativePath) {
 // The locator comparison tabs choose which strategies to show with the chips at the top
 // of the page. A legend click would hide/isolate a strategy a second, inconsistent way,
 // so charts inside those tabs get a read-only legend.
-const LOCATOR_COMPARISON_VIEWS = '#stories-view, #stages-view, #scaling-view, #accuracy-view, #stepsize-view';
+const LOCATOR_COMPARISON_VIEWS = '#stages-view, #scaling-view, #accuracy-view, #stepsize-view';
 function lockLegendInComparisonViews() {
     const P = window.Plotly;
     if (!P || P._legendLocked) return;
