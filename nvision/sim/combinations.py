@@ -197,9 +197,6 @@ class CombinationGrid:
         # off of for this grid and has to fall back to parsing it out of the name.
         self._resolve_generators.update(dict(sim_presets.voigt_sigma_inhom_param_grid_generators()))
         snr_window_gens = dict(sim_presets.voigt_snr_window_param_grid_generators())
-        # The wide-window slice (run group ``voigt-wide-window``) has the same construction and names, so a name
-        # present in both builds the same generator.
-        snr_window_gens.update(sim_presets.voigt_wide_window_param_grid_generators())
         self._resolve_generators.update(snr_window_gens)
         # Register legacy unadorned names (without -hfunresolved) for backward compatibility
         for name, gen in snr_window_gens.items():
