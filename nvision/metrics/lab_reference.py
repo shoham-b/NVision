@@ -243,7 +243,8 @@ def _sigma_curves(full: dict, held: dict, ref: dict) -> dict | None:
         # Fitted at import (nv matlab) and stored in the record; records from before that have none.
         fit = (full.get("search_fit") or {}).get(param)
         if fit is not None and not is_current(fit):  # older model: refit from the stored history (Hz -> MHz)
-            fit = fit_search_curve(np.asarray(full["sigma_history"][param], dtype=float) / 1e6)
+            hist_mhz = np.asarray(full["sigma_history"][param], dtype=float) / 1e6
+            fit = fit_search_curve(hist_mhz, run_sigmas=[hist_mhz])
             fit["model"] = fit["model"].tolist()
         out[f"searchfit_{param}"] = None if fit is None else fit["model"]
         out[f"searchfit_{param}_params"] = None if fit is None else {k: v for k, v in fit.items() if k != "model"}

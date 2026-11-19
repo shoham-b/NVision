@@ -203,7 +203,9 @@ def write_statistics(runs: list[dict], out_dir: Path) -> Path:
         # three parameters, so a window whose runs are shorter than three steps has no fit (and no fit file; the
         # study view shows the window without it).
         if n_steps >= MIN_SEARCH_FIT_STEPS:
-            fit = fit_search_curve(np.median(stds, axis=0), window_mhz=float(window))
+            fit = fit_search_curve(
+                np.median(stds, axis=0), window_mhz=float(window), run_sigmas=[np.asarray(r["std"]) for r in group]
+            )
             fit["model"] = fit["model"].tolist()
             (out_dir / f"window{window}MHz_search_fit.json").write_text(json.dumps(fit))
         else:

@@ -217,13 +217,14 @@ async function renderLabStudy(container, name) {
             sf
                 ? { x: c.step, y: sf.model, mode: 'lines', line: { color: fitColor, width: 3, dash: 'dot' }, name: `${name} search + van Trees model (v=${sf.v_mhz_per_step.toPrecision(2)} MHz/meas, J_d=${sf.j_d_per_mhz2.toPrecision(2)}, I=${sf.i_max_per_mhz2.toPrecision(2)}/MHz², rms ln ${sf.rms_log.toPrecision(2)})`, legendgroup: name + 'f' }
                 : { x: c.step, y: c.step.map((n) => infoSigma(n, fit)), mode: 'lines', line: { color: fitColor, width: 3, dash: 'dot' }, name: `${name} fit (I=${fit.I.toPrecision(2)}/meas, n0=${fit.n0})`, legendgroup: name + 'f' });
-        // Van Trees fitted only from the median run's detection step on (sigma below a tenth of the prior), with a marker at that step.
+        // Van Trees fitted to the runs aligned at their own detection (each run's sigma first below a tenth of the prior),
+        // drawn from the median detection step, with a marker there. Fits stored before version 5 have no n_detected.
         const det = sf && sf.detection;
-        if (det) {
+        if (det && det.n_detected !== undefined) {
             fitTraces.push({
                 x: det.steps, y: det.model, mode: 'lines+markers', line: { color: fitColor, width: 2, dash: 'dashdot' },
                 marker: { size: det.steps.map((n, i) => (i === 0 ? 11 : 0)), symbol: 'diamond', color: fitColor },
-                name: `${name} van Trees from detection n_d=${det.step} (J_d=${det.j_d_per_mhz2.toPrecision(2)}, I=${det.i_max_per_mhz2.toPrecision(2)}/MHz², rms ln ${det.rms_log.toPrecision(2)})`,
+                name: `${name} van Trees from each run's detection, median n_d=${det.step} [${det.step_q25.toFixed(0)}–${det.step_q75.toFixed(0)}], ${det.n_detected}/${det.n_runs} runs (J_d=${det.j_d_per_mhz2.toPrecision(2)}, I=${det.i_max_per_mhz2.toPrecision(2)}/MHz², rms ln ${det.rms_log.toPrecision(2)})`,
                 legendgroup: name + 'f',
             });
         }

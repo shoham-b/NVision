@@ -723,7 +723,7 @@ def _matlab_run_one(
     for name, hist_hz in record["sigma_history"].items():
         hist_mhz = np.asarray(hist_hz, dtype=float) / 1e6
         if np.all(hist_mhz > 0):
-            fit = fit_search_curve(hist_mhz)
+            fit = fit_search_curve(hist_mhz, run_sigmas=[hist_mhz])
             fit["model"] = fit["model"].tolist()
             record["search_fit"][name] = fit
         else:

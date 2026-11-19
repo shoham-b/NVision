@@ -94,10 +94,15 @@ def lab_study_payload(root: Path) -> dict:
         # (without the current version) is refitted here from the median claimed sigma.
         fit_path = root / f"window{w}MHz_search_fit.json"
         search_fit = json.loads(fit_path.read_text()) if fit_path.exists() else None
-        if search_fit is not None and not is_current(search_fit):
-            search_fit = fit_search_curve(np.asarray(claimed["medianPosteriorStdMHz"], dtype=float), float(w))
-            search_fit["model"] = search_fit["model"].tolist()
+        # The van Trees fit from detection aligns the runs at their own detection, so it needs the per-run histories.
         per_run = _per_run_histories(root, w, runs.filter(pl.col("window") == w), ref)
+        if search_fit is not None and not is_current(search_fit):
+            search_fit = fit_search_curve(
+                np.asarray(claimed["medianPosteriorStdMHz"], dtype=float),
+                float(w),
+                run_sigmas=None if per_run is None else [r["std_mhz"] for r in per_run],
+            )
+            search_fit["model"] = search_fit["model"].tolist()
         curves[str(w)] = {
             "search_fit": search_fit,
             "runs": per_run,
