@@ -50,6 +50,7 @@ _STATIC_ASSET_NAMES = (
     "styles.css",
     "lab-view.js",
     "search-bounds-view.js",
+    "detection-aligned-view.js",
     "refine-rates.js",
 )
 
