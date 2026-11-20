@@ -132,7 +132,12 @@ def test_snr_noises_reject_non_positive_snr(monkeypatch):
 
 def test_snr_window_grid_has_one_total_fwhm_and_varies_one_thing_per_axis():
     """Window = N x ONE total FWHM; Gaussian share and isotope vary at that same FWHM."""
-    from nvision.spectra.nv_center import _voigt_reparam_scalar, max_zeeman_shift_for_window
+    from nvision.spectra.nv_center import (
+        _voigt_reparam_scalar,
+        hyperfine_geometry,
+        max_zeeman_shift_for_window,
+        zeeman_shift_edge_pad,
+    )
 
     generators = dict(sim_presets.voigt_snr_window_param_grid_generators())
     assert len(generators) == 63  # 7 occupancies x 3 Gaussian shares x 3 isotopes
@@ -145,7 +150,11 @@ def test_snr_window_grid_has_one_total_fwhm_and_varies_one_thing_per_axis():
         assert gen.gaussian_share == pytest.approx(1.0 - lorentz_frac)
         window = gen.drive_freq_max_phys - gen.drive_freq_min_phys
         assert window == pytest.approx(gen.window_fwhm * sim_defaults.NVISION_SBED_FWHM)
-        assert gen.zeeman_max_phys == pytest.approx(max_zeeman_shift_for_window(window))
+        pad = zeeman_shift_edge_pad(fwhm_total, hyperfine_geometry(gen.hyperfine)[0])
+        # The truth is drawn over the whole window less one edge pad at each side.
+        assert gen.zeeman_min_phys == pytest.approx(pad)
+        assert gen.zeeman_max_phys == pytest.approx(max_zeeman_shift_for_window(window, pad))
+        assert gen.zeeman_max_phys == pytest.approx(window - pad)
     # The same window is the same absolute width for every line shape, and a share is the same shape in every window.
     windows = {}
     for gen in generators.values():
@@ -185,18 +194,15 @@ def test_snr_window_generator_draws_dips_inside_its_window():
 
 
 def test_default_window_zeeman_range_is_unchanged():
-    """Generators without window_fwhm keep MAX_ZEEMAN_SHIFT, which is exactly the default window's fraction."""
+    """Generators without window_fwhm keep MAX_ZEEMAN_SHIFT and MIN_ZEEMAN_SHIFT; only window-grid signals pad."""
     from nvision.sim.gen.nv_center_generator import NVCenterCoreGenerator
-    from nvision.spectra.nv_center import (
-        DEFAULT_NV_DRIVE_FREQ_MAX_PHYS,
-        DEFAULT_NV_DRIVE_FREQ_MIN_PHYS,
-        MAX_ZEEMAN_SHIFT,
-        max_zeeman_shift_for_window,
-    )
+    from nvision.spectra.nv_center import MAX_ZEEMAN_SHIFT, MIN_ZEEMAN_SHIFT, max_zeeman_shift_for_window
 
-    assert NVCenterCoreGenerator(variant="voigt").zeeman_max_phys == MAX_ZEEMAN_SHIFT
-    default_window = DEFAULT_NV_DRIVE_FREQ_MAX_PHYS - DEFAULT_NV_DRIVE_FREQ_MIN_PHYS
-    assert max_zeeman_shift_for_window(default_window) == pytest.approx(MAX_ZEEMAN_SHIFT)
+    gen = NVCenterCoreGenerator(variant="voigt")
+    assert gen.zeeman_max_phys == MAX_ZEEMAN_SHIFT
+    assert gen.zeeman_min_phys == MIN_ZEEMAN_SHIFT
+    with pytest.raises(ValueError, match="no Zeeman range"):
+        max_zeeman_shift_for_window(2.0, 1.0)
 
 
 def test_window_fwhm_requires_voigt_variant():
@@ -471,7 +477,7 @@ def test_voigt_grid_and_all_include_the_wide_windows():
         assert gen.window_fwhm == pytest.approx(span)
         assert gen.drive_freq_max_phys - gen.drive_freq_min_phys == pytest.approx(span * fwhm)
         # The Zeeman draw range (the search width W of the search bounds) grows with the window.
-        assert gen.zeeman_max_phys == pytest.approx(max_zeeman_shift_for_window(span * fwhm))
+        assert gen.zeeman_max_phys == pytest.approx(max_zeeman_shift_for_window(span * fwhm, gen.zeeman_min_phys))
         assert gen.gaussian_share == 0.0
         assert gen.hyperfine == "unresolved"
 

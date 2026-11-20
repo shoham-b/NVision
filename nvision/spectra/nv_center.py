@@ -205,13 +205,6 @@ NV_DRIVE_FREQ_DELTA_HZ: float = float(os.getenv("NVISION_NV_DRIVE_FREQ_DELTA_HZ"
 DEFAULT_NV_DRIVE_FREQ_MIN_PHYS = NV_ZERO_FIELD_SPLITTING_HZ
 DEFAULT_NV_DRIVE_FREQ_MAX_PHYS = NV_ZERO_FIELD_SPLITTING_HZ + NV_DRIVE_FREQ_DELTA_HZ
 
-# Largest Zeeman half-splitting as a fraction of the drive-frequency window: the default window
-# is 2.5 x MAX_ZEEMAN_SHIFT, i.e. 0.4. Generators that set their own window (the SNR x window
-# study grid) scale the Zeeman range with it through :func:`max_zeeman_shift_for_window`, so a
-# narrow window still holds its dips and a wide one is not mostly empty. Not part of
-# :func:`physics_config_fingerprint`: at the default window it reproduces MAX_ZEEMAN_SHIFT exactly.
-NV_ZEEMAN_WINDOW_FRACTION: float = 0.4
-
 
 def hyperfine_covered_width(fwhm_total_phys: float, hyperfine: str) -> float:
     """Frequency (Hz) one dip group covers: the union of its hyperfine lines' FWHM intervals.
@@ -226,9 +219,20 @@ def hyperfine_covered_width(fwhm_total_phys: float, hyperfine: str) -> float:
     return float(fwhm_total_phys) + sum(min(float(fwhm_total_phys), gap) for gap in gaps)
 
 
-def max_zeeman_shift_for_window(window_width_phys: float) -> float:
-    """Largest ``zeeman_shift`` (Hz) a window of width ``window_width_phys`` (Hz) is sized for."""
-    return NV_ZEEMAN_WINDOW_FRACTION * float(window_width_phys)
+def max_zeeman_shift_for_window(window_width_phys: float, edge_pad_phys: float) -> float:
+    """Largest ``zeeman_shift`` (Hz) a window-grid signal draws in a window ``[D, D + window_width_phys]`` (Hz).
+
+    The window minus the edge pad (``edge_pad_phys``, Hz, from :func:`zeeman_shift_edge_pad`), so the dip's full FWHM
+    and its outer hyperfine line stay inside the upper edge exactly as the same pad keeps them above D: the truth is
+    drawn over ``[edge_pad_phys, window_width_phys - edge_pad_phys]``, the whole window less one pad at each side.
+    """
+    zeeman_max = float(window_width_phys) - float(edge_pad_phys)
+    if not float(edge_pad_phys) < zeeman_max:
+        raise ValueError(
+            f"A window of {window_width_phys:g} Hz padded by {edge_pad_phys:g} Hz on each side leaves no Zeeman range; "
+            "widen the window."
+        )
+    return zeeman_max
 
 
 # Smallest distance, in total FWHMs, between the upper Zeeman dip and the window's lower edge D (window-grid
@@ -298,6 +302,9 @@ def physics_config_fingerprint() -> str:
         "center-center_freq-rename-v1",
         # Bumped when the probe axis was renamed to drive_freq (persisted spec / config / payload names).
         "drive-freq-rename-v1",
+        # Window-grid signals draw zeeman_shift over the whole window less one edge pad at each side, not
+        # [pad, 0.4 W]: every window-grid result before this tag is from the narrower range.
+        "zeeman-full-window-v1",
         # Bumped for the physical parameter renames (zero_field_freq / hwhm / hwhm_lorentz / zeeman_shift /
         # hyperfine_shift / contrast / contrast_total): every cached combination stores the old names.
         "physical-names-v1",
@@ -1311,15 +1318,10 @@ class NVCenterVoigtModel(
     def signal_max_span(self, domain_width: float) -> float | None:
         hf_hi = MAX_HYPERFINE_SHIFT if self._infer_hyperfine else self._hf_offset
         if self._with_zeeman_splitting:
-            # Mirror nv_center_voigt_bounds_for_domain exactly or the placement margin
-            # stops covering what the prior/fit is allowed to represent. A window wider than the
-            # default one holds a proportionally larger Zeeman range (max_zeeman_shift_for_window);
-            # a narrower one keeps the default margin, which only over-covers.
-            return (
-                2.0 * max(MAX_ZEEMAN_SHIFT, max_zeeman_shift_for_window(domain_width))
-                + 2.0 * hf_hi
-                + 4.0 * VOIGT_FWHM_TOTAL_HI
-            )
+            # Cover what the prior/fit is allowed to represent: a window-grid signal draws its Zeeman
+            # shift up to the window less one edge pad (max_zeeman_shift_for_window), so the window
+            # width bounds it; a narrower window keeps the default margin, which only over-covers.
+            return 2.0 * max(MAX_ZEEMAN_SHIFT, domain_width) + 2.0 * hf_hi + 4.0 * VOIGT_FWHM_TOTAL_HI
         return 2.0 * hf_hi + 4.0 * VOIGT_FWHM_TOTAL_HI
 
     def expected_dip_count(self) -> int:
@@ -2356,7 +2358,7 @@ def nv_center_voigt_bounds_for_domain(
     """Physical parameter bounds for NV Voigt signals over ``[drive_freq_min_phys, drive_freq_max_phys]``.
 
     ``max_zeeman_shift`` (Hz) is the upper ``zeeman_shift`` bound; the default is the module constant,
-    a window-scaled generator passes :func:`max_zeeman_shift_for_window`. ``min_zeeman_shift`` (Hz) is the
+    a window-grid generator passes :func:`max_zeeman_shift_for_window`. ``min_zeeman_shift`` (Hz) is the
     lower bound; a window-grid generator passes its edge pad so the (uniform) belief covers exactly the
     range the true value is drawn from.
     ``reference_width`` (Hz) is the window width the width bounds (``hwhm_lorentz``, ``sigma_inhom``,
