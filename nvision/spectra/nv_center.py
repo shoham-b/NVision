@@ -305,6 +305,9 @@ def physics_config_fingerprint() -> str:
         # Window-grid signals draw zeeman_shift over the whole window less one edge pad at each side, not
         # [pad, 0.4 W]: every window-grid result before this tag is from the narrower range.
         "zeeman-full-window-v1",
+        # Window-grid signals: the prior range is exactly span x the covered width and the drive window adds one
+        # edge pad on each side (before: the window was span x covered and the pads were cut from it).
+        "zeeman-padded-window-v1",
         # Bumped for the physical parameter renames (zero_field_freq / hwhm / hwhm_lorentz / zeeman_shift /
         # hyperfine_shift / contrast / contrast_total): every cached combination stores the old names.
         "physical-names-v1",
