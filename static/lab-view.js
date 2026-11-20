@@ -151,6 +151,10 @@ async function renderLabStudy(container, name) {
         <div class="bayes-tab-bar" role="tablist" aria-label="Lab study views">
             <button type="button" class="bayes-tab-button is-active" role="tab" aria-selected="true" data-lab-tab="aggregated">Aggregated</button>
             <button type="button" class="bayes-tab-button" role="tab" aria-selected="false" data-lab-tab="per-run">Per Run</button>
+            <button type="button" class="bayes-tab-button" role="tab" aria-selected="false" data-lab-tab="from-detection">From detection</button>
+        </div>
+        <div class="bayes-tab-panel" role="tabpanel" data-lab-pane="from-detection">
+            <div id="lab-from-detection"></div>
         </div>
         <div class="bayes-tab-panel" role="tabpanel" data-lab-pane="per-run">
             <div id="lab-per-run"></div>
@@ -171,7 +175,7 @@ async function renderLabStudy(container, name) {
         </div>`;
     // Per Run (the run's claimed sigma and error, then the live replay of one run) is drawn the first time it is shown:
     // Plotly lays out a hidden pane at zero width.
-    let perRunDrawn = false;
+    let perRunDrawn = false, fromDetectionDrawn = false;
     body.querySelectorAll('[data-lab-tab]').forEach((btn) => btn.addEventListener('click', () => {
         const tab = btn.dataset.labTab;
         body.querySelectorAll('[data-lab-tab]').forEach((b) => {
@@ -179,6 +183,11 @@ async function renderLabStudy(container, name) {
             b.setAttribute('aria-selected', String(b === btn));
         });
         body.querySelectorAll('[data-lab-pane]').forEach((p) => p.classList.toggle('is-active', p.dataset.labPane === tab));
+        // From detection (static/detection-aligned-view.js) reads every run file: drawn only when first opened.
+        if (tab === 'from-detection' && !fromDetectionDrawn && window.renderLabDetectionAligned) {
+            fromDetectionDrawn = true;
+            window.renderLabDetectionAligned(body.querySelector('#lab-from-detection'), name);
+        }
         if (tab === 'per-run' && !perRunDrawn) {
             perRunDrawn = true;
             renderLabPerRun(body.querySelector('#lab-per-run'), data);

@@ -7518,6 +7518,30 @@ function main() {
         const boundsView = document.getElementById('search-bounds-view');
         if (boundsView) boundsView.style.display = hlStageShown === 1 ? 'block' : 'none';
         if (hlStageShown === 1) hlRenderSearchBounds();
+        // Runs aligned at their own detection (static/detection-aligned-view.js): localize and refine, the From
+        // detection scope.
+        const alignedView = document.getElementById('detection-aligned-view');
+        const fromDetection = hlStageShown === 2;
+        if (alignedView) alignedView.style.display = fromDetection ? 'block' : 'none';
+        if (fromDetection) hlRenderDetectionAligned();
+    }
+
+    function hlRenderDetectionAligned() {
+        const body = document.getElementById('detection-aligned-body');
+        if (!body || !hlSelection || !window.renderDetectionAligned) return;
+        const cases = ucList(hlSelection.gen, hlSelection.noises);
+        const key = JSON.stringify(cases.map((c) => [c.generator, c.noise]));
+        if (body.dataset.key === key) return;   // already drawn for this selection
+        body.dataset.key = key;
+        if (cases.length > window.DA_MAX_USE_CASES) {
+            body.innerHTML = `<p style="color:#92400e; background:#fffbeb; border:1px solid #fde68a; border-radius:6px; padding:0.6em 1em;">${cases.length} use cases selected; the detection-aligned numbers are computed per use case from the cache and are shown for at most ${window.DA_MAX_USE_CASES}. Narrow the selection.</p>`;
+            return;
+        }
+        const strategies = [...new Set(scanPlots.filter((p) => p.strategy).map((p) => p.strategy))];
+        window.renderDetectionAligned(
+            body, [...new Set(cases.map((c) => c.generator))], [...new Set(cases.map((c) => c.noise))],
+            (name) => hlStratColor(strategies, name),
+        );
     }
 
     // The selection the Information tab last rendered, for the Search bounds panel group.
@@ -7558,6 +7582,8 @@ function main() {
         hlSelection = { gen, noises };
         const boundsBody = document.getElementById('search-bounds-body');
         if (boundsBody) delete boundsBody.dataset.key;   // the selection may have changed: redraw when shown
+        const alignedBody = document.getElementById('detection-aligned-body');
+        if (alignedBody) delete alignedBody.dataset.key;
         ensureScanFieldsFor(gen, noises)
             .then(() => ensurePlotly())
             .then(() => {
