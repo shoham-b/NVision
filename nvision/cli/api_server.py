@@ -425,6 +425,26 @@ def _add_lab_study_route(app: FastAPI, lab_dirs: list[Path], run_dir: Path) -> N
         except (ValueError, OSError) as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
+    @app.get("/api/lab-detection-aligned")
+    def lab_detection_aligned(name: str) -> list[dict]:
+        """Per window of one lab: runs aligned at their own detection
+        (:func:`nvision.metrics.lab_detection_aligned.analyse_window`), against the lab study's reference."""
+        from nvision.metrics.lab_detection_aligned import analyse_window
+
+        labs = discover_labs(lab_dirs)
+        if name not in labs:
+            raise HTTPException(status_code=404, detail=f"No lab named {name!r}")
+        try:
+            reference = float(lab_study_payload(labs[name])["reference_mhz"])
+            by_window: dict[float, list[dict]] = {}
+            for file in lab_run_files(labs[name]):
+                trace = run_trace(lab_mat_dir(labs[name]) / file)
+                lo, hi = trace["scan_range_mhz"]
+                by_window.setdefault(round(hi - lo, 6), []).append(trace)
+            return [analyse_window(by_window[w], reference) for w in sorted(by_window)]
+        except (ValueError, OSError) as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+
     @app.get("/api/lab-study")
     def lab_study(name: str) -> dict:
         labs = discover_labs(lab_dirs)
