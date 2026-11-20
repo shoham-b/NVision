@@ -147,13 +147,31 @@ class NVCenterCoreGenerator:
         return DEFAULT_NV_DRIVE_FREQ_MAX_PHYS - DEFAULT_NV_DRIVE_FREQ_MIN_PHYS
 
     @property
-    def zeeman_max_phys(self) -> float:
-        """Largest ``zeeman_shift`` (Hz) this generator draws and its belief bounds allow."""
-        if self.window_fwhm is None:
-            return MAX_ZEEMAN_SHIFT
+    def _window_grid_edge_pad_phys(self) -> float:
+        """Edge pad (Hz) of a window-grid signal (``window_fwhm`` set): :func:`zeeman_shift_edge_pad` of its width.
+
+        Needs ``hwhm`` and ``sigma_inhom`` fixed, so the width is known before the draw.
+        """
         if self.variant != "voigt":
             raise ValueError(f"window_fwhm is only supported for variant='voigt', got {self.variant!r}.")
-        return max_zeeman_shift_for_window(self.drive_freq_max_phys - self.drive_freq_min_phys)
+        if self.hwhm is None or self.sigma_inhom is None:
+            raise ValueError("window_fwhm needs a fixed hwhm and sigma_inhom: the Zeeman padding is sized off them.")
+        fwhm_total, _ = _voigt_reparam_scalar(self.hwhm, self.sigma_inhom)
+        return zeeman_shift_edge_pad(fwhm_total, hyperfine_geometry(self.hyperfine)[0])
+
+    @property
+    def zeeman_max_phys(self) -> float:
+        """Largest ``zeeman_shift`` (Hz) this generator draws and its belief bounds allow.
+
+        ``MAX_ZEEMAN_SHIFT`` except for window-grid signals (``window_fwhm`` set), which draw up to the window less
+        one edge pad (:func:`~nvision.spectra.nv_center.max_zeeman_shift_for_window`), so the whole dip stays inside
+        the upper edge as it does above D.
+        """
+        if self.window_fwhm is None:
+            return MAX_ZEEMAN_SHIFT
+        return max_zeeman_shift_for_window(
+            self.drive_freq_max_phys - self.drive_freq_min_phys, self._window_grid_edge_pad_phys
+        )
 
     @property
     def zeeman_min_phys(self) -> float:
@@ -161,21 +179,12 @@ class NVCenterCoreGenerator:
 
         ``MIN_ZEEMAN_SHIFT`` except for window-grid signals (``window_fwhm`` set): the window is ``[D, D + W]``, so
         a dip drawn near D would have its left flank cut off. They draw no closer than
-        :func:`~nvision.spectra.nv_center.zeeman_shift_edge_pad` (the total FWHM plus the hyperfine offset), which
-        needs ``hwhm`` and ``sigma_inhom`` fixed so the width is known before the draw.
+        :func:`~nvision.spectra.nv_center.zeeman_shift_edge_pad` (the total FWHM plus the hyperfine offset).
         """
         if self.window_fwhm is None:
             return MIN_ZEEMAN_SHIFT
-        if self.hwhm is None or self.sigma_inhom is None:
-            raise ValueError("window_fwhm needs a fixed hwhm and sigma_inhom: the Zeeman padding is sized off them.")
-        fwhm_total, _ = _voigt_reparam_scalar(self.hwhm, self.sigma_inhom)
-        pad = zeeman_shift_edge_pad(fwhm_total, hyperfine_geometry(self.hyperfine)[0])
-        if not pad < self.zeeman_max_phys:
-            raise ValueError(
-                f"window_fwhm={self.window_fwhm:g}: padding the dip by {pad:g} Hz leaves no room below the largest "
-                f"zeeman_shift {self.zeeman_max_phys:g} Hz; widen the window."
-            )
-        return max(MIN_ZEEMAN_SHIFT, pad)
+        _ = self.zeeman_max_phys  # raises when the two edge pads leave no Zeeman range
+        return max(MIN_ZEEMAN_SHIFT, self._window_grid_edge_pad_phys)
 
     def generate(self, rng: random.Random, *, repeat_idx: int | None = None, n_repeats: int | None = None):
         """Generate NV center ODMR signal.
