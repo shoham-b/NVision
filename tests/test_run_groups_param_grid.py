@@ -135,7 +135,6 @@ def test_snr_window_grid_has_one_total_fwhm_and_varies_one_thing_per_axis():
     from nvision.spectra.nv_center import (
         _voigt_reparam_scalar,
         hyperfine_geometry,
-        max_zeeman_shift_for_window,
         zeeman_shift_edge_pad,
     )
 
@@ -149,16 +148,19 @@ def test_snr_window_grid_has_one_total_fwhm_and_varies_one_thing_per_axis():
         assert fwhm_total == pytest.approx(sim_defaults.NVISION_SBED_FWHM)
         assert gen.gaussian_share == pytest.approx(1.0 - lorentz_frac)
         window = gen.drive_freq_max_phys - gen.drive_freq_min_phys
-        assert window == pytest.approx(gen.window_fwhm * sim_defaults.NVISION_SBED_FWHM)
         pad = zeeman_shift_edge_pad(fwhm_total, hyperfine_geometry(gen.hyperfine)[0])
-        # The truth is drawn over the whole window less one edge pad at each side.
+        # The prior range is exactly window_fwhm FWHMs; the drive window adds one edge pad on each side.
+        prior_range = gen.window_fwhm * sim_defaults.NVISION_SBED_FWHM
+        assert window == pytest.approx(prior_range + 2.0 * pad)
         assert gen.zeeman_min_phys == pytest.approx(pad)
         assert gen.zeeman_max_phys == pytest.approx(max_zeeman_shift_for_window(window, pad))
-        assert gen.zeeman_max_phys == pytest.approx(window - pad)
+        assert gen.zeeman_max_phys - gen.zeeman_min_phys == pytest.approx(prior_range)
+        assert 1.0 / gen.signal_occupancy == pytest.approx(prior_range / gen.effective_fwhm_phys)
     # The same window is the same absolute width for every line shape, and a share is the same shape in every window.
+    # (The drive window adds the isotope's own edge pad, so it can differ between isotopes at one prior range.)
     windows = {}
     for gen in generators.values():
-        windows.setdefault(gen.window_fwhm, set()).add(round(gen.drive_freq_max_phys - gen.drive_freq_min_phys))
+        windows.setdefault(gen.window_fwhm, set()).add(round(gen.zeeman_max_phys - gen.zeeman_min_phys))
     assert all(len(v) == 1 for v in windows.values())
     shares = {round(g.gaussian_share, 9) for g in generators.values()}
     assert shares == {round(x, 9) for x in sim_defaults.NVISION_SBED_GAUSSIAN_SHARES}
@@ -196,7 +198,7 @@ def test_snr_window_generator_draws_dips_inside_its_window():
 def test_default_window_zeeman_range_is_unchanged():
     """Generators without window_fwhm keep MAX_ZEEMAN_SHIFT and MIN_ZEEMAN_SHIFT; only window-grid signals pad."""
     from nvision.sim.gen.nv_center_generator import NVCenterCoreGenerator
-    from nvision.spectra.nv_center import MAX_ZEEMAN_SHIFT, MIN_ZEEMAN_SHIFT, max_zeeman_shift_for_window
+    from nvision.spectra.nv_center import MAX_ZEEMAN_SHIFT, MIN_ZEEMAN_SHIFT
 
     gen = NVCenterCoreGenerator(variant="voigt")
     assert gen.zeeman_max_phys == MAX_ZEEMAN_SHIFT
@@ -414,25 +416,23 @@ def test_drift_study_noise_is_posed_as_an_snr(monkeypatch):
 
 
 def test_signal_occupancy_is_the_union_of_the_hyperfine_lines_fwhm_intervals():
-    """Occupancy = covered frequency / window: n lines of one FWHM each, minus where neighbouring lines overlap."""
+    """Occupancy = covered frequency / prior range: n lines of one FWHM each, minus where neighbouring lines overlap."""
     from nvision.spectra.nv_center import hyperfine_geometry
 
     fwhm = sim_defaults.NVISION_SBED_FWHM
     by_name = dict(sim_presets.voigt_snr_window_param_grid_generators())
     for gen in by_name.values():
-        window = gen.drive_freq_max_phys - gen.drive_freq_min_phys
+        prior_range = gen.zeeman_max_phys - gen.zeeman_min_phys
         offset, _, n_lines = hyperfine_geometry(gen.hyperfine)
         # adjacent lines are `spacing` apart: N-14 offset, N-15 twice its (half-coupling) offset
         spacing = {1: fwhm, 2: 2.0 * offset, 3: offset}[n_lines]
         covered = fwhm + (n_lines - 1) * min(fwhm, spacing)
-        assert gen.signal_occupancy == pytest.approx(covered / window)
+        assert gen.signal_occupancy == pytest.approx(covered / prior_range)
         assert 0.0 < gen.signal_occupancy <= 1.0
-    # The grid is posed in occupancy, so every isotope hits the grid value exactly; the window is what differs.
+    # The grid is posed in occupancy, so every isotope hits the grid value exactly; the prior range is what differs.
     grid_values = {round(g.signal_occupancy, 9) for g in by_name.values()}
     assert grid_values == {round(1.0 / v, 9) for v in sim_defaults.NVISION_SBED_WINDOW_SPANS}
-    at_occ = {
-        g.hyperfine: g.drive_freq_max_phys - g.drive_freq_min_phys for n, g in by_name.items() if "-span2-gs0-" in n
-    }
+    at_occ = {g.hyperfine: g.zeeman_max_phys - g.zeeman_min_phys for n, g in by_name.items() if "-span2-gs0-" in n}
     assert at_occ["unresolved"] == pytest.approx(2 * fwhm)
     assert at_occ["n15"] == pytest.approx(4 * fwhm)  # lines 3.033 MHz apart > FWHM: no overlap, 2 FWHM covered
     assert at_occ["n14"] == pytest.approx(6 * fwhm)  # lines 2.147 MHz apart > FWHM: no overlap, 3 FWHM covered
@@ -475,9 +475,10 @@ def test_voigt_grid_and_all_include_the_wide_windows():
     for name, span in zip(WIDE_WINDOW_GENERATORS, (10.0, 20.0, 50.0), strict=True):
         gen = grid.extra_generators[name]
         assert gen.window_fwhm == pytest.approx(span)
-        assert gen.drive_freq_max_phys - gen.drive_freq_min_phys == pytest.approx(span * fwhm)
-        # The Zeeman draw range (the search width W of the search bounds) grows with the window.
-        assert gen.zeeman_max_phys == pytest.approx(max_zeeman_shift_for_window(span * fwhm, gen.zeeman_min_phys))
+        # The Zeeman draw range (the search width W of the search bounds) is exactly span FWHMs; the drive window adds
+        # one edge pad on each side.
+        assert gen.zeeman_max_phys - gen.zeeman_min_phys == pytest.approx(span * fwhm)
+        assert gen.drive_freq_max_phys - gen.drive_freq_min_phys == pytest.approx(span * fwhm + 2 * gen.zeeman_min_phys)
         assert gen.gaussian_share == 0.0
         assert gen.hyperfine == "unresolved"
 

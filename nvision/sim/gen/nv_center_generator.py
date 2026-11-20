@@ -100,10 +100,11 @@ class NVCenterCoreGenerator:
     # c_max (saturated contrast scale) is not a per-generator field: it's a fixed
     # physical constant (NV_SATURATION_C_MAX in nv_center.py), not something that
     # varies between repeats or studies.
-    # Drive-frequency window as a multiple of the signal's total FWHM, recorded as a grid coordinate by
-    # the SNR x window study (sim.presets.voigt_snr_window_param_grid_generators, which also sets
-    # drive_freq_min/max_phys to match). Its only effect here: the Zeeman range follows the window
-    # (see ``zeeman_max_phys``). None = the default window and MAX_ZEEMAN_SHIFT. Voigt variant only.
+    # Prior range (the span the truth's Zeeman shift is drawn over) as a multiple of the signal's total FWHM,
+    # recorded as a grid coordinate by the SNR x window study (sim.presets.voigt_snr_window_param_grid_generators,
+    # which sets drive_freq_min/max_phys to that range plus one edge pad on each side). Its only effect here: the
+    # Zeeman range is the window less those pads (see ``zeeman_max_phys``). None = the default window and
+    # MAX_ZEEMAN_SHIFT. Voigt variant only.
     window_fwhm: float | None = None
 
     @property
@@ -124,7 +125,10 @@ class NVCenterCoreGenerator:
 
     @property
     def signal_occupancy(self) -> float | None:
-        """Share of the drive-frequency window one dip group covers (``effective_fwhm_phys / window``), in (0, 1].
+        """Share of the prior range one dip group covers (``effective_fwhm_phys`` over the drawn range), in (0, 1].
+
+        The prior range is the round number of linewidths the grid is named by (``1 / span``); the drive window adds
+        one edge pad on each side of it.
 
         The axis of the SNR x window grid: comparable across isotopes and line shapes, which the bare-FWHM ratio
         ``window_fwhm`` is not (an N-14 triplet fills more of the same window than an unresolved line). ``None``
@@ -133,7 +137,7 @@ class NVCenterCoreGenerator:
         extent = self.effective_fwhm_phys
         if extent is None:
             return None
-        return extent / (self.drive_freq_max_phys - self.drive_freq_min_phys)
+        return extent / (self.zeeman_max_phys - self.zeeman_min_phys)
 
     @property
     def width_bounds_reference_phys(self) -> float:

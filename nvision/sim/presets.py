@@ -309,16 +309,17 @@ def voigt_snr_window_param_grid_generators() -> list[tuple[str, object]]:
       every signal, so the covered width is that FWHM times the lines it spans and the window is ``x`` times that width:
       the same span is a different absolute window per isotope, and the same share of signal in view
       (occupancy ``1 / x``, which is what the results and UI report).
-      The window is ``[D, D + x * covered]``, and the truth's Zeeman shift is drawn over the whole window less one edge
-      pad at each side (:func:`~nvision.spectra.nv_center.max_zeeman_shift_for_window`). Fixing the FWHM rather than
+      The truth's Zeeman shift is drawn uniformly over ``x * covered`` (the prior range, a round number of linewidths),
+      and the drive window ``[D, D + x * covered + 2 pad]`` adds one edge pad on each side
+      (:func:`~nvision.spectra.nv_center.zeeman_shift_edge_pad`). Fixing the FWHM rather than
       stretching the window is what keeps everything with a physical scale (hyperfine offsets, the absolute convergence
       thresholds, the candidate step) meaningful across the axis.
     * **Gaussian share** (``gs<g>`` in the name): the Gaussian part of that total FWHM, 0 = pure Lorentzian. The
       Lorentzian HWHM and ``sigma_inhom`` are chosen so the total FWHM stays ``NVISION_SBED_FWHM``
       (``fwhm = 2 * hwhm_lorentz + 2 sqrt(2 ln 2) * sigma_inhom``), so the share changes the shape, not the width.
     * **Isotope** (``hf<iso>`` in the name): which nitrogen isotope's hyperfine structure the true signal resolves
-      (``NVISION_SBED_HYPERFINE_VALUES``, default ``unresolved``/``n14``/``n15``). Windows that cannot accommodate
-      the isotope's edge pad at both sides (such as a 5-FWHM window for the 14N triplet) are omitted.
+      (``NVISION_SBED_HYPERFINE_VALUES``, default ``unresolved``/``n14``/``n15``). The pads sit outside the prior
+      range, so every span fits every isotope.
     * **SNR** is not a generator axis: every generator carries the same ``contrast_total``
       (``NVISION_SBED_SNR_CONTRAST``) and a run is named ``SNR(x)`` (:func:`snr_study_noises`).
     """
@@ -356,10 +357,12 @@ def voigt_snr_window_param_grid_generators() -> list[tuple[str, object]]:
             fwhm_total, _ = _voigt_reparam_scalar(hwhm_lorentz, sigma_inhom)
 
             for hyperfine in NVISION_SBED_HYPERFINE_VALUES:
-                window = hyperfine_covered_width(fwhm_total, hyperfine) * span
+                # The truth's Zeeman shift is drawn uniformly over span x the covered width (the prior range,
+                # a round number of linewidths); the drive window adds one edge pad on each side so a dip drawn at
+                # either end of that range is still seen whole.
+                prior_range = hyperfine_covered_width(fwhm_total, hyperfine) * span
                 pad = zeeman_shift_edge_pad(fwhm_total, hyperfine_geometry(hyperfine)[0])
-                if not pad < window - pad:
-                    continue
+                window = prior_range + 2.0 * pad
                 name = f"NVCenter-voigt-{_fmt_span(span)}-{_fmt_gaussian_share(share)}-{_fmt_hyperfine(hyperfine)}"
                 generators.append(
                     (
@@ -372,7 +375,7 @@ def voigt_snr_window_param_grid_generators() -> list[tuple[str, object]]:
                             contrast_total=NVISION_SBED_SNR_CONTRAST,
                             sigma_inhom=sigma_inhom,
                             hyperfine=hyperfine,
-                            window_fwhm=window / NVISION_SBED_FWHM,
+                            window_fwhm=prior_range / NVISION_SBED_FWHM,
                         ),
                     )
                 )
