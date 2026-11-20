@@ -246,6 +246,22 @@
         "18120"
       ],
       "port": 18120
+    },
+    {
+      "name": "nvision-serve-main-results",
+      "runtimeExecutable": "uv",
+      "runtimeArgs": [
+        "run",
+        "--no-sync",
+        "nvision",
+        "serve",
+        "--no-open",
+        "--port",
+        "18130",
+        "--dir",
+        "C:/Users/shoha/git/NVision/artifacts"
+      ],
+      "port": 18130
     }
   ]
 }

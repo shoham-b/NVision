@@ -24,6 +24,7 @@ from nvision.cache import CacheBridge
 from nvision.cache.hashing import stable_config_hash
 from nvision.cache.locator_keys import MIN_VIEWABLE_CACHE_SCHEMA_VERSION, combination_base_cache_config
 from nvision.cli.claims_api import add_claims_route
+from nvision.cli.detection_aligned_api import add_detection_aligned_route
 from nvision.cli.refine_rates_api import add_refine_rates_route
 from nvision.cli.search_bounds_api import add_search_bounds_route
 from nvision.gui.report import _STATIC_DIR, render_index_html
@@ -726,6 +727,7 @@ def build_app(cache_dir: Path, run_dir: Path, lab_dirs: list[Path] | None = None
             bridge.close()
 
     add_claims_route(app, scan_fields)
+    add_detection_aligned_route(app, scan_fields)
 
     def _clear_caches() -> None:
         with lock:
