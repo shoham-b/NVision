@@ -13,6 +13,7 @@ group                 generators                                  noise         
 ====================  ==========================================  ==================  ===========================
 ``voigt-grid``        Voigt window/FWHM x share x isotope         SNR grid            locator study (below)
 ``drive-control``    CW / pulsed drive-controlled NV x isotope   SNR grid (nominal)  Bayesian-SBED, -SBED-Drive
+``hyperfine-evidence`` Lorentzian, one window x isotope          one SNR             Bayesian-SBED, sweep at k*
 ``all``               ``voigt-grid`` only (not ``drive-control``) SNR grid            locator study (below)
 ====================  ==========================================  ==================  ===========================
 
@@ -132,6 +133,44 @@ def _group_drive_control() -> RunGroup:
     )
 
 
+# The one window and SNR at which the resolved isotopes are compared with the single dip. Span 10 of the single dip
+# is the 20 MHz window of the lab sweeps at about their linewidth; the span is in widths one dip group covers, so
+# every isotope has the same occupancy (1/10) and a wider absolute window.
+_HYPERFINE_EVIDENCE_SPAN = 10.0
+_HYPERFINE_EVIDENCE_SNR = 5.0
+
+
+def _group_hyperfine_evidence() -> RunGroup:
+    """The single dip vs the resolved 14N triplet and 15N doublet, Lorentzian, at one window and one SNR.
+
+    Evidence that SBED behaves the same with resolved hyperfine lines (the lab line is a single dip, its nuclear spin
+    polarized near the excited-state level anticrossing). The single-dip combinations are the voigt-grid's own, so
+    they come from the cache."""
+    from nvision.sim.defaults import NVISION_SBED_HYPERFINE_VALUES
+
+    for iso in ("unresolved", "n14", "n15"):
+        if iso not in NVISION_SBED_HYPERFINE_VALUES:
+            raise ValueError(f"hyperfine-evidence needs isotope {iso!r} in NVISION_SBED_HYPERFINE_VALUES")
+    generators = {
+        name: gen
+        for name, gen in _voigt_snr_window_param_grid().items()
+        if "-gs0-" in name and math.isclose(1.0 / gen.signal_occupancy, _HYPERFINE_EVIDENCE_SPAN, rel_tol=1e-6)
+    }
+    if len(generators) != 3:
+        raise ValueError(f"hyperfine-evidence expected 3 generators (one per isotope), got {sorted(generators)}")
+    snr_noise = [n for n in _snr_noise_names() if snr_of_noise(n) == _HYPERFINE_EVIDENCE_SNR]
+    if len(snr_noise) != 1:
+        raise ValueError(f"hyperfine-evidence needs SNR {_HYPERFINE_EVIDENCE_SNR:g} in NVISION_SBED_SNR_VALUES")
+    return _group(
+        "hyperfine-evidence",
+        f"Lorentzian single dip vs 14N triplet vs 15N doublet at span {_HYPERFINE_EVIDENCE_SPAN:g}, "
+        f"SNR {_HYPERFINE_EVIDENCE_SNR:g}; Bayesian-SBED and the sweep at k*.",
+        generators,
+        snr_noise,
+        ["Bayesian-SBED", _DEFAULT_SWEEP],
+    )
+
+
 def _group_all() -> RunGroup:
     """Every standard scenario with every locator used in it. ``drive-control`` is run explicitly, not as part of
     ``all``."""
@@ -170,6 +209,7 @@ def _run_groups_tuple() -> tuple[RunGroup, ...]:
     return (
         _group_voigt_grid(),
         _group_drive_control(),
+        _group_hyperfine_evidence(),
         _group_all(),
     )
 
