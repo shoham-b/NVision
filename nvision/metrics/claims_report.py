@@ -14,6 +14,7 @@ from typing import Any
 import numpy as np
 
 from nvision.metrics import claims
+from nvision.metrics.detection_aligned import gaussian_onset
 from nvision.metrics.refine_rates import InverseMse, inverse_mse_curve, late_window
 
 R_STEPS = (1, 3, 10, 30, 100, 300, 1000)
@@ -43,6 +44,23 @@ def _gated_dict(g: claims.GatedFit) -> dict[str, Any]:
         "linear": g.linear,
         "why": g.why,
     }
+
+
+def _gaussian_onset(series: dict[str, Any]) -> float:
+    """A run's Gaussian onset (step) from its stored series ``s`` (steps) and ``g`` (negentropy); NaN if never.
+
+    ``series["s"]``, ``series["g"]``: length m. Raises when ``g`` is missing: such a run predates the stored
+    negentropy and must be re-run, not silently counted as never Gaussian.
+    """
+    g = series.get("g")
+    if not g:
+        raise ValueError("run has no negentropy series 'g': re-run it (nv render cannot fill it)")
+    s = np.asarray(series["s"], dtype=np.float64)
+    gv = np.array([math.nan if x is None else x for x in g], dtype=np.float64)
+    if gv.shape != s.shape:
+        raise ValueError(f"series 's' and 'g' differ in length: {s.shape} vs {gv.shape}")
+    onset = gaussian_onset(s, gv)
+    return math.nan if onset is None else float(onset)
 
 
 def analyse_use_case(rows: list[dict[str, Any]]) -> dict[str, Any]:
@@ -106,16 +124,8 @@ def analyse_use_case(rows: list[dict[str, Any]]) -> dict[str, Any]:
     }
     out["R_claimed"] = {n: float(r_claimed[np.searchsorted(grid, n)]) for n in R_STEPS if n <= grid[-1]}
     out["bound_violated"] = claims.bound_violated(lo)
-    # 2. Regimes.
-    reg = claims.regimes(grid, err, sigma0)
-    out["regimes"] = {
-        "plateau_ratio": reg.plateau_ratio,
-        "n_half": reg.n_half,
-        "drop_factor": reg.drop_factor,
-        "tail_slope": reg.tail_slope,
-        "tail_points": reg.tail_points,
-        "why": reg.why,
-    }
+    # Per-run Gaussian onset from the stored negentropy series ``g`` (NaN = never reached the Gaussian peak).
+    onsets = np.array([_gaussian_onset(r["series"]) for r in runs], dtype=np.float64)
     # 3. (n0, q) on master's late window, true error and claimed sigma, with the linearity gate.
     ends = np.array([s[-1] for s in steps])
     inv: InverseMse = inverse_mse_curve(steps, errs, ends, grid)
@@ -129,12 +139,31 @@ def analyse_use_case(rows: list[dict[str, Any]]) -> dict[str, Any]:
         out["fit_true"], out["fit_claimed"] = _gated_dict(ft), _gated_dict(fc)
         out["rate_ratio_claimed_over_true"] = claims.rate_ratio(fc, ft)
         out["sensitivity_ratio"] = claims.sensitivity_ratio(grid, err, imax, win)
-    # 4. Coverage: gated per-n curve, at the end of the run, and from the signed z series when stored.
-    gate = np.array([c.get("refine_start_step") or math.nan for c in cmp], dtype=np.float64)
-    cov = claims.coverage_curve(err, unc, gate, grid)
+    # 2. Regimes (needs the true-error q of section 3 and the per-run detection / Gaussian steps).
+    reg = claims.regimes(
+        grid,
+        err,
+        sigma0,
+        detection_step=_med([float(d) for d in dips]),
+        gaussian_onset=_med([float(o) for o in onsets if np.isfinite(o)]),
+        q=out["fit_true"]["q"] if out["fit_true"] else None,
+        imax=imax,
+    )
+    out["regimes"] = {
+        "plateau_ratio": reg.plateau_ratio,
+        "detection_step": reg.detection_step,
+        "gaussian_onset": reg.gaussian_onset,
+        "converge_end": reg.converge_end,
+        "tail_slope": reg.tail_slope,
+        "tail_points": reg.tail_points,
+        "why": reg.why,
+    }
+    # 4. Coverage: gated per-n curve (from each run's Gaussian onset), at the end of the run, and from the signed z
+    # series when stored.
+    cov = claims.coverage_curve(err, unc, onsets, grid)
     out["coverage"] = {n: cov[int(np.searchsorted(grid, n))] for n in COVERAGE_STEPS if n <= grid[-1]}
     out["coverage_at_budget"] = cov[-1]
-    out["refined_share"] = float(np.isfinite(gate).mean())
+    out["gaussian_share"] = float(np.isfinite(onsets).mean())
     zs = [r["series"].get(Z_KEY) for r in runs]
     if all(z for z in zs):
         z_last = np.array([z[-1] for z in zs], dtype=np.float64)
