@@ -13,12 +13,8 @@ does keep:
   because its figure is not stored;
 * the **dip detection step** and the run's scalars from the stored row.
 
-Rows recorded before the old stage model was removed still carry ``stage{1,2,3}_sens_eff`` (the shot-weighted mean of
-``eta`` over each old stage's measurements, computed at run time from the exact positions); the rebuild is checked end
-to end against them, and a larger gap than ``ETA_CHECK_TOL`` raises. Newer rows carry none, so the check has nothing
-to compare.
 Every locator takes one shot per measurement (no strategy config sets ``n_shots``), so a measurement count is also a
-shot count and ``I_max = stage_fisher_star`` is per measurement.
+shot count and ``I_max = i_max`` is per measurement.
 """
 
 from __future__ import annotations
@@ -32,13 +28,10 @@ from typing import Any
 import numpy as np
 
 from nvision.metrics import refine_rates as rr
-from nvision.metrics.stages import primary_sensitivity_at, primary_sensitivity_curve
+from nvision.metrics.run_axes import primary_sensitivity_at, primary_sensitivity_curve
 from nvision.runner.repeat_keys import repeat_seed_int, signal_repeat_key
 from nvision.sim.grid_enums import optimal_sweep_multiplier
 
-# Tolerance of the rebuilt-vs-stored stage sensitivity check (absolute, on eta in [0, 1]). SBED positions are float16
-# rescaled into the window (~1e-3 of it); a sweep's are exact (it matches to rounding).
-ETA_CHECK_TOL = 0.03
 # Gains sigma_0 / tau the cost curves are evaluated at, sigma_0 = W / sqrt(12) the prior's spread (Eq. prior).
 COST_GAINS = np.geomspace(1.5, 80.0, 24)
 # Offset histogram: edges in units of the true HWHM gamma.
@@ -82,7 +75,7 @@ class RunTrace:
     steps: np.ndarray  # shape (m,), downsampled per-step series: measurement counts
     errs: np.ndarray  # shape (m,), true error |estimate - truth| of the primary parameter (Hz)
     end: int  # measurements of the run
-    dip_step: int | None  # 1-indexed ``dip_detected_step``
+    dip_step: int | None  # 1-indexed ``detection_step``
     capped: bool  # hit the shared measurement budget without the stop rule firing
     fisher_star: float  # I*, Hz^-2 per measurement
     sigma0_phys: float  # standard deviation of the primary parameter's prior (Hz), W / sqrt(12) when uniform
@@ -220,15 +213,15 @@ def build_run_trace(
     scan = next((e for e in entries if e.get("type") == "scan"), None)
     if scan is None:
         raise ValueError("The repeat has no scan entry.")
-    primary = row.get("stage_primary_param")
-    if not primary or row.get("stage_fisher_star") is None:
-        raise ValueError("The run has no stage metrics (primary parameter / I*); re-run it.")
+    primary = row.get("primary_param")
+    if not primary or row.get("i_max") is None:
+        raise ValueError("The run has no run axes (primary parameter / I_max); re-run it.")
     series = scan.get("series") or {}
-    if not series.get("s"):
+    if not series.get("step"):
         raise ValueError("The run has no per-step series.")
     n_steps = int(row["measurements"])
-    errs = np.array([np.nan if v is None else v for v in series["e"]], dtype=np.float64)
-    steps = np.asarray(series["s"], dtype=np.float64)
+    errs = np.array([np.nan if v is None else v for v in series["error"]], dtype=np.float64)
+    steps = np.asarray(series["step"], dtype=np.float64)
     keep = np.isfinite(errs)
     common = {
         "strategy": strategy,
@@ -236,14 +229,14 @@ def build_run_trace(
         "steps": steps[keep],
         "errs": errs[keep],
         "end": n_steps,
-        "dip_step": None if row.get("dip_detected_step") is None else int(row["dip_detected_step"]),
+        "dip_step": None if row.get("detection_step") is None else int(row["detection_step"]),
         "capped": row.get("failure_reason") == "max_steps",
-        "fisher_star": float(row["stage_fisher_star"]),
-        "sigma0_phys": float(row["stage_prior_info_var"]) ** -0.5,
-        "fwhm_phys": float(row["stage_fwhm_true_phys"]),
-        "window_phys": float(row["stage_window_phys"]),
-        "j_tau": _float_or_none(row.get("posterior_J_tau_phys")),
-        "j_tau_2h": _float_or_none(row.get("posterior_J_tau_2h_phys")),
+        "fisher_star": float(row["i_max"]),
+        "sigma0_phys": float(row["sigma0_phys"]),
+        "fwhm_phys": float(row["fwhm_phys"]),
+        "window_phys": float(row["window_phys"]),
+        "j_tau": _float_or_none(row.get("j_tau_phys")),
+        "j_tau_2h": _float_or_none(row.get("j_tau_2h_phys")),
     }
     is_sbed = strategy == SBED
     if is_sbed and scan.get("plot_skipped") and "meas_drive_freq_unit" not in scan:
@@ -261,7 +254,7 @@ def build_run_trace(
     if true_signal.model.controls_drive:
         raise ValueError("Drive-controlled signals are not covered (their sensitivity depends on the drive setting).")
     x_lo, x_hi = true_signal.get_param_bounds("zero_field_freq")
-    if abs((x_hi - x_lo) - float(row["stage_window_phys"])) > 1e-6 * (x_hi - x_lo):
+    if abs((x_hi - x_lo) - float(row["window_phys"])) > 1e-6 * (x_hi - x_lo):
         raise ValueError("The rebuilt drive window differs from the stored one.")
 
     if is_sbed or "meas_drive_freq_unit" in scan:
@@ -275,12 +268,11 @@ def build_run_trace(
 
     sens = primary_sensitivity_at(true_signal, primary, x_lo, x_hi, x_phys, [None] * n_steps)
     eta = sens.measured / max(sens.best, float(sens.measured.max()))
-    _check_stage_sensitivities(eta, row)
 
     grid, g2 = primary_sensitivity_curve(true_signal, primary, x_lo, x_hi)
     q_sweep, _ = rr.exact_sweep_ratio(g2)
     centres = line_centres_phys(true_signal, x_lo, x_hi)
-    gamma = 0.5 * float(row["stage_fwhm_true_phys"])
+    gamma = 0.5 * float(row["fwhm_phys"])
     offsets = rr.nearest_centre_offsets(x_phys, centres, gamma)
     peak_offset = abs(float(rr.nearest_centre_offsets(grid[[int(np.argmax(g2))]], centres, gamma)[0]))
     return RunTrace(
@@ -292,22 +284,6 @@ def build_run_trace(
         n_lines=int(centres.size),
         **{**common, "window_phys": float(x_hi - x_lo)},
     )
-
-
-def _check_stage_sensitivities(eta: np.ndarray, row: dict[str, Any]) -> None:
-    """Raise unless the mean ``eta`` over each stage's measurements reproduces the stored ``stage{k}_sens_eff``."""
-    start = 0
-    for k in (1, 2, 3):
-        n_stage, stored = row.get(f"stage{k}_steps"), row.get(f"stage{k}_sens_eff")
-        if not n_stage or stored is None:
-            continue
-        mine = float(eta[start : start + int(n_stage)].mean())
-        if abs(mine - float(stored)) > ETA_CHECK_TOL:
-            raise ValueError(
-                f"Rebuilt efficiency of stage {k} is {mine:.4f}, the run stored {float(stored):.4f}: "
-                "the measurement positions or the true signal are not the ones of the run."
-            )
-        start += int(n_stage)
 
 
 def _float_or_none(value: Any) -> float | None:

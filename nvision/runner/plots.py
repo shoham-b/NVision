@@ -854,7 +854,7 @@ def generate_attempt_plots(
         # by runner/metrics.py, which already ran for this repeat).
         from nvision.metrics.posterior import compute_posterior_metrics
 
-        posterior_metrics = compute_posterior_metrics(run_result, entry_base.get("stage_primary_param"), entry_base)
+        posterior_metrics = compute_posterior_metrics(run_result, entry_base.get("primary_param"), entry_base)
         try:
             from nvision.metrics.series import attach_posterior_series, extract_step_series
 
@@ -939,7 +939,7 @@ def generate_attempt_plots(
                 "duration_ms": scan_entry.get("duration_ms"),
                 "last_run": scan_entry.get("last_run"),
                 "steps_to_primary": scan_entry.get("steps_to_primary"),
-                "stage_primary_param": scan_entry.get("stage_primary_param"),
+                "primary_param": scan_entry.get("primary_param"),
             }
 
         # true_params is now embedded in fig.layout.meta; keep here for backward compat

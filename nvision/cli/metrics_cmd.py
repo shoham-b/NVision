@@ -64,7 +64,7 @@ _METRIC_KEYS: tuple[str, ...] = (
     "total_dip_width",
     "min_dip_width",
     "sweep_efficiency",
-    "stage_prior_info_var",
+    "sigma0_phys",
 )
 
 

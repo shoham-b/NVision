@@ -356,8 +356,8 @@ function main() {
         });
 
         // The run's own dip detection sits BELOW the track so it reads apart from the convergence
-        // milestones above it: it ends search + localize, and van Trees restarts there (metrics/stages.py).
-        const detected = _mv(d, 'dip_detected_step');
+        // milestones above it: it ends search + localize, and van Trees restarts there (metrics/run_axes.py).
+        const detected = _mv(d, 'detection_step');
         const stageTicks = [
             { label: 'Detection', title: "The run's own dip detection (end of search + localize)", step: detected, cls: 'stage-focus' },
         ];
@@ -3462,7 +3462,7 @@ function main() {
                         phaseMeasurements = allConvergedStep;
                     }
 
-                    const primaryParamLabel = phaseData.stage_primary_param || (plot && plot.stage_primary_param) || 'zeeman_shift';
+                    const primaryParamLabel = phaseData.primary_param || (plot && plot.primary_param) || 'zeeman_shift';
                     const items = [
                         { label: 'Attempt', val: attemptLabel, tip: 'Which repeat attempt this scan corresponds to (current/total).' },
                     ];

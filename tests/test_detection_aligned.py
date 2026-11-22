@@ -96,18 +96,18 @@ def _row(tau: int | None, *, with_g: bool = True) -> dict:
     s = list(range(1, BUDGET + 1))
     return {
         "series": {
-            "s": s,
-            "e": [None] + [1e5 / math.sqrt(k) for k in s[1:]],
-            "g": [None, None] + [0.01] * (BUDGET - 2) if with_g else None,
-            "u": [None] + [0.5e5 / math.sqrt(k) for k in s[1:]],
-            "x": [None] + [0.0] * (BUDGET - 1),
+            "step": s,
+            "error": [None] + [1e5 / math.sqrt(k) for k in s[1:]],
+            "negentropy": [None, None] + [0.01] * (BUDGET - 2) if with_g else None,
+            "claimed_sigma": [None] + [0.5e5 / math.sqrt(k) for k in s[1:]],
+            "far_placed": [None] + [0.0] * (BUDGET - 1),
         },
         "compare": {
-            "dip_detected_step": tau,
-            "posterior_J_tau_phys": 1e-10,
-            "stage_fisher_star": I_MAX,
-            "posterior_far_mass_tau": 0.1,
-            "stage_fwhm_true_phys": 2e6,
+            "detection_step": tau,
+            "j_tau_phys": 1e-10,
+            "i_max": I_MAX,
+            "far_mass_tau": 0.1,
+            "fwhm_phys": 2e6,
             "snr": 10.0,
         },
         "true_params": {"bounds": {"zeeman_shift": [1e6, 40e6]}},

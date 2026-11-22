@@ -45,7 +45,7 @@ def compare_locators(df: pl.DataFrame, *, group_by: tuple[str, ...] = ()) -> pl.
         pl.col("final_err_primary").quantile(0.9).alias("err_p90"),
         med("uncert").alias("unc_median"),
         (pl.col("final_err_primary") <= 2.0 * pl.col("uncert")).mean().alias("cover_2sigma"),
-        reached("dip_detected_step").alias("detected"),
-        med("dip_detected_step").alias("detect_step"),
+        reached("detection_step").alias("detected"),
+        med("detection_step").alias("detect_step"),
     ]
     return data.group_by(keys).agg(exprs).sort(keys)

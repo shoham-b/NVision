@@ -30,7 +30,7 @@ from nvision.cli.search_bounds_api import add_search_bounds_route
 from nvision.gui.report import _STATIC_DIR, render_index_html
 from nvision.metrics.fit_gap import FIT_GAP_METRIC_KEYS
 from nvision.metrics.posterior import POSTERIOR_METRIC_KEYS
-from nvision.metrics.stages import STAGE_METRIC_KEYS
+from nvision.metrics.run_axes import RUN_AXIS_KEYS
 from nvision.runner.cache import _decompress_text
 from nvision.sim.combinations import PLAIN_SWEEP_STRATEGIES, CombinationGrid
 from nvision.sim.defaults import PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS
@@ -207,8 +207,8 @@ _COMPARE_FIELDS = (
     "final_err_primary",
     "uncert",
     "snr",
-    # Dip detection, I_max and the axes (nvision/metrics/stages.py).
-    *STAGE_METRIC_KEYS,
+    # Dip detection, I_max and the axes (nvision/metrics/run_axes.py).
+    *RUN_AXIS_KEYS,
     # Run-time posterior metrics of the primary parameter (nvision/metrics/posterior.py); per-step values are in the
     # scan entry's ``series`` (``z``, ``p``, ``g``, ``m``, ``j``, ``x``).
     *POSTERIOR_METRIC_KEYS,
@@ -272,8 +272,8 @@ _RUN_ROW_FIELDS = (
     "primary_converged_step",
     "final_err_primary",
     "uncert",
-    "stage_primary_param",
-    "dip_detected_step",
+    "primary_param",
+    "detection_step",
     "noise_sigma",
 )
 
@@ -284,7 +284,7 @@ def _run_row(combo: dict, main_row: dict) -> dict:
     ``tau`` is the absolute convergence threshold of the run's primary parameter (Hz), the stop target the
     stop rule compares the claimed uncertainty against; None when the primary has no absolute threshold.
     """
-    primary = main_row.get("stage_primary_param")
+    primary = main_row.get("primary_param")
     row = {
         "generator": combo["generator"],
         "noise": combo["noise"],

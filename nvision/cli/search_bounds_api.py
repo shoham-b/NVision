@@ -1,6 +1,6 @@
 """``/api/search-bounds``: the search-phase bounds against the measured search, per use case and locator.
 
-Reads only what is already in the cache (per-repeat ``series``, ``true_params`` and stage columns), so it works with
+Reads only what is already in the cache (per-repeat ``series``, ``true_params`` and the run axes), so it works with
 ``nv serve`` on an existing cache and needs no re-run. The formulas live in :mod:`nvision.metrics.search_bounds`; this
 module rebuilds the true line of a use case, checks the stored columns against it and assembles the payload.
 
@@ -83,17 +83,17 @@ class _Run:
         def field(name: str) -> Any:
             return row[name] if row.get(name) is not None else metrics.get(name)
 
-        if field("stage_primary_param") != PRIMARY_PARAM:
-            raise UseCaseError(f"primary parameter is {field('stage_primary_param')!r}, not {PRIMARY_PARAM!r}")
+        if field("primary_param") != PRIMARY_PARAM:
+            raise UseCaseError(f"primary parameter is {field('primary_param')!r}, not {PRIMARY_PARAM!r}")
         series = scan.get("series") or {}
-        if not series.get("s"):
+        if not series.get("step"):
             raise UseCaseError("a repeat has no per-step series")
-        keep = [i for i, e in enumerate(series["e"]) if e is not None]
+        keep = [i for i, e in enumerate(series["error"]) if e is not None]
         if not keep:
             raise UseCaseError("a repeat has no true-error series")
-        self.steps = np.array([series["s"][i] for i in keep], dtype=float)
-        self.errs = np.array([series["e"][i] for i in keep], dtype=float)
-        # The series parameter is chosen by the series exporter, not by stage_primary_param: confirm it is the
+        self.steps = np.array([series["step"][i] for i in keep], dtype=float)
+        self.errs = np.array([series["error"][i] for i in keep], dtype=float)
+        # The series parameter is chosen by the series exporter, not by primary_param: confirm it is the
         # zeeman_shift error through its last point (the series is rounded to 4 significant digits), which is the
         # run's final error ``final_err_primary`` (a sweep's series ends on its fit estimate, as that error does;
         # nvision.metrics.series.extract_step_series).
@@ -112,14 +112,14 @@ class _Run:
         if PRIMARY_PARAM not in self.params:
             raise UseCaseError("true_params carry no zeeman_shift value")
         self.theta = float(self.params[PRIMARY_PARAM])
-        for name in ("stage_fisher_star", "stage_fwhm_true_phys", "snr", "noise_sigma"):
+        for name in ("i_max", "fwhm_phys", "snr", "noise_sigma"):
             if field(name) is None:
                 raise UseCaseError(f"stored column {name!r} is missing (rows from before it was added need a re-run)")
-        self.fisher_star = float(field("stage_fisher_star"))
-        self.fwhm = float(field("stage_fwhm_true_phys"))
+        self.fisher_star = float(field("i_max"))
+        self.fwhm = float(field("fwhm_phys"))
         self.snr = float(field("snr"))
         self.noise_sigma = float(field("noise_sigma"))
-        det = field("dip_detected_step")
+        det = field("detection_step")
         self.detected = None if det is None else int(det)
 
 
@@ -149,7 +149,7 @@ def _line_statistics(
     the average over ``theta`` the bounds are on. ``dip = baseline - signal`` with the baseline the signal far from
     every line. The drawn range is read from the generator and must equal the width stored with the runs.
     """
-    from nvision.metrics.stages import _grad_sq_fn
+    from nvision.metrics.run_axes import _grad_sq_fn
     from nvision.sim.combinations import CombinationGrid
 
     gen = CombinationGrid()._resolve_generators.get(generator_name)  # the grid's name registry

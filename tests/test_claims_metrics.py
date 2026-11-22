@@ -173,13 +173,18 @@ def test_report_end_to_end_on_stored_rows():
         e = ((J0 + grid * I_MAX) ** -0.5 * (1.0 + 0.1 * rng.random(grid.size))).tolist()
         rows.append(
             {
-                "series": {"s": grid.tolist(), "e": e, "u": e, "g": np.where(grid < 60, 0.5, 0.01).tolist()},
+                "series": {
+                    "step": grid.tolist(),
+                    "error": e,
+                    "claimed_sigma": e,
+                    "negentropy": np.where(grid < 60, 0.5, 0.01).tolist(),
+                },
                 "compare": {
-                    "stage_fisher_star": I_MAX,
-                    "stage_window_phys": 10.0,
-                    "stage_fwhm_true_phys": 1.0,
-                    "stage_tau_phys": 0.05,
-                    "dip_detected_step": 20,
+                    "i_max": I_MAX,
+                    "window_phys": 10.0,
+                    "fwhm_phys": 1.0,
+                    "sigma_target_phys": 0.05,
+                    "detection_step": 20,
                 },
                 "true_params": {"params": {"zeeman_shift": 0.1 * i}, "bounds": {"zeeman_shift": [0.0, 1.1]}},
             }
@@ -208,10 +213,10 @@ def test_report_excludes_runs_that_never_reach_the_gaussian_peak():
         g = np.where(grid < 60, 0.5, 0.01) if i < 9 else np.full(grid.size, 0.5)  # 3 of 12 stay non-Gaussian
         rows.append(
             {
-                "series": {"s": grid.tolist(), "e": e, "u": e, "g": g.tolist()},
+                "series": {"step": grid.tolist(), "error": e, "claimed_sigma": e, "negentropy": g.tolist()},
                 "compare": {
-                    "stage_fisher_star": I_MAX,
-                    "dip_detected_step": 20,
+                    "i_max": I_MAX,
+                    "detection_step": 20,
                 },
                 "true_params": {"params": {"zeeman_shift": 0.1 * i}, "bounds": {"zeeman_shift": [0.0, 1.1]}},
             }
@@ -219,6 +224,6 @@ def test_report_excludes_runs_that_never_reach_the_gaussian_peak():
     out = analyse_use_case(rows)
     assert out["gaussian_share"] == pytest.approx(0.75)
     assert out["coverage_at_budget"]["runs_gated"] == 9
-    bad = [dict(r, series={k: v for k, v in r["series"].items() if k != "g"}) for r in rows]
+    bad = [dict(r, series={k: v for k, v in r["series"].items() if k != "negentropy"}) for r in rows]
     with pytest.raises(ValueError, match="negentropy"):
         analyse_use_case(bad)

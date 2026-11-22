@@ -2,7 +2,7 @@
 dip detection (:mod:`nvision.metrics.detection_aligned`).
 
 Read-only: built from the stored per-step series that ``/api/scan-fields`` serves (``s``, ``e``, ``u``, ``g``, ``x``)
-and the stored scalars ``dip_detected_step``, ``posterior_J_tau_phys`` and ``stage_fisher_star``, so it works on an
+and the stored scalars ``detection_step``, ``j_tau_phys`` and ``i_max``, so it works on an
 existing cache.
 """
 
@@ -30,11 +30,12 @@ def aligned_run(row: dict[str, Any]) -> da.AlignedRun | None:
     Raises when the row lacks the series or scalars the analysis needs (a run recorded before they existed).
     """
     cmp = row.get("compare") or {}
-    det = cmp.get("dip_detected_step")
+    det = cmp.get("detection_step")
     if det is None:
         return None
     series = row.get("series") or {}
-    s, e, g, u, x = series.get("s"), series.get("e"), series.get("g"), series.get("u"), series.get("x")
+    s, e, u = series.get("step"), series.get("error"), series.get("claimed_sigma")
+    g, x = series.get("negentropy"), series.get("far_placed")
     if not s or not e or g is None or not u:
         raise ValueError("a run has no stored s/e/g/u series (recorded before the posterior metrics: re-run)")
     keep = [i for i, v in enumerate(e) if v is not None and u[i] is not None]
@@ -49,9 +50,9 @@ def aligned_run(row: dict[str, Any]) -> da.AlignedRun | None:
         neg,
         claimed,
         int(det),
-        _float(cmp.get("posterior_J_tau_phys")),
+        _float(cmp.get("j_tau_phys")),
         far=far,
-        far_mass_tau=_float(cmp.get("posterior_far_mass_tau")),
+        far_mass_tau=_float(cmp.get("far_mass_tau")),
     )
 
 
@@ -63,9 +64,9 @@ def _detection_cell(rows: list[dict[str, Any]]) -> float | None:
     ref = rows[0]
     bounds = ((ref.get("true_params") or {}).get("bounds") or {}).get(PRIMARY_PARAM)
     cmp = ref.get("compare") or {}
-    fwhm, snr = cmp.get("stage_fwhm_true_phys"), cmp.get("snr")
+    fwhm, snr = cmp.get("fwhm_phys"), cmp.get("snr")
     if not bounds or fwhm is None or snr is None:
-        raise ValueError("rows carry no zeeman_shift bounds / stage_fwhm_true_phys / snr")
+        raise ValueError("rows carry no zeeman_shift bounds / fwhm_phys / snr")
     width = float(bounds[1]) - float(bounds[0])
     reach = sb.probe_spacing(width, float(fwhm), float(snr))
     return None if reach is None else reach.dd_phys
@@ -76,8 +77,8 @@ def analyse_rows(rows: list[dict[str, Any]]) -> dict[str, Any]:
     rows = [r for r in rows if r.get("series")]
     if not rows:
         return {"unavailable": "no runs with a per-step series"}
-    imax = float(np.median([float(r["compare"]["stage_fisher_star"]) for r in rows]))
-    budget = int(max(r["series"]["s"][-1] for r in rows))
+    imax = float(np.median([float(r["compare"]["i_max"]) for r in rows]))
+    budget = int(max(r["series"]["step"][-1] for r in rows))
     runs = [a for a in (aligned_run(r) for r in rows) if a is not None]
     return da.analyse(
         runs, budget=budget, i_max=imax, dd_phys=_detection_cell(rows), n_undetected=len(rows) - len(runs)

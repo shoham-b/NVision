@@ -1,14 +1,15 @@
-"""Dip detection, I_max and the axes are read off the belief snapshots by one function (nvision/metrics/stages.py)."""
+"""Dip detection, I_max and the axes are read off the belief snapshots by one function (nvision/metrics/run_axes.py)."""
 
 from __future__ import annotations
 
+import math
 from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
-from nvision.metrics import stages
-from nvision.metrics.stages import belief_prior_variance_phys, compute_stage_metrics
+from nvision.metrics import run_axes
+from nvision.metrics.run_axes import belief_prior_variance_phys, compute_run_axes
 from nvision.spectra.drive import DRIVE_AMP_MIN_UNIT, DriveSetting
 from nvision.spectra.nv_center_drive import pi_pulse_duration_s, rabi_transition_probability
 
@@ -56,18 +57,18 @@ def _uniform_prior_on_mock_bounds(monkeypatch):
         lo, hi = belief.physical_param_bounds[name]
         return (hi - lo) ** 2 / 12.0
 
-    monkeypatch.setattr(stages, "belief_prior_variance_phys", uniform_var)
+    monkeypatch.setattr(run_axes, "belief_prior_variance_phys", uniform_var)
 
 
 def _with_eta(monkeypatch, eta: list[float]) -> None:
     """Fake the sensitivity of the true signal: ``eta`` per step against a best g^2 of 1."""
-    sens = stages._Sensitivity(np.array(eta), 1.0)
-    monkeypatch.setattr(stages, "_primary_sensitivity", lambda run, primary: sens)
+    sens = run_axes._Sensitivity(np.array(eta), 1.0)
+    monkeypatch.setattr(run_axes, "_primary_sensitivity", lambda run, primary: sens)
 
 
 def _eta(run: SimpleNamespace, primary: str) -> np.ndarray:
     """Per-step efficiency g_t^2 / max g^2 of a run, shape (n_steps,)."""
-    sens = stages._primary_sensitivity(run, primary)
+    sens = run_axes._primary_sensitivity(run, primary)
     return sens.measured / sens.best
 
 
@@ -77,8 +78,8 @@ def test_the_dip_marker_needs_the_dip_to_be_held(monkeypatch):
     run = _run(uncs, dip_from=0)
     for i in (1, 4):  # the dip disappears at indices 1 and 4
         run.snapshots[i].belief._has_dip = False
-    m = compute_stage_metrics(run)
-    assert m["dip_detected_step"] == 6  # first window of 3 consecutive dip steps starts at index 5
+    m = compute_run_axes(run)
+    assert m["detection_step"] == 6  # first window of 3 consecutive dip steps starts at index 5
 
 
 def test_the_dip_marker_uses_the_locators_own_false_alarm_level(monkeypatch):
@@ -87,13 +88,13 @@ def test_the_dip_marker_uses_the_locators_own_false_alarm_level(monkeypatch):
     run = _run([1e6] * 4, dip_from=0)
     for snap in run.snapshots:
         snap.belief.current_dips = lambda p_fa=None: seen.append(p_fa) or [object()]
-    compute_stage_metrics(run)
+    compute_run_axes(run)
     assert seen
     assert set(seen) == {None}  # None = the default NVISION_DIP_P_FA
 
 
 def test_empty_run_yields_no_stages():
-    m = compute_stage_metrics(SimpleNamespace(snapshots=[], true_signal=None))
+    m = compute_run_axes(SimpleNamespace(snapshots=[], true_signal=None))
     assert all(v is None for v in m.values())
 
 
@@ -101,7 +102,7 @@ def test_model_without_primary_param_yields_no_stages():
     # Fixed center_freq, no Zeeman splitting: neither a split nor center_freq is a parameter.
     run = _run([1e6] * 3, dip_from=1)
     run.true_signal = SimpleNamespace(parameter_values=lambda: {"linewidth": 1.0, "c_total": 1.0})
-    m = compute_stage_metrics(run)
+    m = compute_run_axes(run)
     assert all(v is None for v in m.values())
 
 
@@ -220,17 +221,17 @@ def test_oracle_includes_pulses_longer_than_the_pi_pulse():
 def test_fisher_star_and_axes(monkeypatch):
     # With best g^2 = 1, sigma = 1 and one shot per step, I_max = 1 per step.
     _with_eta(monkeypatch, [0.0] * 6 + [1.0] * 4)
-    m = compute_stage_metrics(_run([2e6] * 10, dip_from=1))
-    assert m["stage_fisher_star"] == pytest.approx(1.0)
-    assert m["stage_fwhm_true_phys"] == pytest.approx(2.0)  # 2 * hwhm of the fake truth
-    assert m["stage_window_phys"] == pytest.approx(100e6)
-    assert m["stage_window_fwhm"] == pytest.approx(50e6)
-    assert m["stage_prior_info_var"] == pytest.approx(12.0 / 60e6**2)  # 1 / Var of the uniform zeeman_shift prior
-    assert set(m) == set(stages.STAGE_METRIC_KEYS)
+    m = compute_run_axes(_run([2e6] * 10, dip_from=1))
+    assert m["i_max"] == pytest.approx(1.0)
+    assert m["fwhm_phys"] == pytest.approx(2.0)  # 2 * hwhm of the fake truth
+    assert m["window_phys"] == pytest.approx(100e6)
+    assert m["window_over_fwhm"] == pytest.approx(50e6)
+    assert m["sigma0_phys"] == pytest.approx(60e6 / math.sqrt(12.0))  # W / sqrt(12) of the uniform zeeman_shift prior
+    assert set(m) == set(run_axes.RUN_AXIS_KEYS)
 
 
 def test_uniform_prior_variance_is_w2_over_12():
-    assert stages.prior_variance_phys(None, (10.0, 16.0)) == pytest.approx(36.0 / 12.0)
+    assert run_axes.prior_variance_phys(None, (10.0, 16.0)) == pytest.approx(36.0 / 12.0)
 
 
 def test_gaussian_prior_variance_matches_the_sampler():
@@ -243,7 +244,7 @@ def test_gaussian_prior_variance_matches_the_sampler():
     idx = rng.choice(n, size=round(broad * n), replace=False)
     draws[idx] = rng.uniform(0.0, 1.0, idx.size)
     expected = float(np.var(lo + draws * (hi - lo)))
-    assert stages.prior_variance_phys((0.1, 0.3), (lo, hi), broad) == pytest.approx(expected, rel=1e-2)
+    assert run_axes.prior_variance_phys((0.1, 0.3), (lo, hi), broad) == pytest.approx(expected, rel=1e-2)
 
 
 def test_sin2_prior_variance_matches_quadrature():
@@ -253,7 +254,7 @@ def test_sin2_prior_variance_matches_quadrature():
     norm = quad(lambda f: np.sin(k * (f - lo)) ** 2, lo, hi, limit=200)[0]
     mean = quad(lambda f: f * np.sin(k * (f - lo)) ** 2, lo, hi, limit=200)[0] / norm
     var = quad(lambda f: (f - mean) ** 2 * np.sin(k * (f - lo)) ** 2, lo, hi, limit=200)[0] / norm
-    assert stages.prior_variance_phys(("sin^2", k), (lo, hi)) == pytest.approx(var, rel=1e-9)
+    assert run_axes.prior_variance_phys(("sin^2", k), (lo, hi)) == pytest.approx(var, rel=1e-9)
 
 
 @pytest.mark.parametrize(
@@ -267,7 +268,7 @@ def test_sin2_prior_variance_matches_quadrature():
 )
 def test_prior_variance_fails_fast_on_unsupported_priors(entry, bounds, match):
     with pytest.raises(ValueError, match=match):
-        stages.prior_variance_phys(entry, bounds)
+        run_axes.prior_variance_phys(entry, bounds)
 
 
 def test_smc_belief_prior_is_uniform_on_zeeman_shift():
@@ -295,5 +296,5 @@ def test_true_error_first_passage(monkeypatch):
     run = _run([2.0] * 10, dip_from=1)
     for snap, err in zip(run.snapshots, [4.0] * 3 + [0.4] * 7, strict=True):  # truth is 1.0
         snap.belief._estimate = 1.0 + err
-    m = compute_stage_metrics(run)
-    assert m["stage_true_passage_step"] == 4  # error <= tau = 0.5 from the 4th measurement on
+    m = compute_run_axes(run)
+    assert m["target_cost_step"] == 4  # error <= tau = 0.5 from the 4th measurement on

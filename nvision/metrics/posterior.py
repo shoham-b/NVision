@@ -6,27 +6,29 @@ with it; a run recorded before this module existed has none of them and needs a 
 
 Per step ``t`` (snapshot ``t`` = the belief after measurement ``t``), all in the physical units of the parameter (Hz):
 
-* ``z``: signed standardised error ``(estimate - truth) / sigma_hat`` with ``sigma_hat`` the claimed uncertainty
-  (``belief.uncertainty()``, the same value the stage metrics use). Calibrated and Gaussian: ``z ~ N(0, 1)``.
-* ``p`` (PIT): the posterior CDF at the truth, the total weight of the particles with ``theta_i <= truth`` (in
-  ``[0, 1]``). Calibrated: ``p ~ U(0, 1)`` whatever the posterior's shape, so the share of runs with ``p`` in the
-  central 68 % / 95 % interval (``0.16 <= p <= 0.84``, ``0.025 <= p <= 0.975``) is the quantile coverage that needs no
-  Gaussian peak (``claims.coverage_from_pit``). ``posterior_pit_final`` is ``p`` at the last step.
-* ``g`` (negentropy, nats): ``1/2 ln(2 pi e V) - H`` of the smoothed posterior density, ``V`` its own variance and ``H``
+* ``z_score``: signed standardised error ``(estimate - truth) / sigma_hat`` with ``sigma_hat`` the claimed uncertainty
+  (``belief.uncertainty()``, the same value the run axes use). Calibrated and Gaussian: ``z_score ~ N(0, 1)``.
+* ``pit``: the posterior CDF at the truth, the total weight of the particles with ``theta_i <= truth`` (in
+  ``[0, 1]``). Calibrated: ``pit ~ U(0, 1)`` whatever the posterior's shape, so the share of runs with ``pit`` in
+  the central 68 % / 95 % interval (``0.16 <= pit <= 0.84``, ``0.025 <= pit <= 0.975``) is the quantile coverage that
+  needs no Gaussian peak (``claims.coverage_from_pit``). ``pit_final`` is ``pit`` at the last step.
+* ``negentropy`` (nats): ``1/2 ln(2 pi e V) - H`` of the smoothed posterior density, ``V`` its own variance and ``H``
   its differential entropy. ``0`` for a Gaussian, ``> 0`` otherwise (a Gaussian maximises entropy at fixed variance).
   The brief's reference ``1/2 ln(2 pi e sigma_hat^2)`` is *not* used: the KDE adds the bandwidth to the variance, so
   against ``sigma_hat`` a Gaussian cloud would come out negative.
-* ``m`` (far mass): posterior mass farther than ``FAR_FWHM`` (3) true FWHM from the posterior mode (mode of a
+* ``far_mass``: posterior mass farther than ``FAR_FWHM`` (3) true FWHM from the posterior mode (mode of a
   weighted histogram with bins of FWHM/4).
-* ``j``: Fisher information ``int p'(theta)^2 / p(theta) dtheta`` of the posterior density, Hz^-2; ``h``: the KDE
-  bandwidth it was computed with. ``g``, ``j`` and ``h`` exist only at the steps the stored series keeps and at tau.
-* ``x``: 1 if measurement ``t`` was placed farther than ``FAR_FWHM`` FWHM from the mode of the belief *before* it
+* ``posterior_fisher``: Fisher information ``int p'(theta)^2 / p(theta) dtheta`` of the posterior density, Hz^-2;
+  ``kde_bandwidth``: the KDE bandwidth it was computed with. ``negentropy``, ``posterior_fisher`` and ``kde_bandwidth``
+  exist only at the steps the stored series keeps and at the detection step.
+* ``far_placed``: 1 if measurement ``t`` was placed farther than ``FAR_FWHM`` FWHM from the mode of the belief *before*
+  it
   (snapshot ``t - 1``), 0 if not, ``None`` for ``t = 0`` (no belief yet) and when the parameter is not
   ``zeeman_shift`` (the only one whose drive-axis position is known: the visible dip sits at ``zero_field_freq +
   zeeman_shift``). The mode is mapped onto the drive axis and compared with the drive frequency measured.
 
-``J_tau`` = ``j`` at the run's own detection step ``dip_detected_step`` (snapshot ``tau - 1``): the information of the
-posterior van Trees is restarted from (``articles/sections/sm_prior.tex``).
+``j_tau_phys`` = ``posterior_fisher`` at the run's own detection step ``detection_step`` (snapshot ``tau - 1``): the
+information of the posterior van Trees is restarted from (``articles/sections/sm_prior.tex``).
 
 Density estimate (:func:`posterior_density`). A weighted Gaussian KDE evaluated on a grid spanning the particle support
 (``min - 5 h_i`` to ``max + 5 h_i``, clipped to the parameter's bounds), by weighted binning then FFT convolution; the
@@ -43,7 +45,7 @@ reflection is immaterial.
   because one global ``h`` tuned to narrow peaks turns a diffuse tail into spikes whose ``p'^2 / p`` inflates ``J``.
 
 J depends on the smoothing (J falls roughly as ``1 / h^2`` where h is the limiting scale), so ``J_tau`` is good to about
-a factor 2: ``posterior_kde_bandwidth_tau_phys`` is the pilot ``h`` and ``posterior_J_tau_2h_phys`` the same J with
+a factor 2: ``kde_bandwidth_tau_phys`` is the pilot ``h`` and ``j_tau_2h_phys`` the same J with
 twice that bandwidth, and the ``h`` series shows where the bandwidth moves (``docs/evaluation_metrics.md``).
 
 Cost: a density takes ~25 ms, so ``g``, ``j``, ``h`` are computed only at the steps the stored series keeps (at most
@@ -73,18 +75,26 @@ _TAIL_FLOOR = 1e-10  # p below this fraction of its max is dropped from p'^2/p (
 
 # Per-run scalar keys (results-row columns); see :func:`compute_posterior_metrics`.
 POSTERIOR_METRIC_KEYS: tuple[str, ...] = (
-    "posterior_J_tau_phys",
-    "posterior_kde_bandwidth_tau_phys",
-    "posterior_negentropy_tau",
-    "posterior_far_mass_tau",
-    "posterior_far_placed_steps",
-    "posterior_far_placed_share",
-    "posterior_J_tau_2h_phys",
-    "posterior_undefined_steps",
-    "posterior_pit_final",
+    "j_tau_phys",
+    "kde_bandwidth_tau_phys",
+    "negentropy_tau",
+    "far_mass_tau",
+    "far_placed_steps",
+    "far_placed_share",
+    "j_tau_2h_phys",
+    "undefined_posterior_steps",
+    "pit_final",
 )
-# Per-step series keys (scan-entry ``series``), aligned with ``"s"``.
-POSTERIOR_SERIES_KEYS: tuple[str, ...] = ("z", "p", "g", "m", "j", "h", "x")
+# Per-step series keys (scan-entry ``series``), aligned with ``"step"``.
+POSTERIOR_SERIES_KEYS: tuple[str, ...] = (
+    "z_score",
+    "pit",
+    "negentropy",
+    "far_mass",
+    "posterior_fisher",
+    "kde_bandwidth",
+    "far_placed",
+)
 
 
 class NoBandwidthError(ValueError):
@@ -280,7 +290,7 @@ class _StepPosterior:
 
     ``informed`` is False for a belief no measurement has updated yet (a flat prior, as a sweep's belief is until its
     first flush): it has no posterior, so every field is ``None`` and the step is counted in
-    ``posterior_undefined_steps``. ``mode_phys`` and ``far_mass`` are cheap (a weighted histogram with bins of a quarter
+    ``undefined_posterior_steps``. ``mode_phys`` and ``far_mass`` are cheap (a weighted histogram with bins of a quarter
     FWHM, so the mode is within FWHM/8 of the KDE's, far inside the 3 FWHM threshold) and exist for every informed
     step. The KDE fields (``fisher``, ``negentropy``, ``bandwidth_phys``) cost ~25 ms and only exist after
     :meth:`ensure_density`.
@@ -311,7 +321,7 @@ class _StepPosterior:
             density = posterior_density(self._x, self._w, *self._bounds)
         except NoBandwidthError:
             # A cloud with no structure to smooth (e.g. still the flat prior after the first measurements): the
-            # density-based fields are undefined there. Recorded as missing, counted in posterior_undefined_steps.
+            # density-based fields are undefined there. Recorded as missing, counted in undefined_posterior_steps.
             self.no_bandwidth = True
             return
         self.bandwidth_phys = density.bandwidth_phys
@@ -327,13 +337,13 @@ class _StepPosterior:
 def compute_posterior_metrics(
     run_result: Any,
     primary: str | None,
-    stage_metrics: dict[str, Any],
+    axes: dict[str, Any],
     max_points: int | None = None,
 ) -> dict[str, Any]:
     """Posterior metrics of ``primary`` over one run: ``{"scalars", "series", "density_steps", "max_points"}``.
 
-    ``stage_metrics``: the dict :func:`~nvision.metrics.stages.compute_stage_metrics` returned for the run
-    (``dip_detected_step``). ``scalars`` has every
+    ``axes``: the dict :func:`~nvision.metrics.run_axes.compute_run_axes` returned for the run
+    (``detection_step``). ``scalars`` has every
     :data:`POSTERIOR_METRIC_KEYS` key; ``series`` every :data:`POSTERIOR_SERIES_KEYS` key as a list of length
     ``n_steps`` (``None`` where undefined). Everything is ``None`` when there is no ``primary`` or the beliefs carry no
     particle cloud (grid beliefs). Memoised on ``run_result.posterior_cache``.
@@ -365,7 +375,7 @@ def compute_posterior_metrics(
     if n == 0 or primary is None or _to_physical_particles(snapshots[0].belief, primary) is None:
         return out
 
-    from nvision.metrics.stages import _true_fwhm_phys  # the same FWHM the stage axes use
+    from nvision.metrics.run_axes import _true_fwhm_phys  # the same FWHM the run axes use
 
     true_signal = run_result.true_signal
     truth = float(true_signal.get_param_value(primary))
@@ -381,7 +391,7 @@ def compute_posterior_metrics(
             by_belief[id(s.belief)] = _StepPosterior(s.belief, primary, fwhm)
         posts.append(by_belief[id(s.belief)])
 
-    tau = stage_metrics.get("dip_detected_step")
+    tau = axes.get("detection_step")
     density_steps = set(_downsample_indices(n, max_points))
     if tau is not None:
         density_steps.add(int(tau) - 1)
@@ -393,37 +403,37 @@ def compute_posterior_metrics(
         sigma = float(snap.belief.uncertainty()[primary])
         if not sigma > 0.0:
             raise ValueError(f"Claimed uncertainty of {primary!r} is {sigma} at step {t + 1}; cannot standardise.")
-        series["z"][t] = (est - truth) / sigma
-        series["p"][t] = post.pit(truth)
-        series["m"][t] = post.far_mass
+        series["z_score"][t] = (est - truth) / sigma
+        series["pit"][t] = post.pit(truth)
+        series["far_mass"][t] = post.far_mass
         if t in density_steps:
             post.ensure_density()
-            series["g"][t] = post.negentropy
-            series["j"][t] = post.fisher
-            series["h"][t] = post.bandwidth_phys
+            series["negentropy"][t] = post.negentropy
+            series["posterior_fisher"][t] = post.fisher
+            series["kde_bandwidth"][t] = post.bandwidth_phys
         if t >= 1 and primary == "zeeman_shift" and fwhm is not None and posts[t - 1].informed:
             prev = snapshots[t - 1].belief
             lo, hi = prev.drive_freq_bounds_phys
             drive_phys = lo + snap.obs.drive_freq_unit * (hi - lo)
             # Visible dip at zero_field_freq + zeeman_shift: fixed (the true value) unless the belief infers it.
             zff = float(prev.estimates().get("zero_field_freq", zff_true))
-            series["x"][t] = float(abs(drive_phys - (zff + posts[t - 1].mode_phys)) > FAR_FWHM * fwhm)
+            series["far_placed"][t] = float(abs(drive_phys - (zff + posts[t - 1].mode_phys)) > FAR_FWHM * fwhm)
 
     # Steps with no posterior density: no measurement had updated the belief, or its cloud has no structure for
     # the bandwidth rule (checked at the steps a density is computed for).
-    scalars["posterior_pit_final"] = series["p"][-1]
-    scalars["posterior_undefined_steps"] = sum((not p.informed) or p.no_bandwidth for p in posts)
+    scalars["pit_final"] = series["pit"][-1]
+    scalars["undefined_posterior_steps"] = sum((not p.informed) or p.no_bandwidth for p in posts)
     if tau is not None:
         post = posts[int(tau) - 1]  # the density fields are None when no measurement had updated the belief yet
-        scalars["posterior_J_tau_phys"] = post.fisher
-        scalars["posterior_kde_bandwidth_tau_phys"] = post.bandwidth_phys
+        scalars["j_tau_phys"] = post.fisher
+        scalars["kde_bandwidth_tau_phys"] = post.bandwidth_phys
         if post.fisher is not None:
-            scalars["posterior_J_tau_2h_phys"] = post.fisher_at_bandwidth_scale(2.0)
-        scalars["posterior_negentropy_tau"] = post.negentropy
-        scalars["posterior_far_mass_tau"] = post.far_mass
-    placed = [(t, v) for t, v in enumerate(series["x"]) if v is not None]
+            scalars["j_tau_2h_phys"] = post.fisher_at_bandwidth_scale(2.0)
+        scalars["negentropy_tau"] = post.negentropy
+        scalars["far_mass_tau"] = post.far_mass
+    placed = [(t, v) for t, v in enumerate(series["far_placed"]) if v is not None]
     if placed:
-        scalars["posterior_far_placed_steps"] = int(sum(v for _, v in placed))
-        scalars["posterior_far_placed_share"] = float(np.mean([v for _, v in placed]))
+        scalars["far_placed_steps"] = int(sum(v for _, v in placed))
+        scalars["far_placed_share"] = float(np.mean([v for _, v in placed]))
     run_result.posterior_cache = out
     return out

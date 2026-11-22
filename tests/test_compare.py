@@ -25,7 +25,7 @@ def _results() -> pl.DataFrame:
             "failure_reason": [None, "max_steps", "timeout", None, None],
             "final_err_primary": [100.0, 300.0, 1.0, 50.0, 70.0],
             "uncert": [150.0, 100.0, 1.0, 40.0, 60.0],
-            "dip_detected_step": [5, 7, None, None, 12],
+            "detection_step": [5, 7, None, None, 12],
         }
     )
 
@@ -45,7 +45,7 @@ def test_compare_reports_reach_rates_and_medians_per_strategy():
 
 
 def test_compare_tolerates_a_missing_detection_column():
-    df = _results().drop("dip_detected_step")
+    df = _results().drop("detection_step")
     assert compare_locators(df).height == 2
 
 

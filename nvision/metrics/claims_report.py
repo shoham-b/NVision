@@ -18,7 +18,7 @@ from nvision.metrics.detection_aligned import gaussian_onset
 from nvision.metrics.refine_rates import InverseMse, inverse_mse_curve, late_window
 
 COVERAGE_STEPS = (30, 100, 300, 1000)
-Z_KEY = "z"
+Z_KEY = "z_score"
 # The stored series have at most 80 points per run; a denser grid lets each half of the fit window hold the 5 points
 # the line fit needs (it adds no information: values between stored samples are interpolated).
 GRID_POINTS = 200
@@ -48,16 +48,16 @@ def _gated_dict(g: claims.GatedFit) -> dict[str, Any]:
 def _gaussian_onset(series: dict[str, Any]) -> float:
     """A run's Gaussian onset (step) from its stored series ``s`` (steps) and ``g`` (negentropy); NaN if never.
 
-    ``series["s"]``, ``series["g"]``: length m. Raises when ``g`` is missing: such a run predates the stored
+    ``series["step"]``, ``series["negentropy"]``: length m. Raises when ``g`` is missing: such a run predates the stored
     negentropy and must be re-run, not silently counted as never Gaussian.
     """
-    g = series.get("g")
+    g = series.get("negentropy")
     if not g:
-        raise ValueError("run has no negentropy series 'g': re-run it (nv render cannot fill it)")
-    s = np.asarray(series["s"], dtype=np.float64)
+        raise ValueError("run has no negentropy series 'negentropy': re-run it (nv render cannot fill it)")
+    s = np.asarray(series["step"], dtype=np.float64)
     gv = np.array([math.nan if x is None else x for x in g], dtype=np.float64)
     if gv.shape != s.shape:
-        raise ValueError(f"series 's' and 'g' differ in length: {s.shape} vs {gv.shape}")
+        raise ValueError(f"series 'step' and 'negentropy' differ in length: {s.shape} vs {gv.shape}")
     onset = gaussian_onset(s, gv)
     return math.nan if onset is None else float(onset)
 
@@ -68,7 +68,7 @@ def analyse_use_case(rows: list[dict[str, Any]]) -> dict[str, Any]:
     ``rows``: items of ``/api/scan-fields`` (``compare`` = stored scalars, ``series`` = ``s`` (stored step), ``e`` (true
     error, Hz), ``u`` (claimed sigma, Hz), optionally ``z``; ``true_params``). Runs without a series are left out.
     """
-    runs = [r for r in rows if r.get("series") and all(r["series"].get(k) for k in ("s", "e", "u"))]
+    runs = [r for r in rows if r.get("series") and all(r["series"].get(k) for k in ("step", "error", "claimed_sigma"))]
     if len(runs) < claims.MIN_RUNS:
         return {
             "unavailable": f"{len(runs)} runs with a per-step series (need {claims.MIN_RUNS})",
@@ -77,19 +77,19 @@ def analyse_use_case(rows: list[dict[str, Any]]) -> dict[str, Any]:
     cmp = [r.get("compare") or {} for r in runs]
     imax, window, fwhm, tau = (
         _med([c.get(k) for c in cmp])
-        for k in ("stage_fisher_star", "stage_window_phys", "stage_fwhm_true_phys", "stage_tau_phys")
+        for k in ("i_max", "window_phys", "fwhm_phys", "sigma_target_phys")
     )
     if not imax:
-        return {"unavailable": "stage_fisher_star missing: re-run", "repeats": len(runs)}
+        return {"unavailable": "i_max missing: re-run", "repeats": len(runs)}
     truths = [((r.get("true_params") or {}).get("params") or {}).get("zeeman_shift") for r in runs]
     bounds = ((runs[0].get("true_params") or {}).get("bounds") or {}).get("zeeman_shift")
     if not bounds:
         return {"unavailable": "rows carry no zeeman_shift bounds", "repeats": len(runs)}
     # The error of the best guess before any measurement: the spread of the uniform prior, W / sqrt(12) (Eq. prior).
     sigma0 = (float(bounds[1]) - float(bounds[0])) / math.sqrt(12.0)
-    steps = [np.asarray(r["series"]["s"], dtype=np.float64) for r in runs]
-    errs = [np.asarray(r["series"]["e"], dtype=np.float64) for r in runs]
-    uncs = [np.asarray(r["series"]["u"], dtype=np.float64) for r in runs]
+    steps = [np.asarray(r["series"]["step"], dtype=np.float64) for r in runs]
+    errs = [np.asarray(r["series"]["error"], dtype=np.float64) for r in runs]
+    uncs = [np.asarray(r["series"]["claimed_sigma"], dtype=np.float64) for r in runs]
     grid = claims.step_grid(int(max(s[-1] for s in steps)), points=GRID_POINTS)
     err, unc = claims.value_matrix(steps, errs, grid), claims.value_matrix(steps, uncs, grid)
     out: dict[str, Any] = {
@@ -111,7 +111,7 @@ def analyse_use_case(rows: list[dict[str, Any]]) -> dict[str, Any]:
     # 3. (n0, q) on master's late window, true error and claimed sigma, with the linearity gate.
     ends = np.array([s[-1] for s in steps])
     inv: InverseMse = inverse_mse_curve(steps, errs, ends, grid)
-    dips = [c.get("dip_detected_step") for c in cmp if c.get("dip_detected_step")]
+    dips = [c.get("detection_step") for c in cmp if c.get("detection_step")]
     win = late_window(inv, dips)
     out["fit_window"] = list(win) if win else None
     out["fit_true"] = out["fit_claimed"] = out["rate_ratio_claimed_over_true"] = out["sensitivity_ratio"] = None

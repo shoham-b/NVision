@@ -35,10 +35,10 @@
     const spanOf = (gen) => { const m = SPAN_RE.exec(gen); return m ? Number(m[2]) : null; };
     const familyOf = (gen) => { const m = SPAN_RE.exec(gen); return m ? `${m[1]}*${m[3]}` : null; };
     const snrOf = (noise) => { const m = SNR_RE.exec(noise); return m ? Number(m[1]) : null; };
-    const ucKey = (g, n) => `${g}|${n}`;
 
     // ── Fetching: one queue for the whole page, the selected use case first; every response kept for the session ──
     const memo = new Map();     // url -> Promise of the parsed JSON
+    const done = new Map();     // url -> the parsed JSON, once it has arrived
     const queue = [];
     let running = 0;
     function fetchJson(url, priority = false) {
@@ -50,6 +50,7 @@
                     const resp = await fetch(url, { cache: 'no-store' });
                     const body = await resp.json().catch(() => ({}));
                     if (!resp.ok) throw new Error(body.detail || `HTTP ${resp.status}`);
+                    done.set(url, body);
                     resolve(body);
                 } catch (err) {
                     memo.delete(url);
@@ -138,7 +139,7 @@
         <h3 class="group-label">Calibration</h3>
         <div class="chart-pair">
             ${card('art-coverage', 'Coverage at the end of the run vs window', 'Share of runs whose final true error lies within 1 claimed σ (circles) and 2 claimed σ (diamonds), from the signed z = error / σ the runs store. A calibrated Gaussian posterior gives 0.683 and 0.954 (dashed). One point per use case; the accuracy at the end is not itself a quality metric (it reflects the stop target).')}
-            ${card('art-pit', 'Coverage by the posterior\'s own quantiles (PIT)', 'Share of runs whose truth lies in the central 68 % and 95 % of their own particle posterior (probability integral transform), which holds also before the posterior is Gaussian. Needs runs recorded with the PIT series (posterior_pit_final).')}
+            ${card('art-pit', 'Coverage by the posterior\'s own quantiles (PIT)', 'Share of runs whose truth lies in the central 68 % and 95 % of their own particle posterior (probability integral transform), which holds also before the posterior is Gaussian. Needs runs recorded with the PIT series (pit_final).')}
         </div>`;
     }
 
@@ -216,31 +217,27 @@
     function loadAcross() {
         const family = state.family;
         const gens = [state.uc[0], ...state.gens.filter((x) => x !== state.uc[0])];
-        let done = 0;
+        let count = 0;
+        const errors = [];
         const total = 2 * gens.length;
         const progress = () => {
             const el = document.getElementById('art-progress');
-            if (el) el.textContent = done < total ? `Loading every use case: ${done}/${total} requests…` : `${state.gens.length} windows × ${state.noises.length} SNRs loaded.`;
+            if (!el) return;
+            const failed = errors.length ? ` · ${errors.length} failed: ${errors.slice(0, 2).join('; ')}` : '';
+            el.textContent = (count < total ? `Loading every use case: ${count}/${total} requests…` : `${state.gens.length} windows × ${state.noises.length} SNRs loaded.`) + failed;
         };
         progress();
         const redraw = () => { if (state.family === family) drawAcross(); };
-        gens.forEach((g) => {
-            fetchJson(claimsUrl(g)).catch(() => null).then(() => { done += 1; progress(); redraw(); });
-            fetchJson(ratesUrl(g)).catch(() => null).then(() => { done += 1; progress(); redraw(); });
-        });
+        const track = (url) => fetchJson(url).catch((err) => { errors.push(err.message); }).then(() => { count += 1; progress(); redraw(); });
+        gens.forEach((g) => { track(claimsUrl(g)); track(ratesUrl(g)); });
     }
 
-    async function settled(url) {
-        if (!memo.has(url)) return null;
-        try { return await memo.get(url); } catch { return null; }
-    }
-
-    async function drawAcross() {
+    function drawAcross() {
         const claimRows = [], rateCases = [], failures = [];
         for (const g of state.gens) {
-            const c = await settled(claimsUrl(g));
+            const c = done.get(claimsUrl(g));
             if (c) claimRows.push(...c.filter((r) => LOCATORS.includes(r.strategy)));
-            const r = await settled(ratesUrl(g));
+            const r = done.get(ratesUrl(g));
             if (r) {
                 rateCases.push(...(r.use_cases || []));
                 failures.push(...(r.failed || []));
@@ -470,7 +467,7 @@
         if (!claimRows.length) return;
         const rows = claimRows.filter((r) => r.coverage_pit_at_budget && r.window_phys && r.fwhm_phys);
         if (!rows.length) {
-            div.innerHTML = '<p class="empty-state">Needs re-run: these runs store no PIT (posterior_pit_final), so coverage by the posterior\'s own quantiles cannot be read. Runs recorded after the PIT series was added show it here.</p>';
+            div.innerHTML = '<p class="empty-state">Needs re-run: these runs store no PIT (pit_final), so coverage by the posterior\'s own quantiles cannot be read. Runs recorded after the PIT series was added show it here.</p>';
             setClaim('art-pit', 'Coverage holds also before the posterior is Gaussian when read from its own quantiles.');
             return;
         }

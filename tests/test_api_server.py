@@ -339,8 +339,8 @@ def test_scan_fields_carries_compare_fields(tmp_path):
     extra["metrics"] = {
         **extra["metrics"],
         "final_err_primary": 4.0,
-        "dip_detected_step": 3,
-        "stage_fisher_star": 0.5,
+        "detection_step": 3,
+        "i_max": 0.5,
         "focus_found_step": 7,
     }
     _seed_one_repeat(cache_dir, entry_extra=extra)
@@ -349,8 +349,8 @@ def test_scan_fields_carries_compare_fields(tmp_path):
     rows = client.get("/api/scan-fields", params={"generator": "NVCenter-lorentzian", "noise": "Gauss(0.01)"}).json()
     compare = rows[0]["compare"]
     assert compare["final_err_primary"] == 4.0
-    assert compare["dip_detected_step"] == 3
-    assert compare["stage_fisher_star"] == 0.5
+    assert compare["detection_step"] == 3
+    assert compare["i_max"] == 0.5
     assert "focus_found_step" not in compare
     assert "stage_prior_info" not in compare
 

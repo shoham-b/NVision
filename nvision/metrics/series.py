@@ -1,21 +1,15 @@
-"""Per-step (error, uncertainty) series export for the UI Highlights view.
+"""Per-step series of a run, stored with its scan entry and read by the article views.
 
-The Highlights view needs anytime performance curves (error vs measurement
-count) and threshold-sensitivity survival curves. Both are derived from a
-compact, downsampled per-step series stored on each scan manifest entry:
+``{"step": [steps], "error": [|estimate - truth|], "claimed_sigma": [claimed sigma], "sigma_target": stop target}``
 
-``{"s": [steps], "e": [abs errors], "u": [uncertainties], "tau": threshold}``
+Steps are 1-indexed; values are rounded to 4 significant digits to keep the cache small. ``sigma_target`` is the
+effective absolute convergence threshold of the parameter (the stop target).
 
-Steps are 1-indexed; values are rounded to 4 significant digits to keep the
-manifest small. ``tau`` is the effective absolute convergence threshold for
-the parameter so the UI can recompute convergence steps at scaled thresholds.
-
-An optional ``"w"`` key carries the per-step focus-window-candidate history
-(physical Hz), one entry per kept step index, aligned with ``"s"``: ``w[i]`` is
-either ``None`` (locator has no live candidate windows yet) or a list of
-``[lo, hi]`` pairs -- more than one while multiple dip candidates are still
-competing, collapsing to one once the locator settles. Powers the timeline's
-focus-window playback animation (see ``static/plotly-utils.js``).
+An optional ``"focus_windows"`` key carries the per-step focus-window-candidate history (physical Hz), aligned with
+``"step"``: each entry is ``None`` (no live candidate window yet) or a list of ``[lo, hi]`` pairs, more than one while
+several dip candidates compete. It drives the timeline's focus-window playback (``static/plotly-utils.js``). The
+posterior series (``z_score``, ``pit``, ``negentropy``, ``far_mass``, ``posterior_fisher``, ``kde_bandwidth``,
+``far_placed``; :mod:`nvision.metrics.posterior`) are added by :func:`attach_posterior_series`.
 """
 
 from __future__ import annotations
@@ -151,34 +145,34 @@ def extract_step_series(
 
     keep = _downsample_indices(len(steps), max_points)
     series: dict[str, Any] = {
-        "s": [steps[i] for i in keep],
-        "e": [_round_sig(errs[i]) for i in keep],
-        "u": [_round_sig(uncerts[i]) for i in keep],
+        "step": [steps[i] for i in keep],
+        "error": [_round_sig(errs[i]) for i in keep],
+        "claimed_sigma": [_round_sig(uncerts[i]) for i in keep],
     }
     if any(c is not None for c in crlbs):
-        series["c"] = [_round_sig(crlbs[i]) for i in keep]
+        series["crlb"] = [_round_sig(crlbs[i]) for i in keep]
     if any(windows):
-        series["w"] = [
+        series["focus_windows"] = [
             [[_round_sig(lo), _round_sig(hi)] for lo, hi in windows[i]] if windows[i] else None for i in keep
         ]
     tau = effective_convergence_threshold(run_result, param)
     if tau is not None:
-        series["tau"] = _round_sig(tau)
+        series["sigma_target"] = _round_sig(tau)
     return series
 
 
 def attach_posterior_series(series: dict[str, Any], posterior: dict[str, Any]) -> None:
-    """Add the run-time posterior per-step series (``z``, ``p``, ``g``, ``m``, ``j``, ``h``, ``x``) to a step series.
+    """Add the run-time posterior per-step series (``posterior.POSTERIOR_SERIES_KEYS``) to a step series.
 
     ``series``: the dict :func:`extract_step_series` built; ``posterior``: ``compute_posterior_metrics`` of the same
-    run. Values are taken at the steps of ``series["s"]`` (1-indexed). Raises ``ValueError`` if the posterior was
+    run. Values are taken at the steps of ``series["step"]`` (1-indexed). Raises ``ValueError`` if the posterior was
     not built for those steps (the density series exist only at the steps the stored series keeps), so a mismatch
     cannot silently drop or misalign a series.
     """
     if not posterior["computed"]:  # no primary parameter or no particle cloud (e.g. a real-data run): nothing to add
         return
-    steps0 = [step - 1 for step in series["s"]]
-    if posterior["max_points"] != MAX_SERIES_POINTS or max(steps0) >= len(posterior["series"]["z"]):
+    steps0 = [step - 1 for step in series["step"]]
+    if posterior["max_points"] != MAX_SERIES_POINTS or max(steps0) >= len(posterior["series"]["z_score"]):
         raise ValueError("The posterior series were not built for this run's steps / max_points.")
     if not set(steps0) <= set(posterior["density_steps"]):
         raise ValueError("The stored steps are not the steps the posterior density was computed at.")

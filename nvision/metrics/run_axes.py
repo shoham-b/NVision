@@ -4,14 +4,14 @@ The article reads a run through four regimes (search, localize, converge, refine
 dip detection and the onset of a Gaussian posterior (``docs/evaluation_metrics.md``). This module stores what those
 analyses need per run and nothing else:
 
-* ``dip_detected_step``: the first step the locator's dip test (``NVISION_DIP_P_FA``, the one it narrows its focus
+* ``detection_step``: the first step the locator's dip test (``NVISION_DIP_P_FA``, the one it narrows its focus
   with) shows a dip and keeps showing one for ``BOUNDARY_HOLD_STEPS`` steps. It ends the search; van Trees restarts
   there (:mod:`nvision.metrics.detection_aligned`).
-* ``stage_fisher_star`` = ``I_max``: the Fisher information about the primary parameter one measurement carries when
+* ``i_max`` = ``I_max``: the Fisher information about the primary parameter one measurement carries when
   taken at the steepest point of the true dip (shots x ``max g^2 / sigma^2``, Hz^-2 per step, the mean over steps).
 * the axes: the stop target ``tau``, the true and prior FWHM, the drive window and the prior variance of the primary
-  parameter (``stage_prior_info_var = 1 / Var(prior)``, ``12 / W^2`` for the uniform global-search prior, article
-  Eq. prior). The prior's *information* is not stored: van Trees does not apply to the uniform window.
+  parameter (``sigma0_phys`` = the prior's standard deviation, ``W / sqrt(12)`` for the uniform global-search prior,
+  article Eq. prior). The prior's *information* is not stored: van Trees does not apply to the uniform window.
 
 Fisher information
 ------------------
@@ -49,18 +49,18 @@ _ORACLE_DURATION_RATIOS = np.geomspace(
     RABI_PER_AMP_BOUNDS[0] / RABI_PER_AMP_BOUNDS[1], RABI_PER_AMP_BOUNDS[1] / RABI_PER_AMP_BOUNDS[0], 17
 )
 
-# Every key compute_stage_metrics returns (the results-row columns).
-STAGE_METRIC_KEYS: tuple[str, ...] = (
-    "stage_primary_param",
-    "dip_detected_step",
-    "stage_fisher_star",
-    "stage_tau_phys",
-    "stage_fwhm_true_phys",
-    "stage_prior_fwhm_phys",
-    "stage_window_phys",
-    "stage_window_fwhm",
-    "stage_prior_info_var",
-    "stage_true_passage_step",
+# Every key compute_run_axes returns (the results-row columns).
+RUN_AXIS_KEYS: tuple[str, ...] = (
+    "primary_param",
+    "detection_step",
+    "i_max",
+    "sigma_target_phys",
+    "fwhm_phys",
+    "prior_fwhm_phys",
+    "window_phys",
+    "window_over_fwhm",
+    "sigma0_phys",
+    "target_cost_step",
 )
 
 
@@ -240,31 +240,31 @@ def _first_held(holds: Callable[[int], bool], first: int, n_steps: int) -> int |
     return None
 
 
-def compute_stage_metrics(run_result: RunResult) -> dict[str, Any]:
+def compute_run_axes(run_result: RunResult) -> dict[str, Any]:
     """The detection marker, ``I_max`` and the axes of one run (all JSON-serialisable scalars or ``None``).
 
-    * ``stage_primary_param``: the parameter the run is judged on (``None``, and every other field ``None`` too, when
+    * ``primary_param``: the parameter the run is judged on (``None``, and every other field ``None`` too, when
       the model has no primary parameter -- see ``resolve_primary_param``).
-    * ``dip_detected_step``: 1-indexed step the locator's dip test first shows a dip and keeps showing one.
-    * ``stage_fisher_star``: ``I_max`` (Hz^-2 per step), the mean over steps.
-    * ``stage_tau_phys``: the stop target tau (Hz), the claimed-sigma threshold the run stops on.
-    * ``stage_fwhm_true_phys`` (``None`` for drive-controlled models, whose width depends on the drive),
-      ``stage_prior_fwhm_phys`` (the prior's mean FWHM), ``stage_window_phys`` (the drive-frequency range) and
-      ``stage_window_fwhm`` = window over true FWHM.
-    * ``stage_prior_info_var`` = ``1 / Var(prior)`` of the primary parameter (Hz^-2), from the locator's prior.
-    * ``stage_true_passage_step``: first step from which the true error stays ``<= tau`` for ``BOUNDARY_HOLD_STEPS``
+    * ``detection_step``: 1-indexed step the locator's dip test first shows a dip and keeps showing one.
+    * ``i_max``: ``I_max`` (Hz^-2 per step), the mean over steps.
+    * ``sigma_target_phys``: the stop target tau (Hz), the claimed-sigma threshold the run stops on.
+    * ``fwhm_phys`` (``None`` for drive-controlled models, whose width depends on the drive),
+      ``prior_fwhm_phys`` (the prior's mean FWHM), ``window_phys`` (the drive-frequency range) and
+      ``window_over_fwhm`` = window over true FWHM.
+    * ``sigma0_phys`` = sigma_0, the standard deviation (Hz) of the primary parameter's prior, from the locator's prior.
+    * ``target_cost_step``: first step from which the true error stays ``<= tau`` for ``BOUNDARY_HOLD_STEPS``
       steps (the cost to the stop target; ``None`` if never).
     """
     snapshots = run_result.snapshots
     n_steps = len(snapshots)
-    out: dict[str, Any] = {key: None for key in STAGE_METRIC_KEYS}
+    out: dict[str, Any] = {key: None for key in RUN_AXIS_KEYS}
     if n_steps == 0:
         return out
     primary = resolve_primary_param(run_result.true_signal.parameter_values().keys())
     if primary is None:
         # No zeeman_shift/hyperfine_shift and no free zero_field_freq (e.g. a fixed-center, no-Zeeman model).
         return out
-    out["stage_primary_param"] = primary
+    out["primary_param"] = primary
 
     dip_cache: dict[int, bool] = {}
 
@@ -274,7 +274,7 @@ def compute_stage_metrics(run_result: RunResult) -> dict[str, Any]:
         return dip_cache[i]
 
     dip_idx = _first_held(shows_dip, 0, n_steps)
-    out["dip_detected_step"] = None if dip_idx is None else dip_idx + 1
+    out["detection_step"] = None if dip_idx is None else dip_idx + 1
 
     true_value = float(run_result.true_signal.get_param_value(primary))
     err_trace = np.array([abs(float(s.belief.estimates()[primary]) - true_value) for s in snapshots])  # Hz
@@ -383,7 +383,7 @@ def _true_fwhm_phys(true_signal: Any) -> float | None:
 
 
 def _add_axes(run_result: RunResult, primary: str, err_trace: np.ndarray, out: dict[str, Any]) -> None:
-    """Fill ``I_max`` and the axes of :func:`compute_stage_metrics`.
+    """Fill ``I_max`` and the axes of :func:`compute_run_axes`.
 
     ``err_trace``: shape (n_steps,), true error ``|estimate - truth|`` (Hz) of the primary parameter after each
     measurement.
@@ -400,14 +400,14 @@ def _add_axes(run_result: RunResult, primary: str, err_trace: np.ndarray, out: d
     x_lo_phys, x_hi_phys = belief.drive_freq_bounds_phys
     fwhm_true = _true_fwhm_phys(run_result.true_signal)
     tau = effective_convergence_threshold(run_result, primary)
-    out["stage_fisher_star"] = _finite_or_none(fisher_star)
-    out["stage_tau_phys"] = None if tau is None else _finite_or_none(float(tau))
-    out["stage_fwhm_true_phys"] = None if fwhm_true is None else _finite_or_none(fwhm_true)
-    out["stage_prior_fwhm_phys"] = _finite_or_none(float(hwhm_fwhm_prior_hz(belief.physical_param_bounds)[0]))
-    out["stage_window_phys"] = _finite_or_none(float(x_hi_phys - x_lo_phys))
-    out["stage_window_fwhm"] = None if not fwhm_true else _finite_or_none(float(x_hi_phys - x_lo_phys) / fwhm_true)
-    out["stage_prior_info_var"] = _finite_or_none(1.0 / belief_prior_variance_phys(belief, primary))
+    out["i_max"] = _finite_or_none(fisher_star)
+    out["sigma_target_phys"] = None if tau is None else _finite_or_none(float(tau))
+    out["fwhm_phys"] = None if fwhm_true is None else _finite_or_none(fwhm_true)
+    out["prior_fwhm_phys"] = _finite_or_none(float(hwhm_fwhm_prior_hz(belief.physical_param_bounds)[0]))
+    out["window_phys"] = _finite_or_none(float(x_hi_phys - x_lo_phys))
+    out["window_over_fwhm"] = None if not fwhm_true else _finite_or_none(float(x_hi_phys - x_lo_phys) / fwhm_true)
+    out["sigma0_phys"] = _finite_or_none(math.sqrt(belief_prior_variance_phys(belief, primary)))
     if tau is not None and float(tau) > 0:
         passed = _first_held(lambda i: err_trace[i] <= float(tau), 0, len(err_trace))
         if passed is not None:
-            out["stage_true_passage_step"] = passed + 1
+            out["target_cost_step"] = passed + 1

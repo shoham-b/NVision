@@ -13,7 +13,7 @@ Notation (all lengths in Hz, the primary parameter being ``zeeman_shift``):
   ``pi gamma k C^2 / (4 W sigma^2) = pi gamma k SNR^2 / (4 W)`` with ``SNR = C / sigma``. It is computed from the true
   line numerically so it holds for any line shape (Voigt, hyperfine multiplets).
 * ``dd`` (``Delta d``): the reach of one measurement (``eq:sm-reach``), the width of the cell it rules out.
-* ``I_max``: Fisher information (Hz^-2) of one measurement at the steepest slope, the stored ``stage_fisher_star``.
+* ``I_max``: Fisher information (Hz^-2) of one measurement at the steepest slope, the stored ``i_max``.
 
 Truth-agnostic interface: nothing here reads the generator's true signal. The caller passes a reference centre
 (simulation: the true ``zeeman_shift``; lab: the holdout fit's centre) and gets errors from :func:`abs_errors`, plus the
@@ -53,7 +53,7 @@ _REACH_ITERATIONS = 200
 _REACH_TOLERANCE = 1e-10
 # The simulator never sets ``n_shots`` (every measurement is one shot); ``implied_shots`` checks it against the cache.
 SIM_SHOTS_PER_MEASUREMENT = 1.0
-# Stored stage_fisher_star and the line rebuilt here must agree on k to this relative tolerance.
+# Stored i_max and the line rebuilt here must agree on k to this relative tolerance.
 SHOTS_CROSS_CHECK_REL_TOL = 0.05
 
 
@@ -100,7 +100,7 @@ def kappa_bar_lorentzian(width_phys: float, hwhm_phys: float, snr: float, shots:
 
 
 def implied_shots(fisher_star: float, sigma: float, max_grad_sq: float) -> float:
-    """``k = I* sigma^2 / max g^2``: the shots per measurement implied by the stored ``stage_fisher_star``.
+    """``k = I* sigma^2 / max g^2``: the shots per measurement implied by the stored ``i_max``.
 
     Used to check the cache against the line rebuilt here: it must equal ``SIM_SHOTS_PER_MEASUREMENT``.
     """
@@ -285,7 +285,7 @@ def fit_kappa_eff(n: np.ndarray, surv: np.ndarray) -> float | None:
 
 
 class DetectionSummary(NamedTuple):
-    """``dip_detected_step`` of a use case's runs, with runs that never detected counted at the budget (rule 2).
+    """``detection_step`` of a use case's runs, with runs that never detected counted at the budget (rule 2).
 
     ``median`` / ``p75``: steps. ``capped_share``: share of runs that never detected (censored at ``budget``).
     ``n_runs``: number of runs. A run that never detected is a lower bound, so ``median`` / ``p75`` are lower bounds
@@ -299,7 +299,7 @@ class DetectionSummary(NamedTuple):
 
 
 def detection_summary(detected_steps: list[int | None], budget: int) -> DetectionSummary:
-    """Median, p75 and capped share of ``dip_detected_step`` (``None`` = never, counted at ``budget``)."""
+    """Median, p75 and capped share of ``detection_step`` (``None`` = never, counted at ``budget``)."""
     if not detected_steps:
         raise ValueError("detection_summary needs at least one run")
     steps = np.array([budget if s is None else min(int(s), budget) for s in detected_steps], dtype=float)

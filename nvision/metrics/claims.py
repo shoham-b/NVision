@@ -101,7 +101,7 @@ class Regimes:
     """
 
     plateau_ratio: float | None  # mean rms err over n < detection, in units of sigma_0 (~1 = plateau at the prior)
-    detection_step: float | None  # median dip_detected_step: end of search + localize
+    detection_step: float | None  # median detection_step: end of search + localize
     gaussian_onset: float | None  # median first step from which the negentropy stays below the Gaussian threshold
     converge_end: float | None  # first n from which rms err <= CONVERGE_TOLERANCE / sqrt(q n I_max)
     tail_slope: float | None  # log-log slope of rms err on n >= 2 detection (-0.5 = Cramer-Rao; an offset steepens it)

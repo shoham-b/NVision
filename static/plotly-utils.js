@@ -401,26 +401,26 @@ function _filterScanMeasurementsByStep(measurements, stepCap) {
 
 // Picks the focus-window-candidate list applicable at `stepCap` (an inference-step
 // number, same units as `_filterScanMeasurementsByStep`'s cap) from a scan manifest
-// entry's `series.w`/`series.s` (see nvision/metrics/series.py). Returns null when
+// entry's `series.focus_windows`/`series.step` (see nvision/metrics/series.py). Returns null when
 // there's no candidate-window data at all, or when stepCap is null/undefined (the
 // "show everything" / static-final-state case, which keeps using the run's
-// end-of-run focus_window/per_dip_windows instead). `series.s` is ascending.
+// end-of-run focus_window/per_dip_windows instead). `series.step` is ascending.
 // Runs with no per-step window data keep the static end-of-run window.
 function _focusWindowCandidatesForStep(series, stepCap) {
     if (stepCap == null) return null;
-    if (!series || !series.w || !series.s || !series.w.length) return null;
+    if (!series || !series.focus_windows || !series.step || !series.focus_windows.length) return null;
     // Hold the last window that was actually found: a step that reports none (null/empty)
     // after one was found must not make the window vanish for the rest of playback.
     let chosen = null;
-    for (let i = 0; i < series.s.length; i++) {
-        if (series.s[i] > stepCap) break;
-        if (series.w[i] && series.w[i].length) chosen = series.w[i];
+    for (let i = 0; i < series.step.length; i++) {
+        if (series.step[i] > stepCap) break;
+        if (series.focus_windows[i] && series.focus_windows[i].length) chosen = series.focus_windows[i];
     }
     // series is subsampled, so its first window lands some steps after the dip was found:
     // from the found step on, back-fill with that first sampled window so the window
     // appears exactly at the "Focus" tick.
     if (!chosen && focusFoundStep != null && stepCap > focusFoundStep) {
-        const first = series.w.find((x) => x && x.length);
+        const first = series.focus_windows.find((x) => x && x.length);
         if (first) chosen = first;
     }
     // Empty list (not null) = "playback is on and no window has been found yet at
@@ -594,7 +594,7 @@ function _buildScanFigure(def, data) {
     const yref = hasMetrics ? 'y domain' : 'paper';
 
     // Per-step candidate windows during timeline playback (set by applyScanStepCap from
-    // series.w) take precedence over the static end-of-run focus_window/per_dip_windows:
+    // series.focus_windows) take precedence over the static end-of-run focus_window/per_dip_windows:
     // exact boundaries matter less here than "a focus window might be around here", so
     // candidate rects are a borderless pale fill only (no outline, no per-window
     // annotation); once only one candidate remains it renders with the same solid fill

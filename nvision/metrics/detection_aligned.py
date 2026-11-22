@@ -6,8 +6,8 @@ that holds there is van Trees restarted at detection, with the posterior at dete
 (``articles/sections/methods.tex``, "Localize and refine"). This module puts every run on the lag axis
 ``k = n - n_d`` (measurements since its own detection) and averages over runs on that axis.
 
-* **Detection step.** ``dip_detected_step`` = tau is the 1-based measurement at which the dip test first fires, and
-  ``posterior_J_tau_phys`` is the Fisher information of the posterior snapshot ``tau - 1`` (the belief after
+* **Detection step.** ``detection_step`` = tau is the 1-based measurement at which the dip test first fires, and
+  ``j_tau_phys`` is the Fisher information of the posterior snapshot ``tau - 1`` (the belief after
   ``tau - 1`` measurements; :mod:`nvision.metrics.posterior`). So the restart point is ``n_d = tau - 1`` and lag ``k``
   is the error after ``n_d + k`` measurements: the bound gets the ``k`` measurements taken after that posterior.
 * **Localize ratio.** ``rho(k) = <B_i(k)>_runs / <e_i(n_d,i + k)^2>_runs``, with ``B_i(k) = 1 / (J_i + k I_max)``.

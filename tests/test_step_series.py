@@ -78,18 +78,18 @@ def test_extract_step_series_basic():
     series = extract_step_series(run, param="zero_field_freq")
 
     assert series is not None
-    assert series["s"] == list(range(1, 11))
-    assert len(series["e"]) == 10
-    assert len(series["u"]) == 10
+    assert series["step"] == list(range(1, 11))
+    assert len(series["error"]) == 10
+    assert len(series["claimed_sigma"]) == 10
     # Error at step 1 is |0.1| and decreases monotonically
-    assert abs(series["e"][0] - 0.1) < 1e-9
-    assert series["e"][-1] < series["e"][0]
-    assert series["u"][-1] < series["u"][0]
+    assert abs(series["error"][0] - 0.1) < 1e-9
+    assert series["error"][-1] < series["error"][0]
+    assert series["claimed_sigma"][-1] < series["claimed_sigma"][0]
     # tau is present (absolute zero_field_freq threshold or relative fallback)
-    assert series.get("tau") is not None
-    assert series["tau"] > 0
+    assert series.get("sigma_target") is not None
+    assert series["sigma_target"] > 0
     # No CRLB when belief does not report finite crlb
-    assert "c" not in series
+    assert "crlb" not in series
 
 
 def test_extract_step_series_with_crlb():
@@ -97,29 +97,29 @@ def test_extract_step_series_with_crlb():
     series = extract_step_series(run, param="zero_field_freq")
 
     assert series is not None
-    assert "c" in series
-    assert len(series["c"]) == 10
-    assert series["c"][0] > 0
+    assert "crlb" in series
+    assert len(series["crlb"]) == 10
+    assert series["crlb"][0] > 0
     # CRLB should decrease with sqrt(step)
-    assert series["c"][-1] < series["c"][0]
+    assert series["crlb"][-1] < series["crlb"][0]
 
 
 def test_extract_step_series_downsamples_long_runs():
     run = _make_run(n_steps=500)
     series = extract_step_series(run, param="zero_field_freq", max_points=80)
 
-    assert len(series["s"]) <= 80
+    assert len(series["step"]) <= 80
     # First and last steps always retained
-    assert series["s"][0] == 1
-    assert series["s"][-1] == 500
+    assert series["step"][0] == 1
+    assert series["step"][-1] == 500
     # Steps strictly increasing
-    assert all(a < b for a, b in zip(series["s"], series["s"][1:], strict=False))
+    assert all(a < b for a, b in zip(series["step"], series["step"][1:], strict=False))
 
 
 def test_extract_step_series_omits_w_when_no_locator_supplies_windows():
     run = _make_run(n_steps=5)
     series = extract_step_series(run, param="zero_field_freq")
-    assert "w" not in series
+    assert "focus_windows" not in series
 
 
 def test_extract_step_series_includes_w_narrowing_to_one_candidate():
@@ -137,12 +137,12 @@ def test_extract_step_series_includes_w_narrowing_to_one_candidate():
     series = extract_step_series(run, param="zero_field_freq")
 
     assert series is not None
-    assert "w" in series
-    assert len(series["w"]) == len(series["s"])
-    assert series["w"][0] is None
-    assert series["w"][1] is None
-    assert series["w"][2] == [[0.4, 0.42], [0.6, 0.62]]
-    assert series["w"][4] == [[0.4, 0.42]]
+    assert "focus_windows" in series
+    assert len(series["focus_windows"]) == len(series["step"])
+    assert series["focus_windows"][0] is None
+    assert series["focus_windows"][1] is None
+    assert series["focus_windows"][2] == [[0.4, 0.42], [0.6, 0.62]]
+    assert series["focus_windows"][4] == [[0.4, 0.42]]
 
 
 def test_extract_step_series_handles_empty_run():
@@ -223,9 +223,9 @@ def test_extract_step_series_falls_back_when_frequency_is_fixed():
     series = extract_step_series(run, param="zero_field_freq")
 
     assert series is not None
-    assert series["s"] == list(range(1, 11))
-    assert len(series["e"]) == 10
-    assert abs(series["e"][0] - 0.1) < 1e-9
+    assert series["step"] == list(range(1, 11))
+    assert len(series["error"]) == 10
+    assert abs(series["error"][0] - 0.1) < 1e-9
 
 
 def test_downsample_indices_short_input_kept_verbatim():
@@ -247,9 +247,9 @@ def test_extract_step_series_ends_on_the_fit_estimate():
     run.fit_mode_estimates = {"zero_field_freq": 0.503}
     run.fit_mode_uncertainties = {"zero_field_freq": 0.004}
     series = extract_step_series(run, param="zero_field_freq")
-    assert series["e"][:-1] == belief_only["e"][:-1]  # earlier steps stay the belief
-    assert series["e"][-1] == pytest.approx(0.003)
-    assert series["u"][-1] == pytest.approx(0.004)
+    assert series["error"][:-1] == belief_only["error"][:-1]  # earlier steps stay the belief
+    assert series["error"][-1] == pytest.approx(0.003)
+    assert series["claimed_sigma"][-1] == pytest.approx(0.004)
     # No fit covariance (NaN): the uncertainty stays the belief's.
     run.fit_mode_uncertainties = {"zero_field_freq": float("nan")}
-    assert extract_step_series(run, param="zero_field_freq")["u"][-1] == belief_only["u"][-1]
+    assert extract_step_series(run, param="zero_field_freq")["claimed_sigma"][-1] == belief_only["claimed_sigma"][-1]
