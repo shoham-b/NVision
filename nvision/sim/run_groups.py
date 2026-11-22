@@ -14,6 +14,8 @@ group                 generators                                  noise         
 ``voigt-grid``        Voigt window/FWHM x share x isotope         SNR grid            locator study (below)
 ``drive-control``    CW / pulsed drive-controlled NV x isotope   SNR grid (nominal)  Bayesian-SBED, -SBED-Drive
 ``hyperfine-evidence`` Lorentzian, one window x isotope          one SNR             Bayesian-SBED, sweep at k*
+``article``           Lorentzian single dip x window span        SNR grid            Bayesian-SBED, sweep at k*
+                      (a composite: new article scenarios are members)
 ``all``               ``voigt-grid`` only (not ``drive-control``) SNR grid            locator study (below)
 ====================  ==========================================  ==================  ===========================
 
@@ -171,6 +173,55 @@ def _group_hyperfine_evidence() -> RunGroup:
     )
 
 
+def _group_article_lorentzian_search() -> RunGroup:
+    """The article's main simulation: the pure Lorentzian single dip at every window span, over the SNR grid.
+
+    Bayesian-SBED against the sweep at its optimal step k* only (no multiples). Every combination is also a
+    voigt-grid combination, so it is served from the same cache."""
+    generators = {
+        name: gen
+        for name, gen in _voigt_snr_window_param_grid().items()
+        if gen.sigma_inhom == 0.0 and gen.hyperfine == "unresolved"
+    }
+    from nvision.sim.defaults import NVISION_SBED_WINDOW_SPANS
+
+    spans = sorted(1.0 / gen.signal_occupancy for gen in generators.values())
+    expected = sorted(NVISION_SBED_WINDOW_SPANS)
+    if len(generators) != len(expected) or not all(
+        math.isclose(a, b, rel_tol=1e-6) for a, b in zip(spans, expected, strict=True)
+    ):
+        raise ValueError(
+            f"article expected one pure-Lorentzian single-dip generator per span {expected}, got {sorted(generators)}"
+        )
+    return _group(
+        "article-lorentzian-search",
+        "Pure Lorentzian single dip at every window span x SNR grid; Bayesian-SBED vs the sweep at k*.",
+        generators,
+        _snr_noise_names(),
+        ["Bayesian-SBED", _DEFAULT_SWEEP],
+    )
+
+
+def _group_article() -> RunGroup:
+    """Every simulated use case of the article, as a composite so further scenarios (a known-shape lab mirror,
+    tracking) are added as members."""
+    members = (_group_article_lorentzian_search(),)
+
+    def union(lists):
+        return list(dict.fromkeys(x for xs in lists for x in xs))
+
+    return RunGroup(
+        name="article",
+        description="Exactly the simulated use cases of the article (Lorentzian single dip, span x SNR; "
+        "Bayesian-SBED vs the sweep at k*).",
+        generator_names=union(m.generator_names for m in members),
+        noise_names=union(m.noise_names for m in members),
+        strategy_names=union(m.strategy_names for m in members),
+        extra_generators={k: v for m in members for k, v in (m.extra_generators or {}).items()},
+        members=members,
+    )
+
+
 def _group_all() -> RunGroup:
     """Every standard scenario with every locator used in it. ``drive-control`` is run explicitly, not as part of
     ``all``."""
@@ -210,6 +261,7 @@ def _run_groups_tuple() -> tuple[RunGroup, ...]:
         _group_voigt_grid(),
         _group_drive_control(),
         _group_hyperfine_evidence(),
+        _group_article(),
         _group_all(),
     )
 
