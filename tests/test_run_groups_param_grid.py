@@ -36,7 +36,15 @@ def test_voigt_grid_group_uses_voigt_inhom_grid_and_all_locators():
 def test_former_group_names_are_strategy_subsets_of_their_scenario_group():
     sim_run_groups.clear_run_group_cache()
     listed = {g.name for g in sim_run_groups.run_groups()}
-    assert listed == {"voigt-grid", "drive-control", "hyperfine-evidence", "article", "all"}
+    assert listed == {
+        "voigt-grid",
+        "drive-control",
+        "hyperfine-evidence",
+        "article",
+        "article-lab-mirror",
+        "article-tracking",
+        "all",
+    }
     expected = {
         "both-sbed": ("voigt-grid", ["Bayesian-SBED", "SimpleSweep-optimal"]),
         "both-sbed-only": ("voigt-grid", ["Bayesian-SBED"]),
@@ -514,10 +522,66 @@ def test_hyperfine_evidence_group_is_one_window_and_snr_over_the_isotopes():
 def test_article_group_is_the_lorentzian_single_dip_at_every_span():
     sim_run_groups.clear_run_group_cache()
     group = sim_run_groups.get_run_group("article")
+    search, lab, tracking = group.members
     spans = ("1.6", "2", "3", "5", "10", "20", "50")
-    assert sorted(group.generator_names) == sorted(f"NVCenter-voigt-span{s}-gs0-hfunresolved" for s in spans)
-    assert set(group.noise_names) == {f"SNR({s})" for s in ("1", "2", "5", "10", "20")}
-    assert set(group.strategy_names) == {"Bayesian-SBED", "SimpleSweep-optimal"}
-    assert group.task_count == 7 * 5 * 2 == 70
-    # Every combination is the voigt-grid's own, so it comes from that study's cache.
-    assert set(group.combinations()) <= set(sim_run_groups.get_run_group("voigt-grid").combinations())
+    assert sorted(search.generator_names) == sorted(f"NVCenter-voigt-span{s}-gs0-hfunresolved" for s in spans)
+    assert set(search.noise_names) == {f"SNR({s})" for s in ("1", "2", "5", "10", "20")}
+    assert set(search.strategy_names) == {"Bayesian-SBED", "SimpleSweep-optimal"}
+    assert search.task_count == 7 * 5 * 2 == 70
+    # Every search combination is the voigt-grid's own, so it comes from that study's cache.
+    assert set(search.combinations()) <= set(sim_run_groups.get_run_group("voigt-grid").combinations())
+    # The composite runs exactly its members' combinations.
+    assert group.combinations() == list(dict.fromkeys(c for m in group.members for c in m.combinations()))
+    assert group.task_count == 70 + lab.task_count + tracking.task_count
+
+
+def test_article_lab_mirror_member_matches_the_lab():
+    presets = sim_presets
+    sim_run_groups.clear_run_group_cache()
+    group = sim_run_groups.get_run_group("article-lab-mirror")
+    assert group.noise_names == ["SNR(5)"]
+    assert set(group.strategy_names) == {"Bayesian-SBED-KnownShape", "Bayesian-SBED", "SimpleSweep-optimal"}
+    assert group.task_count == 2 * 6 * 3
+    grid = CombinationGrid()
+    for name in group.generator_names:
+        gen = group.extra_generators[name]
+        window = gen.drive_freq_max_phys - gen.drive_freq_min_phys
+        assert name == presets.lab_mirror_generator_name(window, 2.0 * gen.hwhm)
+        assert window in presets.LAB_MIRROR_WINDOWS_PHYS
+        assert 2.0 * gen.hwhm in presets.LAB_MIRROR_FWHMS_PHYS
+        # The lab's dip depth C = 0.14 is contrast_total / 2 (the SNR convention of the article grid).
+        assert presets.line_contrast(gen.contrast_total) == pytest.approx(presets.LAB_MIRROR_CONTRAST)
+        assert gen.gaussian_share == 0.0
+        assert gen.hyperfine == "unresolved"
+        # Resolvable by name, and inferred as a Lorentzian like the article grid.
+        assert grid.resolve(name, "SNR(5)", "Bayesian-SBED-KnownShape") is not None
+        strategies = dict(grid.strategies_for(name))
+        assert strategies["Bayesian-SBED-KnownShape"]["config"]["known_shape"] is True
+        assert strategies["Bayesian-SBED"]["config"]["lineshape"] == "lorentzian"
+
+
+def test_article_tracking_member_has_an_honest_gaussian_prior():
+    import random
+
+    presets = sim_presets
+    sim_run_groups.clear_run_group_cache()
+    group = sim_run_groups.get_run_group("article-tracking")
+    assert set(group.strategy_names) == {"Bayesian-SBED", "Bayesian-SBED-KnownShape", "SimpleSweep-optimal"}
+    assert len(group.generator_names) == len(presets.TRACKING_PRIOR_STD_FWHMS)
+    for name in group.generator_names:
+        gen = group.extra_generators[name]
+        # The same window as the article grid's span-20 signal.
+        span20 = dict(presets.voigt_snr_window_param_grid_generators())["NVCenter-voigt-span20-gs0-hfunresolved"]
+        assert gen.drive_freq_max_phys - gen.drive_freq_min_phys == pytest.approx(
+            span20.drive_freq_max_phys - span20.drive_freq_min_phys
+        )
+        std = gen.tracking_prior_std_fwhm * 2.0 * gen.hwhm
+        offsets = []
+        for i in range(400):
+            sig = gen.generate(random.Random(i), repeat_idx=i, n_repeats=400)
+            mean, prior_std = sig.bounds["_priors"]["zeeman_shift"]
+            assert prior_std == pytest.approx(std)
+            offsets.append((mean - sig.parameter_values()["zeeman_shift"]) / std)
+        # truth - mean ~ N(0, std): an honest prior, not the generator's 3-sigma widened one.
+        assert abs(float(np.mean(offsets))) < 0.2
+        assert float(np.std(offsets)) == pytest.approx(1.0, abs=0.15)

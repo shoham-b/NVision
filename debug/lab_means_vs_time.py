@@ -1,6 +1,7 @@
 """Final posterior mean of each lab run in recording order, all windows interleaved (read-only).
 Shows whether the 0.8-0.9 MHz clusters of final means are steps of the line in time (drift/jumps) or random
 locks onto sub-structure. Usage: uv run python debug/lab_means_vs_time.py <folder>"""
+
 import sys
 from pathlib import Path
 
@@ -13,7 +14,7 @@ rows = []
 for p in sorted(Path(sys.argv[1]).glob("*.mat")):
     try:
         t = run_trace(p)
-    except Exception:  # noqa: BLE001
+    except Exception:
         continue
     esr = sio.loadmat(p, squeeze_me=True, struct_as_record=False, variable_names=["myStruct"])["myStruct"].BayesianESR
     ts = np.atleast_2d(np.asarray(esr.averagesTimeStamp, dtype=float))

@@ -15,7 +15,9 @@ group                 generators                                  noise         
 ``drive-control``    CW / pulsed drive-controlled NV x isotope   SNR grid (nominal)  Bayesian-SBED, -SBED-Drive
 ``hyperfine-evidence`` Lorentzian, one window x isotope          one SNR             Bayesian-SBED, sweep at k*
 ``article``           Lorentzian single dip x window span        SNR grid            Bayesian-SBED, sweep at k*
-                      (a composite: new article scenarios are members)
+                      (a composite: the two groups below are members too)
+``article-lab-mirror`` lab contrast/widths x 5-150 MHz windows    SNR 5               SBED-KnownShape, SBED, sweep k*
+``article-tracking``  20-FWHM window, prior 0.25-1 FWHM           SNR grid            SBED, SBED-KnownShape, sweep k*
 ``all``               ``voigt-grid`` only (not ``drive-control``) SNR grid            locator study (below)
 ====================  ==========================================  ==================  ===========================
 
@@ -202,18 +204,51 @@ def _group_article_lorentzian_search() -> RunGroup:
     )
 
 
+def _group_article_lab_mirror() -> RunGroup:
+    """The lab runs mirrored in simulation (``sim.presets.lab_mirror_generators``): the lab's contrast, widths and
+    windows at its SNR. ``Bayesian-SBED-KnownShape`` infers only the line position and the noise, as the lab does;
+    ``Bayesian-SBED`` (shape inferred) and the sweep at k* run on the same signals, so the known shape's effect on the
+    refine rate (q) is a paired comparison. The lab's budget was 300: read these runs at n <= 300."""
+    from nvision.sim.presets import LAB_MIRROR_SNR, lab_mirror_generators, snr_noise_name
+
+    return _group(
+        "article-lab-mirror",
+        "Lab mirror: Lorentzian line of the lab's contrast/widths in 5-150 MHz windows at SNR 5; "
+        "Bayesian-SBED-KnownShape, Bayesian-SBED and the sweep at k*.",
+        dict(lab_mirror_generators()),
+        [snr_noise_name(LAB_MIRROR_SNR)],
+        ["Bayesian-SBED-KnownShape", "Bayesian-SBED", _DEFAULT_SWEEP],
+    )
+
+
+def _group_article_tracking() -> RunGroup:
+    """Tracking (``sim.presets.tracking_generators``): an honest Gaussian prior of 0.25-1 FWHM on the line position in
+    a 20-FWHM window, over the SNR grid. The article claims such a run follows the van Trees bound from its first
+    measurement; SBED with the shape inferred and known, and the sweep at k* (which ignores the prior), test it."""
+    from nvision.sim.presets import tracking_generators
+
+    return _group(
+        "article-tracking",
+        "Tracking: Gaussian prior of 0.25/0.5/1 FWHM on the line in a 20-FWHM window x SNR grid; "
+        "Bayesian-SBED, Bayesian-SBED-KnownShape and the sweep at k*.",
+        dict(tracking_generators()),
+        _snr_noise_names(),
+        ["Bayesian-SBED", "Bayesian-SBED-KnownShape", _DEFAULT_SWEEP],
+    )
+
+
 def _group_article() -> RunGroup:
-    """Every simulated use case of the article, as a composite so further scenarios (a known-shape lab mirror,
-    tracking) are added as members."""
-    members = (_group_article_lorentzian_search(),)
+    """Every simulated use case of the article, as a composite: the Lorentzian search grid, the lab mirror and
+    tracking."""
+    members = (_group_article_lorentzian_search(), _group_article_lab_mirror(), _group_article_tracking())
 
     def union(lists):
         return list(dict.fromkeys(x for xs in lists for x in xs))
 
     return RunGroup(
         name="article",
-        description="Exactly the simulated use cases of the article (Lorentzian single dip, span x SNR; "
-        "Bayesian-SBED vs the sweep at k*).",
+        description="Exactly the simulated use cases of the article: Lorentzian single dip, span x SNR (Bayesian-SBED "
+        "vs the sweep at k*); the lab mirror; tracking.",
         generator_names=union(m.generator_names for m in members),
         noise_names=union(m.noise_names for m in members),
         strategy_names=union(m.strategy_names for m in members),
@@ -262,6 +297,9 @@ def _run_groups_tuple() -> tuple[RunGroup, ...]:
         _group_drive_control(),
         _group_hyperfine_evidence(),
         _group_article(),
+        # Also runnable alone (e.g. the lab mirror at the lab's budget of 300, NVISION_MAX_MEASUREMENTS=300).
+        _group_article_lab_mirror(),
+        _group_article_tracking(),
         _group_all(),
     )
 

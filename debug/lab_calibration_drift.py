@@ -7,6 +7,7 @@ measurement order (in-run drift or model misfit shows as positive autocorrelatio
 
 Usage: uv run python debug/lab_calibration_drift.py <folder with Run_*MHz_*.mat> [--final-step N]
 """
+
 import sys
 from pathlib import Path
 
@@ -23,7 +24,7 @@ final_step = int(sys.argv[3]) if len(sys.argv) > 3 and sys.argv[2] == "--final-s
 def start_time(p: Path) -> float:
     esr = sio.loadmat(p, squeeze_me=True, struct_as_record=False, variable_names=["myStruct"])["myStruct"].BayesianESR
     ts = np.atleast_2d(np.asarray(esr.averagesTimeStamp, dtype=float))
-    y, mo, d, h, mi, s = ts[0]
+    _y, mo, d, h, mi, s = ts[0]
     return ((d * 24 + h) * 60 + mi) * 60 + s + mo * 31 * 86400
 
 
@@ -31,7 +32,7 @@ by_w: dict[int, list] = {}
 for p in sorted(folder.glob("*.mat")):
     try:
         t = run_trace(p)
-    except Exception:  # noqa: BLE001 - debug listing
+    except Exception:
         continue
     t["t0"] = start_time(p)
     w = round(t["scan_range_mhz"][1] - t["scan_range_mhz"][0])
@@ -40,7 +41,7 @@ for p in sorted(folder.glob("*.mat")):
 print("W n  claimed_med  scatter  ratio  detrend_ratio  succdiff_ratio  resid/shot  rho1_resid  rho1_near  span_h")
 for w, ts in sorted(by_w.items()):
     ts.sort(key=lambda t: t["t0"])
-    k = (final_step or 10**9)
+    k = final_step or 10**9
     m = np.array([t["mean_mhz"][min(k, t["n_steps"]) - 1] for t in ts])
     s = np.array([t["std_mhz"][min(k, t["n_steps"]) - 1] for t in ts])
     tt = np.array([t["t0"] for t in ts]) / 3600.0

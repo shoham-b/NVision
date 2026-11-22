@@ -1301,11 +1301,18 @@ class _TaskRunner:
         batch_noise_std = noise_std / math.sqrt(n_shots)
 
         is_bayesian = issubclass(locator_class, SequentialBayesianLocator)
+        # "known_shape" (Bayesian-SBED-KnownShape) is not a locator argument either: it turns into the belief's
+        # known-shape priors, centred on this repeat's true contrast and widths (see _known_shape_prior_phys).
+        known_shape = bool(locator_config.get("known_shape", False))
         cfg = {
-            **{k: v for k, v in locator_config.items() if k != "n_shots"},
+            **{k: v for k, v in locator_config.items() if k not in ("n_shots", "known_shape")},
             "max_steps": max_steps,
             "parameter_bounds": self._injected_parameter_bounds(experiment),
         }
+        if known_shape:
+            if not is_bayesian:
+                raise ValueError(f"known_shape needs a Bayesian locator, not {locator_class.__name__}.")
+            cfg["known_shape_phys"] = self._known_shape_prior_phys(experiment)
         if issubclass(locator_class, GenericSweepLocator):
             cfg["max_measurements"] = max_steps  # the shared budget caps a sweep's total measurements
         if is_bayesian and experiment.true_signal.model.controls_drive and not locator_class.CHOOSES_DRIVE:
@@ -1460,6 +1467,43 @@ class _TaskRunner:
         finalize_record["true_noise_std"] = true_noise_std
 
         return history_df, finalize_record, stop_reason, result
+
+    @staticmethod
+    def _known_shape_prior_phys(experiment: CoreExperiment) -> dict[str, tuple[float, float]]:
+        """``{name: (true value, std)}`` of the known line shape: the contrast and every line-width parameter.
+
+        The lab's Bayesian ESR holds the contrast and the width fixed at calibrated values; here they are the
+        repeat's true values (a simulation oracle), known to ``KNOWN_SHAPE_STD_FRACTION``: the contrast to that
+        fraction of itself, every width to that fraction of the line's total HWHM (so a width whose true value is 0,
+        a pure Lorentzian's ``sigma_inhom``, still gets a finite std). The true Lorentzian width is offered under both
+        belief names, ``hwhm`` and ``hwhm_lorentz``; the belief applies those it has (``apply_known_shape``).
+        Raises if the signal has no ``contrast_total`` or no ``hwhm``/``hwhm_lorentz``.
+        """
+        from nvision.sim.locs.bayesian.belief_builders import KNOWN_SHAPE_STD_FRACTION
+        from nvision.spectra.nv_center import _voigt_reparam_scalar
+
+        values = experiment.true_signal.parameter_values()
+        if "contrast_total" not in values:
+            raise ValueError(f"known_shape needs a 'contrast_total' parameter; got {sorted(values)}.")
+        if "hwhm" in values:
+            hwhm_phys = float(values["hwhm"])
+            hwhm_total_phys = hwhm_phys
+        elif "hwhm_lorentz" in values:
+            hwhm_phys = float(values["hwhm_lorentz"])
+            fwhm_total_phys, _ = _voigt_reparam_scalar(hwhm_phys, float(values.get("sigma_inhom", 0.0)))
+            hwhm_total_phys = 0.5 * fwhm_total_phys
+        else:
+            raise ValueError(f"known_shape needs an 'hwhm' or 'hwhm_lorentz' parameter; got {sorted(values)}.")
+        contrast_phys = float(values["contrast_total"])
+        width_std_phys = KNOWN_SHAPE_STD_FRACTION * hwhm_total_phys
+        out = {
+            "contrast_total": (contrast_phys, KNOWN_SHAPE_STD_FRACTION * contrast_phys),
+            "hwhm": (hwhm_phys, width_std_phys),
+            "hwhm_lorentz": (hwhm_phys, width_std_phys),
+        }
+        if "sigma_inhom" in values:
+            out["sigma_inhom"] = (float(values["sigma_inhom"]), width_std_phys)
+        return out
 
     @staticmethod
     def _injected_parameter_bounds(experiment: CoreExperiment) -> dict[str, tuple[float, float]]:

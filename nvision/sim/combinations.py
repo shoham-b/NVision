@@ -20,7 +20,7 @@ from nvision.models.noise import CompositeNoise, CompositeOverFrequencyNoise
 from nvision.noises import OverFrequencyGaussianNoise
 from nvision.sim import defaults as sim_defaults
 from nvision.sim import presets as sim_presets
-from nvision.sim.grid_enums import OPTIMAL_SWEEP_MULTIPLIERS, optimal_sweep_strategy_name
+from nvision.sim.grid_enums import OPTIMAL_SWEEP_MULTIPLIERS, StrategyFilter, optimal_sweep_strategy_name
 from nvision.sim.locs.bayesian.belief_builders import nv_center_smc_belief
 from nvision.sim.locs.bayesian.sbed_drive_locator import DriveChoosingSBEDLocator
 from nvision.sim.locs.bayesian.sbed_locator import SequentialBayesianExperimentDesignLocator
@@ -198,6 +198,9 @@ class CombinationGrid:
         self._resolve_generators.update(dict(sim_presets.voigt_sigma_inhom_param_grid_generators()))
         snr_window_gens = dict(sim_presets.voigt_snr_window_param_grid_generators())
         self._resolve_generators.update(snr_window_gens)
+        # The article's lab-mirror and tracking signals (window-grid Lorentzians, resolved like the grid above).
+        self._resolve_generators.update(dict(sim_presets.lab_mirror_generators()))
+        self._resolve_generators.update(dict(sim_presets.tracking_generators()))
         # Register legacy unadorned names (without -hfunresolved) for backward compatibility
         for name, gen in snr_window_gens.items():
             if name.endswith("-hfunresolved"):
@@ -309,6 +312,13 @@ class CombinationGrid:
 
         strats = [
             ("Bayesian-SBED", {"class": SequentialBayesianExperimentDesignLocator, "config": sbed_config}),
+            # Opt-in (only the article's lab-mirror and tracking scenarios use it): SBED with the line shape known, as
+            # the lab runs it -- contrast and widths at their true values to KNOWN_SHAPE_STD_FRACTION, so the score
+            # spends nothing on them. Simulation oracle; see _TaskRunner._known_shape_prior_phys.
+            (
+                StrategyFilter.BAYESIAN_SBED_KNOWN_SHAPE.value,
+                {"class": SequentialBayesianExperimentDesignLocator, "config": {**sbed_config, "known_shape": True}},
+            ),
             # The sweep at its task's optimal step k*, and at multiples of it.
             *((optimal_sweep_strategy_name(m), sweep(OPTIMAL_SPACING, m)) for m in OPTIMAL_SWEEP_MULTIPLIERS),
         ]

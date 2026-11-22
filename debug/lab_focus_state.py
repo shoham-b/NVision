@@ -1,4 +1,5 @@
 """Final focus-test state of the lab runs per window (read-only): why the focus window never locks in wide windows."""
+
 import sys
 from pathlib import Path
 
@@ -6,8 +7,17 @@ import numpy as np
 import scipy.io as sio
 
 folder = Path(sys.argv[1])
-F = ["focusLocked", "focusJointLogTail", "focusMass", "focusBinomialTail", "focusAdjustedTail", "focusCandidateMass",
-     "focusSupport", "noiseVariance", "ess"]
+F = [
+    "focusLocked",
+    "focusJointLogTail",
+    "focusMass",
+    "focusBinomialTail",
+    "focusAdjustedTail",
+    "focusCandidateMass",
+    "focusSupport",
+    "noiseVariance",
+    "ess",
+]
 for p in sorted(folder.glob("Run_*MHz_1.mat")) + sorted(folder.glob("Run_*MHz_2.mat")):
     esr = sio.loadmat(p, squeeze_me=True, struct_as_record=False, variable_names=["myStruct"])["myStruct"].BayesianESR
     s = esr.state

@@ -7,10 +7,13 @@ Predicted, three ways, per span:
   closed_prior  8 pi Gamma / (27 span*Gamma)
   exact_edge    the continuous average of g^2/max g^2 over the drive window, averaged over the dip drawn uniformly in
                 [pad, W_drive - pad] (edge truncation of the slope tails, no grid)
-  (a sweep grid at a uniformly random offset to the dip has the same expected mean g^2 as the continuous
-  average, so the grid adds no bias, only scatter)
+  grid_k        the same on the sweep's own grid, linspace(0, W_drive, n) with both ends, n = ceil(W/(FWHM_prior/k))+1,
+                for k = 2, 3, 4 points per true FWHM (the realised k* is not in the parquet). The sum over the grid
+                is about integral / spacing with spacing W/(n-1), so the grid mean is about (n-1)/n of the
+                continuous one: a bias that vanishes as n grows.
 Usage: uv run python debug/sweep_q_finite_window.py <parquet>
 """
+
 import math
 import sys
 
@@ -26,7 +29,10 @@ G2MAX = g2(1 / math.sqrt(3))
 df = pl.read_parquet(sys.argv[1]).filter(
     pl.col("generator").str.contains("-gs0-") & pl.col("generator").str.contains("hfunresolved")
 )
-print("span W_drive/G  measured  closed_drive  closed_prior  exact_edge  edge/closed_drive  meas/closed_drive  meas/exact_edge")
+print(
+    "span W_drive/G  measured  closed_drive  closed_prior  exact_edge  grid_k2  grid_k3  grid_k4"
+    "  meas/closed_drive  meas/grid_k3"
+)
 for gen in sorted(df["generator"].unique().to_list(), key=lambda s: float(s.split("span")[1].split("-")[0])):
     g = df.filter((pl.col("generator") == gen) & (pl.col("strategy") == "SimpleSweep-optimal"))
     num = sum((g[f"stage{k}_sens_eff"].fill_null(0) * g[f"stage{k}_steps"].fill_null(0)).sum() for k in (1, 2, 3))
@@ -41,7 +47,16 @@ for gen in sorted(df["generator"].unique().to_list(), key=lambda s: float(s.spli
     x = np.linspace(0, wd, 20001)
     centres = np.linspace(pad, wd - pad, 401)
     edge = np.mean([np.mean(g2((x - c) / gamma_fwhm)) / G2MAX for c in centres])
+    # k counted per TRUE FWHM here: the stored prior FWHM is ~3.85x the true one, so k* per prior FWHM is ~4x larger.
+    prior_fwhm = 1.0
+    grids = {}
+    for k in (2, 3, 4):
+        n_pts = math.ceil(wd / (prior_fwhm / k)) + 1
+        grid = np.linspace(0, wd, n_pts)
+        grids[k] = np.mean([np.mean(g2((grid - c) / gamma_fwhm)) / G2MAX for c in centres])
     cd = 8 * math.pi / (27 * wd)
     cp = 8 * math.pi / (27 * span)
-    print(f"{span:5.1f} {wd:6.1f} {measured:9.4f} {cd:11.4f} {cp:12.4f} {edge:10.4f} {edge / cd:10.3f}"
-          f" {measured / cd:10.3f} {measured / edge:12.3f}")
+    print(
+        f"{span:5.1f} {wd:6.1f} {measured:9.4f} {cd:11.4f} {cp:12.4f} {edge:10.4f} {grids[2]:8.4f} {grids[3]:8.4f}"
+        f" {grids[4]:8.4f} {measured / cd:10.3f} {measured / grids[3]:12.3f}"
+    )

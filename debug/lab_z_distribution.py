@@ -3,6 +3,7 @@ drift-floor that would explain the scatter (read-only).
 
 Usage: uv run python debug/lab_z_distribution.py <folder>
 """
+
 import sys
 from pathlib import Path
 
@@ -15,7 +16,7 @@ by_w: dict[int, list] = {}
 for p in sorted(folder.glob("*.mat")):
     try:
         t = run_trace(p)
-    except Exception:  # noqa: BLE001
+    except Exception:
         continue
     by_w.setdefault(round(t["scan_range_mhz"][1] - t["scan_range_mhz"][0]), []).append(t)
 print("W n  sd_z  robust_sd_z  frac|z|>3  cov1  cov2  floor_mhz(robust)  locked_final  stop_reasons")
@@ -35,5 +36,7 @@ for w, ts in sorted(by_w.items()):
     reasons = {}
     for t in ts:
         reasons[t["stop_reason"]] = reasons.get(t["stop_reason"], 0) + 1
-    print(f"{w:4d} {len(ts):3d} {np.std(z, ddof=1):6.2f} {rsd:8.2f} {np.mean(np.abs(z) > 3):8.2f} "
-          f"{np.mean(np.abs(z) < 1):5.2f} {np.mean(np.abs(z) < 2):5.2f} {best:10.2f} {locked:8.2f} {reasons}")
+    print(
+        f"{w:4d} {len(ts):3d} {np.std(z, ddof=1):6.2f} {rsd:8.2f} {np.mean(np.abs(z) > 3):8.2f} "
+        f"{np.mean(np.abs(z) < 1):5.2f} {np.mean(np.abs(z) < 2):5.2f} {best:10.2f} {locked:8.2f} {reasons}"
+    )
