@@ -1,8 +1,9 @@
 """``/api/detection-aligned``: localize ratio and Gaussian onset per use case and locator, every run aligned at its own
 dip detection (:mod:`nvision.metrics.detection_aligned`).
 
-Read-only: built from the stored per-step series that ``/api/scan-fields`` serves (``s``, ``e``, ``g``) and the stored
-scalars ``dip_detected_step``, ``posterior_J_tau_phys`` and ``stage_fisher_star``, so it works on an existing cache.
+Read-only: built from the stored per-step series that ``/api/scan-fields`` serves (``s``, ``e``, ``u``, ``g``, ``x``)
+and the stored scalars ``dip_detected_step``, ``posterior_J_tau_phys`` and ``stage_fisher_star``, so it works on an
+existing cache.
 """
 
 from __future__ import annotations
@@ -33,14 +34,25 @@ def aligned_run(row: dict[str, Any]) -> da.AlignedRun | None:
     if det is None:
         return None
     series = row.get("series") or {}
-    s, e, g = series.get("s"), series.get("e"), series.get("g")
-    if not s or not e or g is None:
-        raise ValueError("a run has no stored s/e/g series (recorded before the posterior metrics: re-run)")
-    keep = [i for i, v in enumerate(e) if v is not None]
+    s, e, g, u, x = series.get("s"), series.get("e"), series.get("g"), series.get("u"), series.get("x")
+    if not s or not e or g is None or not u:
+        raise ValueError("a run has no stored s/e/g/u series (recorded before the posterior metrics: re-run)")
+    keep = [i for i, v in enumerate(e) if v is not None and u[i] is not None]
     steps = np.array([s[i] for i in keep], dtype=np.float64)
     err = np.abs(np.array([e[i] for i in keep], dtype=np.float64))
     neg = np.array([np.nan if g[i] is None else g[i] for i in keep], dtype=np.float64)
-    return da.AlignedRun(steps, err, neg, int(det), _float(cmp.get("posterior_J_tau_phys")))
+    claimed = np.array([u[i] for i in keep], dtype=np.float64)
+    far = None if x is None else np.array([np.nan if x[i] is None else x[i] for i in keep], dtype=np.float64)
+    return da.AlignedRun(
+        steps,
+        err,
+        neg,
+        claimed,
+        int(det),
+        _float(cmp.get("posterior_J_tau_phys")),
+        far=far,
+        far_mass_tau=_float(cmp.get("posterior_far_mass_tau")),
+    )
 
 
 def _detection_cell(rows: list[dict[str, Any]]) -> float | None:
