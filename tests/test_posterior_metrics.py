@@ -162,6 +162,20 @@ def test_run_metrics_z_far_mass_far_placement_and_j_tau(monkeypatch):
     assert ser["m"][2] == pytest.approx(0.0, abs=1e-9)
 
 
+def test_pit_is_the_weight_below_the_truth_and_final_is_the_last_step(monkeypatch):
+    monkeypatch.setattr("nvision.metrics.stages._true_fwhm_phys", lambda ts: 2e6)
+    rng = np.random.default_rng(7)
+    below = 20e6 + 1e5 * rng.standard_normal(N)  # whole cloud below the truth 30 MHz: CDF at truth = 1
+    above = 40e6 + 1e5 * rng.standard_normal(N)  # whole cloud above: 0
+    centred = 30e6 + 1e5 * rng.standard_normal(N)
+    out = compute_posterior_metrics(_fake_run([below, above, centred], drive_unit=[0.1, 0.1, 0.1]), "zeeman_shift", {})
+    p = out["series"]["p"]
+    assert p[0] == pytest.approx(1.0)
+    assert p[1] == 0.0
+    assert p[2] == pytest.approx(0.5, abs=0.1)
+    assert out["scalars"]["posterior_pit_final"] == p[2]
+
+
 def test_run_metrics_none_without_primary_particles_or_detection(monkeypatch):
     monkeypatch.setattr("nvision.metrics.stages._true_fwhm_phys", lambda ts: 2e6)
     rng = np.random.default_rng(6)

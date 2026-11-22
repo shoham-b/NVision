@@ -6,10 +6,9 @@ assumption about the dip's lineshape (Lorentzian, Voigt, saturated, hyperfine-me
 1. Per-observation dip z-scores ``z_i = (b - y_i) / s``. The noise sigma is not known exactly: the
    belief's conjugate posterior on sigma^2 is Inverse-Gamma(alpha, beta), and averaging over it makes
    every score below Student-t with ``nu = 2 alpha`` degrees of freedom and scale ``s = sqrt(beta /
-   alpha)``. The baseline ``b`` is the 70th percentile of ``y`` minus its offset ``t_nu^-1(0.7) s``,
-   so the scores are centred under "no dip" while points inside dips (all below the baseline) cannot
-   drag ``b`` down until they outnumber the points above it -- SBED piles its measurements onto a dip
-   once it has found one, which would sink a plain median.
+   alpha)``. The baseline ``b = 1`` is the off-resonance level of the normalized fluorescence, which
+   the signal model fixes, so the scores are centred under "no dip" however many measurements SBED
+   piles onto a dip it has found.
 2. Every contiguous window (from one distinct measured ``drive_freq`` to another, repeats included)
    whose span lies in the hwhm prior's ``gamma_mean +/- 2 gamma_std`` (clipped to the prior's
    FWHM range) gets the boxcar GLRT score ``sum(z_i) / sqrt(n)``, from prefix sums in O(1) per
@@ -24,7 +23,9 @@ assumption about the dip's lineshape (Lorentzian, Voigt, saturated, hyperfine-me
    overlap or sit at neighbouring measured positions form one connected run, and each run is one
    dip -- one :class:`DipCandidate` spanning the whole run. A hyperfine group's lines and a deep
    dip's wings (also significantly below the baseline) therefore stay one dip, while dips separated
-   by baseline stay apart.
+   by baseline stay apart. Far out, a strong dip's wings can still form runs of their own; runs joined
+   by significant windows (the data never return to the baseline between them) are one dip, reported
+   by its most significant run.
 
 On a uniform sweep this is exactly the prefix-sum scan over index widths. The window-in-Hz form
 also handles SBED's adaptive, irregular and repeated positions.
@@ -51,8 +52,8 @@ from scipy.stats import t as student_t
 
 from nvision.sim.defaults import NVISION_DIP_P_FA
 
-# Baseline percentile of the observed signal (see the module docstring, step 1).
-_BASELINE_PERCENTILE = 70.0
+# Off-resonance level of the normalized fluorescence (see the module docstring, step 1).
+_BASELINE = 1.0
 
 
 @dataclass(frozen=True)
@@ -255,11 +256,8 @@ def find_dips(
         order = np.argsort(xs, kind="stable")
         xs, ys = xs[order], ys[order]
 
-    # Baseline: the upper percentile minus its noise offset, centred under "no dip", which dip points
-    # (all below it) cannot drag down until they outnumber the points above it.
-    percentile_offset = float(student_t.ppf(_BASELINE_PERCENTILE / 100.0, noise_dof)) * noise_scale
-    baseline = float(np.percentile(ys, _BASELINE_PERCENTILE)) - percentile_offset
-    z = (baseline - ys) / noise_scale
+    # Baseline: the off-resonance level of the normalized fluorescence, fixed by the signal model.
+    z = (_BASELINE - ys) / noise_scale
 
     width_lo_hz, width_hi_hz = window_width_range_hz(gamma_mean_hz, gamma_std_hz, gamma_min_hz, gamma_max_hz)
     xu, first = np.unique(xs, return_index=True)  # distinct positions and their first index
@@ -294,6 +292,20 @@ def find_dips(
     run_lo = sig_a[starts]
     run_hi = np.maximum.reduceat(sig_b, starts)
     run_best = np.maximum.reduceat(sig_score, starts)
+
+    # Wings: a Lorentzian's wings sit below the baseline far from its centre, so at high SNR stretches of
+    # them form runs of their own. Runs joined by significant windows (the data never return to the
+    # baseline between them) are one dip, reported by its most significant run.
+    all_a, all_b = a[significant], b[significant]
+    all_order = np.argsort(all_a, kind="stable")
+    all_a, all_b = all_a[all_order], all_b[all_order]
+    all_reach = np.maximum.accumulate(all_b)
+    comp_lo = all_a[np.flatnonzero(np.r_[True, all_a[1:] > all_reach[:-1] + 1])]
+    run_comp = np.searchsorted(comp_lo, run_lo, side="right") - 1
+    seg = np.flatnonzero(np.r_[True, run_comp[1:] != run_comp[:-1]])  # runs are sorted, so each dip is a segment
+    seg_end = np.r_[seg[1:], run_best.size]
+    core = np.array([s + int(np.argmax(run_best[s:e])) for s, e in zip(seg, seg_end, strict=True)])
+    run_lo, run_hi, run_best = run_lo[core], run_hi[core], run_best[core]
 
     candidates: list[DipCandidate] = []
     for k in np.argsort(-run_best, kind="stable"):

@@ -36,7 +36,7 @@ def test_voigt_grid_group_uses_voigt_inhom_grid_and_all_locators():
 def test_former_group_names_are_strategy_subsets_of_their_scenario_group():
     sim_run_groups.clear_run_group_cache()
     listed = {g.name for g in sim_run_groups.run_groups()}
-    assert listed == {"voigt-grid", "drive-control", "hyperfine-evidence", "all"}
+    assert listed == {"voigt-grid", "drive-control", "hyperfine-evidence", "article", "all"}
     expected = {
         "both-sbed": ("voigt-grid", ["Bayesian-SBED", "SimpleSweep-optimal"]),
         "both-sbed-only": ("voigt-grid", ["Bayesian-SBED"]),
@@ -509,3 +509,15 @@ def test_hyperfine_evidence_group_is_one_window_and_snr_over_the_isotopes():
     assert set(group.strategy_names) == {"Bayesian-SBED", "SimpleSweep-optimal"}
     # The single-dip combination is the voigt-grid's own, so it is shared with (cached by) the main study.
     assert set(group.combinations()) & set(sim_run_groups.get_run_group("voigt-grid").combinations())
+
+
+def test_article_group_is_the_lorentzian_single_dip_at_every_span():
+    sim_run_groups.clear_run_group_cache()
+    group = sim_run_groups.get_run_group("article")
+    spans = ("1.6", "2", "3", "5", "10", "20", "50")
+    assert sorted(group.generator_names) == sorted(f"NVCenter-voigt-span{s}-gs0-hfunresolved" for s in spans)
+    assert set(group.noise_names) == {f"SNR({s})" for s in ("1", "2", "5", "10", "20")}
+    assert set(group.strategy_names) == {"Bayesian-SBED", "SimpleSweep-optimal"}
+    assert group.task_count == 7 * 5 * 2 == 70
+    # Every combination is the voigt-grid's own, so it comes from that study's cache.
+    assert set(group.combinations()) <= set(sim_run_groups.get_run_group("voigt-grid").combinations())

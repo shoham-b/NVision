@@ -8,6 +8,10 @@ Per step ``t`` (snapshot ``t`` = the belief after measurement ``t``), all in the
 
 * ``z``: signed standardised error ``(estimate - truth) / sigma_hat`` with ``sigma_hat`` the claimed uncertainty
   (``belief.uncertainty()``, the same value the stage metrics use). Calibrated and Gaussian: ``z ~ N(0, 1)``.
+* ``p`` (PIT): the posterior CDF at the truth, the total weight of the particles with ``theta_i <= truth`` (in
+  ``[0, 1]``). Calibrated: ``p ~ U(0, 1)`` whatever the posterior's shape, so the share of runs with ``p`` in the
+  central 68 % / 95 % interval (``0.16 <= p <= 0.84``, ``0.025 <= p <= 0.975``) is the quantile coverage that needs no
+  Gaussian peak (``claims.coverage_from_pit``). ``posterior_pit_final`` is ``p`` at the last step.
 * ``g`` (negentropy, nats): ``1/2 ln(2 pi e V) - H`` of the smoothed posterior density, ``V`` its own variance and ``H``
   its differential entropy. ``0`` for a Gaussian, ``> 0`` otherwise (a Gaussian maximises entropy at fixed variance).
   The brief's reference ``1/2 ln(2 pi e sigma_hat^2)`` is *not* used: the KDE adds the bandwidth to the variance, so
@@ -77,9 +81,10 @@ POSTERIOR_METRIC_KEYS: tuple[str, ...] = (
     "posterior_far_placed_share",
     "posterior_J_tau_2h_phys",
     "posterior_undefined_steps",
+    "posterior_pit_final",
 )
 # Per-step series keys (scan-entry ``series``), aligned with ``"s"``.
-POSTERIOR_SERIES_KEYS: tuple[str, ...] = ("z", "g", "m", "j", "h", "x")
+POSTERIOR_SERIES_KEYS: tuple[str, ...] = ("z", "p", "g", "m", "j", "h", "x")
 
 
 class NoBandwidthError(ValueError):
@@ -295,6 +300,10 @@ class _StepPosterior:
             self.mode_phys = _coarse_mode(self._x, self._w, fwhm_phys / 4.0)
             self.far_mass = float(np.sum(self._w[np.abs(self._x - self.mode_phys) > FAR_FWHM * fwhm_phys]))
 
+    def pit(self, truth_phys: float) -> float:
+        """Posterior CDF at the truth: total weight (shape: (n_particles,)) of particles <= ``truth_phys`` (Hz)."""
+        return float(np.sum(self._w[self._x <= truth_phys]))
+
     def ensure_density(self) -> None:
         if self._has_density or self.no_bandwidth or not self.informed:
             return
@@ -329,7 +338,7 @@ def compute_posterior_metrics(
     ``n_steps`` (``None`` where undefined). Everything is ``None`` when there is no ``primary`` or the beliefs carry no
     particle cloud (grid beliefs). Memoised on ``run_result.posterior_cache``.
 
-    ``z``, ``m`` and ``x`` exist at every informed step (cheap). The KDE series ``g`` and ``j`` are computed only at the
+    ``z``, ``p``, ``m`` and ``x`` exist at every step (cheap). The KDE series ``g`` and ``j`` are computed only at the
     steps the stored series keeps (``density_steps``, 0-based: the ``max_points`` indices
     :func:`~nvision.metrics.series._downsample_indices` picks, default ``MAX_SERIES_POINTS``) and at the detection
     step, because a density costs ~25 ms and a budget-length run would otherwise spend over a minute on them.
@@ -385,6 +394,7 @@ def compute_posterior_metrics(
         if not sigma > 0.0:
             raise ValueError(f"Claimed uncertainty of {primary!r} is {sigma} at step {t + 1}; cannot standardise.")
         series["z"][t] = (est - truth) / sigma
+        series["p"][t] = post.pit(truth)
         series["m"][t] = post.far_mass
         if t in density_steps:
             post.ensure_density()
@@ -401,6 +411,7 @@ def compute_posterior_metrics(
 
     # Steps with no posterior density: no measurement had updated the belief, or its cloud has no structure for
     # the bandwidth rule (checked at the steps a density is computed for).
+    scalars["posterior_pit_final"] = series["p"][-1]
     scalars["posterior_undefined_steps"] = sum((not p.informed) or p.no_bandwidth for p in posts)
     if tau is not None:
         post = posts[int(tau) - 1]  # the density fields are None when no measurement had updated the belief yet

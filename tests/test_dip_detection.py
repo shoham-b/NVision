@@ -43,7 +43,7 @@ def test_find_dips_no_window_fits_the_scan():
 def test_find_dips_pure_noise_has_no_false_alarms(clustered):
     # Many independent pure-noise scans: at the default p_fa = 0.1 the family-wise false-alarm rate is <= 10%
     # (Bonferroni is conservative, ~0-1% observed), also when 70% of the measurements pile up in one place as
-    # SBED's do (the baseline must stay unbiased).
+    # SBED's do.
     rng = np.random.default_rng(0)
     false_alarms = 0
     for _ in range(200):
@@ -99,11 +99,12 @@ def test_find_dips_still_detects_a_dip_holding_most_of_the_measurements():
     assert abs(dips[0].centroid_hz - 2.85e9) < 3e6
 
 
-def test_find_dips_ignores_a_constant_baseline_offset():
-    a = find_dips(_DIP_XS, _DIP_YS, 0.02, _KNOWN_SIGMA, *_G)
-    b = find_dips(_DIP_XS, _DIP_YS + 7.0, 0.02, _KNOWN_SIGMA, *_G)
-    assert [(d.f_min, d.f_max) for d in a] == [(d.f_min, d.f_max) for d in b]
-    assert np.allclose([d.significance for d in a], [d.significance for d in b])
+def test_find_dips_measures_the_drop_below_one():
+    # The baseline is the off-resonance level 1 of the normalized fluorescence, not estimated from the data:
+    # a flat scan at 1 has no dip, while the same flat scan lowered well below 1 is one dip everywhere.
+    flat = np.ones_like(_DIP_XS)
+    assert find_dips(_DIP_XS, flat, 0.02, _KNOWN_SIGMA, *_G) == []
+    assert find_dips(_DIP_XS, flat - 0.5, 0.02, _KNOWN_SIGMA, *_G)
 
 
 def test_find_dips_separates_dips_split_by_baseline_and_ranks_by_significance():
@@ -119,15 +120,15 @@ def test_find_dips_separates_dips_split_by_baseline_and_ranks_by_significance():
 
 @pytest.mark.parametrize("snr", [5, 20, 100])
 def test_find_dips_reports_one_tight_dip_however_strong(snr):
-    # A deep dip's wings are significant too, and every wider window containing the dip scores above the
-    # threshold; both must stay one dip whose extent hugs the line, not the widest window tested.
+    # A deep dip's wings are significant too (far from the line at high SNR), and every wider window containing the
+    # dip scores above the threshold; both must stay one dip whose extent hugs the line, not the widest window tested.
     xs = np.arange(2.80e9, 2.95e9 + 1, 0.5e6)
     ys = _lorentzian_scan(xs, [2.875e9], depth=0.3, fwhm=8e6)
     ys += 0.3 / snr * np.random.default_rng(1).standard_normal(xs.size)
     dips = find_dips(xs, ys, 0.3 / snr, _KNOWN_SIGMA, 7.7e6, 4.2e6, 0.4e6, 15e6)
     assert len(dips) == 1
     assert abs(dips[0].centroid_hz - 2.875e9) <= 1e6
-    assert dips[0].width_hz <= 1.5 * 8e6
+    assert dips[0].width_hz <= 2 * 8e6
 
 
 def test_find_dips_keeps_a_hyperfine_triplet_as_one_dip():
