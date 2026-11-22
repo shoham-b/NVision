@@ -115,6 +115,33 @@ function daSimTable(locs) {
     );
 }
 
+// Claimed vs true information rate after detection, and the share of measurements placed far from the posterior peak.
+function daRateTable(locs) {
+    const ci = (c) => (c ? ` [${daFmt(c[0], 2)}, ${daFmt(c[1], 2)}]` : '');
+    const rate = (w) => (!w || w.unavailable
+        ? [`<td style="${daCell}" colspan="3" title="${daEsc(w ? w.unavailable : '')}">–</td>`]
+        : [`<td style="${daCell}">${daFmt(w.q_hat, 2)}${ci(w.q_hat_ci)}</td>`,
+            `<td style="${daCell}">${daFmt(w.q_true, 2)}${ci(w.q_true_ci)}</td>`,
+            `<td style="${daCell}">${daFmt(w.q_hat_over_q, 2)}${ci(w.q_hat_over_q_ci)}</td>`]).join('');
+    const pct = (v) => (v == null ? '–' : `${(100 * v).toFixed(1)} %`);
+    const rows = locs.map(([name, loc]) => {
+        const c = loc.claimed_rate || {}, f = loc.far_placed || {};
+        return `<tr>
+            <td style="padding:3px 10px; font-weight:600; text-align:left;">${daShort(name)}</td>
+            ${rate(c.from_detection)}${rate(c.from_gaussian)}
+            <td style="${daCell}">${pct(f.converge_share_median)} (${f.converge_n_runs ?? 0})</td>
+            <td style="${daCell}">${pct(f.after_detection_share_median)} (${f.after_detection_n_runs ?? 0})</td>
+            <td style="${daCell}">${pct(f.far_mass_tau_median)}</td>
+        </tr>`;
+    });
+    return daTable(
+        ['Locator', 'q̂ from detection', 'q true', 'q̂/q', 'q̂ from Gaussian onset', 'q true', 'q̂/q',
+            'far-placed, detection → Gaussian (runs)', 'far-placed, detection → end (runs)', 'posterior mass far at detection'],
+        rows,
+        'q̂ = slope of 1/⟨σ_claimed²⟩ per measurement in units of I_max (q true: the same from the true error ⟨e²⟩), straight least squares over the lag grid, 95 % bootstrap interval over runs. q̂/q > 1 is overconfident. Right after detection the posterior collapses from two peaks to one, which shrinks σ_claimed by more than I_max per measurement without overconfidence, so the second window starts at each run\'s Gaussian onset. Far-placed = share of the stored points (≤ ~80 per run) placed more than 3 FWHM from the mode of the belief before them, median over runs.',
+    );
+}
+
 async function renderDetectionAligned(root, genList, noiseList, colorOf) {
     const token = String(Date.now() + Math.random());
     root.dataset.token = token;
@@ -155,7 +182,8 @@ async function renderDetectionAligned(root, genList, noiseList, colorOf) {
                     'Negentropy of each run\'s posterior of zeeman_shift (nats; 0 for a Gaussian, about 0.18 for a uniform, more for two peaks), counted from the run\'s own detection: median (line) and quartiles (band). The density estimate itself leaves about 0.01 on a Gaussian cloud. Dotted: the threshold under which the posterior counts as one Gaussian peak; the diamond is the median step from which a run stays under it to the end of its budget.',
                     `da-neg-${i}`, 420)}
             </div>
-            <div style="overflow-x:auto; margin-top:1em;">${daSimTable(uc.locs)}</div>` : ''}
+            <div style="overflow-x:auto; margin-top:1em;">${daSimTable(uc.locs)}</div>
+            <div style="overflow-x:auto; margin-top:1em;">${daRateTable(uc.locs)}</div>` : ''}
         </section>`).join('');
     list.forEach((uc, i) => {
         if (!uc.locs.length) return;

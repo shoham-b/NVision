@@ -48,24 +48,32 @@ LAG_POINTS = 70
 
 @dataclass(frozen=True)
 class AlignedRun:
-    """One run's stored series and its detection. ``steps``, ``err``, ``negentropy``: shape (m,)."""
+    """One run's stored series and its detection. ``steps``, ``err``, ``negentropy``, ``claimed``, ``far``: (m,)."""
 
     steps: np.ndarray  # measurement counts, ascending, 1-based
     err: np.ndarray  # |estimate - truth| of the primary parameter, Hz
     negentropy: np.ndarray  # posterior negentropy, nats; nan where undefined
+    claimed: np.ndarray  # claimed sigma of the primary parameter, Hz (finite, > 0)
     detected_step: int  # tau, 1-based measurement at which the dip test first fired
     j_tau: float | None  # Fisher information of the posterior at detection, Hz^-2
+    far: np.ndarray | None = None  # 1 if the measurement was placed far from the belief's mode, else 0; nan if unknown
+    far_mass_tau: float | None = None  # posterior mass far from the mode at detection, in [0, 1]
 
     def __post_init__(self) -> None:
-        s, e, g = self.steps, self.err, self.negentropy
-        if s.ndim != 1 or s.size == 0 or e.shape != s.shape or g.shape != s.shape:
+        s, e, g, c = self.steps, self.err, self.negentropy, self.claimed
+        if s.ndim != 1 or s.size == 0 or e.shape != s.shape or g.shape != s.shape or c.shape != s.shape:
             raise ValueError(
-                f"steps, err, negentropy must be equal-length 1-D arrays, got {s.shape}, {e.shape}, {g.shape}"
+                "steps, err, negentropy, claimed must be equal-length 1-D arrays, "
+                f"got {s.shape}, {e.shape}, {g.shape}, {c.shape}"
             )
+        if self.far is not None and self.far.shape != s.shape:
+            raise ValueError(f"far must have the shape of steps {s.shape}, got {self.far.shape}")
         if not np.all(np.diff(s) > 0):
             raise ValueError("steps must be strictly ascending")
         if not np.all(np.isfinite(e)) or np.any(e < 0):
             raise ValueError("err must be finite and >= 0 (absolute errors)")
+        if not np.all(np.isfinite(c)) or np.any(c <= 0):
+            raise ValueError("claimed must be finite and > 0 (claimed sigma)")
         if self.detected_step < 1:
             raise ValueError(f"detected_step is 1-based, got {self.detected_step}")
         if self.j_tau is not None and not (math.isfinite(self.j_tau) and self.j_tau >= 0):
@@ -100,10 +108,123 @@ def _at(steps: np.ndarray, vals: np.ndarray, n: np.ndarray) -> np.ndarray:
 
 
 def aligned(runs: Sequence[AlignedRun], lags: np.ndarray, field: str) -> np.ndarray:
-    """``field`` (``"err"`` or ``"negentropy"``) of every run at ``n_d + lag``; shape (n_runs, n_lag)."""
-    if field not in ("err", "negentropy"):
-        raise ValueError(f"field must be 'err' or 'negentropy', got {field!r}")
+    """``field`` (``"err"``, ``"negentropy"`` or ``"claimed"``) of every run at ``n_d + lag``; shape (n_runs, n_lag)."""
+    if field not in ("err", "negentropy", "claimed"):
+        raise ValueError(f"field must be 'err', 'negentropy' or 'claimed', got {field!r}")
     return np.array([_at(r.steps, getattr(r, field), r.restart + lags) for r in runs])
+
+
+def _rates(claimed: np.ndarray, err: np.ndarray, lags: np.ndarray, i_max: float) -> tuple[float, float]:
+    """``(q_hat, q_true)``: slope per measurement of ``1 / mean(claimed^2)`` and of ``1 / mean(err^2)`` against the lag,
+    in units of ``I_max``. ``claimed``, ``err``: shape (n_runs, n_lag), Hz; ``lags``: shape (n_lag,)."""
+    out = []
+    for arr in (claimed, err):
+        m2 = np.mean(arr**2, axis=0)
+        if np.any(m2 <= 0):
+            raise ValueError("mean squared value is zero at some lag: no inverse variance")
+        out.append(np.polyfit(lags, 1.0 / m2, 1)[0] / i_max)
+    return float(out[0]), float(out[1])
+
+
+def information_rates(claimed: np.ndarray, err: np.ndarray, lags: np.ndarray, i_max: float) -> dict:
+    """Claimed and true information rate over the lag window, with a bootstrap 95 % interval over runs.
+
+    ``q_hat = (1 / I_max) d(1 / <sigma_claimed^2>) / dk``, ``q_true`` the same with the true error ``<e^2>``: straight
+    least-squares slopes over the lag grid. ``q_hat > q_true`` is overconfidence; ``q_hat_over_q = q_hat / q_true``.
+    ``claimed``, ``err``: shape (n_runs, n_lag), Hz; ``lags``: shape (n_lag,) (>= 2 points).
+    """
+    if not i_max > 0:
+        raise ValueError(f"i_max must be positive, got {i_max}")
+    if lags.size < 2:
+        raise ValueError("need at least 2 lags for a slope")
+    if claimed.shape != err.shape or claimed.shape[1] != lags.size:
+        raise ValueError(f"claimed {claimed.shape}, err {err.shape} and lags {lags.shape} disagree")
+    q_hat, q_true = _rates(claimed, err, lags, i_max)
+    rng = np.random.default_rng(BOOTSTRAP_SEED)
+    n = claimed.shape[0]
+    draws = np.array(
+        [_rates(claimed[p], err[p], lags, i_max) for p in (rng.integers(0, n, n) for _ in range(BOOTSTRAP_SAMPLES))]
+    )
+    ratio = draws[:, 0] / draws[:, 1]
+
+    def ci(d: np.ndarray) -> list[float]:
+        return [float(np.percentile(d, 2.5)), float(np.percentile(d, 97.5))]
+
+    return {
+        "n_runs": n,
+        "window": [int(lags[0]), int(lags[-1])],
+        "q_hat": q_hat,
+        "q_hat_ci": ci(draws[:, 0]),
+        "q_true": q_true,
+        "q_true_ci": ci(draws[:, 1]),
+        "q_hat_over_q": q_hat / q_true,
+        "q_hat_over_q_ci": ci(ratio),
+    }
+
+
+def _claimed_rates(runs: Sequence[AlignedRun], *, budget: int, i_max: float) -> dict:
+    """``information_rates`` over two windows: ``from_detection`` (lag 0 = each run's detection, as the article) and
+    ``from_gaussian`` (lag 0 = each run's Gaussian onset, or its detection if later: after the two-peak collapse, which
+    legitimately shrinks the claimed sigma by more than ``I_max`` per measurement). Each window keeps only the runs
+    and lags that all runs reach, as the localize ratio does."""
+    out: dict = {}
+    lags = lag_grid(common_max_lag(runs, budget))
+    out["from_detection"] = information_rates(aligned(runs, lags, "claimed"), aligned(runs, lags, "err"), lags, i_max)
+    starts = []
+    for r in runs:
+        o = gaussian_onset(r.steps, r.negentropy)
+        if o is not None:
+            starts.append((r, max(o, r.restart)))
+    if len(starts) < MIN_RUNS:
+        out["from_gaussian"] = {"unavailable": f"{len(starts)} runs reached a Gaussian posterior (need {MIN_RUNS})"}
+        return out
+    max_lag = budget - max(n for _, n in starts)
+    if max_lag < 1:
+        out["from_gaussian"] = {
+            "unavailable": "a run turned Gaussian at the end of its budget: no lags after the onset"
+        }
+        return out
+    lags = lag_grid(max_lag)
+    c = np.array([_at(r.steps, r.claimed, n + lags) for r, n in starts])
+    e = np.array([_at(r.steps, r.err, n + lags) for r, n in starts])
+    if not (np.all(np.isfinite(c)) and np.all(np.isfinite(e))):
+        raise ValueError("a run's series does not cover its own Gaussian onset")
+    out["from_gaussian"] = information_rates(c, e, lags, i_max)
+    return out
+
+
+def far_placed(runs: Sequence[AlignedRun]) -> dict:
+    """Share of measurements placed farther than ``FAR_FWHM`` true FWHM from the belief's mode (stored ``x``).
+
+    Per run: the mean of ``x`` over its stored points after its own detection (measurements ``>= tau``) up to its
+    Gaussian onset (``converge``) and to the end of the budget (``after_detection``); medians over runs. The series are
+    subsampled (<= ~80 points), so a share is over the stored points, not over every measurement. Runs without an
+    ``x`` series, with no stored point in the window, or (``converge``) that never became Gaussian do not enter.
+    ``far_mass_tau_median``: median over runs of the posterior mass far from the mode at detection.
+    """
+    conv: list[float] = []
+    after: list[float] = []
+    for r in runs:
+        if r.far is None:
+            continue
+        ok = np.isfinite(r.far) & (r.steps > r.restart)
+        if np.any(ok):
+            after.append(float(np.mean(r.far[ok])))
+        o = gaussian_onset(r.steps, r.negentropy)
+        if o is None:
+            continue
+        in_win = ok & (r.steps <= o)
+        if np.any(in_win):
+            conv.append(float(np.mean(r.far[in_win])))
+    mass = [r.far_mass_tau for r in runs if r.far_mass_tau is not None]
+    return {
+        "converge_share_median": _med(conv),
+        "converge_n_runs": len(conv),
+        "after_detection_share_median": _med(after),
+        "after_detection_n_runs": len(after),
+        "far_mass_tau_median": _med(mass),
+        "far_mass_tau_n_runs": len(mass),
+    }
 
 
 def common_max_lag(runs: Sequence[AlignedRun], budget: int) -> int:
@@ -248,4 +369,6 @@ def analyse(runs: Sequence[AlignedRun], *, budget: int, i_max: float, dd_phys: f
         "onset_lag_q75": float(np.percentile(onset_lags, 75)) if onset_lags else None,
         "negentropy_by_lag": _quantiles(g),
     }
+    out["claimed_rate"] = _claimed_rates(runs, budget=budget, i_max=i_max)
+    out["far_placed"] = far_placed(runs)
     return out
