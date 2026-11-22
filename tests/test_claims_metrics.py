@@ -40,22 +40,33 @@ def test_bound_ratio_one_on_the_bound_and_violation_flag():
     assert claims.bound_violated(lo)
 
 
-def test_regimes_plateau_cliff_tail():
+def test_regimes_four_boundaries():
     grid = claims.step_grid(2000)
-    sigma0 = 10.0
-    r = np.where(grid < 50, sigma0, (1.0 / sigma0**2 + I_MAX * np.maximum(grid - 49, 0)) ** -0.5)
-    reg = claims.regimes(grid, np.tile(r, (12, 1)), sigma0)
+    sigma0, q = 10.0, 1.0
+    r = np.where(grid < 50, sigma0, (1.0 / sigma0**2 + q * I_MAX * np.maximum(grid - 49, 0)) ** -0.5)
+    reg = claims.regimes(grid, np.tile(r, (12, 1)), sigma0, detection_step=50.0, gaussian_onset=80.0, q=q, imax=I_MAX)
     assert reg.plateau_ratio == pytest.approx(1.0)
-    assert reg.n_half == pytest.approx(50.0, abs=1)
-    assert reg.drop_factor > 5
+    assert (reg.detection_step, reg.gaussian_onset) == (50.0, 80.0)
+    # the data limit is reached once the offset n0 = 49 - 1/(q I sigma0^2) stops mattering (within 10 %)
+    assert 50 < reg.converge_end < 1000
     assert reg.tail_slope == pytest.approx(-0.5, abs=0.12)  # the offset n0 steepens the local slope
 
 
-def test_regimes_reports_when_no_detection():
+def test_regimes_report_what_is_missing():
     grid = claims.step_grid(100)
-    reg = claims.regimes(grid, np.full((10, grid.size), 9.0), 10.0)
-    assert reg.n_half is None
-    assert reg.why
+    reg = claims.regimes(
+        grid, np.full((10, grid.size), 9.0), 10.0, detection_step=None, gaussian_onset=None, q=None, imax=I_MAX
+    )
+    assert reg.detection_step is None
+    assert reg.converge_end is None
+    assert reg.plateau_ratio is None
+    assert len(reg.why) >= 3
+    # a fit exists but the error stays far above the data limit: no converge end, with a reason
+    reg = claims.regimes(
+        grid, np.full((10, grid.size), 9.0), 10.0, detection_step=5.0, gaussian_onset=6.0, q=1.0, imax=I_MAX
+    )
+    assert reg.converge_end is None
+    assert any("data limit" in w for w in reg.why)
 
 
 def test_gate_passes_on_a_straight_line_and_fails_on_a_kink():
@@ -144,7 +155,7 @@ def test_report_end_to_end_on_stored_rows():
         e = ((J0 + grid * I_MAX) ** -0.5 * (1.0 + 0.1 * rng.random(grid.size))).tolist()
         rows.append(
             {
-                "series": {"s": grid.tolist(), "e": e, "u": e},
+                "series": {"s": grid.tolist(), "e": e, "u": e, "g": np.where(grid < 60, 0.5, 0.01).tolist()},
                 "compare": {
                     "stage_prior_info": J0,
                     "stage_prior_info_var": J0 * 3 / math.pi**2,
@@ -152,7 +163,6 @@ def test_report_end_to_end_on_stored_rows():
                     "stage_window_phys": 10.0,
                     "stage_fwhm_true_phys": 1.0,
                     "stage_tau_phys": 0.05,
-                    "refine_start_step": 50,
                     "dip_detected_step": 20,
                 },
                 "true_params": {"params": {"zeeman_shift": 0.1 * i}, "bounds": {"zeeman_shift": [0.0, 1.1]}},
@@ -164,4 +174,34 @@ def test_report_end_to_end_on_stored_rows():
     assert out["bound_violated"] is False
     assert out["fit_true"]["q"] == pytest.approx(1.0, rel=0.15)
     assert out["rate_ratio_claimed_over_true"] == pytest.approx(1.0)
+    assert out["gaussian_share"] == 1.0
+    assert out["regimes"]["detection_step"] == 20.0
+    assert 60 <= out["regimes"]["gaussian_onset"] <= 70
+    assert out["regimes"]["converge_end"] is not None
+    assert out["coverage_at_budget"]["runs_gated"] == 12
     assert "unavailable" in analyse_use_case(rows[:3])
+
+
+def test_report_excludes_runs_that_never_reach_the_gaussian_peak():
+    grid = claims.step_grid(1000)
+    rows = []
+    for i in range(12):
+        e = ((J0 + grid * I_MAX) ** -0.5).tolist()
+        g = np.where(grid < 60, 0.5, 0.01) if i < 9 else np.full(grid.size, 0.5)  # 3 of 12 stay non-Gaussian
+        rows.append(
+            {
+                "series": {"s": grid.tolist(), "e": e, "u": e, "g": g.tolist()},
+                "compare": {
+                    "stage_prior_info": J0,
+                    "stage_prior_info_var": J0 * 3 / math.pi**2,
+                    "stage_fisher_star": I_MAX,
+                    "dip_detected_step": 20,
+                },
+            }
+        )
+    out = analyse_use_case(rows)
+    assert out["gaussian_share"] == pytest.approx(0.75)
+    assert out["coverage_at_budget"]["runs_gated"] == 9
+    bad = [dict(r, series={k: v for k, v in r["series"].items() if k != "g"}) for r in rows]
+    with pytest.raises(ValueError, match="negentropy"):
+        analyse_use_case(bad)

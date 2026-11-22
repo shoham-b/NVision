@@ -80,6 +80,31 @@ def test_sweep_positions_repeat_the_grid_pass_after_pass():
     assert x[12] == 100.0
 
 
+def test_cost_curve_median_counts_unreached_runs_as_infinite():
+    steps = np.array([1.0, 10.0, 100.0, 1000.0])
+    reach = [np.array([5.0, 1.0, 0.1, 0.01]) * k for k in (1, 1, 1, 1, 1, 1, 1)]  # cost 100 at tau 0.5, k = 1
+    stuck = np.array([5.0, 4.0, 3.0, 2.0])
+    taus = np.array([0.5])
+    # 40 % unreached (6 of 10 reach): the median is the plain median of all runs, a reached run's cost
+    c = rr.cost_curve([steps] * 10, [reach[0]] * 6 + [stuck] * 4, taus)
+    assert c.share[0] == pytest.approx(0.6)
+    assert c.t_median[0] == 100.0
+    assert np.isnan(c.t_p75[0])  # p75 needs 75 % reached
+    # reached runs cost 10 (fast) or 1000 (slow)
+    fast = np.array([5.0, 0.1, 0.01, 0.001])
+    slow = np.array([5.0, 4.0, 3.0, 0.1])
+    c = rr.cost_curve([steps] * 10, [fast] * 3 + [slow] * 4 + [stuck] * 3, taus)  # 30 % unreached
+    assert c.share[0] == pytest.approx(0.7)
+    assert c.t_median[0] == 1000.0  # 30 % unreached: the median still exists (share >= 0.5); p75 needs 0.75
+    assert np.isnan(c.t_p75[0])
+    # 50 % unreached with an even run count: the middle pair touches a censored run -> NaN
+    c = rr.cost_curve([steps] * 10, [fast] * 5 + [stuck] * 5, taus)
+    assert np.isnan(c.t_median[0])
+    # 40 % unreached: the survivors' median would be 10, the median over all runs (censored = inf) is 1000
+    c = rr.cost_curve([steps] * 10, [fast] * 4 + [slow] * 2 + [stuck] * 4, taus)
+    assert c.t_median[0] == pytest.approx(1000.0)
+
+
 def test_cost_curve_censors_runs_that_never_get_there_and_the_speedup_uses_the_best_sweep():
     steps = np.array([1.0, 10.0, 100.0, 1000.0])
     fast = np.array([5.0, 1.0, 0.1, 0.01])
@@ -91,6 +116,7 @@ def test_cost_curve_censors_runs_that_never_get_there_and_the_speedup_uses_the_b
     assert sbed.t_median.tolist() == [100.0, 1000.0]
     assert sbed.share.tolist() == [1.0, 1.0]
     assert sweep.share.tolist() == pytest.approx([2 / 3, 0.0])
+    assert sweep.t_median[0] == 1000.0  # 2 of 3 reached: the median over all runs is a reached run's cost
     assert np.isnan(sweep.t_median[1])
     ratio = rr.speedup_curve(sbed, [sweep, rr.cost_curve([steps], [fast], taus)])
     assert ratio.tolist() == [1.0, 1.0]  # the best sweep here is as good as SBED

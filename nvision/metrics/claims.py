@@ -7,7 +7,8 @@ pieces, each a measurement that can fail its claim (nothing is tuned toward the 
 a number says why instead of widening):
 
 * ``prior_gap``, ``bound_ratio``: the van Trees bound against the run-averaged true error (claim: R <= 1);
-* ``regimes``: plateau, detection step and tail slope of the run-averaged error (claim: three regimes);
+* ``regimes``: detection, Gaussian onset and converge end of the runs, plateau and tail slope of the run-averaged
+  error (claim: four regimes: search + localize, collapse, converge, refine);
 * ``fit_with_gate``: the ``(n0, q)`` line of ``refine_rates.fit_rate_line`` plus a linearity gate and bootstrap
 intervals
   (claim: ``1/MSE`` is linear in ``n`` late in the run);
@@ -126,42 +127,78 @@ def bound_violated(ratio_lo: np.ndarray) -> bool:
 # --- regimes -----------------------------------------------------------------------------------------------------
 @dataclass(frozen=True)
 class Regimes:
-    """Shape of the run-averaged true error; ``None`` fields are what the data cannot support (see ``why``)."""
+    """Run-level boundaries of the article's four regimes and the shape of the run-averaged error.
 
-    plateau_ratio: float | None  # mean rms err over n <= n_half / 2, in units of sigma_0 (~1 = plateau at the prior)
-    n_half: float | None  # first n where rms err <= sigma_0 / 2
-    drop_factor: float | None  # rms err one grid step before n_half over the value at n_half (>1: a cliff)
-    tail_slope: float | None  # log-log slope of rms err on n >= 2 n_half (-0.5 = Cramer-Rao; an offset steepens it)
+    ``None`` fields are what the data cannot support (see ``why``). The boundaries are in measurements ``n``:
+    search + localize end at detection, the collapse ends at the Gaussian onset, converge ends where the run-averaged
+    error is within 10 % of the data limit; refine is what follows.
+    """
+
+    plateau_ratio: float | None  # mean rms err over n < detection, in units of sigma_0 (~1 = plateau at the prior)
+    detection_step: float | None  # median dip_detected_step: end of search + localize
+    gaussian_onset: float | None  # median first step from which the negentropy stays below the Gaussian threshold
+    converge_end: float | None  # first n from which rms err <= CONVERGE_TOLERANCE / sqrt(q n I_max)
+    tail_slope: float | None  # log-log slope of rms err on n >= 2 detection (-0.5 = Cramer-Rao; an offset steepens it)
     tail_points: int
     why: list[str] = field(default_factory=list)
 
 
-def regimes(grid: np.ndarray, err: np.ndarray, sigma0: float) -> Regimes:
-    """Plateau level, detection step and tail slope of the run-averaged error (Fig. budget).
+CONVERGE_TOLERANCE = 1.1  # within 10 % of the data limit (n q I_max)^-1/2
 
-    ``err``: shape (n_runs, n_grid), Hz. ``sigma0``: Hz, the prior's standard deviation ``(1/J0_var)^(1/2)``.
+
+def regimes(
+    grid: np.ndarray,
+    err: np.ndarray,
+    sigma0: float,
+    *,
+    detection_step: float | None,
+    gaussian_onset: float | None,
+    q: float | None,
+    imax: float,
+) -> Regimes:
+    """Regime boundaries of the article, from the stored series (Fig. budget).
+
+    ``grid``: shape (n_grid,), measurement counts. ``err``: shape (n_runs, n_grid), Hz. ``sigma0``: Hz, the prior's
+    standard deviation ``(1/J0_var)^(1/2)``. ``detection_step`` / ``gaussian_onset``: medians over the runs that have
+    one (``None`` = no run has). ``q``: fitted ``q`` of the true-error line (``None`` = no fit); ``imax``: ``I_max``,
+    Hz^-2 per measurement. The converge end is the first grid ``n`` from which ``rms(err) <= 1.1 / sqrt(q n I_max)``
+    at every later grid point.
     """
-    if not sigma0 > 0:
-        raise ValueError(f"sigma0 must be positive, got {sigma0}")
+    if not (sigma0 > 0 and imax > 0):
+        raise ValueError(f"sigma0 and I_max must be positive, got {sigma0}, {imax}")
     r = rms(err)
     why: list[str] = []
-    below = np.where(r <= 0.5 * sigma0)[0]
-    if below.size == 0:
-        return Regimes(None, None, None, None, 0, ["the run-averaged error never fell to sigma_0 / 2"])
-    i_half = int(below[0])
-    n_half = float(grid[i_half])
-    early = grid <= 0.5 * n_half
-    plateau = float(np.mean(r[early]) / sigma0) if early.sum() >= 2 else None
-    if plateau is None:
-        why.append("fewer than 2 grid steps before n_half / 2: no plateau level")
-    drop = float(r[i_half - 1] / r[i_half]) if i_half >= 1 else None
-    late = grid >= 2.0 * n_half
+    plateau = None
     slope = None
-    if late.sum() >= 4:
-        slope = float(np.polyfit(np.log(grid[late]), np.log(r[late]), 1)[0])
+    tail_points = 0
+    if detection_step is None:
+        why.append("no run detected the dip: no detection step, plateau or tail slope")
     else:
-        why.append(f"only {int(late.sum())} grid steps after 2 n_half: no tail slope (the budget ends before the tail)")
-    return Regimes(plateau, n_half, drop, slope, int(late.sum()), why)
+        early = grid < detection_step
+        if early.sum() >= 2:
+            plateau = float(np.mean(r[early]) / sigma0)
+        else:
+            why.append("fewer than 2 grid steps before detection: no plateau level")
+        late = grid >= 2.0 * detection_step
+        tail_points = int(late.sum())
+        if tail_points >= 4:
+            slope = float(np.polyfit(np.log(grid[late]), np.log(r[late]), 1)[0])
+        else:
+            why.append(f"only {tail_points} grid steps after 2 x detection: no tail slope (the budget ends first)")
+    if gaussian_onset is None:
+        why.append("no run's posterior became a single Gaussian peak: no Gaussian onset")
+    converge = None
+    if q is None or not q > 0:
+        why.append("no true-error (n0, q) fit: no converge end")
+    else:
+        within = r <= CONVERGE_TOLERANCE / np.sqrt(q * grid * imax)
+        stays = np.flatnonzero(~within)
+        first = 0 if stays.size == 0 else int(stays[-1]) + 1
+        if first < grid.size:
+            converge = float(grid[first])
+        else:
+            why.append("the run-averaged error is not within 10 % of the data limit at the end of the budget")
+    return Regimes(plateau, detection_step, gaussian_onset, converge, slope, tail_points, why)
 
 
 # --- (n0, q) with a linearity gate -------------------------------------------------------------------------------

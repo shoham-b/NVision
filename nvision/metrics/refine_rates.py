@@ -210,9 +210,9 @@ def predicted_cost(tau_phys: np.ndarray, q: float, n0: float, i_max: float) -> n
 class CostCurve(NamedTuple):
     """Cost to reach each precision target, over the runs of a use case."""
 
-    t_median: np.ndarray  # shape (n_tau,), median first-passage measurement of the runs that got there; NaN if none
-    t_p75: np.ndarray  # shape (n_tau,), 75th percentile of those
-    share: np.ndarray  # shape (n_tau,), share of the runs that got there (the rest are censored, see rule 2)
+    t_median: np.ndarray  # shape (n_tau,), median over ALL runs (unreached = +inf); NaN where share < 0.5
+    t_p75: np.ndarray  # shape (n_tau,), 75th percentile over ALL runs (unreached = +inf); NaN where share < 0.75
+    share: np.ndarray  # shape (n_tau,), share of the runs that reached the target (always shown next to the median)
 
 
 def first_passage(steps: np.ndarray, errs: np.ndarray, tau_phys: float) -> float | None:
@@ -228,19 +228,26 @@ def first_passage(steps: np.ndarray, errs: np.ndarray, tau_phys: float) -> float
 
 
 def cost_curve(steps: Sequence[np.ndarray], errs: Sequence[np.ndarray], tau_phys: np.ndarray) -> CostCurve:
-    """Median / p75 first-passage cost and the share of runs that reached each target.
+    """Median / p75 first-passage cost over all runs, and the share of runs that reached each target.
 
-    ``steps[i]``, ``errs[i]``: shape (m_i,), the series of run ``i``. ``tau_phys``: shape (n_tau,), Hz. A run that never
-    gets below a target is censored (counted in ``share``, not in the median): show the share next to the median.
+    ``steps[i]``, ``errs[i]``: shape (m_i,), the series of run ``i``. ``tau_phys``: shape (n_tau,), Hz. The cost of a
+    run is the number of measurements after which its error stays below the target to the end (:func:`first_passage`).
+    A run that never gets there counts as ``+inf``, so the median is the plain median of all runs and is defined only
+    where at least half of them reached the target (``share >= 0.5``); the p75 needs ``share >= 0.75``. Elsewhere NaN:
+    a median over the survivors alone would be biased low.
     """
     tau_phys = np.asarray(tau_phys, dtype=np.float64)
     med, p75, share = (np.full(tau_phys.size, np.nan) for _ in range(3))
     for j, tau in enumerate(tau_phys):
         passed = [first_passage(s, e, float(tau)) for s, e in zip(steps, errs, strict=True)]
-        got = np.array([t for t in passed if t is not None])
-        share[j] = got.size / len(passed)
-        if got.size:
-            med[j], p75[j] = np.median(got), np.percentile(got, 75)
+        srt = np.sort(np.array([np.inf if t is None else t for t in passed], dtype=np.float64))  # (n_runs,)
+        share[j] = float(np.isfinite(srt).mean())
+        for out, q in ((med, 0.5), (p75, 0.75)):
+            # linear-interpolated quantile over all runs; undefined (NaN) when it touches a censored (inf) run
+            pos = q * (srt.size - 1)
+            lo, hi = math.floor(pos), math.ceil(pos)
+            if np.isfinite(srt[hi]):
+                out[j] = srt[lo] + (pos - lo) * (srt[hi] - srt[lo])
     return CostCurve(med, p75, share)
 
 
