@@ -115,6 +115,7 @@ The article and its Supplemental Material live in Overleaf's git (project `6ad7c
 
 **Style: a great physics review article, readable by a human.**
 - **Connected prose.** Link sentences with "because", "so", "while", "however". Do not chain short fact sentences with ":" (e.g. "... not at a fixed lag after detection: the dip test fires at ...").
+- **Vary the sentence rhythm.** Connect two clauses when one causes or contrasts with the next; otherwise start a new sentence. Avoid the "X, so Y, while Z, because W" chain, but do not fix it by always splitting with a full stop plus "therefore"/"thus" either, which is just another pattern. Mix the tools: the cause first ("Because ..., ..."), a relative clause or participle, parentheses for an aside or a definition, a semicolon for two tightly linked clauses, or dropping the connective where the logic is obvious. Most sentences should stay under about 30 words.
 - **Name things, don't chain references.** Say what a section or equation contains instead of "the posterior of the loop of Sec. II E over the unknowns of Sec. II B". A reference can follow the plain statement.
 - **Explain jargon an NV/ODMR physicist may not know** (Liu--West, plug-in estimate, family-wise threshold, boxcar, ...) with half a clause on what it does.
 - **Equations over equations-in-words.** Prefer a displayed equation, annotated with `\underbrace`/`\overbrace`/`\overset` or an arrow, to a formula spelled out in prose.
