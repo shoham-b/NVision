@@ -350,6 +350,10 @@ def physics_config_fingerprint() -> str:
         "smc-10k-particles-v1",
         # Bumped when the default resampling threshold went from ESS < 0.2 N to ESS < 0.5 N (NVISION_SMC_ESS_THRESHOLD).
         "smc-ess-0p5-v1",
+        # Bumped when find_dips scored the drop below the off-resonance level 1 instead of a 70th-percentile
+        # baseline, and runs joined by significant windows (a strong dip's wings) became one dip: dips, focus
+        # sections and SBED trajectories differ.
+        "dip-baseline-one-v1",
         NV_ZEEMAN_EDGE_PAD_FWHM,
         MIN_HWHM,
         MAX_HWHM,
