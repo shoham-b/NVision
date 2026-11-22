@@ -154,6 +154,10 @@ def test_report_end_to_end_on_stored_rows():
         )
     out = analyse_use_case(rows)
     assert out["sigma0_phys"] == pytest.approx(1.1 / math.sqrt(12))  # W / sqrt(12) of the drawn zeeman_shift range
+    rms = out["rms_curve"]
+    assert len(rms["n"]) == len(rms["err"]) == len(rms["claimed"])
+    assert rms["err"] == pytest.approx(rms["claimed"])  # e == u in these rows
+    assert rms["err"][-1] < rms["err"][0]
     assert out["fit_true"]["q"] == pytest.approx(1.0, rel=0.15)
     assert out["rate_ratio_claimed_over_true"] == pytest.approx(1.0)
     assert out["gaussian_share"] == 1.0
