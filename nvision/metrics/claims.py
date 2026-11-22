@@ -2,11 +2,11 @@
 
 What already exists is reused, not redone: the ``(n0, q)`` line and the sweep theory (``refine_rates``), the search
 bounds
-(``search_bounds``), localize (``localize``) and the posterior series (``posterior``). This module adds the missing
+(``search_bounds``), the detection-aligned localize ratio (``detection_aligned``) and the posterior series
+(``posterior``). This module adds the missing
 pieces, each a measurement that can fail its claim (nothing is tuned toward the prediction; a window that cannot support
 a number says why instead of widening):
 
-* ``prior_gap``, ``bound_ratio``: the van Trees bound against the run-averaged true error (claim: R <= 1);
 * ``regimes``: detection, Gaussian onset and converge end of the runs, plateau and tail slope of the run-averaged
   error (claim: four regimes: search + localize, collapse, converge, refine);
 * ``fit_with_gate``: the ``(n0, q)`` line of ``refine_rates.fit_rate_line`` plus a linearity gate and bootstrap
@@ -35,9 +35,6 @@ from nvision.metrics.refine_rates import RateFit, fit_rate_line, inverse_mse_cur
 
 BOOTSTRAP_SAMPLES = 200
 BOOTSTRAP_SEED = 20261118
-# R <= 1 + 1 % is the tolerance of the bound (the uniform average can undercut it that much;
-# docs/evaluation_metrics.md).
-BOUND_TOLERANCE = 0.01
 GAUSS_WITHIN = {1: 0.6826894921370859, 2: 0.9544997361036416}  # share of a Gaussian within k sigma
 MIN_RUNS = 10  # fewer repeats make every share and every bootstrap meaningless
 HALF_MIN_POINTS = 3  # grid points each half of the fit window needs for the linearity gate
@@ -79,13 +76,6 @@ def rms(mat: np.ndarray) -> np.ndarray:
 
 
 # --- bound -------------------------------------------------------------------------------------------------------
-def prior_gap(j0: float, j0_var: float) -> float:
-    """``sqrt(J0 / J0_var)`` = ``pi / sqrt3`` = 1.81 for a uniform window (``stage_prior_info`` over ``_var``)."""
-    if not (j0 > 0 and j0_var > 0):
-        raise ValueError(f"J0 and 1/Var must be positive, got {j0}, {j0_var}")
-    return math.sqrt(j0 / j0_var)
-
-
 def truth_spread_ratio(truth_phys: np.ndarray, lo_phys: float, hi_phys: float) -> float:
     """``rms(truth - window centre) / (W / sqrt12)``: 1 when the truths are uniform over the prior window.
 
@@ -97,31 +87,6 @@ def truth_spread_ratio(truth_phys: np.ndarray, lo_phys: float, hi_phys: float) -
     if t.ndim != 1 or t.size < 2 or not hi_phys > lo_phys:
         raise ValueError("need >= 2 truths and hi > lo")
     return float(np.sqrt(np.mean((t - 0.5 * (lo_phys + hi_phys)) ** 2)) / ((hi_phys - lo_phys) / math.sqrt(12.0)))
-
-
-def bound_ratio(grid: np.ndarray, err: np.ndarray, j0: float, imax: float) -> np.ndarray:
-    """``R(n) = 1 / mean(err^2 (J0 + n I_max))``, shape (n_grid,). The bound says ``R <= 1`` (+ 1 %).
-
-    ``err``: shape (n_runs, n_grid), Hz. With the claimed sigma instead of the true error, ``R > 1`` is overconfidence.
-    """
-    if not (j0 > 0 and imax > 0):
-        raise ValueError(f"J0 and I_max must be positive, got {j0}, {imax}")
-    return 1.0 / np.mean(err**2 * (j0 + grid * imax)[None, :], axis=0)
-
-
-def bound_ratio_ci(
-    grid: np.ndarray, err: np.ndarray, j0: float, imax: float, *, bootstrap: int = BOOTSTRAP_SAMPLES
-) -> tuple[np.ndarray, np.ndarray]:
-    """Bootstrap (2.5 %, 97.5 %) of :func:`bound_ratio` over the repeats, each shape (n_grid,)."""
-    rng = np.random.default_rng(BOOTSTRAP_SEED)
-    z = err**2 * (j0 + grid * imax)[None, :]
-    draws = np.array([1.0 / z[rng.integers(0, z.shape[0], z.shape[0])].mean(axis=0) for _ in range(bootstrap)])
-    return np.percentile(draws, 2.5, axis=0), np.percentile(draws, 97.5, axis=0)
-
-
-def bound_violated(ratio_lo: np.ndarray) -> bool:
-    """True when the lower end of R's interval is above ``1 + BOUND_TOLERANCE`` anywhere: the error beats the bound."""
-    return bool(np.any(ratio_lo > 1.0 + BOUND_TOLERANCE))
 
 
 # --- regimes -----------------------------------------------------------------------------------------------------
@@ -337,7 +302,7 @@ def coverage_curve(
 
     ``err``, ``unc``: shape (n_runs, n_grid), Hz (true error and claimed sigma). ``gate``: shape (n_runs,), the step
     from
-    which a run counts (``refine_start_step``; NaN = never reached, excluded) because the article tests coverage only
+    which a run counts (its Gaussian onset; NaN = never reached, excluded) because the article tests coverage only
     once
     the posterior is Gaussian; ``within_k_all`` is the same over all runs so the effect of the gate is visible. A step
     with fewer than :data:`MIN_RUNS` counted runs reports ``None``. Below 0.683 / 0.954 is overconfident.

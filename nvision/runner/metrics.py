@@ -114,7 +114,7 @@ def generate_attempt_metrics(
         milestone_data = calculate_zeeman_metrics(run_result, primary_param=primary_param)
         for k, v in milestone_data.items():
             metrics_serialized[k] = _maybe_finite(v)
-        # Search / localize / refine stages, detected the same way for every locator (see metrics/stages.py).
+        # Dip detection, I_max and the axes, read the same way for every locator (see metrics/stages.py).
         stage_metrics = compute_stage_metrics(run_result)
         for k, v in stage_metrics.items():
             metrics_serialized[k] = v if isinstance(v, str) else _maybe_finite(v)
@@ -149,17 +149,6 @@ def generate_attempt_metrics(
         steps_to_primary = metrics_serialized.get("steps_to_primary")
         primary_converged_step = None if steps_to_primary is None else int(steps_to_primary)
         all_converged_step = detect_all_converged_step(run_result)
-
-    # All-converged milestone metrics -- error/uncertainty of the primary (shift)
-    # parameter at all_converged_step, mirroring the primary-milestone fields above but
-    # keyed off the externally tracked step instead of re-detecting it (see
-    # calculate_all_converged_metrics docstring).
-    if run_result and all_converged_step is not None:
-        from nvision.metrics.milestones import calculate_all_converged_metrics
-
-        ac_metrics = calculate_all_converged_metrics(run_result, all_converged_step, primary_param=primary_param)
-        for k, v in ac_metrics.items():
-            metrics_serialized[k] = _maybe_finite(v)
 
     is_converged = False
     if not finalize_row.is_empty() and "converged" in finalize_row.columns:
@@ -312,10 +301,6 @@ def generate_attempt_metrics(
         "sweep_steps": sweep_steps,
         "locator_steps": locator_steps,
         "steps_to_primary": metrics_serialized.get("steps_to_primary"),
-        "err_primary_at_milestone": metrics_serialized.get("err_primary_at_milestone"),
-        "uncert_primary_at_milestone": metrics_serialized.get("uncert_primary_at_milestone"),
-        "err_primary_at_all_converged": metrics_serialized.get("err_primary_at_all_converged"),
-        "uncert_primary_at_all_converged": metrics_serialized.get("uncert_primary_at_all_converged"),
         "primary_converged_step": primary_converged_step,
         "all_converged_step": all_converged_step,
         **{key: metrics_serialized.get(key) for key in STAGE_METRIC_KEYS},

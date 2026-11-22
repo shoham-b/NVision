@@ -17,7 +17,6 @@ from nvision.metrics import claims
 from nvision.metrics.detection_aligned import gaussian_onset
 from nvision.metrics.refine_rates import InverseMse, inverse_mse_curve, late_window
 
-R_STEPS = (1, 3, 10, 30, 100, 300, 1000)
 COVERAGE_STEPS = (30, 100, 300, 1000)
 Z_KEY = "z"
 # The stored series have at most 80 points per run; a denser grid lets each half of the fit window hold the 5 points
@@ -76,54 +75,35 @@ def analyse_use_case(rows: list[dict[str, Any]]) -> dict[str, Any]:
             "repeats": len(runs),
         }
     cmp = [r.get("compare") or {} for r in runs]
-    j0, j0_var, imax, window, fwhm, tau = (
+    imax, window, fwhm, tau = (
         _med([c.get(k) for c in cmp])
-        for k in (
-            "stage_prior_info",
-            "stage_prior_info_var",
-            "stage_fisher_star",
-            "stage_window_phys",
-            "stage_fwhm_true_phys",
-            "stage_tau_phys",
-        )
+        for k in ("stage_fisher_star", "stage_window_phys", "stage_fwhm_true_phys", "stage_tau_phys")
     )
-    if not (j0 and j0_var and imax):
-        return {"unavailable": "stage_prior_info / stage_fisher_star missing: re-run", "repeats": len(runs)}
+    if not imax:
+        return {"unavailable": "stage_fisher_star missing: re-run", "repeats": len(runs)}
+    truths = [((r.get("true_params") or {}).get("params") or {}).get("zeeman_shift") for r in runs]
+    bounds = ((runs[0].get("true_params") or {}).get("bounds") or {}).get("zeeman_shift")
+    if not bounds:
+        return {"unavailable": "rows carry no zeeman_shift bounds", "repeats": len(runs)}
+    # The error of the best guess before any measurement: the spread of the uniform prior, W / sqrt(12) (Eq. prior).
+    sigma0 = (float(bounds[1]) - float(bounds[0])) / math.sqrt(12.0)
     steps = [np.asarray(r["series"]["s"], dtype=np.float64) for r in runs]
     errs = [np.asarray(r["series"]["e"], dtype=np.float64) for r in runs]
     uncs = [np.asarray(r["series"]["u"], dtype=np.float64) for r in runs]
     grid = claims.step_grid(int(max(s[-1] for s in steps)), points=GRID_POINTS)
     err, unc = claims.value_matrix(steps, errs, grid), claims.value_matrix(steps, uncs, grid)
-    sigma0 = j0_var**-0.5
     out: dict[str, Any] = {
         "repeats": len(runs),
-        "J0": j0,
-        "J0_var": j0_var,
         "I_max": imax,
         "window_phys": window,
         "fwhm_phys": fwhm,
         "tau_phys": tau,
         "sigma0_phys": sigma0,
-        "n_c": j0 / imax,
-        "prior_gap": claims.prior_gap(j0, j0_var),
         "max_n": int(grid[-1]),
     }
-    truths = [((r.get("true_params") or {}).get("params") or {}).get("zeeman_shift") for r in runs]
-    bounds = ((runs[0].get("true_params") or {}).get("bounds") or {}).get("zeeman_shift")
     out["truth_spread_ratio"] = (
-        claims.truth_spread_ratio(np.array(truths, dtype=np.float64), *bounds)
-        if bounds and None not in truths
-        else None
+        claims.truth_spread_ratio(np.array(truths, dtype=np.float64), *bounds) if None not in truths else None
     )
-    # 1. The bound.
-    r_true, r_claimed = claims.bound_ratio(grid, err, j0, imax), claims.bound_ratio(grid, unc, j0, imax)
-    lo, hi = claims.bound_ratio_ci(grid, err, j0, imax)
-    out["R_true"] = {n: float(r_true[np.searchsorted(grid, n)]) for n in R_STEPS if n <= grid[-1]}
-    out["R_true_ci"] = {
-        n: [float(lo[i]), float(hi[i])] for n in R_STEPS if n <= grid[-1] for i in [np.searchsorted(grid, n)]
-    }
-    out["R_claimed"] = {n: float(r_claimed[np.searchsorted(grid, n)]) for n in R_STEPS if n <= grid[-1]}
-    out["bound_violated"] = claims.bound_violated(lo)
     # Per-run Gaussian onset from the stored negentropy series ``g`` (NaN = never reached the Gaussian peak).
     onsets = np.array([_gaussian_onset(r["series"]) for r in runs], dtype=np.float64)
     # 3. (n0, q) on master's late window, true error and claimed sigma, with the linearity gate.

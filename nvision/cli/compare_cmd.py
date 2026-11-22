@@ -1,4 +1,4 @@
-"""``nv compare`` -- compare locators stage by stage (search / localize / refine) from a finished run."""
+"""``nv compare`` -- per-locator summary (calibration, accuracy, dip detection) of a finished run."""
 
 from __future__ import annotations
 
@@ -21,11 +21,9 @@ console = Console()
 def _fmt(value: object, column: str) -> str:
     if value is None:
         return "-"
-    if column in {"focus_found", "max_info", "cover_2sigma"}:
+    if column in {"detected", "cover_2sigma"}:
         return f"{100 * float(value):.0f}%"
-    if column.endswith("_ratio"):
-        return f"{float(value):.3f}"
-    if column.startswith(("err_", "unc_")) or column.endswith("_err_end"):
+    if column.startswith(("err_", "unc_")):
         return f"{float(value) / 1e3:.0f} kHz"
     return f"{float(value):.0f}"
 
@@ -41,9 +39,10 @@ def compare(
     ] = None,
     csv: Annotated[Path | None, typer.Option("--csv", help="Also write the table to this CSV file")] = None,
 ) -> None:
-    """Compare every locator on the same footing: accuracy, and each search/localize/refine stage.
+    """Compare every locator on the same footing: calibration, final accuracy and dip detection.
 
-    Stages are detected identically for every locator from its per-step belief (see docs/locator_comparison.md).
+    The article's claims (search, converge, refine, speedup) are in the UI's Simulation view
+    (docs/evaluation_metrics.md).
     """
     path = next((p for p in (out / "locator_results.parquet", out / "locator_results.csv") if p.exists()), None)
     if path is None:
@@ -72,26 +71,7 @@ def compare(
             "unc_median",
             "cover_2sigma",
         ],
-        "Stage boundaries (share of runs that reached them, median step)": [
-            "focus_found",
-            "focus_step",
-            "max_info",
-            "refine_start_step",
-        ],
-        "Per stage: median measurements, uncertainty ratio (end / start), true error at stage end, sensitivity": [
-            "stage1_steps",
-            "stage1_unc_ratio",
-            "stage2_steps",
-            "stage2_unc_ratio",
-            "stage3_steps",
-            "stage3_unc_ratio",
-            "stage1_err_end",
-            "stage2_err_end",
-            "stage3_err_end",
-            "stage1_sens_eff",
-            "stage2_sens_eff",
-            "stage3_sens_eff",
-        ],
+        "Search (share of runs whose dip test fired, median step)": ["detected", "detect_step"],
     }
     for title, columns in sections.items():
         table = Table(title=title)

@@ -68,7 +68,6 @@ class _Run:
         "fwhm",
         "noise_sigma",
         "params",
-        "prior_info",
         "snr",
         "steps",
         "theta",
@@ -95,18 +94,14 @@ class _Run:
         self.steps = np.array([series["s"][i] for i in keep], dtype=float)
         self.errs = np.array([series["e"][i] for i in keep], dtype=float)
         # The series parameter is chosen by the series exporter, not by stage_primary_param: confirm it is the
-        # zeeman_shift error through its last point (the series is rounded to 4 significant digits). That point is
-        # the belief's error after the last measurement (the stage metrics' error of the last reached stage) for a
-        # belief locator, and the fit's error ``final_err_primary`` for a sweep, whose series ends on its fit
-        # estimate (nvision.metrics.series.extract_step_series; series cached before that change end on the belief).
-        # Both are errors of the primary parameter, so either identifies the series.
-        last_err = next((field(f"stage{k}_err_end") for k in (3, 2, 1) if field(f"stage{k}_err_end") is not None), None)
-        candidates = [float(v) for v in (last_err, field("final_err_primary")) if v is not None]
-        if not any(math.isclose(float(self.errs[-1]), v, rel_tol=_FINAL_ERR_REL_TOL) for v in candidates):
+        # zeeman_shift error through its last point (the series is rounded to 4 significant digits), which is the
+        # run's final error ``final_err_primary`` (a sweep's series ends on its fit estimate, as that error does;
+        # nvision.metrics.series.extract_step_series).
+        final_err = field("final_err_primary")
+        if final_err is None or not math.isclose(float(self.errs[-1]), float(final_err), rel_tol=_FINAL_ERR_REL_TOL):
             raise UseCaseError(
-                f"the last point of the true-error series ({self.errs[-1]:g}) is neither the stage metrics' error "
-                f"after the last measurement ({last_err}) nor the final error ({field('final_err_primary')}): the "
-                "series is not the primary parameter's error"
+                f"the last point of the true-error series ({self.errs[-1]:g}) is not the final error ({final_err}): "
+                "the series is not the primary parameter's error"
             )
         true = scan.get("true_params") or {}
         self.params = dict(true.get("params") or {})
@@ -117,12 +112,11 @@ class _Run:
         if PRIMARY_PARAM not in self.params:
             raise UseCaseError("true_params carry no zeeman_shift value")
         self.theta = float(self.params[PRIMARY_PARAM])
-        for name in ("stage_fisher_star", "stage_fwhm_true_phys", "stage_prior_info", "snr", "noise_sigma"):
+        for name in ("stage_fisher_star", "stage_fwhm_true_phys", "snr", "noise_sigma"):
             if field(name) is None:
                 raise UseCaseError(f"stored column {name!r} is missing (rows from before it was added need a re-run)")
         self.fisher_star = float(field("stage_fisher_star"))
         self.fwhm = float(field("stage_fwhm_true_phys"))
-        self.prior_info = float(field("stage_prior_info"))
         self.snr = float(field("snr"))
         self.noise_sigma = float(field("noise_sigma"))
         det = field("dip_detected_step")
@@ -208,12 +202,6 @@ def _locator_block(
     never_norm = 1.0 / kappa
     out: dict[str, Any] = {
         "n_runs": len(runs),
-        # Share of runs whose stored J0 (stage_prior_info) is 4 pi^2 / W^2 of the drawn range: a check on the stored
-        # columns only (W itself comes from the signal's bounds, confirmed against the generator). Not 1 means the rows
-        # were recorded with a different prior and need a re-run.
-        "prior_info_match_share": float(
-            np.mean([math.isclose(4.0 * math.pi**2 / width**2, r.prior_info, rel_tol=_WIDTH_REL_TOL) for r in runs])
-        ),
         "mse": _num_list(np.where(usable, mse, np.nan)),
         "survival": _num_list(np.where(usable, surv, np.nan)),
         "running_share": _num_list(running.mean(axis=0)),

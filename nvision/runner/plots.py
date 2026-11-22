@@ -856,20 +856,11 @@ def generate_attempt_plots(
 
         posterior_metrics = compute_posterior_metrics(run_result, entry_base.get("stage_primary_param"), entry_base)
         try:
-            from nvision.metrics.series import (
-                attach_posterior_series,
-                extract_refine_series,
-                extract_step_series,
-            )
+            from nvision.metrics.series import attach_posterior_series, extract_step_series
 
             # Ends on the reported (fit) estimate for sweeps; see extract_step_series.
             step_series = extract_step_series(run_result)
             if step_series:
-                # Refine stage aligned to its start, for runs that reached it (``r``, see extract_refine_series).
-                refine_step = entry_base.get("refine_start_step")
-                stage_param = entry_base.get("stage_primary_param")
-                if refine_step is not None and stage_param is not None:
-                    step_series["r"] = extract_refine_series(run_result, stage_param, int(refine_step))
                 scan_entry["series"] = step_series
                 # Where every measurement was taken (unit coordinates of the drive window, float32), for every
                 # repeat: q_place needs it, and the scan figure keeps only the first repeats.
@@ -948,12 +939,6 @@ def generate_attempt_plots(
                 "duration_ms": scan_entry.get("duration_ms"),
                 "last_run": scan_entry.get("last_run"),
                 "steps_to_primary": scan_entry.get("steps_to_primary"),
-                "uncert_primary_at_milestone": scan_entry.get("uncert_primary_at_milestone"),
-                "err_primary_at_milestone": scan_entry.get("err_primary_at_milestone"),
-                "err_shift_at_milestone": scan_entry.get("err_shift_at_milestone"),
-                "err_shift_diff": scan_entry.get("err_shift_diff"),
-                "err_primary_at_all_converged": scan_entry.get("err_primary_at_all_converged"),
-                "uncert_primary_at_all_converged": scan_entry.get("uncert_primary_at_all_converged"),
                 "stage_primary_param": scan_entry.get("stage_primary_param"),
             }
 

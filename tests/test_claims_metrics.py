@@ -20,24 +20,10 @@ def _runs(n_runs, sigma_fn, grid, seed=0):
     return steps, vals
 
 
-def test_prior_gap_uniform_is_pi_over_sqrt3():
-    assert claims.prior_gap(4 * math.pi**2 / 100.0, 12 / 100.0) == pytest.approx(math.pi / math.sqrt(3))
-
-
 def test_truth_spread_ratio():
     t = np.linspace(-0.5, 0.5, 20001)
     assert claims.truth_spread_ratio(t, -0.5, 0.5) == pytest.approx(1.0, rel=1e-3)
     assert claims.truth_spread_ratio(0.5 * t, -0.5, 0.5) == pytest.approx(0.5, rel=1e-3)
-
-
-def test_bound_ratio_one_on_the_bound_and_violation_flag():
-    grid = claims.step_grid(500)
-    err = np.tile((J0 + grid * I_MAX) ** -0.5, (40, 1))  # every run exactly on the bound
-    assert claims.bound_ratio(grid, err, J0, I_MAX) == pytest.approx(1.0)
-    lo, _ = claims.bound_ratio_ci(grid, err, J0, I_MAX)
-    assert not claims.bound_violated(lo)
-    lo, _ = claims.bound_ratio_ci(grid, 0.5 * err, J0, I_MAX)  # error half the bound: R = 4, the claim fails
-    assert claims.bound_violated(lo)
 
 
 def test_regimes_four_boundaries():
@@ -157,8 +143,6 @@ def test_report_end_to_end_on_stored_rows():
             {
                 "series": {"s": grid.tolist(), "e": e, "u": e, "g": np.where(grid < 60, 0.5, 0.01).tolist()},
                 "compare": {
-                    "stage_prior_info": J0,
-                    "stage_prior_info_var": J0 * 3 / math.pi**2,
                     "stage_fisher_star": I_MAX,
                     "stage_window_phys": 10.0,
                     "stage_fwhm_true_phys": 1.0,
@@ -169,9 +153,7 @@ def test_report_end_to_end_on_stored_rows():
             }
         )
     out = analyse_use_case(rows)
-    assert out["prior_gap"] == pytest.approx(math.pi / math.sqrt(3))
-    assert 0.8 < out["R_true"][100] < 1.01
-    assert out["bound_violated"] is False
+    assert out["sigma0_phys"] == pytest.approx(1.1 / math.sqrt(12))  # W / sqrt(12) of the drawn zeeman_shift range
     assert out["fit_true"]["q"] == pytest.approx(1.0, rel=0.15)
     assert out["rate_ratio_claimed_over_true"] == pytest.approx(1.0)
     assert out["gaussian_share"] == 1.0
@@ -192,11 +174,10 @@ def test_report_excludes_runs_that_never_reach_the_gaussian_peak():
             {
                 "series": {"s": grid.tolist(), "e": e, "u": e, "g": g.tolist()},
                 "compare": {
-                    "stage_prior_info": J0,
-                    "stage_prior_info_var": J0 * 3 / math.pi**2,
                     "stage_fisher_star": I_MAX,
                     "dip_detected_step": 20,
                 },
+                "true_params": {"params": {"zeeman_shift": 0.1 * i}, "bounds": {"zeeman_shift": [0.0, 1.1]}},
             }
         )
     out = analyse_use_case(rows)

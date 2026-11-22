@@ -315,33 +315,6 @@ def extract_milestone_metrics(
     }
 
 
-def calculate_all_converged_metrics(
-    run_result: RunResult,
-    all_converged_step: int | None,
-    primary_param: str = "zero_field_freq",
-    shift_param: str | None = None,
-) -> dict[str, Any]:
-    """Error/uncertainty of the primary parameter at the all-converged milestone.
-
-    ``all_converged_step`` (1-indexed) comes from :func:`detect_all_converged_step` on the recorded run.
-    """
-    if shift_param is None:
-        shift_param = default_shift_param(run_result)
-
-    step_idx = all_converged_step - 1 if all_converged_step is not None else -1
-    if step_idx < 0 or step_idx >= len(run_result.snapshots):
-        return {
-            "err_primary_at_all_converged": None,
-            "uncert_primary_at_all_converged": None,
-        }
-
-    ms = extract_milestone_metrics(run_result, step_idx, primary_param, shift_param)
-    return {
-        "err_primary_at_all_converged": ms["err_primary"],
-        "uncert_primary_at_all_converged": ms["uncert_primary"],
-    }
-
-
 def calculate_zeeman_metrics(
     run_result: RunResult,
     threshold: float = NVISION_CONVERGENCE_THRESHOLD,
@@ -356,38 +329,11 @@ def calculate_zeeman_metrics(
     if shift_param is None:
         shift_param = default_shift_param(run_result)
 
-    # 1. Primary-parameter milestone
+    # The step from which the primary parameter's claimed uncertainty stays converged (the stop rule's own test).
     primary_idx = detect_milestone(run_result, primary_param, threshold)
+    metrics: dict[str, Any] = {"steps_to_primary": None if primary_idx is None else primary_idx + 1}
 
-    metrics: dict[str, Any] = {}
-
-    if primary_idx is not None:
-        ms = extract_milestone_metrics(run_result, primary_idx, primary_param, shift_param)
-        metrics.update(
-            {
-                "steps_to_primary": ms["step"],
-                "err_primary_at_milestone": ms["err_primary"],
-                "err_shift_at_milestone": ms["err_shift"],
-                "primary_at_milestone": ms["est_primary"],
-                "shift_at_milestone": ms["est_shift"],
-                "uncert_primary_at_milestone": ms["uncert_primary"],
-                "overall_uncert_at_milestone": ms["overall_uncert"],
-            }
-        )
-    else:
-        metrics.update(
-            {
-                "steps_to_primary": None,
-                "err_primary_at_milestone": None,
-                "err_shift_at_milestone": None,
-                "primary_at_milestone": None,
-                "shift_at_milestone": None,
-                "uncert_primary_at_milestone": None,
-                "overall_uncert_at_milestone": None,
-            }
-        )
-
-    # 2. Final state
+    # Final state
     final_idx = len(run_result.snapshots) - 1
     if final_idx >= 0:
         fs = extract_milestone_metrics(
@@ -401,10 +347,4 @@ def calculate_zeeman_metrics(
                 "final_steps": fs["step"],
             }
         )
-
-        # 3. Deltas
-        if primary_idx is not None:
-            metrics["err_primary_diff"] = metrics["err_primary_at_milestone"] - fs["err_primary"]
-            metrics["err_shift_diff"] = metrics["err_shift_at_milestone"] - fs["err_shift"]
-
     return metrics

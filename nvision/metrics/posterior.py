@@ -75,7 +75,6 @@ POSTERIOR_METRIC_KEYS: tuple[str, ...] = (
     "posterior_far_mass_tau",
     "posterior_far_placed_steps",
     "posterior_far_placed_share",
-    "posterior_far_placed_share_stage2",
     "posterior_J_tau_2h_phys",
     "posterior_undefined_steps",
 )
@@ -325,7 +324,7 @@ def compute_posterior_metrics(
     """Posterior metrics of ``primary`` over one run: ``{"scalars", "series", "density_steps", "max_points"}``.
 
     ``stage_metrics``: the dict :func:`~nvision.metrics.stages.compute_stage_metrics` returned for the run
-    (``dip_detected_step``, ``focus_found_step``, ``refine_start_step``). ``scalars`` has every
+    (``dip_detected_step``). ``scalars`` has every
     :data:`POSTERIOR_METRIC_KEYS` key; ``series`` every :data:`POSTERIOR_SERIES_KEYS` key as a list of length
     ``n_steps`` (``None`` where undefined). Everything is ``None`` when there is no ``primary`` or the beliefs carry no
     particle cloud (grid beliefs). Memoised on ``run_result.posterior_cache``.
@@ -415,10 +414,5 @@ def compute_posterior_metrics(
     if placed:
         scalars["posterior_far_placed_steps"] = int(sum(v for _, v in placed))
         scalars["posterior_far_placed_share"] = float(np.mean([v for _, v in placed]))
-        focus, refine = stage_metrics.get("focus_found_step"), stage_metrics.get("refine_start_step")
-        if focus is not None:  # localize = measurements focus+1 .. refine-1 (1-indexed), i.e. 0-based focus .. refine-2
-            last = (int(refine) - 2) if refine is not None else n - 1
-            loc = [v for t, v in placed if int(focus) <= t <= last]
-            scalars["posterior_far_placed_share_stage2"] = float(np.mean(loc)) if loc else None
     run_result.posterior_cache = out
     return out
