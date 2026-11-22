@@ -63,8 +63,7 @@ sigma and linewidth separately, and each axis changes one thing:
   `grid_gaussian_share`): how much of that total FWHM is inhomogeneous (Gaussian) broadening, 0 = pure Lorentzian.
   The Lorentzian HWHM and `sigma_inhom` are set so the total FWHM stays `NVISION_SBED_FWHM`
   (`fwhm = 2 hwhm_lorentz + 2 sqrt(2 ln 2) sigma_inhom`), so the share changes the line shape and not the width.
-  Window mostly decides the search stage and the share mostly the refine stage; the stage metrics
-  (`nv compare`, the Stages view) attribute a cost to the stage it came from.
+  Window mostly decides the search and the share mostly the refine regime.
 - **Isotope** (`NVISION_SBED_HYPERFINE_VALUES`, default `unresolved`, `n14`, `n15`): `contrast_total` is shared among the Zeeman
   groups and, for a resolved isotope, the hyperfine lines, so one dip is half of it for a merged line and roughly a
   quarter to a third for N-14 or N-15. Windows that cannot fit the isotope's Zeeman padding (e.g. 5 FWHM for 14N) are omitted.
@@ -179,70 +178,18 @@ the realised $k^*$ is recorded per repeat (`sweep_k_opt`, `sweep_k` = m k*, `swe
 | `Bayesian-SBED` | unchanged SBED |
 All sweeps update the same SMC belief every step, so an uncertainty trajectory exists for every locator. A plain sweep's *reported* estimate is still its final fit.
 
-## Stages
+## Regimes
 
-`nvision/metrics/stages.py` splits every run, whatever the locator, into three stages with one detector over the
-per-step belief snapshots:
-
-1. **search** -- up to the measurement after which `belief.current_dips()` (the deterministic `find_dips`) first
-   reports a dip = *focus found*;
-2. **localize** -- until the measurements gain (nearly) the Cramer-Rao-optimal information every step = *max information*;
-3. **refine** -- the rest.
-
-**Fisher-information efficiency.** A measurement at drive frequency $x$ (drive $d$, $k$ shots) carries
-$I = k\,g(x,d)^2/\sigma^2$ about the primary parameter $\theta$, with $g = \partial\,\text{signal}/\partial\theta$ on
-the **true** signal. An oracle that knows $\theta$ spends the same shots at the best point, $I^* = k \max g^2/\sigma^2$.
-The per-step efficiency is $\eta = g(x,d)^2/\max g^2 \in [0, 1]$: 1 at the steepest point of the dip, ~0 at the dip
-centre or on the flat baseline.
-
-**Boundaries (causal, observable).** Both are decided from the snapshots at the step itself and the next
-`BOUNDARY_HOLD_STEPS` = 3 (a condition must hold that long), never from how the run went on, and need no true
-parameter, so they apply unchanged to an experiment:
-
-* *Search → focus*: the **claimed** uncertainty of the primary parameter has fallen to 0.7 (`FOCUS_SIGMA_DROP`) of its
-  value after the first measurement and stays there.
-* *Focus → refine*: the claimed uncertainty stays $\le \epsilon$, where $\epsilon$ is the tolerance below, evaluated on
-  the line as the run finally *estimated* it (`_estimated_tolerance_phys`).
-
-Two things happen at different times: the **evidence** (the dip test rejects "no dip") and the **precision** (the
-uncertainty drops). Only the precision defines stages; the evidence is its own marker, `dip_detected_step` (the
-locator's dip test at `NVISION_DIP_P_FA`, held). On 20 single-dip runs the true error first stayed $\le \epsilon$ at a
-median step 16 (SNR 10) / 60 (SNR 3); the claimed σ halved at 18.5 / 76.5 and reached ε at 24 / 90, while the dip test
-at 0.1 fired at 26 / 150, and the two markers disagree in both directions run by run.
-
-The efficiency $\eta$ is not part of either boundary (it needs the true signal). It is reported per stage
-(`stage{k}_sens_eff`, `stage{k}_wasted_share`): a locator can reach the precision $\epsilon$ and still spend its
-measurements away from the best point, which shows up there. The claimed $\sigma$ is known to be overconfident
-(Sanity view), so the boundaries can fire early: in 3 of 12 SNR-10 runs the true error was still 2.7-14 $\epsilon$ when
-refine started. The hold and the Sanity coverage plot bound that, they do not remove it.
-Measurements are independent given $\theta$, so Fisher information adds and the CRLB from the refine stage is
-$1/\sum_{t\ge n} I_t$.
-
-**"Near" the optimum is enough.** The locator aims at the optimum of its *estimate*, off by its error $\epsilon$.
-The optimum is a maximum of $\eta$, so the loss is second order. For a Lorentzian of HWHM $\gamma$ the optimum is
-$|x-x_0| = \gamma/\sqrt3$ and $\eta \approx 1 - 4.5(\epsilon/\gamma)^2$, so $\delta = 0.1$ accepts measuring within
-about $\pm 0.15\,\gamma$ of it -- the locally linear regime.
-
-Assumptions: additive noise with $\sigma$ independent of $x$ and the drive; nuisance parameters known (the
-known-nuisance scenario -- with free nuisances the diagonal term is an upper bound on the efficient information).
-For drive-controlled models the oracle also picks the drive amplitude (and the true pi-pulse when pulsed). $\eta$
-uses the true signal, not the belief (whose own precision is overconfident), so it is simulation-only ground truth.
-
-Per run (results-row columns): `focus_found_step`, `refine_start_step`, `stage{1,2,3}_steps`,
-`stage{1,2,3}_unc_start|unc_end|unc_ratio|sens_eff` (shot-weighted mean $\eta$ per stage). A stage a run never reached is `None` -- a plain sweep, which
-keeps moving across the dip, has no refine stage, which is a result, not missing data. The UI's "Stages" view
-shows them.
+A run passes the article's regimes: search + localize until its own dip test fires (`dip_detected_step`), converge until
+the posterior is a single Gaussian peak, then refine. They are read from each run's own history and judged against the
+article's bounds on the Simulation page; [evaluation metrics](evaluation_metrics.md) says how. The former stage model
+(boundaries from a 0.7 drop of the claimed σ and an ε tolerance, `focus_found_step`, `refine_start_step`,
+`stage{1,2,3}_*`, the ε oracles) was removed on 2026-11-22: it contradicted the article.
 
 ## Known deviations (docs/code vs. article)
 
-- **Stage boundaries and field names.** The stage names now match the article: *search* (dip not yet found), *localize*
-  (from the first detection of the dip until the strategy locks onto it) and *refine* (Gaussian, Fisher-limited tail).
-  Only the labels were renamed: the persisted fields keep the old name (`focus_found_step`, `stage2_*`, the `focus_found` /
-  `focus_step` columns of `nv compare`), so no re-run is needed. The boundaries are decided from the claimed uncertainty
-  (0.7 drop, then within the tolerance), not from the dip-test detection, which is its own marker `dip_detected_step`.
-- **Bound.** The article judges runs against the van Trees bound with prior information $J_0$; the stage oracle on this page
-  is the CRLB-style $I^* = k\max g^2/\sigma^2$ (no prior). `stage_prior_info` carries $J_0$; see
-  [evaluation metrics](evaluation_metrics.md).
+- **Bound.** The code and several docs say CRLB where the article says van Trees bound; van Trees is used only from each
+  run's own detection, with the posterior's J_τ ([evaluation metrics](evaluation_metrics.md)).
 - **SimpleSweep spacing.** The article lists $p = 2, 3, 4$; the code now runs the reference $k = 3$ and the optimal
   fractional $k^*$ (`SimpleSweep-optimal`) instead of the $2, 3, 4$ ladder.
 - **Sweep reported estimate.** A plain sweep's reported estimate is its final fit while the claimed uncertainty comes from the
@@ -253,17 +200,11 @@ shows them.
 Strategy names, cache keys, and the sweep belief all changed: a **full re-run** is required (`nv render` is not
 enough). The Sobol locators, the Sobol baseline inside SBED runs, and the "Sobol savings" metric are removed.
 
-## The comparison report in the web UI
+## The comparison report
 
-`nv compare` has a counterpart in the results UI: the *Stages* view lists the same three tables (accuracy,
-stage boundaries, per-stage measurements and uncertainty ratio) for the selected generator(s) and noise levels,
-one row per strategy (the `SimpleSweep-optimal` multiples are separate rows). The per-run fields come from
-`/api/scan-fields` (`compare`), and runs are filtered as in `metrics/compare.py` `usable_runs`.
-
-Manual check that UI and CLI agree on a tiny run:
+`nv compare` prints, per strategy, the calibration (share within 2 claimed σ), the final error and the dip detection
+(share of runs whose dip test fired, median step). The article's claims are on the UI's Simulation page.
 
 ```bash
-NVISION_SBED_SNR_VALUES=5 uv run nv run --run-group voigt-grid --filter-signal span5 --repeats 3 --runners 2 --out scratch/x
-uv run nv compare --out scratch/x --filter-signal span5 --filter-noise "SNR(5)"
-uv run nv serve --dir scratch/x   # Stages view, a span5 generator, noise SNR(5), compare the tables
+uv run nv compare --filter-signal span5 --filter-noise "SNR(5)"
 ```

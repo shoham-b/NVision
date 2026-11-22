@@ -22,10 +22,10 @@ uses the names on the right. Docs describing the algorithm use the article's ter
 | $W$ | the drive window `[drive_freq_min_phys, drive_freq_max_phys]` | |
 | $N_p$ | `NVISION_SMC_NUM_PARTICLES` (10000) | |
 | $\hat\theta_N$, $\hat\sigma_N$ | `belief.estimates()`, `belief.uncertainty()` | Posterior mean and weighted particle std. $\hat\sigma_N$ is the **claimed uncertainty**; it is *not* a 68 % interval before the posterior is Gaussian. |
-| van Trees bound | CRLB / `stage_fisher_star`, `stage_prior_info` (see [evaluation metrics](evaluation_metrics.md)) | The bound with prior information $J_0$; the code historically says "CRLB". |
+| van Trees bound | CRLB / `stage_fisher_star` ($I_{\max}$), `posterior_J_tau_phys` ($J_\tau$) (see [evaluation metrics](evaluation_metrics.md)) | Used only from each run's own detection, with the posterior's $J_\tau$; the code historically says "CRLB". |
 | dip test | `find_dips` (`belief/dip_detection.py`), `NVISION_DIP_P_FA` | Boxcar score over measured stretches, Bonferroni threshold. |
 | falsification probe | exploration step in SBED `_acquire` (`EXPLORE_PROBABILITY_*`) | Measures the middle of the widest unmeasured gap. |
-| search / localize / refine | search / localize / refine (persisted fields keep the old name: `focus_found_step`, `refine_start_step`, `stage{1,2,3}_*`) | Same names. The middle stage was called *focus* before; the *focus window / focus sections* (`FocusRegion`) are a different thing and keep their name. See Known deviations in [locator comparison](locator_comparison.md). |
+| search + localize / converge / refine | `dip_detected_step` ends search + localize; the Gaussian onset (negentropy < 0.05) ends converge | Read from each run's own history. The *focus window / focus sections* (`FocusRegion`) are a different thing and keep their name. |
 | SimpleSweep | `SimpleSweep-optimal`, `SimpleSweep-optimal-x0.5`, `-x2` | $\Gamma_0$ = FWHM of the prior-mean line; SimpleSweep spacing $\Gamma_0/k$: $k = m\,k^*$ with $m \in \{0.5, 1, 2\}$ and the per-task optimum $k^*$ = argmin of $\overline{P(k,\varphi)}\,n(k)$ (whole passes $P$ times points per pass $n$). |
 | Bayesian SBED | `Bayesian-SBED` | |
 | $R(n)$ (information against the bound) | `claims.bound_ratio` | $1/\overline{e^2 (J_0 + n I_{\max})}$ over runs; $\le 1$ (+1 %) for the true error. |
