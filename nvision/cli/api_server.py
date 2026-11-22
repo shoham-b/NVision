@@ -233,7 +233,7 @@ _COMPARE_FIELDS = (
     "lock_step_true",
     "lock_step_claimed",
     # Run-time posterior metrics of the primary parameter (nvision/metrics/posterior.py); per-step values are in the
-    # scan entry's ``series`` (``z``, ``g``, ``m``, ``j``, ``x``).
+    # scan entry's ``series`` (``z``, ``p``, ``g``, ``m``, ``j``, ``x``).
     *POSTERIOR_METRIC_KEYS,
     # Truth-free stuck-belief check of the final belief (nvision/metrics/fit_gap.py).
     *FIT_GAP_METRIC_KEYS,

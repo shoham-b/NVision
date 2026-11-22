@@ -268,16 +268,14 @@ existing sections of this page; this section adds only what they did not make:
 | Four regimes: search + localize, collapse, converge, refine | `regimes`: median detection step, median Gaussian onset, converge end (first $n$ with rms error $\le 1.1/\sqrt{q n I_{\max}}$, $q$ from the true-error fit), plateau level over $\sigma_0$, tail slope on $n \ge 2 n_{\rm det}$ | no detection, no Gaussian peak, no $(n_0,q)$ fit, or the error never gets within 10 % of the data limit (`why`); the slope is steeper than $-1/2$ by $n/(n-n_0)$, so read it with $n_0$ |
 | $1/\mathrm{MSE}$ linear in $n$ late in the run, slope $q \le 1$ | `fit_with_gate`: `refine_rates.fit_rate_line` on `late_window`, bootstrap intervals over repeats, and a **linearity gate** (the $q$ of the two halves of the window must have overlapping intervals) | `linear` is false: the window is not the late regime and $q$ is then not a refine rate (it is still returned, flagged) |
 | Information rate above 1 means overconfident | `rate_ratio` = $q_{\rm claimed}/q_{\rm true}$ over the same window | the ratio is near 1 (the claim would be contradicted); above 1 confirms it |
-| Coverage of $\hat\sigma_N$: 68 % / 95 %, tested only once the posterior is Gaussian | `coverage_curve` per $n$, runs counted from their Gaussian onset (`within_k`, share of runs `gaussian_share`) and all runs (`within_k_all`), Wilson intervals; `coverage_from_z` from the signed series `z` (also the mean and std of $z$) | the interval excludes 0.683 / 0.954 |
+| Coverage of $\hat\sigma_N$: 68 % / 95 %, tested only once the posterior is Gaussian | `coverage_curve` per $n$, runs counted from their Gaussian onset (`within_k`, share of runs `gaussian_share`) and all runs (`within_k_all`), Wilson intervals; `coverage_from_z` from the signed series `z` (also the mean and std of $z$); `coverage_from_pit` from the series `p` (quantile coverage, below) | the interval excludes 0.683 / 0.954 |
 | Sensitivity $\eta/\sqrt q$ | `sensitivity_ratio` = $\sqrt{I_{\max}\,\mathrm{MSE}\,n}$ on the window | by construction it equals $1/\sqrt q \cdot \sqrt{n/(n-n_0)}$, so it only cross-checks the fit |
 
 Every run measures the whole budget, so a run's last stored value is held after its last stored step (the rule of
 `refine_rates.inverse_mse_curve`) and all repeats are present at every $n$. Series have at most 80 stored points per run and
 are interpolated linearly. A sweep's `e` / `u` come from the SMC belief it carries (its own fit is not stored).
 
-**Not made, needs a re-run.** Coverage from quantiles of the particle distribution (the PIT, the posterior CDF at the truth)
-needs the particles, which the cache does not keep, so it would be a run-time column. The article names it next to the
-Gaussian coverage; `coverage_from_z` (Gaussian $z$) is the part that can be tested today.
+**Quantile coverage (PIT).** The cache keeps no particles, so the posterior CDF at the truth, $p=\sum_i w_i\,[\theta_i\le\theta_{\rm true}]$, is a run-time column (`nvision/metrics/posterior.py`): the per-step series `p` (every step, downsampled like `z`) and the per-run `posterior_pit_final` (`p` at the last step; both in `_COMPARE_FIELDS`). A calibrated posterior gives $p\sim U(0,1)$ whatever its shape. `claims.coverage_from_pit` takes the $p$ of all runs at one step and returns the share inside the central 68 % ($0.16\le p\le0.84$) and 95 % ($0.025\le p\le0.975$) intervals with Wilson intervals, plus the mean and std of $p$ (1/2 and $1/\sqrt{12}$ when calibrated). Unlike `coverage_from_z` it needs no Gaussian peak. Runs recorded before the column existed (and lab/MATLAB runs) have none; a re-run fills it.
 
 ## Refine rates and the speedup over a sweep
 
