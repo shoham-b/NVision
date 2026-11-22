@@ -104,6 +104,8 @@ def analyse_use_case(rows: list[dict[str, Any]]) -> dict[str, Any]:
     out["truth_spread_ratio"] = (
         claims.truth_spread_ratio(np.array(truths, dtype=np.float64), *bounds) if None not in truths else None
     )
+    # The run-averaged error and claimed sigma over the whole run (Fig. overview; calibration: rms true vs claimed).
+    out["rms_curve"] = {"n": grid.tolist(), "err": claims.rms(err).tolist(), "claimed": claims.rms(unc).tolist()}
     # Per-run Gaussian onset from the stored negentropy series ``g`` (NaN = never reached the Gaussian peak).
     onsets = np.array([_gaussian_onset(r["series"]) for r in runs], dtype=np.float64)
     # 3. (n0, q) on master's late window, true error and claimed sigma, with the linearity gate.

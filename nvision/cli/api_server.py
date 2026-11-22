@@ -50,9 +50,8 @@ _STATIC_ASSET_NAMES = (
     "reload.js",
     "styles.css",
     "lab-view.js",
-    "search-bounds-view.js",
     "detection-aligned-view.js",
-    "refine-rates.js",
+    "article-view.js",
 )
 
 log = logging.getLogger("nvision.api_server")

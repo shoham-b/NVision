@@ -25,7 +25,7 @@ function resolveAssetPath(relativePath) {
 // The locator comparison tabs choose which strategies to show with the chips at the top
 // of the page. A legend click would hide/isolate a strategy a second, inconsistent way,
 // so charts inside those tabs get a read-only legend.
-const LOCATOR_COMPARISON_VIEWS = '#stages-view, #scaling-view, #accuracy-view, #stepsize-view';
+const LOCATOR_COMPARISON_VIEWS = '#article-view';
 function lockLegendInComparisonViews() {
     const P = window.Plotly;
     if (!P || P._legendLocked) return;
@@ -405,13 +405,10 @@ function _filterScanMeasurementsByStep(measurements, stepCap) {
 // there's no candidate-window data at all, or when stepCap is null/undefined (the
 // "show everything" / static-final-state case, which keeps using the run's
 // end-of-run focus_window/per_dip_windows instead). `series.s` is ascending.
-// `focusFoundStep` (metrics.focus_found_step) covers runs with no per-step window data:
-// there the static end-of-run window is only shown from the step it was found.
-function _focusWindowCandidatesForStep(series, stepCap, focusFoundStep) {
+// Runs with no per-step window data keep the static end-of-run window.
+function _focusWindowCandidatesForStep(series, stepCap) {
     if (stepCap == null) return null;
-    if (!series || !series.w || !series.s || !series.w.length) {
-        return focusFoundStep != null && stepCap < focusFoundStep ? [] : null;
-    }
+    if (!series || !series.w || !series.s || !series.w.length) return null;
     // Hold the last window that was actually found: a step that reports none (null/empty)
     // after one was found must not make the window vanish for the rest of playback.
     let chosen = null;

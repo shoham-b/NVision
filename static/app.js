@@ -136,15 +136,6 @@ function main() {
         plots.some((p) => p.type === 'bayesian_fisher_crlb_pairs') ||
         plots.some((p) => p.type === 'bayesian_jitter') ||
         plots.some((p) => p.type === 'bayesian_covariance_ellipses_data');
-    // Keep --ss-sticky-h = height of the stuck locator-chip bar (0 while hidden) so the selector rows below it stick underneath, not on top of it.
-    function updateSsStickyHeight() {
-        const el = document.getElementById('ss-controls');
-        if (el) document.documentElement.style.setProperty('--ss-sticky-h', `${el.offsetHeight}px`);
-    }
-    (function trackSsControlsHeight() {
-        const el = document.getElementById('ss-controls');
-        if (el && typeof ResizeObserver !== 'undefined') new ResizeObserver(updateSsStickyHeight).observe(el);
-    })();
     // Global Timeline Controls Sync Controller
     const globalControls = document.getElementById('global-timeline-controls');
     const globalPlayBtn = document.getElementById('global-play-btn');
@@ -364,14 +355,11 @@ function main() {
             container.appendChild(marker);
         });
 
-        // Stage boundaries sit BELOW the track so they read apart from the convergence
-        // milestones above it. Stage 2 (localize) starts the measurement after the step a
-        // dip was found; stage 3 (refine) starts at refine_start_step (see metrics/stages.py).
-        const focusFound = _mv(d, 'focus_found_step');
-        const refineStart = _mv(d, 'refine_start_step');
+        // The run's own dip detection sits BELOW the track so it reads apart from the convergence
+        // milestones above it: it ends search + localize, and van Trees restarts there (metrics/stages.py).
+        const detected = _mv(d, 'dip_detected_step');
         const stageTicks = [
-            { label: 'Localize', title: 'Start of stage 2: localize', step: focusFound != null ? focusFound + 1 : null, cls: 'stage-focus' },
-            { label: 'Refine', title: 'Start of stage 3: refine', step: refineStart, cls: 'stage-refine' },
+            { label: 'Detection', title: "The run's own dip detection (end of search + localize)", step: detected, cls: 'stage-focus' },
         ];
         stageTicks.forEach((t) => {
             if (t.step == null) return;
@@ -1840,8 +1828,7 @@ function main() {
         if (!container || !container._scanRawData || !window.Plotly) return;
         const raw = container._scanRawData;
         const stepCandidates = _focusWindowCandidatesForStep(
-            currentPlot && currentPlot.series, realStep,
-            currentPlot && currentPlot.metrics && currentPlot.metrics.focus_found_step);
+            currentPlot && currentPlot.series, realStep);
         const selSweep = scanCompareSweep ? scanCompareSweep.value : '';
         const includeSweep = (selSweep === 'SimpleSweep (baseline)');
         const fitVisible = !scanLegendVisibility.has('locator most likely signal') || scanLegendVisibility.get('locator most likely signal') !== false;
@@ -2985,8 +2972,8 @@ function main() {
         if (range) {
             const activeBtn = document.querySelector('#scan-view-mode button.is-active');
             if (activeBtn && activeBtn.dataset.value === 'single') {
-                const stagesBtn = document.querySelector('#scan-view-mode button[data-value="stages"]');
-                if (stagesBtn) stagesBtn.click();
+                const articleBtn = document.querySelector('#scan-view-mode button[data-value="article"]');
+                if (articleBtn) articleBtn.click();
             }
         }
     }
@@ -3350,7 +3337,7 @@ function main() {
         const selectedScanNoise = getEffectiveScanNoise();
         const selectedScanStrategy = controlValue(scanStrategy);
 
-        updateFailedRunsButton(compareGeneratorsArg(), compareNoisesArg());
+        renderFailedRunsTab(compareGeneratorsArg(), compareNoisesArg());
 
         const scanRepeatItems = scanPlots
             .filter(
@@ -3506,10 +3493,6 @@ function main() {
                     }
 
                     const phaseAbsErr = _mv(phaseData, 'abs_err_x', 'final_err_shift', 'pair_rmse');
-                    const errPrimaryAtMilestone = phaseData.err_primary_at_milestone;
-                    const uncertPrimaryAtMilestone = phaseData.uncert_primary_at_milestone;
-                    const errPrimaryAtAll = _mv(phaseData, 'err_primary_at_all_converged');
-                    const uncertPrimaryAtAll = _mv(phaseData, 'uncert_primary_at_all_converged');
                     const errRows = [];
                     // Red when |error| > uncert, deep red when |error| > 2·uncert.
                     const errRow = (label, err, unc) => {
@@ -3524,19 +3507,13 @@ function main() {
                             unc != null ? formatHz(unc) : '–',
                         ] };
                     };
-                    if (errPrimaryAtMilestone != null || uncertPrimaryAtMilestone != null) {
-                        errRows.push(errRow(primaryParamLabel, errPrimaryAtMilestone, uncertPrimaryAtMilestone));
-                    }
-                    if (errPrimaryAtAll != null || uncertPrimaryAtAll != null) {
-                        errRows.push(errRow('all', errPrimaryAtAll, uncertPrimaryAtAll));
-                    }
                     if (phaseAbsErr != null || phaseData.uncert != null) {
                         errRows.push(errRow('full', phaseAbsErr, phaseData.uncert));
                     }
                     if (errRows.length > 0) {
                         items.push({
-                            label: 'Error / uncertainty at each checkpoint',
-                            tip: 'Error and uncertainty of the primary-parameter estimate at the moment primary converged / at the moment all tracked parameters converged / at the end of the full run. Lower is better. Rows turn red when |error| > uncert, deep red when |error| > 2·uncert.',
+                            label: 'Error / uncertainty at the end of the run',
+                            tip: 'Error and claimed uncertainty of the primary-parameter estimate at the end of the full run. The row turns red when |error| > uncert, deep red when |error| > 2·uncert.',
                             table: { columns: ['error', 'uncert'], rows: errRows }
                         });
                     }
@@ -3552,15 +3529,7 @@ function main() {
                     const measurements = phaseData.measurements != null ? phaseData.measurements : metrics.measurements;
                     const stepsToPrimary = phaseData.steps_to_primary != null ? phaseData.steps_to_primary : metrics.steps_to_primary;
                     
-                    const uncert = phaseData.uncert != null ? phaseData.uncert : metrics.uncert;
-                    const uncertPrimary = phaseData.uncert_primary_at_milestone != null ? phaseData.uncert_primary_at_milestone : metrics.uncert_primary_at_milestone;
-                    
-                    const absErr = _mv(phaseData, 'abs_err_x', 'final_err_shift', 'pair_rmse');
-                    const errPrimary = phaseData.err_primary_at_milestone != null ? phaseData.err_primary_at_milestone : metrics.err_primary_at_milestone;
-
                     const earlyStopStepsExpected = (measurements != null && stepsToPrimary != null && stepsToPrimary < measurements);
-                    const earlyStopUncertExpected = (uncert != null && uncertPrimary != null && uncert < uncertPrimary);
-                    const earlyStopErrExpected = (absErr != null && errPrimary != null && absErr < errPrimary);
 
                     return [
                         // Row 1: Steps
@@ -3568,18 +3537,6 @@ function main() {
                             { label: 'Sbed overall steps', val: measurements != null ? formatCount(measurements) : 'N/A', tip: 'Total measurements taken during Sbed active locator run.', cardClass: earlyStopStepsExpected ? 'expected-card' : '' },
                             { label: 'Sbed primary-parameter convergence', val: stepsToPrimary != null ? formatCount(stepsToPrimary) : 'N/A', tip: 'Steps needed for Sbed primary-parameter uncertainty to drop below threshold.', cardClass: earlyStopStepsExpected ? 'expected-card' : '' },
                             { label: 'Early stopping savings', val: (measurements != null && stepsToPrimary != null) ? formatCount(measurements - stepsToPrimary) : 'N/A', tip: 'Measurements saved by stopping active locator immediately after primary converges.', cardClass: earlyStopStepsExpected ? 'expected-card' : '' }
-                        ],
-                        // Row 2: Uncertainty
-                        [
-                            { label: 'Sbed final uncertainty', val: uncert != null ? formatHz(uncert) : 'N/A', tip: 'Final primary-parameter estimate uncertainty (standard deviation) at locator termination.', cardClass: earlyStopUncertExpected ? 'expected-card' : '' },
-                            { label: 'Sbed primary-parameter uncertainty', val: uncertPrimary != null ? formatHz(uncertPrimary) : 'N/A', tip: 'Primary-parameter estimate uncertainty (standard deviation) at the moment primary converged.', cardClass: earlyStopUncertExpected ? 'expected-card' : '' },
-                            { label: 'Milestone to final uncert diff', val: (uncert != null && uncertPrimary != null) ? formatHz(uncertPrimary - uncert) : 'N/A', tip: 'Uncertainty reduction achieved by continuing to run from the primary-parameter convergence milestone until locator termination.', cardClass: earlyStopUncertExpected ? 'expected-card' : '' }
-                        ],
-                        // Row 3: Absolute Error
-                        [
-                            { label: 'Sbed final error', val: absErr != null ? formatHz(absErr) : 'N/A', tip: 'Final absolute primary-parameter error vs ground truth at locator termination.', cardClass: earlyStopErrExpected ? 'expected-card' : '' },
-                            { label: 'Sbed primary-parameter error', val: errPrimary != null ? formatHz(errPrimary) : 'N/A', tip: 'Absolute primary-parameter error vs ground truth at the moment primary converged.', cardClass: earlyStopErrExpected ? 'expected-card' : '' },
-                            { label: 'Milestone to final error diff', val: (absErr != null && errPrimary != null) ? formatHz(errPrimary - absErr) : 'N/A', tip: 'Absolute error reduction achieved by continuing to run from the primary-parameter convergence milestone until locator termination.', cardClass: earlyStopErrExpected ? 'expected-card' : '' }
                         ]
                     ];
                 }
@@ -3741,15 +3698,10 @@ function main() {
                 }
             }
 
-            // Extract final estimate and primary-parameter milestone if available
+            // Extract the final estimate if available
             let finalEst = null;
             if (plot && plot.metrics) {
                 finalEst = plot.metrics["final_est_" + name];
-            }
-
-            let primaryAtMilestone = null;
-            if (plot && plot.metrics && name === 'zero_field_freq') {
-                primaryAtMilestone = plot.metrics["primary_at_milestone"];
             }
 
             items.push({
@@ -3760,8 +3712,7 @@ function main() {
                 fmtLo: fmtLo,
                 fmtHi: fmtHi,
                 name: name,
-                finalEst: finalEst,
-                primaryAtMilestone: primaryAtMilestone
+                finalEst: finalEst
             });
 
             // Derived magnetic field, shown right after zeeman_shift (zeeman_shift is
@@ -3776,8 +3727,7 @@ function main() {
                     fmtLo: null,
                     fmtHi: null,
                     name: 'magnetic_field',
-                    finalEst: null,
-                    primaryAtMilestone: null
+                    finalEst: null
                 });
             }
         }
@@ -5894,12 +5844,6 @@ function main() {
                     markersHtml += '<div class="param-range-marker" title="Final Inferred: ' + formattedFinal + '" style="left: ' + finalPct + '%; background-color: #ef4444; width: 8px; height: 8px; z-index: 9;"></div>';
                 }
 
-                if (typeof it.primaryAtMilestone === 'number' && Number.isFinite(it.primaryAtMilestone)) {
-                    const fbPct = Math.min(100, Math.max(0, (it.primaryAtMilestone - lo) / (hi - lo) * 100));
-                    const formattedPrimary = formatHz(it.primaryAtMilestone);
-                    markersHtml += '<div class="param-range-marker" title="Milestone (primary) estimate: ' + formattedPrimary + '" style="left: ' + fbPct + '%; background-color: #f59e0b; width: 8px; height: 8px; z-index: 8;"></div>';
-                }
-
                 valueHtml =
                     '<div class="metric-value">' + it.val + '</div>' +
                     '<div class="param-range-container">' +
@@ -6094,8 +6038,8 @@ function main() {
                     base.uncert.push(_mv(item, 'uncert'));
                     base.err.push(_mv(item, 'abs_err_x', 'final_err_shift', 'pair_rmse'));
                     base.steps_to_primary.push(_mv(item, 'steps_to_primary', 'primary_converged_step'));
-                    base.uncert_at_primary.push(_mv(item, 'uncert_primary_at_milestone'));
-                    base.err_at_primary.push(_mv(item, 'err_primary_at_milestone'));
+                    base.uncert_at_primary.push(null);
+                    base.err_at_primary.push(null);
                     base.f_spans.push(f_span);
                     base.repeats.push(rep);
                 }
@@ -6103,9 +6047,9 @@ function main() {
                 const primary_step = _mv(item, 'primary_converged_step', 'steps_to_primary');
                 if (primary_step != null) {
                     primaryConv.steps.push(primary_step);
-                    primaryConv.uncert.push(_mv(item, 'uncert_primary_at_milestone'));
-                    primaryConv.uncert_at_primary.push(_mv(item, 'uncert_primary_at_milestone'));
-                    primaryConv.err.push(_mv(item, 'err_primary_at_milestone'));
+                    primaryConv.uncert.push(null);
+                    primaryConv.uncert_at_primary.push(null);
+                    primaryConv.err.push(null);
                     primaryConv.f_spans.push(f_span);
                     primaryConv.repeats.push(rep);
                 }
@@ -6131,8 +6075,8 @@ function main() {
                 uncert:       _mv(d, 'uncert'),
                 err:          _mv(d, 'abs_err_x', 'final_err_shift', 'pair_rmse'),
                 steps_to_primary:  _mv(d, 'steps_to_primary', 'primary_converged_step'),
-                uncert_at_primary: _mv(d, 'uncert_primary_at_milestone'),
-                err_at_primary:    _mv(d, 'err_primary_at_milestone'),
+                uncert_at_primary: null,
+                err_at_primary:    null,
                 stepsType: 'measurements',
             };
             const primaryStep = _mv(d, 'primary_converged_step', 'steps_to_primary');
@@ -6142,8 +6086,8 @@ function main() {
                 results.push({
                     id: id + '_primary', label: label + ' primary converged',
                     steps: primaryStep,
-                    uncert: _mv(d, 'uncert_primary_at_milestone'),
-                    err:    _mv(d, 'err_primary_at_milestone'),
+                    uncert: null,
+                    err:    null,
                     steps_to_primary: null, uncert_at_primary: null, err_at_primary: null,
                     stepsType: 'steps',
                 });
@@ -6650,9 +6594,8 @@ function main() {
 
     // ── Aggregate-view helpers (Step size, Stages, Accuracy) ──────────────────
     const HL_COLORS = ['#2563eb', '#f59e0b', '#10b981', '#8b5cf6', '#ec4899', '#ef4444', '#06b6d4', '#14b8a6'];
-    let hlPaceBands = true;   // pale 1σ/2σ/3σ bands on the pace graph; off when strategies' bands overlap too much
-    const hlPaceArgs = new Map();   // use-case suffix -> { byStrategy, strategies } of its pace chart
-
+    // Helpers of the failed-runs table and the Run view (the Information / Scaling / Sanity views were removed:
+    // the article's claims are on the Simulation page, static/article-view.js).
     // The plain (non-adaptive) sweeps: SimpleSweep and its SimpleSweep-d<k> spacings.
     function isSweepBaseline(strategy) {
         return /^SimpleSweep/.test(strategy || '');
@@ -6667,75 +6610,13 @@ function main() {
         if (isSweepBaseline(s)) return 2;
         return -1;
     }
+
     function hlStrategyCompare(a, b) {
         const d = hlStrategyRank(a) - hlStrategyRank(b);
         if (d) return d;
         return sweepOrder(a) - sweepOrder(b) || a.localeCompare(b);
     }
 
-    function hlSorted(values) {
-        return values.filter(v => v != null && isFinite(v)).sort((a, b) => a - b);
-    }
-    function hlQuantileSorted(sorted, q) {
-        if (!sorted.length) return null;
-        const pos = (sorted.length - 1) * q;
-        const lo = Math.floor(pos), hi = Math.ceil(pos);
-        return sorted[lo] + (sorted[hi] - sorted[lo]) * (pos - lo);
-    }
-    function hlMedian(values) { return hlQuantileSorted(hlSorted(values), 0.5); }
-
-    // Collapse a scatter (xs,ys) into per-bin median + IQR over log-spaced x bins.
-    // Returns {cx, med, lo, hi, n} arrays (one entry per non-empty bin with >= minN
-    // points), so a dense cloud reads as a trend line with a spread band.
-    function hlLogBinMedian(xs, ys, nBins = 25, minN = 3) {
-        const pts = [];
-        for (let i = 0; i < xs.length; i++) {
-            if (xs[i] > 0 && Number.isFinite(ys[i])) pts.push([xs[i], ys[i]]);
-        }
-        const out = { cx: [], med: [], lo: [], hi: [], n: [] };
-        if (pts.length < minN) return out;
-        let xmin = Infinity, xmax = -Infinity;
-        for (const [x] of pts) { if (x < xmin) xmin = x; if (x > xmax) xmax = x; }
-        const lmin = Math.log(xmin), lmax = Math.log(xmax);
-        const span = lmax - lmin || 1;
-        const bins = Array.from({ length: nBins }, () => []);
-        for (const [x, y] of pts) {
-            let b = Math.floor(((Math.log(x) - lmin) / span) * nBins);
-            if (b >= nBins) b = nBins - 1;
-            if (b < 0) b = 0;
-            bins[b].push([x, y]);
-        }
-        for (const bin of bins) {
-            if (bin.length < minN) continue;
-            const bx = hlSorted(bin.map(p => p[0]));
-            const by = hlSorted(bin.map(p => p[1]));
-            out.cx.push(hlQuantileSorted(bx, 0.5));
-            out.med.push(hlQuantileSorted(by, 0.5));
-            out.lo.push(hlQuantileSorted(by, 0.25));
-            out.hi.push(hlQuantileSorted(by, 0.75));
-            out.n.push(bin.length);
-        }
-        return out;
-    }
-
-    function hlWilson(k, n) {
-        if (!n) return null;
-        const z = 1.96, p = k / n, z2 = z * z;
-        const denom = 1 + z2 / n;
-        const center = (p + z2 / (2 * n)) / denom;
-        const half = (z * Math.sqrt((p * (1 - p)) / n + z2 / (4 * n * n))) / denom;
-        return { p, lo: Math.max(0, center - half), hi: Math.min(1, center + half) };
-    }
-
-    // Series helpers — series is {s: steps[], e: errors[], u: uncertainties[], tau}
-    function hlSeriesValueAt(series, key, step) {
-        const s = series.s, arr = series[key];
-        let v = null;
-        for (let i = 0; i < s.length && s[i] <= step; i++) {
-            if (arr[i] != null) v = arr[i];
-        }
-        return v;
-    }
     function hlFSpan(p) {
         const tp = p.true_params;
         if (!tp || !tp.params) return null;
@@ -6755,9 +6636,7 @@ function main() {
         if (fb && fb.length === 2 && fb[1] > fb[0]) domainWidth = fb[1] - fb[0];
         return (lw && lw > 0) ? Math.max(2.0 * lw, hyperfine_shift + lw) / domainWidth : null;
     }
-    function hlRunSteps(p) {
-        return p.measurements ?? (p.series && p.series.s.length ? p.series.s[p.series.s.length - 1] : null);
-    }
+
     function sortNoiseLabels(noises) {
         return [...noises].sort((a, b) => {
             const sa = String(a).match(/^SNR\(([\d.e+-]+)\)/);
@@ -6771,6 +6650,7 @@ function main() {
             return String(a).localeCompare(String(b));
         });
     }
+
     function isSuccessRun(p) { return p.failure_reason == null; }
 
     // Normalizes the aggregate-view "generator" argument (single string in the
@@ -6779,1794 +6659,6 @@ function main() {
     function toGenSet(gen) {
         return new Set((Array.isArray(gen) ? gen : [gen]).filter(Boolean));
     }
-
-    // series/true_params are stripped from /api/manifest (they're what made it
-    // 653MB against a real large cache) and served instead via /api/scan-fields,
-    // scoped to whatever generator/noise selection Stages/Accuracy is
-    // currently showing. Fetch once per distinct selection and merge in place
-    // (mutating the shared scanPlots entries), so hlCollect's existing filtering
-    // logic runs completely unchanged against already-enriched data.
-    const hlFetchedSelections = new Set();
-    function ensureScanFieldsFor(generator, noises) {
-        const genList = [...toGenSet(generator)].sort();
-        const noiseList = [...new Set((Array.isArray(noises) ? noises : [noises]).filter(Boolean))].sort();
-        if (!genList.length || !noiseList.length) return Promise.resolve();
-        const key = genList.join(',') + '::' + noiseList.join(',');
-        if (hlFetchedSelections.has(key)) return Promise.resolve();
-        const params = new URLSearchParams({ generator: genList.join(','), noise: noiseList.join(',') });
-        return fetch(`${window.NVISION_ASSET_PREFIX || ''}api/scan-fields?${params}`, { cache: 'no-store' })
-            .then((r) => (r.ok ? r.json() : []))
-            .then((rows) => {
-                for (const row of rows) {
-                    const p = scanPlots.find((sp) =>
-                        sp.generator === row.generator && sp.noise === row.noise &&
-                        sp.strategy === row.strategy && sp.repeat === row.repeat);
-                    if (p) {
-                        if (row.series != null) p.series = row.series;
-                        if (row.true_params != null) p.true_params = row.true_params;
-                        // Locator-comparison fields (final error, uncertainty, stage metrics).
-                        if (row.compare) p.metrics = { ...(p.metrics || {}), ...row.compare };
-                    }
-                }
-                hlFetchedSelections.add(key);
-            })
-            .catch(() => { hlFetchedSelections.add(key); });
-    }
-
-    function hlCollect(generator, noises) {
-        const noiseSet = new Set((Array.isArray(noises) ? noises : [noises]).filter(Boolean));
-        const genSet = toGenSet(generator);
-        const byStrategy = new Map();
-        for (const p of scanPlots) {
-            if (!genSet.has(p.generator) || !noiseSet.has(p.noise) || !p.strategy) continue;
-            if (p.generator === 'Dummy-Generator') continue;
-            if (!isSuccessRun(p)) continue;
-            if (!byStrategy.has(p.strategy)) byStrategy.set(p.strategy, []);
-            byStrategy.get(p.strategy).push(p);
-        }
-        return byStrategy;
-    }
-
-    function hlStepGrid(maxStep, nPoints = 60) {
-        const grid = [];
-        const head = Math.min(10, maxStep);
-        for (let i = 1; i <= head; i++) grid.push(i);
-        if (maxStep > head) {
-            const ratio = maxStep / head;
-            const rem = Math.max(nPoints - head, 8);
-            for (let k = 1; k <= rem; k++) {
-                const v = Math.round(head * Math.pow(ratio, k / rem));
-                if (v > grid[grid.length - 1]) grid.push(v);
-            }
-        }
-        return grid;
-    }
-
-    function hlHslToHex(h, s, l) {
-        const a = s * Math.min(l, 1 - l);
-        const f = (n) => {
-            const k = (n + h / 30) % 12;
-            const c = l - a * Math.max(-1, Math.min(k - 3, 9 - k, 1));
-            return Math.round(255 * c).toString(16).padStart(2, '0');
-        };
-        return `#${f(0)}${f(8)}${f(4)}`;
-    }
-
-    // The plain sweeps (SimpleSweep-<k>perFWHM) are one method at different spacings, so they share one hue
-    // that darkens with k (light = coarsest spacing); every other locator gets its own palette color.
-    function hlStratColor(strategies, strategy) {
-        if (isSweepBaseline(strategy)) {
-            const sweeps = strategies.filter(isSweepBaseline).sort((a, b) => sweepOrder(a) - sweepOrder(b));
-            const frac = sweeps.length > 1 ? sweeps.indexOf(strategy) / (sweeps.length - 1) : 0.5;
-            return hlHslToHex(215, 0.5, 0.78 - 0.5 * frac);
-        }
-        const others = strategies.filter((s) => !isSweepBaseline(s));
-        return HL_COLORS[others.indexOf(strategy) % HL_COLORS.length];
-    }
-    function hlHexToRgba(hex, alpha) {
-        const r = parseInt(hex.slice(1, 3), 16), g = parseInt(hex.slice(3, 5), 16), b = parseInt(hex.slice(5, 7), 16);
-        return `rgba(${r},${g},${b},${alpha})`;
-    }
-
-    const hlBaseLayout = () => ({
-        template: 'plotly_white',
-        margin: { t: 30, b: 55, l: 65, r: 15 },
-        hovermode: 'closest',
-        legend: { orientation: 'h', yanchor: 'bottom', y: 1.02, xanchor: 'right', x: 1, font: { size: 10 } },
-        xaxis: { gridcolor: '#f1f5f9' },
-        yaxis: { gridcolor: '#f1f5f9' },
-        plot_bgcolor: 'transparent',
-        paper_bgcolor: 'transparent',
-    });
-
-    // ── Locators tab ─────────────────────────────────────────────────────────
-    // Every locator's measured metrics side by side (each plain-sweep spacing k is its own locator), from
-    // /api/run-rows: the per-repeat scalars of every run. A use case is one signal at one noise level (window x
-    // line shape x SNR in the SNR x window study). The table has one block per use case of the current selection:
-    // a cost, a capped share or a σ coverage is only meaningful within one use case, so nothing is pooled across
-    // them. The charts read the whole family against SNR = C / noise σ and mark the selected use case.
-    // The chips choose which locators are shown; nothing is ranked.
-    let ssRowsCache = null;   // { key, promise } of the last /api/run-rows request
-    const ssHidden = new Set();   // locators the user switched off (new locators are shown by default)
-    const ssOpenCases = new Set();   // use-case blocks of the table the user expanded (they start collapsed)
-    // SNR x window study (rows carrying grid_window_fwhm and grid_gaussian_share): one panel per window, ONE line
-    // shape (Gaussian share) shown at a time, or with ssCompare one locator's lines for every shape.
-    let ssShare = null;       // Gaussian share (rounded, see ssShareKey) the charts show; null = the middle share
-    let ssCompare = false;    // "Compare shapes": the lines are the shapes of ssCompareLoc instead of the locators
-    let ssCompareLoc = null;  // locator whose shapes are compared; null = the first shown one
-    const SS_FWHM_PER_SIGMA = 2 * Math.sqrt(2 * Math.LN2);   // Gaussian FWHM = this x sigma_inhom
-
-    function ssShareKey(row) {
-        return row.grid_gaussian_share == null ? null : Math.round(row.grid_gaussian_share * 1e6) / 1e6;
-    }
-
-    // Signal occupancy of a study row: the share of the drive window one dip group covers (hyperfine lines included),
-    // rounded so the same grid value compares equal across generators. The window axis of the SNR x window study.
-    function ssOcc(row) {
-        return row.grid_signal_occupancy == null ? null : Math.round(row.grid_signal_occupancy * 1e6) / 1e6;
-    }
-    function ssOccLabel(occ) {
-        return `${Number((occ * 100).toPrecision(3))}%`;
-    }
-
-    // Total FWHM (Hz) of a study row: Lorentzian 2 x hwhm_lorentz + Gaussian 2.355 x sigma_inhom.
-    function ssTotalFwhm(row) {
-        if (row.grid_hwhm == null || row.grid_sigma_inhom == null) return null;
-        return 2 * row.grid_hwhm + SS_FWHM_PER_SIGMA * row.grid_sigma_inhom;
-    }
-
-    // A shape is named by its Lorentzian share of the FWHM (= 1 - Gaussian share).
-    const ssShapeLabel = (share) => `${Math.round(100 * (1 - share))}% Lorentzian`;
-    let ssSigmaK = 'all';     // the σ chart counts runs with |error| <= k × claimed σ: 1, 2, 3 or 'all' together
-    // Share of a Gaussian within k standard deviations: what a correct claimed σ gives at k = 1, 2, 3.
-    const SS_GAUSS_WITHIN = { 1: 0.6827, 2: 0.9545, 3: 0.9973 };
-
-    function ssSpacing(strategy) {
-        const mult = sweepOptimalMult(strategy);
-        if (mult != null) return SWEEP_OPTIMAL_ORDER + mult;
-        const m = /^SimpleSweep-(\d+(?:\.\d+)?)perFWHM$/.exec(strategy || '');
-        return m ? Number(m[1]) : null;
-    }
-
-    function ssLabel(strategy) {
-        const mult = sweepOptimalMult(strategy);
-        if (mult != null) return mult === 1 ? 'SimpleSweep k*' : `SimpleSweep ${mult}×k*`;
-        const k = ssSpacing(strategy);
-        return k != null ? `Sweep k=${k}` : _shortStratLabel(strategy);
-    }
-
-    function ssFetchRows(strategies) {
-        const key = [...strategies].sort().join(',');
-        if (ssRowsCache && ssRowsCache.key === key) return ssRowsCache.promise;
-        const params = new URLSearchParams({ strategies: key });
-        const promise = fetch(`${window.NVISION_ASSET_PREFIX || ''}api/run-rows?${params}`, { cache: 'no-store' })
-            .then((r) => {
-                if (!r.ok) throw new Error(`/api/run-rows returned ${r.status} (the Locators view needs \`nv serve\`)`);
-                return r.json();
-            });
-        ssRowsCache = { key, promise };
-        promise.catch(() => { if (ssRowsCache && ssRowsCache.promise === promise) ssRowsCache = null; });
-        return promise;
-    }
-
-    // A run that produced a cost: it ended by the stop rule or by its measurement budget.
-    function ssUsable(row) {
-        return (row.failure_reason == null || row.failure_reason === 'max_steps') && row.measurements > 0;
-    }
-
-    // A sweep that runs out of measurements still ends as a normal locator stop; what marks it is that the stop
-    // rule never fired (no primary_converged_step).
-    function ssCapped(row) {
-        return row.primary_converged_step == null;
-    }
-
-    // SNR = C / noise σ with C = contrast_total / 2 (the article's Eq. snr); Infinity without noise, null when the run records no contrast or noise.
-    function ssSnr(row) {
-        if (row.snr != null) return row.snr;
-        const c = row.grid_contrast_total;
-        const s = row.noise_sigma;
-        if (c == null || s == null) return null;
-        return s > 0 ? window.NVISION_LINE_CONTRAST_FRACTION * c / s : Infinity;
-    }
-
-    // |z| = |reported estimate − truth| / claimed σ at the end of the run; null without a usable σ.
-    function ssAbsZ(row) {
-        const e = row.final_err_primary, u = row.uncert;
-        return e != null && u > 0 && isFinite(u) && isFinite(e) ? e / u : null;
-    }
-
-    function ssQuantiles(values) {
-        const sorted = hlSorted(values);
-        return { n: sorted.length, med: hlQuantileSorted(sorted, 0.5), q75: hlQuantileSorted(sorted, 0.75) };
-    }
-
-    function ssSegmented(group, onPick) {
-        if (!group || group._hasListener) return;
-        group.addEventListener('click', (e) => {
-            const btn = e.target.closest('button[data-value]');
-            if (!btn) return;
-            group.querySelectorAll('button').forEach((b) => {
-                const active = b === btn;
-                b.classList.toggle('is-active', active);
-                b.setAttribute('aria-checked', active ? 'true' : 'false');
-                b.tabIndex = active ? 0 : -1;
-            });
-            onPick(btn.dataset.value);
-            renderStepSizeTab();
-        });
-        group._hasListener = true;
-    }
-
-    // Sweep spacings the current code studies (/api/sweep-spacings); older spacings in the cache come from older code.
-    let ssSpacingsPromise = null;
-    function ssCurrentSpacings() {
-        if (!ssSpacingsPromise) {
-            ssSpacingsPromise = fetch(`${window.NVISION_ASSET_PREFIX || ''}api/sweep-spacings`, { cache: 'no-store' })
-                .then((r) => {
-                    if (!r.ok) throw new Error(`/api/sweep-spacings returned ${r.status} (the Locators view needs \`nv serve\`)`);
-                    return r.json();
-                });
-            ssSpacingsPromise.catch(() => { ssSpacingsPromise = null; });
-        }
-        return ssSpacingsPromise;
-    }
-
-    const SS_PANEL_IDS = ['ss-table', 'ss-cost-snr', 'ss-search-snr', 'ss-sigma-snr'];
-
-    function renderStepSizeTab() {
-        ssSegmented(document.getElementById('ss-sigma-k'), (v) => { ssSigmaK = v === 'all' ? 'all' : Number(v); });
-        ssBindShapeControls();
-        const notice = document.getElementById('ss-notice');
-        const clear = () => SS_PANEL_IDS.forEach((id) => {
-            const el = document.getElementById(id);
-            if (el) el.innerHTML = '';
-        });
-        ssCurrentSpacings()
-            .then((current) => renderStepSizeFor(new Set(current), notice, clear))
-            .catch((err) => {
-                clear();
-                notice.innerHTML = `<div style="padding:1em;color:#721c24;background:#f8d7da;border-radius:6px;"><strong>Locators:</strong> ${escapeHtml(String(err.message || err))}</div>`;
-            });
-    }
-
-    function renderStepSizeFor(currentSpacings, notice, clear) {
-        if (isGeneratorSelectionEmpty()) {
-            clear();
-            notice.innerHTML = `<div style="padding:2em;color:#64748b;text-align:center;background:#f8fafc;border:1px dashed #cbd5e1;border-radius:8px;"><strong>No runs for this combination.</strong><br>${escapeHtml(scanGeneratorFacets.dataset.selectionEmpty)}</div>`;
-            return Promise.resolve();
-        }
-        const cached = [...new Set(scanPlots.map((p) => p.strategy))].filter(Boolean);
-        const older = cached.filter((s) => ssSpacing(s) != null && !currentSpacings.has(s));
-        const strategies = cached.filter((s) => !older.includes(s)).sort(hlStrategyCompare);
-        if (!strategies.length) {
-            clear();
-            notice.innerHTML = '<div style="padding:2em;color:#64748b;text-align:center;background:#f8fafc;border:1px dashed #cbd5e1;border-radius:8px;">No runs in this family.</div>';
-            return Promise.resolve();
-        }
-        // The charts read the whole family (their x axis is SNR, their panels the windows); the table is one block
-        // per use case (generator x noise) of the selection made with the signal / noise pickers above.
-        const familyGens = new Set(scanPlots.map((p) => p.generator));
-        const selGens = toGenSet(compareGeneratorsArg());
-        const selNoiseArg = compareNoisesArg();
-        const selNoises = new Set((Array.isArray(selNoiseArg) ? selNoiseArg : [selNoiseArg]).filter(Boolean));
-        notice.innerHTML = '<div style="color:#64748b;font-size:0.85em;">Loading runs…</div>';
-        return ssFetchRows(strategies).then((rows) => {
-            const inFamily = rows.filter((r) => familyGens.has(r.generator));
-            const isSelected = (r) => selGens.has(r.generator) && selNoises.has(r.noise);
-            return ensurePlotly().then(() => renderStepSizeContent(inFamily, isSelected, strategies, older));
-        });
-    }
-
-    // One toggle chip per locator; clicking shows or hides it in the table and every chart.
-    function ssRenderPicker(strategies, colorOf) {
-        const box = document.getElementById('ss-pick');
-        box.innerHTML = strategies.map((s) => {
-            const on = !ssHidden.has(s);
-            return `<button type="button" data-strategy="${escapeHtml(s)}" aria-pressed="${on}" title="${escapeHtml(s)}"
-                style="border:1px solid ${on ? colorOf(s) : '#cbd5e1'}; background:${on ? hlHexToRgba(colorOf(s), 0.12) : '#fff'};
-                color:${on ? '#0f172a' : '#94a3b8'}; border-radius:999px; padding:2px 10px; font-size:0.85em; cursor:pointer;">
-                <span style="color:${on ? colorOf(s) : '#cbd5e1'}">●</span> ${escapeHtml(ssLabel(s))}</button>`;
-        }).join('');
-        if (!box._hasListener) {
-            box.addEventListener('click', (e) => {
-                const btn = e.target.closest('button[data-strategy]');
-                if (!btn) return;
-                const s = btn.dataset.strategy;
-                if (ssHidden.has(s)) ssHidden.delete(s); else ssHidden.add(s);
-                renderStepSizeTab();
-            });
-            box._hasListener = true;
-        }
-    }
-
-    // Shape controls of the SNR x window study: a button per Gaussian share (reported as the Lorentzian share of the
-    // FWHM), the "Compare shapes" toggle and, while comparing, the locator whose shapes are the lines. Hidden when
-    // the runs carry no window / share (older caches).
-    function ssBindShapeControls() {
-        const box = document.getElementById('ss-shape-box');
-        if (!box || box._hasListener) return;
-        box.addEventListener('click', (e) => {
-            const share = e.target.closest('button[data-share]');
-            if (share) { ssShare = Number(share.dataset.share); renderStepSizeTab(); return; }
-            if (e.target.closest('button[data-compare]')) { ssCompare = !ssCompare; renderStepSizeTab(); }
-        });
-        box.addEventListener('change', (e) => {
-            if (e.target.id === 'ss-compare-loc') { ssCompareLoc = e.target.value; renderStepSizeTab(); }
-        });
-        box._hasListener = true;
-    }
-
-    // shapes: [{ share, tip }] ascending Gaussian share; selected: the share shown; cmpLoc: the compared locator.
-    function ssRenderShapeControls(study, shapes, selected, strategies, cmpLoc) {
-        const box = document.getElementById('ss-shape-box');
-        if (!study) { box.style.display = 'none'; box.innerHTML = ''; return; }
-        box.style.display = 'inline-flex';
-        const btn = (s) => `<button type="button" role="radio" aria-checked="${s.share === selected}" data-share="${s.share}"
-            class="${s.share === selected ? 'is-active' : ''}" tabindex="${s.share === selected ? 0 : -1}"
-            title="${escapeHtml(s.tip)}">${escapeHtml(ssShapeLabel(s.share))}</button>`;
-        const options = strategies.map((s) => `<option value="${escapeHtml(s)}"${s === cmpLoc ? ' selected' : ''}>${escapeHtml(ssLabel(s))}</option>`).join('');
-        box.innerHTML = `<span class="control-label" style="font-size:0.85em; color:#334155;" title="Lorentzian share of the FWHM = fwhm_L / (fwhm_L + fwhm_G) = 1 − Gaussian share. The total FWHM is the same for every shape.">Line shape</span>
-            <div class="segmented-control" role="radiogroup" aria-label="Line shape">${shapes.map(btn).join('')}</div>
-            <button type="button" data-compare="1" aria-pressed="${ssCompare}" title="One locator, one line per shape" style="border:1px solid ${ssCompare ? '#2563eb' : '#cbd5e1'}; background:${ssCompare ? '#dbeafe' : '#fff'}; border-radius:999px; padding:2px 10px; font-size:0.85em; cursor:pointer;">Compare shapes</button>
-            ${ssCompare ? `<select id="ss-compare-loc" aria-label="Locator whose shapes are compared" style="font-size:0.85em;">${options}</select>` : ''}`;
-    }
-
-    // Name of a use case from one of its runs: window, line shape and SNR in the SNR x window study, else the
-    // generator and noise names.
-    function ssUseCaseLabel(row) {
-        const snr = ssSnr(row);
-        const snrText = snr == null ? row.noise : `SNR ${snr === Infinity ? '∞' : Number(snr.toPrecision(3))}`;
-        if (ssOcc(row) == null || ssShareKey(row) == null) {
-            return snr == null ? `${row.generator} · ${row.noise}` : `${row.generator} · ${snrText}`;
-        }
-        const fwhm = ssTotalFwhm(row);
-        const mhz = fwhm == null || row.grid_window_fwhm == null ? '' : ` (${((row.grid_window_fwhm * fwhm) / 1e6).toFixed(0)} MHz window)`;
-        return `occupancy ${ssOccLabel(ssOcc(row))}${mhz} · ${ssShapeLabel(ssShareKey(row))} · ${snrText}`;
-    }
-
-    // Use cases in reading order: window (occupancy descending = narrowest window first), line shape, then SNR ascending (older caches: by name).
-    function ssUseCaseCompare(a, b) {
-        const num = (x, y) => (x === y ? 0 : x == null ? 1 : y == null ? -1 : x - y);
-        return num(ssOcc(b), ssOcc(a)) || num(ssShareKey(a), ssShareKey(b))
-            || num(ssSnr(a), ssSnr(b)) || a.generator.localeCompare(b.generator) || a.noise.localeCompare(b.noise);
-    }
-
-    function renderStepSizeContent(rows, isSelected, strategies, olderStrategies) {
-        const notice = document.getElementById('ss-notice');
-        const colorOf = (s) => hlStratColor(strategies, s);
-        const config = { responsive: true, displaylogo: false };
-        ssRenderPicker(strategies, colorOf);
-        const shown = strategies.filter((s) => !ssHidden.has(s));
-
-        const usableAll = rows.filter(ssUsable);
-        // The SNR x window study: runs that carry both a window and a Gaussian share. Without them (older caches)
-        // there is one panel and no shape controls.
-        const windows = [...new Set(usableAll.map(ssOcc).filter((v) => v != null))].sort((a, b) => b - a);   // occupancies, narrowest window first
-        const shares = [...new Set(usableAll.map(ssShareKey).filter((v) => v != null))].sort((a, b) => a - b);
-        const study = windows.length > 0 && shares.length > 0;
-        const usable = study ? usableAll.filter((r) => ssOcc(r) != null && ssShareKey(r) != null) : usableAll;
-        // The charts show one line shape: the one picked here, else the selected use case's, else the middle one.
-        const selected = usable.filter(isSelected);
-        const selShares = [...new Set(selected.map(ssShareKey).filter((v) => v != null))];
-        // The shapes offered are the ones the Gaussian-share picker above selected; with one there is nothing to choose.
-        const offered = selShares.length ? [...selShares].sort((a, b) => a - b) : shares;
-        const shareSel = offered.includes(ssShare) ? ssShare : offered[Math.floor(offered.length / 2)];
-        const cmpLoc = strategies.includes(ssCompareLoc) ? ssCompareLoc : (shown[0] || strategies[0]);
-        const shapeRow = (share) => usable.find((r) => ssShareKey(r) === share);
-        const shapeTip = (share) => {
-            const r = shapeRow(share);
-            const fwhm = r && ssTotalFwhm(r);
-            return `Gaussian share ${share}; hwhm_lorentz ${r && r.grid_hwhm != null ? (r.grid_hwhm / 1e6).toFixed(3) : '?'} MHz, `
-                + `sigma_inhom ${r && r.grid_sigma_inhom != null ? (r.grid_sigma_inhom / 1e6).toFixed(3) : '?'} MHz`
-                + (fwhm != null ? `, total FWHM ${(fwhm / 1e6).toFixed(2)} MHz` : '');
-        };
-        const windowMHz = (n) => {
-            const r = usable.find((row) => ssOcc(row) === n);
-            const fwhm = r && ssTotalFwhm(r);
-            return fwhm == null || r.grid_window_fwhm == null ? null : (r.grid_window_fwhm * fwhm) / 1e6;
-        };
-        ssRenderShapeControls(study && offered.length > 1, offered.map((s) => ({ share: s, tip: shapeTip(s) })), shareSel, strategies, cmpLoc);
-
-        // Every usable run per locator over the family (the charts pick a window / shape from it).
-        const byAll = new Map(strategies.map((s) => [s, usable.filter((r) => r.strategy === s)]));
-        const failed = rows.length - usableAll.length;
-        const noWindow = usableAll.length - usable.length;
-        const noSnr = usable.filter((r) => ssSnr(r) == null).length;
-        const ended = (r) => !ssCapped(r);
-
-        // Table: the measured metrics per shown locator, one block per use case (generator x noise) selected.
-        const useCases = new Map();
-        for (const r of selected) {
-            const key = `${r.generator}\u0000${r.noise}`;
-            if (!useCases.has(key)) useCases.set(key, { sample: r, runs: [] });
-            useCases.get(key).runs.push(r);
-        }
-        const blocks = [...useCases.values()].sort((a, b) => ssUseCaseCompare(a.sample, b.sample));
-        const fmtN = (v) => (v == null ? '–' : formatCount(Math.round(v)));
-        const th = (text, tip) => `<th title="${tip}">${text}</th>`;
-        const COLS = 10;
-        // The table numbers of one locator over one use case's runs.
-        const statsOf = (runs) => {
-            const cost = ssQuantiles(runs.map((r) => r.measurements));
-            const found = runs.filter((r) => r.focus_found_step != null);
-            const z = runs.filter(ended).map(ssAbsZ).filter((v) => v != null);
-            const within = (m) => (z.length ? z.filter((v) => v <= m).length / z.length : null);
-            return {
-                runs: runs.length, cost: cost.med, p75: cost.q75, capped: runs.filter(ssCapped).length / runs.length,
-                found: found.length / runs.length, search: ssQuantiles(found.map((r) => r.focus_found_step)).med,
-                w1: within(1), w2: within(2), w3: within(3),
-            };
-        };
-        const pct = (v) => (v == null ? '–' : `${Math.round(100 * v)}%`);
-        const rowHtml = (st, x) => `<tr>
-                <td style="text-align:left;font-weight:600;" title="${escapeHtml(st)}"><span style="color:${colorOf(st)}">●</span> ${escapeHtml(ssLabel(st))}</td>
-                <td>${fmtN(x.runs)}</td><td>${fmtN(x.cost)}</td><td>${fmtN(x.p75)}</td><td>${pct(x.capped)}</td>
-                <td>${pct(x.found)}</td><td>${fmtN(x.search)}</td><td>${pct(x.w1)}</td><td>${pct(x.w2)}</td><td>${pct(x.w3)}</td>
-            </tr>`;
-        // A locator that was not run on a use case has no row there.
-        const bodyOf = (block) => shown.map((st) => {
-            const runs = block.runs.filter((r) => r.strategy === st);
-            return runs.length ? rowHtml(st, statsOf(runs)) : '';
-        }).join('');
-        // Several use cases selected: a first block with each number the median over the use cases' own numbers.
-        // Only use cases every shown locator has runs on, so the locators are summarised over the same use cases.
-        const pairedBlocks = blocks.filter((b) => shown.every((st) => b.runs.some((r) => r.strategy === st)));
-        const medianBodyOf = () => shown.map((st) => {
-            const perCase = pairedBlocks.map((b) => b.runs.filter((r) => r.strategy === st)).map(statsOf);
-            if (!perCase.length) return '';
-            const x = {};
-            for (const key of ['runs', 'cost', 'p75', 'capped', 'found', 'search', 'w1', 'w2', 'w3']) {
-                x[key] = hlMedian(perCase.map((c) => c[key]));
-            }
-            return rowHtml(st, x);
-        }).join('');
-        const medianRow = `<tr><td colspan="${COLS}" style="text-align:left;font-weight:600;color:#1e3a8a;background:#eff6ff;border-top:1px solid #bfdbfe;">Median over ${formatCount(pairedBlocks.length)}${pairedBlocks.length < blocks.length ? ` of ${formatCount(blocks.length)}` : ''} use cases${pairedBlocks.length < blocks.length ? ' (those every shown locator has runs on)' : ''} (runs = per use case)</td></tr>`;
-        const useCaseRow = (block) => `<tr><td colspan="${COLS}" style="text-align:left;font-weight:600;color:#334155;background:#f8fafc;border-top:1px solid #e2e8f0;" title="${escapeHtml(`${block.sample.generator} · ${block.sample.noise}`)}">${escapeHtml(ssUseCaseLabel(block.sample))}</td></tr>`;
-        const tableDiv = document.getElementById('ss-table');
-        tableDiv.innerHTML = shown.length && blocks.length ? `<table class="hl-stop-table" style="border-collapse:collapse;font-size:0.85em;text-align:right;">
-            <thead><tr style="color:#64748b;border-bottom:1px solid #e2e8f0;">
-                <th style="text-align:left;">Locator</th>
-                ${th('Runs', 'Runs of this use case that ended by the stop rule or the budget')}
-                ${th('Median cost', 'Median measurements per run')}
-                ${th('p75 cost', '75th percentile of measurements per run')}
-                ${th('Capped', 'Share of runs that hit the measurement budget before the stop rule fired')}
-                ${th('Dip found', 'Share of runs whose data ever showed a dip')}
-                ${th('Search', 'Median measurements until a dip was seen')}
-                ${th('|error| ≤ 1σ', 'Share of runs the stop rule ended whose real error is within the claimed σ; a correct σ gives 68%')}
-                ${th('|error| ≤ 2σ', 'Same within 2σ; a correct σ gives 95%')}
-                ${th('|error| ≤ 3σ', 'Same within 3σ; a correct σ gives 99.7%')}
-            </tr></thead>${blocks.length > 1 ? `<tbody>${medianRow}${medianBodyOf()}</tbody>` : ''}${blocks.map((b) => {
-                // Several use cases: each block starts collapsed to its header (the median block above is the summary).
-                const key = `${b.sample.generator}\u0000${b.sample.noise}`;
-                const collapsed = blocks.length > 1 && !ssOpenCases.has(key);
-                return `<tbody class="ss-case${collapsed ? ' collapsed' : ''}" data-case="${escapeHtml(key)}">${useCaseRow(b)}${bodyOf(b)}</tbody>`;
-            }).join('')}</table>`
-            : '<div style="padding:1em;color:#64748b;background:#f8fafc;border:1px dashed #cbd5e1;border-radius:8px;">No runs for the selected signal and noise.</div>';
-        tableDiv.querySelectorAll('td, th').forEach((c) => { c.style.padding = '4px 12px'; });
-        if (!tableDiv._hasListener) {
-            // The header row of a use-case block expands / collapses it.
-            tableDiv.addEventListener('click', (e) => {
-                const header = e.target.closest('tbody.ss-case > tr:first-child');
-                if (!header) return;
-                const body = header.parentElement;
-                const collapsed = body.classList.toggle('collapsed');
-                if (collapsed) ssOpenCases.delete(body.dataset.case); else ssOpenCases.add(body.dataset.case);
-            });
-            tableDiv._hasListener = true;
-        }
-
-        const parts = [`${formatCount(usable.length)} runs in the family`];
-        if (document.getElementById('stepsize-view').style.display !== 'none') parts.push(`table: ${blocks.length === 1 ? ssUseCaseLabel(blocks[0].sample) : `median over ${formatCount(blocks.length)} selected use cases, then each on its own`}`);
-        if (failed) parts.push(`${formatCount(failed)} failed (left out)`);
-        if (noWindow) parts.push(`${formatCount(noWindow)} without a window / line shape (left out)`);
-        if (study) parts.push(`charts: ${ssShapeLabel(shareSel)}`);
-        if (noSnr) parts.push(`${formatCount(noSnr)} without contrast/noise (left out of the SNR charts)`);
-        const counts = (b) => strategies.map((s) => b.runs.filter((r) => r.strategy === s).length).filter((n) => n > 0);
-        if (blocks.some((b) => new Set(counts(b)).size > 1)) parts.push('<b style="color:#b45309" title="The locators have different numbers of runs">run in progress</b>');
-        if (olderStrategies.length) parts.push(`<span title="No longer a studied spacing: its cached results come from older code">hidden: ${olderStrategies.map(escapeHtml).join(', ')}</span>`);
-        notice.innerHTML = `<div style="color:#64748b;font-size:0.85em;">${parts.join(' · ')}</div>`;
-
-        // SNR axis shared by the charts: log scale, with the noise-free runs at 2× the largest finite SNR as "∞".
-        const finiteSnrs = hlSorted([...new Set(usable.map(ssSnr).filter((v) => v != null && isFinite(v)))]);
-        const xInf = finiteSnrs.length ? finiteSnrs[finiteSnrs.length - 1] * 2 : 1;
-        const snrX = (s) => (s === Infinity ? xInf : s);
-        const ticks = [];
-        if (finiteSnrs.length) {
-            const lo = finiteSnrs[0], hi = finiteSnrs[finiteSnrs.length - 1];
-            for (let e = Math.floor(Math.log10(lo)); e <= Math.ceil(Math.log10(hi)); e++) {
-                for (const m of [1, 2, 5]) {
-                    const v = m * 10 ** e;
-                    if (v >= lo / 1.5 && v <= hi * 1.2) ticks.push(v);
-                }
-            }
-        }
-        const hasInf = usable.some((r) => ssSnr(r) === Infinity);
-        const xaxis = {
-            title: 'SNR (C / noise σ)', type: 'log',
-            tickvals: [...ticks, ...(hasInf ? [xInf] : [])],
-            ticktext: [...ticks.map((v) => String(v)), ...(hasInf ? ['∞'] : [])],
-        };
-        // One panel per window (the SNR x window study; one panel otherwise). The lines are the shown locators at the
-        // selected shape, or with "Compare shapes" one locator at every shape.
-        // "Median over selection" folds the windows into one panel: per SNR, the median over the selected occupancies of
-        // each occupancy's own aggregate; "Each use case" keeps one panel per window.
-        const splitWindows = study && (ucScope === 'each' || selected.length === 0);
-        const panelValues = splitWindows ? windows : [null];
-        const medianOccs = study && !splitWindows ? new Set(selected.map(ssOcc).filter((v) => v != null)) : null;
-        const shapeColors = new Map(shares.map((sh, i) => [sh, HL_COLORS[i % HL_COLORS.length]]));
-        const lineSpecs = study && ssCompare && offered.length > 1
-            ? offered.map((sh) => ({ st: cmpLoc, name: ssShapeLabel(sh), color: shapeColors.get(sh), group: `shape-${sh}`, share: sh, extra: shapeTip(sh) }))
-            : shown.map((st) => ({ st, name: ssLabel(st), color: colorOf(st), group: st, share: study ? shareSel : null, extra: study ? shapeTip(shareSel) : '' }));
-
-        // One panel per window; each series is { key, valueOf, filter, dash, agg } and gets one line per lineSpec
-        // (agg = 'median' (default) or 'mean' of valueOf over the runs at each SNR value). With several series a
-        // line's series share one legend entry. refLines: [{ y, label }] faint horizontal references.
-        const snrPanels = (containerId, series, yaxis, refLines = []) => {
-            const container = document.getElementById(containerId);
-            container.innerHTML = '';
-            if (!container.offsetParent) return;   // its view is not open: Plotly cannot size a hidden panel
-            for (const sv of panelValues) {
-                const div = document.createElement('div');
-                div.style.cssText = panelValues.length > 1 ? 'flex:1 1 30%; min-width:320px; height:300px;' : 'flex:1 1 100%; height:380px;';
-                container.appendChild(div);
-                const traces = [];
-                const mhz = sv == null ? null : windowMHz(sv);
-                const windowTip = sv == null ? '' : `<br>occupancy ${ssOccLabel(sv)}${mhz != null ? ` (window ${mhz.toFixed(1)} MHz)` : ''}`;
-                for (const s of series) {
-                    for (const spec of lineSpecs) {
-                        const st = spec.st;
-                        const bySnr = new Map();
-                        // Folded windows: values per SNR then per occupancy, so the line is the median of per-occupancy aggregates.
-                        const byOcc = new Map();
-                        for (const r of byAll.get(st)) {
-                            if (sv != null && ssOcc(r) !== sv) continue;
-                            if (medianOccs && !medianOccs.has(ssOcc(r))) continue;
-                            if (spec.share != null && ssShareKey(r) !== spec.share) continue;
-                            if (s.filter && !s.filter(r)) continue;
-                            const snr = ssSnr(r);
-                            const v = s.valueOf(r);
-                            if (snr == null || v == null) continue;
-                            if (!bySnr.has(snr)) bySnr.set(snr, []);
-                            bySnr.get(snr).push(v);
-                            if (medianOccs) {
-                                if (!byOcc.has(snr)) byOcc.set(snr, new Map());
-                                const occs = byOcc.get(snr);
-                                if (!occs.has(ssOcc(r))) occs.set(ssOcc(r), []);
-                                occs.get(ssOcc(r)).push(v);
-                            }
-                        }
-                        const xs = [...bySnr.keys()].sort((a, b) => a - b);
-                        const aggOf = (vals) => (s.agg === 'mean' ? vals.reduce((a, b) => a + b, 0) / vals.length : hlMedian(vals));
-                        const yAt = (x) => (medianOccs ? hlMedian([...byOcc.get(x).values()].map(aggOf)) : aggOf(bySnr.get(x)));
-                        const name = series.length > 1 ? `${spec.name} ${s.key}` : spec.name;
-                        const compareTip = study && ssCompare ? `<br>${ssLabel(st)}` : '';
-                        const shapeHover = spec.extra ? `<br>${spec.extra.replace(/; /g, '<br>')}` : '';
-                        traces.push({
-                            type: 'scatter', mode: 'lines+markers', name: spec.name, legendgroup: spec.group,
-                            showlegend: sv === panelValues[0] && s === series[0],
-                            x: xs.map(snrX), y: xs.map(yAt),
-                            line: { color: spec.color, width: 2, dash: s.dash || 'solid' }, marker: { size: s.dash ? 4 : 6 },
-                            customdata: xs.map((x) => bySnr.get(x).length),
-                            hovertemplate: `${name}${compareTip}<br>SNR %{x:.3g}<br>${s.agg === 'mean' ? 'share' : 'median'} %{y:.3g}<br>n = %{customdata}${windowTip}${shapeHover}<extra></extra>`,
-                        });
-                    }
-                }
-                // The selected use case: a dotted vertical line at its SNR (in the shape shown, unless comparing shapes).
-                const markSnrs = new Set(selected
-                    .filter((r) => (sv == null || ssOcc(r) === sv) && (!study || ssCompare || ssShareKey(r) === shareSel))
-                    .map(ssSnr).filter((v) => v != null));
-                const selectedMarks = [...markSnrs].map((v) => ({ type: 'line', xref: 'x', yref: 'paper', x0: snrX(v), x1: snrX(v), y0: 0, y1: 1, line: { color: '#2563eb', width: 1, dash: 'dot' } }));
-                Plotly.react(div, traces, {
-                    title: sv != null ? { text: `occupancy ${ssOccLabel(sv)}`, font: { size: 12 } }
-                        : medianOccs ? { text: `median over occupancy ${[...medianOccs].sort((a, b) => b - a).map(ssOccLabel).join(', ')}`, font: { size: 12 } } : undefined,
-                    margin: { l: 60, r: 10, t: sv == null && !medianOccs ? 10 : 30, b: 50 },
-                    xaxis, yaxis,
-                    shapes: selectedMarks.concat(refLines.map((ref) => ({ type: 'line', xref: 'paper', x0: 0, x1: 1, y0: ref.y, y1: ref.y, line: { color: '#94a3b8', width: 1, dash: 'dash' } }))),
-                    annotations: refLines.map((ref) => ({ xref: 'paper', x: 1, xanchor: 'right', y: ref.y, yanchor: 'bottom', text: ref.label, showarrow: false, font: { size: 10, color: '#94a3b8' } })),
-                    legend: { orientation: 'h', y: -0.3 },
-                }, config);
-            }
-        };
-        snrPanels('ss-cost-snr', [{ key: 'cost', valueOf: (r) => r.measurements }], { title: 'measurements per run', type: 'log' });
-        snrPanels('ss-search-snr', [{ key: 'search', valueOf: (r) => r.focus_found_step }], { title: 'measurements until a dip', type: 'log' });
-        // 1σ solid, 2σ dashed, 3σ dotted; each against the share a correct σ gives.
-        const sigmaKs = ssSigmaK === 'all' ? [1, 2, 3] : [ssSigmaK];
-        const SIGMA_DASH = { 1: 'solid', 2: 'dash', 3: 'dot' };
-        const within = (k) => (r) => { const z = ssAbsZ(r); return z == null ? null : (z <= k ? 1 : 0); };
-        snrPanels('ss-sigma-snr',
-            sigmaKs.map((k) => ({ key: `${k}σ`, valueOf: within(k), filter: ended, agg: 'mean', dash: k === 1 ? undefined : SIGMA_DASH[k] })),
-            { title: sigmaKs.length > 1 ? 'share with |error| ≤ 1σ (solid), 2σ (dashed), 3σ (dotted)' : `share with |error| ≤ ${sigmaKs[0]}σ claimed`, range: [0, 1.02] },
-            sigmaKs.map((k) => ({ y: SS_GAUSS_WITHIN[k], label: `${k}σ: ${(100 * SS_GAUSS_WITHIN[k]).toFixed(k === 3 ? 1 : 0)}%` })));
-    }
-
-    // ── Use cases: Stages and Accuracy are one block per selected use case ───
-    // A use case is one signal at one noise level (generator x noise). Its numbers are never pooled with another's,
-    // so a selection of several (a window range, an SNR range) renders the view body once per use case.
-
-    // One use case's identity and the fields its label needs, read from a run of it. The SNR of a study noise
-    // name `SNR(x)` is taken from the name when the run records none.
-    function ucRow(p) {
-        const info = (window.NVISION_GENERATOR_GRID_INFO && window.NVISION_GENERATOR_GRID_INFO[p.generator]) || {};
-        const get = (k) => { const v = _mv(p, k); return v != null ? v : (info[k] != null ? info[k] : null); };
-        const named = /^SNR\(([^)]+)\)$/.exec(p.noise || '');
-        return {
-            generator: p.generator, noise: p.noise,
-            grid_window_fwhm: get('grid_window_fwhm'), grid_signal_occupancy: get('grid_signal_occupancy'), grid_gaussian_share: get('grid_gaussian_share'),
-            grid_hwhm: get('grid_hwhm'), grid_sigma_inhom: get('grid_sigma_inhom'),
-            grid_contrast_total: get('grid_contrast_total'), noise_sigma: get('noise_sigma'),
-            snr: get('snr') != null ? get('snr') : (named && isFinite(Number(named[1])) ? Number(named[1]) : null),
-        };
-    }
-
-    // The use cases (generator x noise with runs) of the selection, in reading order.
-    function ucList(gen, noises) {
-        const genSet = toGenSet(gen);
-        const noiseSet = new Set((Array.isArray(noises) ? noises : [noises]).filter(Boolean));
-        const byKey = new Map();
-        for (const p of scanPlots) {
-            if (!genSet.has(p.generator) || !noiseSet.has(p.noise) || !p.strategy) continue;
-            if (p.generator === 'Dummy-Generator') continue;
-            const key = `${p.generator}\u0000${p.noise}`;
-            if (!byKey.has(key)) byKey.set(key, { generator: p.generator, noise: p.noise, row: ucRow(p) });
-        }
-        return [...byKey.values()].sort((a, b) => ssUseCaseCompare(a.row, b.row));
-    }
-
-    // 'median': a selection of several use cases is one block, summarised by the median over its use cases (see
-    // hlUnits); 'each': one block per use case.
-    let ucScope = 'median';
-
-    // "Median over 45 use cases · window 5, 10, 20 × FWHM · 0%, 35%, 70% Lorentzian · SNR 1, 2, 5, 10, 20".
-    function ucScopeLabel(cases) {
-        const uniq = (f) => [...new Set(cases.map((c) => f(c.row)).filter((v) => v != null))].sort((a, b) => a - b);
-        const parts = [`Median over ${cases.length} use cases`];
-        const windows = uniq(ssOcc).reverse();
-        const shares = uniq(ssShareKey);
-        const snrs = uniq(ssSnr);
-        if (windows.length) parts.push(`occupancy ${windows.map(ssOccLabel).join(', ')}`);
-        if (shares.length) parts.push(shares.map(ssShapeLabel).join(', '));
-        if (snrs.length) parts.push(`SNR ${snrs.map((v) => (v === Infinity ? '∞' : Number(v.toPrecision(3)))).join(', ')}`);
-        return parts.join(' · ');
-    }
-
-    // The two scope controls (Stages and Accuracy) are one setting: keep them in step and redraw the open view.
-    function ucBindScopeControls() {
-        const ids = ['uc-scope-stages', 'uc-scope-accuracy'];
-        for (const id of ids) {
-            const group = document.getElementById(id);
-            if (!group || group._hasListener) continue;
-            group.addEventListener('click', (e) => {
-                const btn = e.target.closest('button[data-value]');
-                if (!btn) return;
-                ucScope = btn.dataset.value;
-                for (const other of ids) {
-                    document.querySelectorAll(`#${other} button`).forEach((b) => {
-                        const active = b.dataset.value === ucScope;
-                        b.classList.toggle('is-active', active);
-                        b.setAttribute('aria-checked', active ? 'true' : 'false');
-                        b.tabIndex = active ? 0 : -1;
-                    });
-                }
-                const mode = document.querySelector('#scan-view-mode button.is-active');
-                if (mode) showScanViewPanels(mode.dataset.value);
-            });
-            group._hasListener = true;
-        }
-    }
-
-    // Fills `bodyId` with one copy of its markup per use case of the selection (or, with the median scope, one copy
-    // for the whole selection), each titled; the copy's element ids get the suffix `--uc<i>`, which
-    // renderOne(useCase, suffix) uses to find its elements. In the median scope useCase.generator and .noise are
-    // arrays covering the selection, otherwise single names.
-    function ucRenderBlocks(bodyId, gen, noises, renderOne, quietSingle = false) {
-        const body = document.getElementById(bodyId);
-        if (!body) return;
-        if (body._template == null) body._template = body.innerHTML;
-        body.querySelectorAll('.js-plotly-plot').forEach((el) => Plotly.purge(el));
-        body.innerHTML = '';
-        ucBindScopeControls();
-        let cases = ucList(gen, noises);
-        if (!cases.length) {
-            body.innerHTML = '<p style="color:#94a3b8;padding:1em;font-size:0.9em;">No runs for the selected signal and noise.</p>';
-            return;
-        }
-        if (ucScope === 'median' && cases.length > 1) {
-            cases = [{
-                generator: [...new Set(cases.map((c) => c.generator))],
-                noise: [...new Set(cases.map((c) => c.noise))],
-                label: ucScopeLabel(cases),
-            }];
-        }
-        cases.forEach((uc, i) => {
-            const sfx = `--uc${i}`;
-            const section = document.createElement('section');
-            section.style.cssText = 'margin:0 0 2em;';
-            // quietSingle: a continuation of another body, titled only when there are several blocks to tell apart.
-            const showTitle = !(quietSingle && cases.length === 1);
-            section.innerHTML = (!showTitle ? '' : `<h3 class="uc-title" style="margin:0.6em 0; padding:0.4em 0.8em; font-size:1em; color:#334155; background:#f8fafc; border:1px solid #e2e8f0; border-radius:6px;" title="${escapeHtml(uc.label ? uc.label : `${uc.generator} · ${uc.noise}`)}">${escapeHtml(uc.label || ssUseCaseLabel(uc.row))}</h3>`)
-                + body._template.replace(/\bid="([^"]+)"/g, `id="$1${sfx}"`);
-            body.appendChild(section);
-            renderOne(uc, sfx);
-        });
-    }
-
-    // ── Stages tab ───────────────────────────────────────────────────────────
-    // Which stage section the Stages view shows: 0 = whole run, 1 / 2 / 3 = search / localize / refine. The others are
-    // collapsed rather than display:none: Plotly cannot size a plot in a hidden panel, and keeping their width means
-    // switching back needs no redraw.
-    let hlStageShown = 0;
-
-    function hlApplyStageSelector() {
-        document.querySelectorAll('#stages-body section[data-stage]').forEach((sec) => {
-            sec.style.cssText = Number(sec.dataset.stage) === hlStageShown ? '' : 'height:0; overflow:hidden; visibility:hidden; margin:0;';
-        });
-        document.querySelectorAll('#hl-stages-from button').forEach((b) => {
-            const active = Number(b.dataset.value) === hlStageShown;
-            b.classList.toggle('is-active', active);
-            b.setAttribute('aria-checked', active ? 'true' : 'false');
-            b.tabIndex = active ? 0 : -1;
-        });
-        // Cost & search (every locator's total cost and search metrics) is the Whole run scope: its locator chips
-        // and table live outside the per-stage sections, so show them only there. Plotly cannot size a plot inside
-        // a display:none panel, so renderStepSizeTab is called only once the block is visible.
-        const whole = hlStageShown === 0;
-        const costView = document.getElementById('stepsize-view');
-        const costControls = document.getElementById('ss-controls');
-        if (costView) costView.style.display = whole ? 'block' : 'none';
-        if (costControls) costControls.style.display = whole ? 'block' : 'none';
-        // Search bounds (static/search-bounds-view.js) belong to the Search scope.
-        const boundsView = document.getElementById('search-bounds-view');
-        if (boundsView) boundsView.style.display = hlStageShown === 1 ? 'block' : 'none';
-        if (hlStageShown === 1) hlRenderSearchBounds();
-        // Runs aligned at their own detection (static/detection-aligned-view.js): localize and refine, the From
-        // detection scope.
-        const alignedView = document.getElementById('detection-aligned-view');
-        const fromDetection = hlStageShown === 2;
-        if (alignedView) alignedView.style.display = fromDetection ? 'block' : 'none';
-        if (fromDetection) hlRenderDetectionAligned();
-    }
-
-    function hlRenderDetectionAligned() {
-        const body = document.getElementById('detection-aligned-body');
-        if (!body || !hlSelection || !window.renderDetectionAligned) return;
-        const cases = ucList(hlSelection.gen, hlSelection.noises);
-        const key = JSON.stringify(cases.map((c) => [c.generator, c.noise]));
-        if (body.dataset.key === key) return;   // already drawn for this selection
-        body.dataset.key = key;
-        if (cases.length > window.DA_MAX_USE_CASES) {
-            body.innerHTML = `<p style="color:#92400e; background:#fffbeb; border:1px solid #fde68a; border-radius:6px; padding:0.6em 1em;">${cases.length} use cases selected; the detection-aligned numbers are computed per use case from the cache and are shown for at most ${window.DA_MAX_USE_CASES}. Narrow the selection.</p>`;
-            return;
-        }
-        const strategies = [...new Set(scanPlots.filter((p) => p.strategy).map((p) => p.strategy))];
-        window.renderDetectionAligned(
-            body, [...new Set(cases.map((c) => c.generator))], [...new Set(cases.map((c) => c.noise))],
-            (name) => hlStratColor(strategies, name),
-        );
-    }
-
-    // The selection the Information tab last rendered, for the Search bounds panel group.
-    let hlSelection = null;
-    function hlRenderSearchBounds() {
-        const body = document.getElementById('search-bounds-body');
-        if (!body || !hlSelection || !window.renderSearchBounds) return;
-        const cases = ucList(hlSelection.gen, hlSelection.noises);
-        const key = JSON.stringify(cases.map((c) => [c.generator, c.noise]));
-        if (body.dataset.key === key) return;   // already drawn for this selection
-        body.dataset.key = key;
-        if (cases.length > window.SB_MAX_USE_CASES) {
-            body.innerHTML = `<p style="color:#92400e; background:#fffbeb; border:1px solid #fde68a; border-radius:6px; padding:0.6em 1em;">${cases.length} use cases selected; the search bounds are computed per use case from the cache and are shown for at most ${window.SB_MAX_USE_CASES}. Narrow the selection.</p>`;
-            return;
-        }
-        const strategies = [...new Set(scanPlots.filter((p) => p.strategy).map((p) => p.strategy))];
-        window.renderSearchBounds(
-            body, [...new Set(cases.map((c) => c.generator))], [...new Set(cases.map((c) => c.noise))],
-            (name) => hlStratColor(strategies, name),
-        );
-    }
-
-    function hlBindStageSelector() {
-        const group = document.getElementById('hl-stages-from');
-        if (!group || group._hasListener) return;
-        group.addEventListener('click', (e) => {
-            const btn = e.target.closest('button[data-value]');
-            if (!btn) return;
-            hlStageShown = Number(btn.dataset.value);
-            hlApplyStageSelector();
-            if (hlStageShown === 0) renderStepSizeTab();
-        });
-        group._hasListener = true;
-    }
-
-    function renderStagesTab(gen, noises) {
-        if (toGenSet(gen).size === 0) return;
-        hlSelection = { gen, noises };
-        const boundsBody = document.getElementById('search-bounds-body');
-        if (boundsBody) delete boundsBody.dataset.key;   // the selection may have changed: redraw when shown
-        const alignedBody = document.getElementById('detection-aligned-body');
-        if (alignedBody) delete alignedBody.dataset.key;
-        ensureScanFieldsFor(gen, noises)
-            .then(() => ensurePlotly())
-            .then(() => {
-                ucRenderBlocks('stages-body', gen, noises, (uc, sfx) => renderHlStages(uc.generator, [].concat(uc.noise), sfx));
-                hlBindStageSelector();
-                hlApplyStageSelector();
-                if (hlStageShown === 0) renderStepSizeTab();   // Cost & search under Whole run
-                if (window.NVRefineRates) window.NVRefineRates.render(document.getElementById('refine-speedup-view'), gen, noises);
-            })
-            .catch(err => {
-                const view = document.getElementById('stages-view');
-                if (view) view.insertAdjacentHTML('beforeend', `<div style="padding:1em;color:#721c24;background:#f8d7da;border-radius:6px;"><strong>Stages render error:</strong> ${escapeHtml(String(err.message || err))}</div>`);
-            });
-    }
-
-    // ── Stages: search -> localize -> refine ────────────────────────────────────
-    // Boundaries and per-stage metrics come from one detector (nvision/metrics/stages.py) applied to every
-    // run, so locators are compared stage by stage on equal terms. Runs that failed outright (no data) are
-    // skipped; runs that merely hit their step budget are kept.
-    const HL_STAGES = [
-        { n: 1, label: 'Search' },
-        { n: 2, label: 'Localize' },
-        { n: 3, label: 'Refine' },
-    ];
-
-    function hlStageRuns(generator, noises) {
-        const noiseSet = new Set((Array.isArray(noises) ? noises : [noises]).filter(Boolean));
-        const genSet = toGenSet(generator);
-        const byStrategy = new Map();
-        for (const p of scanPlots) {
-            if (!genSet.has(p.generator) || !noiseSet.has(p.noise) || !p.strategy) continue;
-            // Same rule as metrics/compare.py usable_runs: drop timeouts/failures and runs with no measurements.
-            if (p.failure_reason != null && p.failure_reason !== 'max_steps') continue;
-            const nMeas = _mv(p, 'measurements');
-            if (nMeas == null || !(nMeas > 0)) continue;
-            if (!byStrategy.has(p.strategy)) byStrategy.set(p.strategy, []);
-            byStrategy.get(p.strategy).push(p);
-        }
-        return byStrategy;
-    }
-
-    // ── Median over the selection ───────────────────────────────────────────
-    // A selection of several use cases (window x line shape x SNR) is summarised by the median of the per-use-case
-    // values: each metric is computed inside its own use case first and the use cases are then combined, so a use
-    // case with more repeats does not weigh more and nothing is read off pooled runs. With one use case the values
-    // are the runs' own (so the interquartile ranges stay over repeats).
-    function hlCaseGroups(runs) {
-        const groups = new Map();
-        for (const p of runs) {
-            const key = `${p.generator}\u0000${p.noise}`;
-            if (!groups.has(key)) groups.set(key, []);
-            groups.get(key).push(p);
-        }
-        return [...groups.values()];
-    }
-
-    // The values a summary is taken over: one per run for a single use case, else one per use case (the median of
-    // valueOf over that use case's runs). valueOf(p) may return null (left out).
-    function hlUnits(runs, valueOf) {
-        const groups = hlCaseGroups(runs);
-        if (groups.length <= 1) return runs.map(valueOf).filter(v => v != null);
-        return groups.map(rs => hlMedian(rs.map(valueOf))).filter(v => v != null);
-    }
-
-    // Per use case, the share of its runs meeting pred (one value per use case; the median of them is the summary).
-    function hlCaseShares(runs, pred) {
-        return hlCaseGroups(runs).map(rs => rs.filter(pred).length / rs.length);
-    }
-
-    const HL_CMP_FMT = {
-        count: (v) => (v == null ? '–' : Math.round(v).toLocaleString()),
-        pct: (v) => (v == null ? '–' : `${Math.round(100 * v)}%`),
-        khz: (v) => (v == null ? '–' : `${Math.round(v / 1e3)} kHz`),
-        ratio: (v) => (v == null ? '–' : v.toFixed(3)),
-        num: (v) => (v == null ? '–' : (Math.abs(v) >= 100 ? Math.round(v) : Number(v.toPrecision(3))).toString()),
-    };
-
-    // Bars of a per-stage field, one trace per locator; onlyStage (1 / 2 / 3) restricts them to that stage.
-    function hlStageBarTraces(byStrategy, strategies, field, hoverLabel, onlyStage = null) {
-        return strategies.map(strat => {
-            const runs = byStrategy.get(strat);
-            const x = [], y = [], up = [], down = [], text = [];
-            for (const st of HL_STAGES.filter(s => onlyStage == null || s.n === onlyStage)) {
-                const vals = hlSorted(hlUnits(runs, p => _mv(p, `stage${st.n}_${field}`)));
-                if (!vals.length) continue;
-                const med = hlQuantileSorted(vals, 0.5);
-                x.push(st.label);
-                y.push(med);
-                up.push(hlQuantileSorted(vals, 0.75) - med);
-                down.push(med - hlQuantileSorted(vals, 0.25));
-                const nCases = hlCaseGroups(runs).length;
-                text.push(nCases > 1
-                    ? `${vals.length}/${nCases} use cases reached this stage (median over use cases)`
-                    : `${vals.length}/${runs.length} repeats reached this stage`);
-            }
-            return {
-                x, y, type: 'bar', name: _shortStratLabel(strat), text, textposition: 'none',
-                marker: { color: hlStratColor(strategies, strat) },
-                error_y: { type: 'data', symmetric: false, array: up, arrayminus: down, color: '#475569', thickness: 1 },
-                hovertemplate: `%{x}: %{y:.3g} ${hoverLabel}<br>%{text}<extra>%{fullData.name}</extra>`,
-            };
-        });
-    }
-
-    // Locators side by side within ONE stage n (1 search, 2 localize, 3 refine): reached share, measurements spent, and
-    // the stage's own metrics. Search: the share of runs that ever saw a dip and the steps per window-in-FWHM (the
-    // blind cost scales with it). Localize and refine: how close the stage measured to the steepest point (sensitivity),
-    // the Fisher bound on the steps the stage needs, the efficiency (bound / steps spent; 1 = Fisher-limited) and the
-    // share of the stage's measurements that were off the optimum. Bound and efficiency need runs recorded with the
-    // oracle columns (nvision/metrics/stages.py); older runs show a dash.
-    function renderHlStageCompare(byStrategy, strategies, sfx, n) {
-        const box = document.getElementById(`hl-stage-compare-${n}${sfx}`);
-        if (!box) return;
-        const iqr = (vals) => {
-            const v = hlSorted(vals);
-            if (!v.length) return '–';
-            return `${HL_CMP_FMT.num(hlQuantileSorted(v, 0.5))} <span style="color:#94a3b8">(${HL_CMP_FMT.num(hlQuantileSorted(v, 0.25))}–${HL_CMP_FMT.num(hlQuantileSorted(v, 0.75))})</span>`;
-        };
-        const sensTip = 'How close the stage measured to the steepest point of the dip: 1 = at it, 0 = on the flat baseline or the dip centre (simulation ground truth).';
-        const extra = n === 1
-            ? { head: 'Dip found', tip: 'Share of runs whose measurements ever showed a dip (median over use cases when several are selected).' }
-            : n === 2
-                ? { head: 'Sensitivity (1 = steepest point)', tip: sensTip }
-                : { head: 'Fisher efficiency η (1 = optimal points)', tip: 'How close refine measured to the Fisher-optimal points (tail-mean information relative to the truth oracle).' };
-        const rows = strategies.map(strat => {
-            const runs = byStrategy.get(strat);
-            const steps = hlUnits(runs, p => _mv(p, `stage${n}_steps`));
-            const reachedShare = hlMedian(hlCaseShares(runs, p => _mv(p, `stage${n}_steps`) != null));
-            const manyCases = hlCaseGroups(runs).length > 1;
-            const row = {
-                strat,
-                reached: manyCases ? `${Math.round(100 * reachedShare)}%` : `${steps.length}/${runs.length}`,
-                stepsMed: hlMedian(steps), stepsHtml: iqr(steps),
-            };
-            if (n === 1) {
-                row.extraMed = hlMedian(hlCaseShares(runs, p => _mv(p, 'focus_found_step') != null));
-                row.extraHtml = HL_CMP_FMT.pct(row.extraMed);
-                const perW = hlUnits(runs, p => {
-                    const s = _mv(p, 'stage1_steps'), occ = _mv(p, 'grid_signal_occupancy');
-                    return s != null && occ > 0 ? s * occ : null;
-                });
-                row.cols = [iqr(perW)];
-            } else {
-                const sens = hlUnits(runs, p => _mv(p, `stage${n}_sens_eff`));
-                row.extraMed = hlMedian(sens);
-                row.extraHtml = iqr(sens);
-                const eff = hlUnits(runs, p => _mv(p, `stage${n}_efficiency`));
-                row.effMed = hlMedian(eff);
-                row.cols = [
-                    iqr(hlUnits(runs, p => _mv(p, `stage${n}_oracle_steps`))),
-                    iqr(eff),
-                    HL_CMP_FMT.pct(hlMedian(hlUnits(runs, p => _mv(p, `stage${n}_wasted_share`)))),
-                ];
-            }
-            return row;
-        });
-        const bestSteps = Math.min(...rows.map(r => r.stepsMed).filter(v => v != null));
-        const bestExtra = Math.max(...rows.map(r => r.extraMed).filter(v => v != null));
-        const bestEff = Math.max(...rows.map(r => r.effMed).filter(v => v != null));
-        rows.sort((a, b) => (a.stepsMed ?? Infinity) - (b.stepsMed ?? Infinity));
-        const moreHeads = n === 1
-            ? [{ head: 'Steps × occupancy', tip: 'Measurements in the search stage times the signal occupancy (the share of the window the signal covers, i.e. steps per window ÷ signal width): a blind search must cover that many signal-widths, so this is roughly flat in the window.' }]
-            : [
-                { head: 'Fisher bound (steps)', tip: n === 2 ? 'Measurements to reach the near-optimal precision eps (the region where the sensitivity stays ≥ 90% of its maximum) taking every shot at the best point: 1 / (eps² I*). A lower bound, not a target.' : 'Measurements to take the claimed σ from its value at refine start to the stop target τ, every shot at the best point: (τ⁻² − σ₀⁻²) / I*. A lower bound, not a target.' },
-                { head: 'Efficiency (bound ÷ steps)', tip: 'Fisher bound over the steps actually spent: 1 = Fisher-limited, small = most measurements did not carry information about the primary parameter.' },
-                { head: 'Off-optimum share', tip: 'Share of the stage\'s measurements whose sensitivity was below 90% of the best possible (simulation ground truth).' },
-            ];
-        const td = (v, bold) => `<td style="padding:2px 8px;text-align:right;${bold ? 'font-weight:700;color:#047857' : ''}">${v}</td>`;
-        box.innerHTML =
-            '<table class="metric-table" style="border-collapse:collapse;font-size:0.85em;"><thead><tr>' +
-            '<th style="text-align:left;padding:2px 12px 2px 0">Locator</th>' +
-            `<th style="padding:2px 8px;text-align:right" title="Share of runs that got this far (a plain sweep never refines)">Reached</th>` +
-            `<th style="padding:2px 8px;text-align:right" title="Median measurements in this stage (interquartile range); only runs that reached it count">Measurements</th>` +
-            `<th style="padding:2px 8px;text-align:right" title="${escapeHtml(extra.tip)}">${extra.head}</th>` +
-            moreHeads.map(h => `<th style="padding:2px 8px;text-align:right" title="${escapeHtml(h.tip)}">${h.head}</th>`).join('') +
-            `</tr></thead><tbody>${rows.map(r => `<tr><td style="padding:2px 12px 2px 0">${_shortStratLabel(r.strat)}</td>` +
-                td(r.reached) + td(r.stepsHtml, r.stepsMed != null && r.stepsMed === bestSteps) +
-                td(r.extraHtml, r.extraMed != null && r.extraMed === bestExtra) +
-                r.cols.map((c, i) => td(c, n > 1 && i === 1 && r.effMed != null && r.effMed === bestEff)).join('') + '</tr>').join('')}</tbody></table>`;
-    }
-
-    // ── Information: how fast each locator approaches the van Trees bound ───────────────────────────────────────
-    // Every run is one accumulation of information from the prior J0 of the PRIMARY parameter (not the drive window:
-    // the primary parameter's own prior is far tighter). stage_prior_info is the bound's J0, stored at run time: 4 pi^2/W^2
-    // (Gill and Levit) for a uniform global-search prior of width W, 1/sigma_0^2 for a Gaussian tracking prior. It is a
-    // strict bound on the worst-placed resonance, so the uniform average can undercut it ~1% and sits up to ~1.8x above
-    // it early on (R below 1 there is looseness, not waste). (stage_prior_info_var = 1/Var(prior) is for models of actual
-    // error and is not used here.) J0 is the median over every run of the use case, so all locators share one ceiling.
-    // No locator can beat
-    //   sigma(n) >= (J0 + n I*)^(-1/2),
-    // I* = stage_fisher_star = the information of one measurement at the steepest point of the true signal. All values
-    // are physical (Hz, Hz^-2). A run missing stage_fisher_star / stage_prior_info / its series is left out (a dash),
-    // never given a fallback.
-    // Precision targets of the cost ladder, as the gain over the prior: tau = sigma_0 / gain.
-    const HL_GAIN_LADDER = [1.5, 2, 3, 5, 8, 12, 20, 30, 50, 80];
-    const HL_GAIN_REF = 5;   // the rung quoted in the table
-
-    function hlInfoRun(p, j0) {
-        const s = p.series;
-        if (!s || !s.s || !s.e || !s.u) return null;
-        const star = _mv(p, 'stage_fisher_star'), end = hlRunSteps(p);
-        if (!(star > 0) || !(j0 > 0) || end == null) return null;
-        return { p, c: `${p.generator}\u0000${p.noise}`, end, star, j0 };
-    }
-
-    // First measurement from which the true error stays <= tau to the end of the run, or null when the run ends above it.
-    function hlPassageStep(series, tau) {
-        const { s, e } = series;
-        let last = -1;
-        for (let i = e.length - 1; i >= 0; i--) {
-            if (e[i] != null && e[i] > tau) { last = i; break; }
-        }
-        return last === e.length - 1 ? null : s[last + 1];
-    }
-
-    // Least-squares line y = a + b x; null with fewer than 3 points or no spread in x.
-    function hlLinFit(xs, ys) {
-        const n = xs.length;
-        if (n < 3) return null;
-        const mx = xs.reduce((a, b) => a + b, 0) / n, my = ys.reduce((a, b) => a + b, 0) / n;
-        let sxx = 0, sxy = 0;
-        for (let i = 0; i < n; i++) { sxx += (xs[i] - mx) ** 2; sxy += (xs[i] - mx) * (ys[i] - my); }
-        if (!(sxx > 0)) return null;
-        const b = sxy / sxx;
-        return { a: my - b * mx, b };
-    }
-
-    // Cost ladder of one locator. Per use case and rung tau = sigma_0 / gain (sigma_0 = J0^-1/2):
-    // T = median first-passage step over the runs that got there (share >= 1/2 or the rung is dropped, so a rung a locator
-    // mostly never reaches is not drawn), O = median bound (tau^-2 - J0) / I* = (gain^2 - 1) J0 / I*. Then the lag n0 and
-    // efficiency e come from the line T = n0 + O / e through each use case's rungs (>= 3 needed); the summary over use
-    // cases is the median. n0 is the measurements spent beyond the bound, e the share of the best information rate.
-    function hlInfoLadder(runs) {
-        const byCase = new Map();
-        for (const r of runs) {
-            if (!byCase.has(r.c)) byCase.set(r.c, []);
-            byCase.get(r.c).push(r);
-        }
-        const rungs = HL_GAIN_LADDER.map(g => ({ g, T: [], O: [], share: [] }));
-        const n0s = [], effs = [];
-        for (const rs of byCase.values()) {
-            const fx = [], fy = [];
-            for (const rung of rungs) {
-                const O = hlMedian(rs.map(r => (rung.g * rung.g - 1) * r.j0 / r.star));
-                const Ts = rs.map(r => hlPassageStep(r.p.series, 1 / (rung.g * Math.sqrt(r.j0)))).filter(v => v != null);
-                const share = Ts.length / rs.length;
-                if (!(O > 0) || share < 0.5) continue;
-                const T = hlMedian(Ts);
-                rung.T.push(T); rung.O.push(O); rung.share.push(share);
-                fx.push(O); fy.push(T);
-            }
-            const fit = hlLinFit(fx, fy);
-            if (fit && fit.b > 0) { n0s.push(fit.a); effs.push(1 / fit.b); }
-        }
-        const pts = rungs.filter(r => r.T.length)
-            .map(r => ({ g: r.g, T: hlMedian(r.T), O: hlMedian(r.O), share: hlMedian(r.share), nCases: r.T.length }));
-        return { pts, n0: hlMedian(n0s), eff: hlMedian(effs), nFit: n0s.length };
-    }
-
-    // z_i(n) = v_i(n)^2 (J0_i + n I*_i) per repeat still running at n, v = true error ('e') or claimed sigma ('u'): the
-    // squared error in units of the bound's variance. R = 1 / mean(z): the mean square is the quantity the van Trees bound
-    // is on (a few catastrophic runs dominate it), 1 = on the bound, below = measurements wasted. Several use cases: the
-    // median of the use cases' own R (at least half of them present). A run that has stopped keeps its final value; a
-    // grid point needs at least half of a use case's repeats still running.
-    function hlInfoRatioAt(runs, x, key) {
-        const byCase = new Map();
-        for (const r of runs) {
-            if (!byCase.has(r.c)) byCase.set(r.c, []);
-            byCase.get(r.c).push(r);
-        }
-        const perCase = [];
-        for (const rs of byCase.values()) {
-            const alive = rs.filter(r => r.end >= x);
-            if (alive.length < Math.max(1, Math.ceil(rs.length / 2))) continue;
-            const z = alive.map(r => hlSeriesValueAt(r.p.series, key, x)).map((v, i) => (v != null ? v * v * (alive[i].j0 + x * alive[i].star) : null))
-                .filter(v => v != null);
-            if (!z.length) continue;
-            const m = z.reduce((a, b) => a + b, 0) / z.length;
-            if (m > 0) perCase.push(1 / m);
-        }
-        return perCase.length >= Math.max(1, Math.ceil(byCase.size / 2)) ? hlMedian(perCase) : null;
-    }
-
-    function hlInfoByStrategy(byStrategy, strategies) {
-        // One J0 per use case: the median prior information over all of its runs, every locator.
-        const priors = new Map();
-        for (const strat of strategies) {
-            for (const p of byStrategy.get(strat)) {
-                const j = _mv(p, 'stage_prior_info');
-                if (!(j > 0)) continue;
-                const key = `${p.generator}\u0000${p.noise}`;
-                if (!priors.has(key)) priors.set(key, []);
-                priors.get(key).push(j);
-            }
-        }
-        const j0Of = new Map([...priors].map(([k, v]) => [k, hlMedian(v)]));
-        const out = new Map();
-        for (const strat of strategies) {
-            const runs = byStrategy.get(strat).map(p => hlInfoRun(p, j0Of.get(`${p.generator}\u0000${p.noise}`))).filter(r => r != null);
-            if (runs.length) out.set(strat, runs);
-        }
-        return out;
-    }
-
-    function renderHlInfoRatio(div, info, strategies) {
-        if (!div) return;
-        const traces = [];
-        let maxEnd = 1;
-        for (const runs of info.values()) for (const r of runs) if (r.end > maxEnd) maxEnd = r.end;
-        const grid = hlStepGrid(maxEnd);
-        for (const strat of strategies) {
-            const runs = info.get(strat);
-            if (!runs) continue;
-            const color = hlStratColor(strategies, strat);
-            const label = _shortStratLabel(strat);
-            const nCases = new Set(runs.map(r => r.c)).size;
-            const base = nCases > 1 ? `${label} (${nCases} use cases)` : `${label} (repeats=${runs.length})`;
-            // True error (solid) and claimed sigma (dotted), both as mean square.
-            for (const [key, dash, what] of [['e', undefined, 'true error'], ['u', 'dot', 'claimed σ']]) {
-                const xs = [], ys = [];
-                for (const x of grid) {
-                    const v = hlInfoRatioAt(runs, x, key);
-                    if (v != null) { xs.push(x); ys.push(v); }
-                }
-                if (!xs.length) continue;
-                traces.push({ x: xs, y: ys, mode: 'lines', legendgroup: strat, showlegend: key === 'e', name: base,
-                    line: { color, width: 2, dash },
-                    hovertemplate: `step %{x}<br>R %{y:.3g} (${what}, mean square)<extra>${label}</extra>` });
-            }
-        }
-        if (!traces.length) { Plotly.purge(div); div.innerHTML = '<p style="color:#94a3b8;padding:1em;font-size:0.9em;">No run has the Fisher columns (stage_fisher_star, stage_prior_info) or the per-step series. Re-run to include them.</p>'; return; }
-        div.innerHTML = '';
-        const layout = hlBaseLayout();
-        layout.xaxis = { ...layout.xaxis, title: { text: 'Measurements', font: { size: 11 } }, type: 'log' };
-        layout.yaxis = { ...layout.yaxis, title: { text: 'R, 1 = the bound', font: { size: 11 } }, type: 'log' };
-        layout.shapes = [{ type: 'line', xref: 'paper', x0: 0, x1: 1, yref: 'y', y0: 1, y1: 1, line: { color: '#475569', width: 1.5, dash: 'dash' } }];
-        layout.legend = { orientation: 'h', yanchor: 'top', y: -0.2, xanchor: 'left', x: 0, font: { size: 9 } };
-        layout.margin = { ...layout.margin, b: 150 };
-        Plotly.react(div, traces, layout, { displayModeBar: false, responsive: true });
-    }
-
-    function renderHlInfoCost(div, ladders, strategies) {
-        if (!div) return;
-        const traces = [];
-        let boundPts = null;
-        for (const strat of strategies) {
-            const lad = ladders.get(strat);
-            if (!lad || !lad.pts.length) continue;
-            if (!boundPts || lad.pts.length > boundPts.length) boundPts = lad.pts;
-            const color = hlStratColor(strategies, strat);
-            const label = _shortStratLabel(strat);
-            traces.push({ x: lad.pts.map(q => q.g), y: lad.pts.map(q => q.T), mode: 'lines+markers', name: label, legendgroup: strat,
-                line: { color, width: 2 }, marker: { color, size: 6 }, customdata: lad.pts.map(q => [q.share, q.nCases]),
-                hovertemplate: `gain σ₀/τ %{x:.3g}<br>%{y:.4g} measurements (median)<br>reached by %{customdata[0]:.0%} of the runs (%{customdata[1]} use cases)<extra>${label}</extra>` });
-        }
-        if (!traces.length) { Plotly.purge(div); div.innerHTML = '<p style="color:#94a3b8;padding:1em;font-size:0.9em;">No locator reached a precision rung in at least half of its runs (or the Fisher columns are missing).</p>'; return; }
-        div.innerHTML = '';
-        traces.push({ x: boundPts.map(q => q.g), y: boundPts.map(q => q.O), mode: 'lines', name: 'Bound (τ⁻² − J₀) / I*',
-            line: { color: '#475569', width: 1.5, dash: 'dash' }, hovertemplate: 'bound: %{y:.4g} measurements<extra></extra>' });
-        const layout = hlBaseLayout();
-        layout.xaxis = { ...layout.xaxis, title: { text: 'Precision gain over the prior, σ₀ / τ', font: { size: 11 } }, type: 'log' };
-        layout.yaxis = { ...layout.yaxis, title: { text: 'Measurements to reach τ (median)', font: { size: 11 } }, type: 'log' };
-        layout.legend = { orientation: 'h', yanchor: 'top', y: -0.2, xanchor: 'left', x: 0, font: { size: 9 } };
-        layout.margin = { ...layout.margin, b: 100 };
-        Plotly.react(div, traces, layout, { displayModeBar: false, responsive: true });
-    }
-
-    // Locators side by side: total cost next to the two numbers that summarise the gap to the bound. The median total is
-    // not the sum of anything, so it is read off the runs directly.
-    function renderHlWholeTable(byStrategy, strategies, ladders, sfx) {
-        const box = document.getElementById(`hl-whole-table${sfx}`);
-        if (!box) return;
-        const fmt = HL_CMP_FMT;
-        const rows = strategies.map(strat => {
-            const runs = byStrategy.get(strat);
-            const totals = hlSorted(hlUnits(runs, p => hlRunSteps(p)));
-            const lad = ladders.get(strat);
-            const ref = lad ? lad.pts.find(q => q.g === HL_GAIN_REF) : null;
-            return {
-                strat, n: runs.length, med: hlQuantileSorted(totals, 0.5),
-                html: totals.length
-                    ? `${fmt.num(hlQuantileSorted(totals, 0.5))} <span style="color:#94a3b8">(p25 ${fmt.num(hlQuantileSorted(totals, 0.25))} · p75 ${fmt.num(hlQuantileSorted(totals, 0.75))})</span>` : '–',
-                capped: (() => {
-                    // A median over use cases hides the hard ones (rule 8): give the worst use case beside it.
-                    const shares = hlCaseShares(runs, p => p.failure_reason === 'max_steps');
-                    const med = fmt.pct(hlMedian(shares));
-                    return shares.length > 1 ? `${med} <span style="color:#94a3b8">(worst ${fmt.pct(Math.max(...shares))})</span>` : med;
-                })(),
-                found: fmt.pct(hlMedian(hlCaseShares(runs, p => _mv(p, 'focus_found_step') != null))),
-                n0: lad ? lad.n0 : null, eff: lad ? lad.eff : null,
-                over: ref ? ref.T / ref.O : null, overShare: ref ? ref.share : null,
-            };
-        }).sort((a, b) => (a.med ?? Infinity) - (b.med ?? Infinity));
-        const bestEff = Math.max(...rows.map(r => r.eff).filter(v => v != null));
-        const th = (t, tip) => `<th style="padding:2px 8px;text-align:right" title="${escapeHtml(tip)}">${t}</th>`;
-        const td = (v, bold) => `<td style="padding:2px 8px;text-align:right;${bold ? 'font-weight:700;color:#047857' : ''}">${v}</td>`;
-        box.innerHTML = '<table class="metric-table" style="border-collapse:collapse;font-size:0.85em;"><thead><tr>' +
-            '<th style="text-align:left;padding:2px 12px 2px 0">Locator</th>' +
-            th('Runs', 'Repeats of the use case (use cases when several are selected: medians over use cases)') +
-            th('Total measurements', 'Median measurements of the whole run, with the 25th and 75th percentile. Runs that hit the shared budget count at the budget, a lower bound.') +
-            th('Capped', 'Share of runs that used the whole shared measurement budget without the stop rule firing (median over use cases, with the worst use case in brackets when several are selected).') +
-            th('Found a dip', 'Share of runs whose measurements ever showed a dip.') +
-            th('Lag n₀', 'Measurements spent beyond the bound: the intercept of the line T = n₀ + bound / e through the cost-to-precision points (T = median first-passage measurement to σ₀ / gain, bound = (τ⁻² − J₀) / I*), fitted per use case and summarised by the median. Needs at least three precision rungs reached by half the runs of the use case.') +
-            th('Efficiency e', 'The steady information rate as a share of the best possible I* (1/slope of the same line). 1 = every measurement at the Fisher-optimal point once the lag is paid. The cost points use the median run, and the bound is on the mean square, so a value a little above 1 can occur; a fit through few rungs is noisy.') +
-            th(`Cost at ${HL_GAIN_REF}× gain ÷ bound`, `Median measurements until the true error stays below σ₀ / ${HL_GAIN_REF} (the prior's σ divided by ${HL_GAIN_REF}), divided by the bound's cost. 1 = on the bound. The share of runs that got there is in brackets.`) +
-            `</tr></thead><tbody>${rows.map(r => `<tr><td style="padding:2px 12px 2px 0">${_shortStratLabel(r.strat)}</td>` +
-                td(r.n) + td(r.html) + td(r.capped) + td(r.found) +
-                td(r.n0 == null ? '–' : fmt.num(r.n0)) +
-                td(r.eff == null ? '–' : r.eff.toFixed(2), r.eff != null && r.eff === bestEff) +
-                td(r.over == null ? '–' : `${r.over.toFixed(1)}× <span style="color:#94a3b8">(${fmt.pct(r.overShare)})</span>`) + '</tr>').join('')}</tbody></table>`;
-    }
-
-    // Paired per-repeat difference. Repeat i has the same true signal for every locator within a use case, so the
-    // steps of locator A minus those of the reference locator (Bayesian-SBED) on the same repeat cancel the
-    // signal-to-signal spread. One histogram per other locator; stage 0 = whole run, 1 / 2 / 3 = that stage's steps.
-    // Only drawn for a single use case (several would pair repeats of different signals).
-    const HL_PAIRED_REFERENCE = 'Bayesian-SBED';
-    function renderHlPaired(div, byStrategy, strategies, stage) {
-        if (!div) return;
-        Plotly.purge(div);
-        const note = (text) => { div.innerHTML = `<p style="color:#94a3b8;padding:1em;font-size:0.9em;">${text}</p>`; };
-        const all = strategies.flatMap(s => byStrategy.get(s));
-        if (hlCaseGroups(all).length !== 1) { note('Choose “Each use case” (or select a single use case) to see paired differences: pairing repeats only makes sense on one signal.'); return; }
-        if (!byStrategy.has(HL_PAIRED_REFERENCE)) { note(`No ${HL_PAIRED_REFERENCE} runs in this use case to pair against.`); return; }
-        div.innerHTML = '';
-        const valueOf = (p) => (stage === 0 ? hlRunSteps(p) : _mv(p, `stage${stage}_steps`));
-        const byRepeat = (runs) => new Map(runs.map(p => [p.repeat, valueOf(p)]).filter(([, v]) => v != null));
-        const ref = byRepeat(byStrategy.get(HL_PAIRED_REFERENCE));
-        const traces = [];
-        for (const strat of strategies.filter(s => s !== HL_PAIRED_REFERENCE)) {
-            const other = byRepeat(byStrategy.get(strat));
-            const diffs = [...other].filter(([r]) => ref.has(r)).map(([r, v]) => v - ref.get(r));
-            if (diffs.length < 3) continue;
-            const cheaper = diffs.filter(d => d > 0).length / diffs.length;
-            traces.push({
-                x: diffs, type: 'histogram', opacity: 0.55, name: `${_shortStratLabel(strat)} (SBED cheaper in ${Math.round(100 * cheaper)}% of ${diffs.length})`,
-                marker: { color: hlStratColor(strategies, strat) },
-                hovertemplate: `${_shortStratLabel(strat)}: %{x} steps more than SBED<br>%{y} repeats<extra></extra>`,
-            });
-        }
-        if (!traces.length) { note('Fewer than three repeats are shared with another locator.'); return; }
-        const layout = hlBaseLayout();
-        layout.barmode = 'overlay';
-        layout.xaxis = { ...layout.xaxis, title: { text: `Measurements of the locator − measurements of ${_shortStratLabel(HL_PAIRED_REFERENCE)}, same repeat (> 0: SBED cheaper)`, font: { size: 11 } }, zeroline: true, zerolinecolor: '#475569' };
-        layout.yaxis = { ...layout.yaxis, title: { text: 'Repeats', font: { size: 11 } } };
-        Plotly.react(div, traces, layout, { displayModeBar: false, responsive: true });
-    }
-
-    // Which part of the run the over-time curves show: 0 = the whole run, 1 / 2 / 3 = just the search / localize / refine
-    // stage. A stage view shifts each run so its stage begins at x = 1 (lining the locators up there) and stops at the
-    // run's own end of that stage; runs that never reached the stage are left out.
-    const HL_CURVE_STAGE_NAMES = { 1: 'search', 2: 'localize', 3: 'refine' };
-
-    // First and last measurement (1-indexed) of the run in the chosen view, or null when the stage was not reached.
-    function hlStageWindow(p, stage) {
-        if (stage === 0) {
-            const total = hlRunSteps(p);
-            return total == null ? null : { start: 1, end: total };
-        }
-        const steps = _mv(p, `stage${stage}_steps`);
-        if (!(steps > 0)) return null;
-        const first = stage === 1 ? 1 : stage === 2 ? _mv(p, 'focus_found_step') + 1 : _mv(p, 'refine_start_step');
-        return { start: first, end: first - 1 + steps };
-    }
-
-    // Fisher bound on the claimed uncertainty (Hz) of run p at measurement x. Whole run (stage 0): the van Trees line
-    // (J0 + x I*)^(-1/2) from the run's own prior. Stage 2 / 3, which began
-    // at measurement `start`: the claimed sigma at the stage's start improved only by the information the best possible
-    // measurements carry, (u0^-2 + j I*)^(-1/2) after j in-stage measurements (nvision/metrics/stages.py). A lower
-    // bound for the locator, not a target: it assumes every measurement sits at the Fisher-optimal point.
-    function hlFisherAt(p, stage, x, start) {
-        const star = _mv(p, 'stage_fisher_star');
-        if (!(star > 0)) return null;
-        // Whole run: the claimed sigma after the first measurement is the prior (stage1_unc_start), counted from step 1.
-        const u0 = _mv(p, `stage${stage === 0 ? 1 : stage}_unc_start`);
-        if (!(u0 > 0)) return null;
-        return 1 / Math.sqrt(1 / (u0 * u0) + (x - start + 1) * star);
-    }
-
-    // Median (and interquartile band) over repeats of a per-step series value -- 'u' claimed uncertainty or
-    // 'e' true error of the primary parameter -- against the measurements since the chosen start, one line per
-    // locator. Diamonds / stars sit on each locator's curve at its median focus-found / max-information step.
-    // Stages 2 and 3 also draw the Fisher bound (dashed, claimed sigma only) and a -1/2 slope reference (sigma falls
-    // as n^-1/2 once measurements are informative); a strip underneath counts the runs still inside the stage, and a
-    // curve stops where fewer than half of them are left (a thin tail of long runs is not the median).
-    function renderHlStageCurve(div, byStrategy, strategies, key, yTitle, stage = 0) {
-        const items = [];
-        let maxEnd = 1;
-        for (const strat of strategies) {
-            const runs = [];
-            for (const p of byStrategy.get(strat)) {
-                if (!p.series || !p.series[key]) continue;
-                const win = hlStageWindow(p, stage);
-                if (win == null) continue;
-                runs.push({ p, c: `${p.generator}\u0000${p.noise}`, start: win.start, end: win.end });
-                if (win.end > maxEnd) maxEnd = win.end;
-            }
-            if (runs.length) items.push({ strat, runs });
-        }
-        const grid = hlStepGrid(maxEnd);
-        const traces = [];
-        const markers = [];
-        const strip = [];
-        let slopeRef = null;
-        let drewFisher = false;
-        const withFisher = key === 'u' && (stage >= 2 || stage === 0);
-        for (const { strat, runs } of items) {
-            const color = hlStratColor(strategies, strat);
-            const label = _shortStratLabel(strat);
-            const xs = [], med = [], qLo = [], qHi = [], fMed = [], nLeft = [];
-            // Several use cases: the median (and band) is over the use cases' own medians at that step, and a step
-            // needs at least half of them still going; one use case: over its repeats, at least half still going.
-            const nCases = new Set(runs.map(r => r.c)).size;
-            const minUnits = nCases > 1 ? Math.max(Math.min(3, nCases), Math.ceil(nCases / 2)) : Math.max(1, Math.ceil(runs.length / 2));
-            // The values of one step as one number per unit (a repeat, or a use case's median), sorted.
-            const perUnit = (at, field) => {
-                const present = at.filter(a => a[field] != null && a[field] > 0);
-                if (nCases <= 1) return hlSorted(present.map(a => a[field]));
-                const byCase = new Map();
-                for (const a of present) {
-                    if (!byCase.has(a.c)) byCase.set(a.c, []);
-                    byCase.get(a.c).push(a[field]);
-                }
-                return hlSorted([...byCase.values()].map(hlMedian));
-            };
-            // x is the run's own measurement number; a run contributes only inside its stage (start..end).
-            for (const x of grid) {
-                const at = runs.filter(r => r.start <= x && x <= r.end).map(({ p, c, start }) => ({
-                    c,
-                    v: hlSeriesValueAt(p.series, key, x),
-                    f: withFisher ? hlFisherAt(p, stage, x, start) : null,
-                }));
-                const vals = perUnit(at, 'v');
-                if (vals.length < minUnits || !vals.length) continue;
-                xs.push(x);
-                med.push(hlQuantileSorted(vals, 0.5));
-                qLo.push(hlQuantileSorted(vals, 0.25));
-                qHi.push(hlQuantileSorted(vals, 0.75));
-                nLeft.push(vals.length);
-                fMed.push(withFisher ? hlMedian(perUnit(at, 'f')) : null);
-            }
-            if (!xs.length) continue;
-            const total = byStrategy.get(strat).length;
-            const name = nCases > 1 ? `${label} (${nCases} use cases)`
-                : stage > 0 ? `${label} ${runs.length}/${total}` : `${label} (repeats=${runs.length})`;
-            traces.push({ x: xs, y: qHi, mode: 'lines', line: { width: 0 }, hoverinfo: 'skip', showlegend: false, legendgroup: strat });
-            traces.push({ x: xs, y: qLo, mode: 'lines', line: { width: 0 }, fill: 'tonexty', fillcolor: hlHexToRgba(color, 0.13),
-                hoverinfo: 'skip', showlegend: false, legendgroup: strat });
-            traces.push({ x: xs, y: med, mode: 'lines', legendgroup: strat, name, meta: { median: strat },
-                line: { color, width: 2 }, customdata: nLeft, hovertemplate: `step %{x}<br>median %{y:.4g} Hz<br>%{customdata} left<extra>${label}</extra>` });
-            if (withFisher && fMed.some(v => v != null)) {
-                drewFisher = true;
-                traces.push({ x: xs, y: fMed, mode: 'lines', legendgroup: strat, showlegend: false,
-                    line: { color, width: 1.5, dash: 'dash' },
-                    hovertemplate: `Fisher bound: ${label}<br>step %{x}<br>%{y:.4g} Hz<extra></extra>` });
-            }
-            strip.push({ x: xs, y: nLeft, type: 'scatter', mode: 'lines', line: { color, width: 1.5, shape: 'hv' }, xaxis: 'x', yaxis: 'y2',
-                legendgroup: strat, showlegend: false, hovertemplate: `%{y} runs left<extra>${label}</extra>` });
-            if (stage >= 2 && slopeRef == null && xs.length >= 3) slopeRef = { x: xs, y0: med[0], x0: xs[0] };
-        }
-        if (drewFisher) {
-            traces.push({ x: [null], y: [null], mode: 'lines', name: 'Fisher bound (dashed)',
-                line: { color: '#475569', width: 1.5, dash: 'dash' }, hoverinfo: 'skip' });
-        }
-        if (slopeRef) {
-            traces.push({ x: slopeRef.x, y: slopeRef.x.map(x => slopeRef.y0 * Math.pow(x / slopeRef.x0, -0.5)), mode: 'lines',
-                name: 'slope −½', line: { color: '#94a3b8', width: 1.5, dash: 'dot' }, hoverinfo: 'skip' });
-        }
-        const layout = hlBaseLayout();
-        const xTitle = stage === 0 ? 'Measurements' : `Measurement number (${HL_CURVE_STAGE_NAMES[stage]} stage, from its start to its end)`;
-        layout.xaxis = { ...layout.xaxis, title: { text: xTitle, font: { size: 11 } }, type: 'log', anchor: 'y2' };
-        layout.yaxis = { ...layout.yaxis, title: { text: yTitle, font: { size: 11 } }, type: 'log', domain: [0.2, 1] };
-        layout.yaxis2 = { domain: [0, 0.12], gridcolor: '#f1f5f9', rangemode: 'tozero', title: { text: 'runs left', font: { size: 10 } } };
-        layout.margin = { ...layout.margin, b: 50 };
-        layout.legend = { ...layout.legend, font: { size: 9 }, tracegroupgap: 2 };
-        Plotly.react(div, [...traces, ...markers, ...strip], layout, { displayModeBar: false, responsive: true });
-    }
-
-    // The runs as one continuous accumulation of information J = 1/sigma^2 (claimed sigma) from the prior J0 = sigma0^-2
-    // (sigma0 = the claimed sigma after the first measurement): no stage boundaries.
-    //   mode 'prior': J0 / J, the prior's share of the information (1 -> 0); dashed = J0 / (J0 + N I*), every measurement at
-    //                 the Fisher-optimal point (I* = stage_fisher_star).
-    //   mode 'rate':  (J(N) - J(N')) / ((N - N') I*) between consecutive grid points: information per measurement as a share
-    //                 of the ceiling (1 = Fisher-optimal; above 1 = the claimed sigma is overconfident).
-    // One value per repeat at each grid point; several use cases: the median of the use cases' own medians; a point needs
-    // at least half of the units still running.
-    function renderHlInfoCurve(div, byStrategy, strategies, mode) {
-        if (!div) return;
-        const items = [];
-        let maxEnd = 1;
-        for (const strat of strategies) {
-            const runs = [];
-            for (const p of byStrategy.get(strat)) {
-                const end = hlRunSteps(p);
-                const star = _mv(p, 'stage_fisher_star');
-                const u0 = p.series && p.series.u ? hlSeriesValueAt(p.series, 'u', 1) : null;
-                if (end == null || !(star > 0) || !(u0 > 0)) continue;
-                runs.push({ p, c: `${p.generator}\u0000${p.noise}`, end, star, j0: 1 / (u0 * u0) });
-                if (end > maxEnd) maxEnd = end;
-            }
-            if (runs.length) items.push({ strat, runs });
-        }
-        if (!items.length) { Plotly.purge(div); return; }
-        const grid = hlStepGrid(maxEnd);
-        const unitMedian = (vals) => {   // vals: [{c, v}]
-            const ok = vals.filter(a => a.v != null && isFinite(a.v));
-            if (new Set(vals.map(a => a.c)).size <= 1) return hlMedian(ok.map(a => a.v));
-            const byCase = new Map();
-            for (const a of ok) {
-                if (!byCase.has(a.c)) byCase.set(a.c, []);
-                byCase.get(a.c).push(a.v);
-            }
-            return hlMedian([...byCase.values()].map(hlMedian));
-        };
-        const traces = [];
-        for (const { strat, runs } of items) {
-            const color = hlStratColor(strategies, strat);
-            const label = _shortStratLabel(strat);
-            const xs = [], ys = [], ref = [];
-            const jAt = (r, x) => { const u = hlSeriesValueAt(r.p.series, 'u', x); return u > 0 ? 1 / (u * u) : null; };
-            for (let i = mode === 'rate' ? 1 : 0; i < grid.length; i++) {
-                const x = grid[i];
-                const alive = runs.filter(r => r.end >= x);
-                if (alive.length < Math.max(1, Math.ceil(runs.length / 2))) continue;
-                let vals;
-                if (mode === 'rate') {
-                    const xp = grid[i - 1];
-                    vals = alive.map(r => {
-                        const j1 = jAt(r, x), j0 = jAt(r, xp);
-                        return { c: r.c, v: j1 != null && j0 != null ? (j1 - j0) / ((x - xp) * r.star) : null };
-                    });
-                } else {
-                    vals = alive.map(r => { const j = jAt(r, x); return { c: r.c, v: j != null ? r.j0 / j : null }; });
-                    ref.push(unitMedian(alive.map(r => ({ c: r.c, v: r.j0 / (r.j0 + x * r.star) }))));
-                }
-                const m = unitMedian(vals);
-                if (m == null || (mode === 'prior' && !(m > 0))) continue;
-                xs.push(x);
-                ys.push(m);
-            }
-            if (!xs.length) continue;
-            traces.push({ x: xs, y: ys, mode: 'lines', name: `${label} (n=${runs.length})`, legendgroup: strat, line: { color, width: 2 },
-                hovertemplate: `step %{x}<br>%{y:.3g}<extra>${label}</extra>` });
-            if (mode === 'prior') {
-                const rx = grid.filter((_, i) => i < ref.length);
-                traces.push({ x: rx, y: ref, mode: 'lines', legendgroup: strat, showlegend: false, line: { color, width: 1.5, dash: 'dash' },
-                    hovertemplate: `bound: ${label}<br>step %{x}<br>%{y:.3g}<extra></extra>` });
-            }
-        }
-        const layout = hlBaseLayout();
-        layout.xaxis = { ...layout.xaxis, title: { text: 'Measurements', font: { size: 11 } }, type: 'log' };
-        if (mode === 'prior') {
-            layout.yaxis = { ...layout.yaxis, title: { text: 'Prior share of the information, J₀ / J', font: { size: 11 } }, type: 'log' };
-        } else {
-            layout.yaxis = { ...layout.yaxis, title: { text: 'Information per measurement / I*', font: { size: 11 } }, rangemode: 'tozero' };
-            layout.shapes = [{ type: 'line', xref: 'paper', x0: 0, x1: 1, yref: 'y', y0: 1, y1: 1, line: { color: '#475569', width: 1, dash: 'dot' } }];
-        }
-        layout.legend = { ...layout.legend, font: { size: 9 } };
-        Plotly.react(div, traces, layout, { displayModeBar: false, responsive: true });
-    }
-
-    // One Information block (a use case, or the median over the selection); `sfx` is the id suffix of its copy of the
-    // markup (see ucRenderBlocks). Whole run: the information-vs-bound charts and table; Search: the one stage kept.
-    function renderHlStages(generator, noises, sfx) {
-        const uncDiv = document.getElementById(`hl-stages-unc${sfx}`);
-        const errCurveDiv = document.getElementById(`hl-stages-errcurve${sfx}`);
-        if (!uncDiv || !errCurveDiv) return;
-        const byStrategy = hlStageRuns(generator, noises);
-        const strategies = [...byStrategy.keys()].sort(hlStrategyCompare);
-        const info = hlInfoByStrategy(byStrategy, strategies);
-        const searchStrategies = strategies.filter(s => byStrategy.get(s).some(p => _mv(p, 'stage1_steps') != null));
-        const ids = ['hl-info-ratio', 'hl-info-cost', 'hl-info-rate', 'hl-stages-unc', 'hl-stages-errcurve', 'hl-stage-unc-1', 'hl-stage-err-1', 'hl-stages-steps-1'];
-        if (!strategies.length || !(info.size || searchStrategies.length)) {
-            const cmpBox = document.getElementById(`hl-stage-compare-1${sfx}`);
-            if (cmpBox) cmpBox.innerHTML = '<p style="color:#94a3b8;padding:1em;font-size:0.9em;">No stage or Fisher metrics for this use case — these runs predate the export. Re-run to include them.</p>';
-            for (const id of ids) {
-                const el = document.getElementById(`${id}${sfx}`);
-                if (el) Plotly.purge(el);
-            }
-            return;
-        }
-
-        const ladders = new Map([...info].map(([strat, runs]) => [strat, hlInfoLadder(runs)]));
-        renderHlInfoRatio(document.getElementById(`hl-info-ratio${sfx}`), info, strategies);
-        renderHlInfoCost(document.getElementById(`hl-info-cost${sfx}`), ladders, strategies);
-        renderHlWholeTable(byStrategy, strategies, ladders, sfx);
-        renderHlStageCurve(uncDiv, byStrategy, strategies, 'u', 'Median claimed uncertainty (Hz)');
-        renderHlStageCurve(errCurveDiv, byStrategy, strategies, 'e', 'Median true |error| (Hz)');
-        renderHlInfoCurve(document.getElementById(`hl-info-rate${sfx}`), byStrategy, strategies, 'rate');
-        renderHlPaired(document.getElementById(`hl-paired-0${sfx}`), byStrategy, strategies, 0);
-
-        // Search: the one stage kept (finding the dip is detection, not a Fisher regime).
-        renderHlStageCompare(byStrategy, searchStrategies, sfx, 1);
-        const bars = document.getElementById(`hl-stages-steps-1${sfx}`);
-        if (bars) {
-            const layout = hlBaseLayout();
-            layout.barmode = 'group';
-            layout.yaxis = { ...layout.yaxis, title: { text: 'Measurements in stage (median)', font: { size: 11 } } };
-            Plotly.react(bars, hlStageBarTraces(byStrategy, searchStrategies, 'steps', 'measurements', 1), layout, { displayModeBar: false, responsive: true });
-        }
-        renderHlPaired(document.getElementById(`hl-paired-1${sfx}`), byStrategy, searchStrategies, 1);
-        const sUnc = document.getElementById(`hl-stage-unc-1${sfx}`);
-        const sErr = document.getElementById(`hl-stage-err-1${sfx}`);
-        if (sUnc) renderHlStageCurve(sUnc, byStrategy, searchStrategies, 'u', 'Median claimed uncertainty (Hz)', 1);
-        if (sErr) renderHlStageCurve(sErr, byStrategy, searchStrategies, 'e', 'Median true |error| (Hz)', 1);
-    }
-
-    // ── Scaling tab ──────────────────────────────────────────────────────────
-    // How each stage's cost follows the quantity that should drive it, for the locators chosen (default: SBED), one
-    // point per use case (the median over its repeats; the bar is the interquartile range). Each panel appears only
-    // when the selection spans at least two values of its x-axis, since a curve needs two points. The dotted line is
-    // what the stage's driver predicts, anchored on the first point; the dashed line is the Fisher bound. They are
-    // hypotheses to read the data against (docs/evaluation_metrics.md), not fits: where the data disagree, the data win.
-    const scalingShown = new Set();   // locators the user switched on; empty = default (SBED, else the first)
-    // Vs-window panels combine the selected SNRs into one curve unless split; the vs-SNR panel splits by window.
-    const scalingSplit = { snr: false, window: true, shape: false };
-
-    function renderScalingTab(gen, noises) {
-        if (toGenSet(gen).size === 0) return;
-        ensureScanFieldsFor(gen, noises).then(() => {
-            ensurePlotly().then(() => renderScaling(gen, noises)).catch(err => {
-                const body = document.getElementById('scaling-body');
-                if (body) body.innerHTML = `<div style="padding:1em;color:#721c24;background:#f8d7da;border-radius:6px;"><strong>Scaling render error:</strong> ${escapeHtml(String(err.message || err))}</div>`;
-            });
-        });
-    }
-
-    // One use case's x-coordinates and per-stage numbers for one locator: medians over the repeats that reached the
-    // stage, with the interquartile range.
-    function scalingPoints(runsOfCase) {
-        const first = runsOfCase[0];
-        const row = ucRow(first);
-        const fwhm = _mv(first, 'stage_fwhm_true_phys');
-        const tau = _mv(first, 'stage_tau_phys');
-        const snr = ssSnr(row);
-        const stat = (field) => {
-            const v = hlSorted(runsOfCase.map(p => _mv(p, field)));
-            return v.length ? { med: hlQuantileSorted(v, 0.5), lo: hlQuantileSorted(v, 0.25), hi: hlQuantileSorted(v, 0.75), n: v.length } : null;
-        };
-        return {
-            // Window in units of the signal's width = 1 / signal occupancy (what the Occupancy chips select); the
-            // measured window / true FWHM only when the study has no occupancy.
-            window: ssOcc(row) > 0 ? Math.round(1e6 / ssOcc(row)) / 1e6 : _mv(first, 'stage_window_fwhm'),
-            snr: snr != null && isFinite(snr) ? snr : null,
-            share: ssShareKey(row),
-            driver: fwhm > 0 && tau > 0 && snr > 0 && isFinite(snr) ? Math.pow(fwhm / (snr * tau), 2) : null,
-            search: stat('stage1_steps'), focus: stat('stage2_steps'), refine: stat('stage3_steps'),
-            focusBound: stat('stage2_oracle_steps'), refineBound: stat('stage3_oracle_steps'),
-        };
-    }
-
-    // lines: [{ name, color, symbol, pts: [{ x, stat, bound? }] }] -> one Plotly chart in `div`.
-    // ref: { slope } draws y = y0 (x / x0)^slope through the first point of the first line, dotted.
-    function scalingChart(div, lines, { xTitle, yTitle, xLog = false, ref = null, refName = '' }) {
-        const traces = [];
-        let anchor = null;
-        for (const ln of lines) {
-            const pts = ln.pts.filter(p => p.x != null && isFinite(p.x) && p.stat && (!xLog || p.x > 0)).sort((a, b) => a.x - b.x);
-            if (!pts.length) continue;
-            if (!anchor) anchor = { x0: pts[0].x, y0: pts[0].stat.med, xs: pts.map(p => p.x) };
-            traces.push({
-                x: pts.map(p => p.x), y: pts.map(p => p.stat.med), mode: 'lines+markers', name: ln.name, legendgroup: ln.name,
-                line: { color: ln.color, width: 2 }, marker: { color: ln.color, size: 7, symbol: ln.symbol || 'circle' },
-                error_y: { type: 'data', symmetric: false, array: pts.map(p => p.stat.hi - p.stat.med), arrayminus: pts.map(p => p.stat.med - p.stat.lo), color: hlHexToRgba(ln.color, 0.5), thickness: 1 },
-                customdata: pts.map(p => p.stat.nText || `${p.stat.n} repeats`),
-                hovertemplate: `${ln.name}<br>x %{x:.3g}<br>${pts[0].stat.kind || 'median'} %{y:.4g} (%{customdata})<extra></extra>`,
-            });
-            const withBound = pts.filter(p => p.bound);
-            if (withBound.length) {
-                traces.push({
-                    x: withBound.map(p => p.x), y: withBound.map(p => p.bound.med), mode: 'lines', name: `${ln.name} Fisher bound`, legendgroup: ln.name, showlegend: false,
-                    line: { color: ln.color, width: 1.5, dash: 'dash' }, hovertemplate: `Fisher bound: ${ln.name}<br>x %{x:.3g}<br>%{y:.4g}<extra></extra>`,
-                });
-            }
-        }
-        if (!traces.length) { div.innerHTML = '<p style="color:#94a3b8;padding:1em;font-size:0.9em;">No data for this panel.</p>'; return; }
-        if (ref && anchor && anchor.xs.length > 1) {
-            traces.push({ x: anchor.xs, y: anchor.xs.map(x => anchor.y0 * Math.pow(x / anchor.x0, ref.slope)), mode: 'lines', name: refName,
-                line: { color: '#94a3b8', width: 1.5, dash: 'dot' }, hoverinfo: 'skip' });
-        }
-        const layout = hlBaseLayout();
-        layout.xaxis = { ...layout.xaxis, title: { text: xTitle, font: { size: 11 } }, type: xLog ? 'log' : 'linear' };
-        layout.yaxis = { ...layout.yaxis, title: { text: yTitle, font: { size: 11 } }, type: 'log' };
-        layout.legend = { ...layout.legend, font: { size: 9 } };
-        Plotly.react(div, traces, layout, { displayModeBar: false, responsive: true });
-    }
-
-    function renderScaling(gen, noises) {
-        const body = document.getElementById('scaling-body');
-        const pick = document.getElementById('scaling-pick');
-        if (!body || !pick) return;
-        Plotly.purge(body);
-        const byStrategy = hlStageRuns(gen, noises);
-        const strategies = [...byStrategy.keys()].filter(s => byStrategy.get(s).some(p => _mv(p, 'stage1_steps') != null)).sort(hlStrategyCompare);
-        if (!strategies.length) { body.innerHTML = '<p style="color:#94a3b8;padding:1em;">No stage metrics for this selection.</p>'; pick.innerHTML = ''; return; }
-        const shown = strategies.filter(s => scalingShown.has(s));
-        if (!shown.length) shown.push(strategies.includes('Bayesian-SBED') ? 'Bayesian-SBED' : strategies[0]);
-        const colorOf = (s) => hlStratColor(strategies, s);
-        pick.innerHTML = strategies.map(s => {
-            const on = shown.includes(s);
-            return `<button type="button" data-strategy="${escapeHtml(s)}" aria-pressed="${on}" title="${escapeHtml(s)}"
-                style="border:1px solid ${on ? colorOf(s) : '#cbd5e1'}; background:${on ? hlHexToRgba(colorOf(s), 0.12) : '#fff'}; color:${on ? '#0f172a' : '#94a3b8'}; border-radius:999px; padding:2px 10px; font-size:0.85em; cursor:pointer;"><span style="color:${on ? colorOf(s) : '#cbd5e1'}">●</span> ${escapeHtml(_shortStratLabel(s))}</button>`;
-        }).join('');
-        if (!pick._hasListener) {
-            pick.addEventListener('click', (e) => {
-                const btn = e.target.closest('button[data-strategy]');
-                if (!btn) return;
-                const s = btn.dataset.strategy;
-                if (!scalingShown.size) shown.forEach(x => scalingShown.add(x));
-                if (scalingShown.has(s)) scalingShown.delete(s); else scalingShown.add(s);
-                const mode = document.querySelector('#scan-view-mode button.is-active');
-                if (mode) showScanViewPanels(mode.dataset.value);
-            });
-            pick._hasListener = true;
-        }
-
-        // Use-case points per locator.
-        const pointsOf = new Map();
-        for (const strat of shown) {
-            const cases = [...hlCaseGroups(byStrategy.get(strat))];
-            pointsOf.set(strat, cases.map(rs => scalingPoints(rs)));
-        }
-        const all = [...pointsOf.values()].flat();
-        const distinct = (f) => [...new Set(all.map(f).filter(v => v != null))].sort((a, b) => a - b);
-        const windows = distinct(p => p.window), snrs = distinct(p => p.snr), shares = distinct(p => p.share), drivers = distinct(p => p.driver);
-        const snrLabel = (v) => `SNR ${Number(v.toPrecision(3))}`;
-        const lineName = (strat, share) => `${_shortStratLabel(strat)}${share != null ?` · ${ssShapeLabel(share)}` : ''}`;
-        const symbols = ['circle', 'square', 'diamond', 'triangle-up'];
-
-        // Lines of one locator x shape over `xOf`, taken from the use cases that match `keep`.
-        // Line shapes are pooled into one line per locator unless split (Line shape toggle): points sharing an x are
-        // merged by geometric mean (bar = min..max).
-        const shapeSplit = scalingSplit.shape && shares.length > 1;
-        const shareList = shapeSplit ? shares : [null];
-        const mergeStats = (ss) => ss.length === 1 ? ss[0]
-            : { med: geo(ss.map(v => v.med)), lo: Math.min(...ss.map(v => v.lo)), hi: Math.max(...ss.map(v => v.hi)), n: ss.reduce((a, v) => a + v.n, 0), kind: 'geo-mean' };
-        const linesFor = (xOf, yField, boundField, keep) => {
-            const out = [];
-            for (const strat of shown) {
-                for (const share of shareList) {
-                    const byX = new Map();
-                    for (const p of pointsOf.get(strat)) {
-                        if (!((share == null || p.share === share) && keep(p) && p[yField] && xOf(p) != null)) continue;
-                        if (!byX.has(xOf(p))) byX.set(xOf(p), []);
-                        byX.get(xOf(p)).push(p);
-                    }
-                    const pts = [...byX.entries()].map(([x, ps]) => {
-                        const bs = boundField ? ps.map(p => p[boundField]).filter(Boolean) : [];
-                        return { x, stat: mergeStats(ps.map(p => p[yField])), bound: bs.length ? mergeStats(bs) : null };
-                    });
-                    if (pts.some(p => p.stat)) out.push({ name: lineName(strat, share), color: colorOf(strat), symbol: symbols[Math.max(0, shares.indexOf(share)) % symbols.length], pts });
-                }
-            }
-            return out;
-        };
-
-        // Combine over a nuisance variable (SNR for the vs-window panels, window for the vs-SNR panel): within each
-        // nuisance value the curve is divided by its own value at the smallest x, then the curves are combined by
-        // geometric mean (bar = min..max across them). If the hypothesis holds the curves collapse onto the
-        // prediction, so the combination loses nothing; the spread shows where one value deviates.
-        const geo = (a) => Math.exp(a.reduce((s, v) => s + Math.log(v), 0) / a.length);
-        const combinedLines = (xOf, nuisanceOf, yField, boundField, nuisanceName) => {
-            const xs = distinct(xOf);
-            const out = [];
-            for (const strat of shown) {
-                for (const share of shareList) {
-                    const mine = pointsOf.get(strat).filter(p => (share == null || p.share === share) && xOf(p) != null);
-                    const groups = new Map();
-                    for (const p of mine) { const k = `${nuisanceOf(p)}\u0000${p.share}`; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(p); }
-                    const at = (g, x, field) => { const v = g.filter(p => xOf(p) === x && p[field] && p[field].med > 0).map(p => p[field].med); return v.length ? geo(v) : null; };
-                    const norm = (field) => {
-                        const byX = new Map(xs.map(x => [x, []]));
-                        for (const g of groups.values()) {
-                            const ref = at(g, xs[0], field);
-                            if (ref == null) continue;
-                            for (const x of xs) { const v = at(g, x, field); if (v != null) byX.get(x).push(v / ref); }
-                        }
-                        return byX;
-                    };
-                    const y = norm(yField), b = boundField ? norm(boundField) : null;
-                    const pts = xs.filter(x => y.get(x).length).map(x => {
-                        const v = y.get(x);
-                        const bv = b && b.get(x).length ? b.get(x) : null;
-                        return { x, stat: { med: geo(v), lo: Math.min(...v), hi: Math.max(...v), n: v.length, kind: 'geo-mean', nText: `${v.length} ${nuisanceName} level${v.length > 1 ? 's' : ''}` },
-                            bound: bv ? { med: geo(bv) } : null };
-                    });
-                    if (pts.length) out.push({ name: lineName(strat, share), color: colorOf(strat), symbol: symbols[Math.max(0, shares.indexOf(share)) % symbols.length], pts });
-                }
-            }
-            return out;
-        };
-        const toggle = (key, label, on) => `<button type="button" data-split="${key}" aria-pressed="${on}" style="border:1px solid ${on ? '#334155' : '#cbd5e1'}; background:${on ? '#e2e8f0' : '#fff'}; color:#0f172a; border-radius:999px; padding:2px 10px; font-size:0.85em; cursor:pointer;">${label}: ${on ? 'split' : 'combined'}</button>`;
-        const toggles = [];
-        if (shares.length > 1) toggles.push(toggle('shape', 'Line shape', scalingSplit.shape));
-
-        const panels = [];
-        const addPanel = (title, help, facets) => panels.push({ title, help, facets });
-        const notes = [];
-        // Search and localize against the window: SNR combined by default, or one chart per SNR.
-        if (windows.length >= 2) {
-            const splitSnr = scalingSplit.snr && snrs.length > 1;
-            if (snrs.length > 1) toggles.push(toggle('snr', 'SNR', scalingSplit.snr));
-            const bySnr = snrs.length ? snrs : [null];
-            const windowFacets = (yField, boundField, yTitle, slope, refName) => splitSnr
-                ? bySnr.map(snr => ({ label: snr == null ? '' : snrLabel(snr), lines: linesFor(p => p.window, yField, boundField, p => snr == null || p.snr === snr), opts: { xTitle: 'Window ÷ signal width (1 / occupancy)', yTitle: `${yTitle} (median)`, xLog: true, ref: { slope }, refName } }))
-                : [{ label: snrs.length > 1 ? `${snrs.length} SNR levels combined` : (snrs.length ? snrLabel(snrs[0]) : ''), lines: combinedLines(p => p.window, p => p.snr, yField, boundField, 'SNR'), opts: { xTitle: 'Window ÷ signal width (1 / occupancy)', yTitle: `${yTitle} ÷ at smallest window`, xLog: true, ref: { slope }, refName } }];
-            addPanel('Search steps vs signal occupancy', 'Measurements in the search stage against the window ÷ signal width (1 / signal occupancy; occupancy is the share of the window the signal covers, hyperfine lines included). A blind search must cover about window ÷ signal width dip-widths, so the dotted line (proportional to the window) is the prediction for the slope; SNR only shifts the level (the passes needed to see the dip). Combined: each SNR is divided by its own value at the smallest window and the SNRs are averaged (geometric mean, bar = min..max), so the chart tests the slope. Split: raw steps, one chart per SNR. Locators should be roughly alike here.',
-                windowFacets('search', null, 'Search steps', 1, '∝ window'));
-            addPanel('Localize steps vs signal occupancy', 'Measurements in the localize stage against the window. Localize starts once the dip is seen and aims at a precision set by the line width, so the prediction (dotted) is flat in the window. A slope means search is leaking into localize or the locator keeps searching. Combined: each SNR is divided by its own value at the smallest window and the SNRs are averaged (geometric mean, bar = min..max). Split: raw steps, one chart per SNR.',
-                windowFacets('focus', 'focusBound', 'Localize steps', 0, 'flat'));
-        } else {
-            notes.push('Select two or more windows (Parameters: Window) to see search and focus against the window.');
-        }
-        // Localize against SNR: one chart per window by default, or windows combined.
-        if (snrs.length >= 2) {
-            const splitWin = scalingSplit.window && windows.length > 1;
-            if (windows.length > 1) toggles.push(toggle('window', 'Window', scalingSplit.window));
-            const byWindow = windows.length ? windows : [null];
-            const snrOpts = { xTitle: 'SNR (C / noise σ)', xLog: true, ref: { slope: -2 }, refName: 'slope −2 (1/SNR²)' };
-            addPanel('Localize steps vs SNR', 'Measurements in the localize stage against SNR = C / noise σ (C = contrast_total / 2). The information per measurement grows as SNR², so the steps needed for a given precision fall as 1/SNR²: the dotted line has slope −2, and the dashed line is the Fisher bound (every measurement at the best point). Steps flatten at high SNR where a few probing measurements dominate. Split: one chart per window. Combined: each window is divided by its own value at the lowest SNR and the windows are averaged (geometric mean, bar = min..max).',
-                splitWin
-                    ? byWindow.map(w => ({ label: w == null ? '' : `occupancy ${ssOccLabel(1 / w)}`, lines: linesFor(p => p.snr, 'focus', 'focusBound', p => w == null || p.window === w), opts: { ...snrOpts, yTitle: 'Localize steps (median)' } }))
-                    : [{ label: windows.length > 1 ? `${windows.length} windows combined` : (windows.length ? `occupancy ${ssOccLabel(1 / windows[0])}` : ''), lines: combinedLines(p => p.snr, p => p.window, 'focus', 'focusBound', 'window'), opts: { ...snrOpts, yTitle: 'Localize steps ÷ at lowest SNR' } }]);
-        } else {
-            notes.push('Select two or more SNR levels to see the localize stage against SNR.');
-        }
-        // Refine against its driver.
-        if (drivers.length >= 2) {
-            addPanel('Refine steps vs (FWHM / (SNR · τ))²', 'Measurements in the refine stage against the Fisher-limited scale (FWHM_true / (SNR · τ))², with τ the stop target. An oracle needs a number of steps proportional to it, so the dotted line has slope +1 and the dashed line is the Fisher bound from the refine start. Needs runs recorded with the oracle columns.',
-                [{ label: '', lines: linesFor(p => p.driver, 'refine', 'refineBound', () => true), opts: { xTitle: '(FWHM_true / (SNR · τ))²', yTitle: 'Refine steps (median)', xLog: true, ref: { slope: 1 }, refName: 'slope +1' } }]);
-        } else {
-            notes.push('The refine panel needs two or more use cases with recorded oracle columns (runs from after the Stages oracle was added) and more than one SNR or width.');
-        }
-
-        if (!body._hasListener) {
-            body.addEventListener('click', (e) => {
-                const btn = e.target.closest('button[data-split]');
-                if (!btn) return;
-                scalingSplit[btn.dataset.split] = !scalingSplit[btn.dataset.split];
-                const mode = document.querySelector('#scan-view-mode button.is-active');
-                if (mode) showScanViewPanels(mode.dataset.value);
-            });
-            body._hasListener = true;
-        }
-        body.innerHTML = (toggles.length ? `<div style="display:flex; gap:0.5em; margin:0.4em 0;">${toggles.join('')}</div>` : '') + notes.map(n => `<p style="margin:0.4em 0; font-size:0.85em; color:#64748b;">${escapeHtml(n)}</p>`).join('') +
-            panels.map((pn, i) => `<section style="margin:1em 0 1.5em;"><h3 style="margin:0 0 0.4em; font-size:1.05em; color:#0f172a;">${escapeHtml(pn.title)} <span tabindex="0" class="help-icon-visible" title="${escapeHtml(pn.help)}">?</span></h3>
-                <div style="display:flex; flex-wrap:wrap; gap:1em;">${pn.facets.map((f, j) => `<div style="flex:1 1 ${pn.facets.length > 1 ? '30%' : '60%'}; min-width:320px; background:#fff; border:1px solid #f1f5f9; border-radius:8px; padding:8px;">
-                    ${f.label ? `<div style="margin:0 0 2px 8px; font-size:0.85em; font-weight:600; color:#334155;">${escapeHtml(f.label)}</div>` : ''}<div id="scaling-chart-${i}-${j}" style="height:320px; width:100%;"></div></div>`).join('')}</div></section>`).join('') +
-            `<p style="margin:1em 0 0; font-size:0.8em; color:#94a3b8;">One point per use case: the median over its repeats that reached the stage, bar = interquartile range. Runs that hit the shared budget count at the budget, a lower bound. Dotted: what the stage's driver predicts, anchored on the first point; dashed: Fisher bound. Compare locators at one use case in the Stages view.</p>`;
-        panels.forEach((pn, i) => pn.facets.forEach((f, j) => scalingChart(document.getElementById(`scaling-chart-${i}-${j}`), f.lines, f.opts)));
-    }
-
-    // ── Accuracy tab ─────────────────────────────────────────────────────────
-
-    function renderAccuracyTab(gen, noises) {
-        if (toGenSet(gen).size === 0) return;
-        ensureScanFieldsFor(gen, noises).then(() => {
-        const accView = document.getElementById('accuracy-view');
-        ensurePlotly().then(() => {
-            hlPaceArgs.clear();
-            // One block per selected use case: each is computed from that use case's runs alone.
-            // The view is two bodies around the σ-vs-SNR chart: the stop table, then the pace / reality charts. Each
-            // render function looks up its own elements and skips the ones that live in the other body.
-            const renderBlock = (uc, sfx) => {
-                const byStrategy = hlCollect(uc.generator, [].concat(uc.noise));
-                const strategies = [...byStrategy.keys()].sort(hlStrategyCompare);
-                renderHlStopQuality(byStrategy, strategies, sfx);
-            };
-            ucRenderBlocks('accuracy-body', gen, noises, renderBlock);
-            ucRenderBlocks('accuracy-body-2', gen, noises, renderBlock, true);
-        }).catch(err => {
-            const errDiv = accView;
-            if (errDiv) {
-                const msg = document.createElement('div');
-                msg.style.cssText = 'padding:1em;color:#721c24;background:#f8d7da;border:1px solid #f5c6cb;border-radius:6px;margin:1em;';
-                msg.innerHTML = `<strong>Accuracy render error:</strong> ${err.message || err}<br><pre style="white-space:pre-wrap;font-size:11px">${err.stack || ''}</pre>`;
-                errDiv.prepend(msg);
-            }
-        });
-        });
-    }
-
-    // ── Failed Runs tab ───────────────────────────────────────────────────────
 
     const FAILURE_LABELS = {
         max_steps: 'Max steps exhausted',
@@ -8583,14 +6675,6 @@ function main() {
             (noiseSet.size === 0 || noiseSet.has(p.noise)) &&
             !isSuccessRun(p)
         );
-    }
-
-    // The Sanity tab carries the failed-run count in its label.
-    function updateFailedRunsButton(generator, noises) {
-        const btn = document.getElementById('scan-view-sanity-btn');
-        if (!btn) return;
-        const failed = collectFailedRuns(generator, noises);
-        btn.textContent = failed.length > 0 ? `Sanity (${failed.length} failed)` : 'Sanity';
     }
 
     // Shared table builder for the by-noise and by-span breakdown matrices.
@@ -8776,207 +6860,6 @@ function main() {
     //   * stop table  -- the true error at the stop step, in units of τ (no σ involved);
     //   * pace        -- claimed σ(t) next to the true |error|(t) over the run;
     //   * reality     -- true |error| against the claimed σ across all steps (σ varies there, unlike at the stop).
-    function renderHlStopQuality(byStrategy, strategies, sfx) {
-        renderHlStopTable(byStrategy, strategies, sfx);
-        renderHlSigmaPace(byStrategy, strategies, sfx);
-        renderHlSigmaReality(byStrategy, strategies, sfx);
-    }
-
-    function renderHlStopTable(byStrategy, strategies, sfx) {
-        const div = document.getElementById(`hl-stop-table${sfx}`);
-        if (!div) return;
-        const fmtFrac = (k, n) => {
-            const w = hlWilson(k, n);
-            return w ? `${(w.p * 100).toFixed(0)}% <span style="color:#94a3b8">[${(w.lo * 100).toFixed(0)}–${(w.hi * 100).toFixed(0)}]</span>` : '–';
-        };
-        const fmtX = v => (v == null ? '–' : `${v.toFixed(2)}×`);
-        const body = [];
-        for (const strat of strategies) {
-            const runs = byStrategy.get(strat) || [];
-            const ratios = [];
-            for (const p of runs) {
-                const err = _mv(p, 'err_primary_at_milestone');
-                const tau = p.series ? p.series.tau : null;
-                if (p.primary_converged_step == null || err == null || !(tau > 0)) continue;
-                ratios.push(err / tau);
-            }
-            const sorted = hlSorted(ratios);
-            const n = sorted.length;
-            const over = t => sorted.filter(r => r > t).length;
-            body.push(`<tr>
-                <td style="text-align:left;font-weight:600;">${_shortStratLabel(strat)}</td>
-                <td>${n}/${runs.length}</td>
-                <td>${fmtX(hlQuantileSorted(sorted, 0.5))}</td>
-                <td>${fmtX(hlQuantileSorted(sorted, 0.9))}</td>
-                <td>${fmtX(hlQuantileSorted(sorted, 0.99))}</td>
-                <td>${fmtFrac(over(1), n)}</td>
-                <td>${fmtFrac(over(2), n)}</td>
-                <td>${fmtFrac(over(3), n)}</td>
-            </tr>`);
-        }
-        if (!body.length) {
-            div.innerHTML = '<p style="color:#94a3b8;padding:1em;font-size:0.9em;">No repeats in this use case.</p>';
-            return;
-        }
-        div.innerHTML = `<table class="hl-stop-table" style="border-collapse:collapse;font-size:0.85em;width:100%;text-align:right;">
-            <thead><tr style="color:#64748b;border-bottom:1px solid #e2e8f0;">
-                <th style="text-align:left;">Strategy</th><th>Stopped / runs</th>
-                <th>Median |err|</th><th>90th pct</th><th>99th pct</th>
-                <th>&gt; 1× τ</th><th>&gt; 2× τ</th><th>&gt; 3× τ</th>
-            </tr></thead><tbody>${body.join('')}</tbody></table>`;
-        div.querySelectorAll('td, th').forEach(c => { c.style.padding = '4px 10px'; });
-    }
-
-    function renderHlSigmaPace(byStrategy, strategies, sfx) {
-        const div = document.getElementById(`hl-sigma-pace${sfx}`);
-        if (!div) return;
-        hlPaceArgs.set(sfx, { byStrategy, strategies });
-        const toggle = document.getElementById(`hl-pace-bands-toggle${sfx}`);
-        if (toggle) {
-            toggle.checked = hlPaceBands;
-            if (!toggle._hasListener) {
-                // The bands option is one setting for the whole view: redraw every use case's pace chart.
-                toggle.addEventListener('change', () => {
-                    hlPaceBands = toggle.checked;
-                    for (const [key, args] of hlPaceArgs) {
-                        const other = document.getElementById(`hl-pace-bands-toggle${key}`);
-                        if (other) other.checked = hlPaceBands;
-                        renderHlSigmaPace(args.byStrategy, args.strategies, key);
-                    }
-                });
-                toggle._hasListener = true;
-            }
-        }
-        let globalMax = 1;
-        for (const s of strategies) {
-            if (isSweepBaseline(s)) continue; // a sweep's full-grid step count would swamp the adaptive scale
-            for (const p of byStrategy.get(s)) {
-                const m = hlRunSteps(p);
-                if (m != null && m > globalMax) globalMax = m;
-            }
-        }
-        const grid = hlStepGrid(globalMax);
-        const traces = [];
-        const taus = [];
-        const perStrategy = [];
-        for (const strat of strategies) {
-            const runs = byStrategy.get(strat).filter(p => p.series && p.series.e && p.series.u);
-            if (!runs.length) continue;
-            runs.forEach(p => { if (p.series.tau > 0) taus.push(p.series.tau); });
-            const xs = [], errMed = [], sigMed = [];
-            // Several use cases: the median over the use cases' own medians at that step, shown while at least half of
-            // them are still running; one use case: over its repeats.
-            const nCases = hlCaseGroups(runs).length;
-            const minUnits = nCases > 1 ? Math.max(Math.min(3, nCases), Math.ceil(nCases / 2)) : 1;
-            const unitsAt = (key, step) => {
-                if (nCases <= 1) return hlSorted(runs.map(p => hlSeriesValueAt(p.series, key, step)));
-                return hlSorted(hlCaseGroups(runs).map(rs => hlMedian(rs.map(p => hlSeriesValueAt(p.series, key, step)))));
-            };
-            for (const step of grid) {
-                const errs = unitsAt('e', step);
-                const sigs = unitsAt('u', step);
-                if (errs.length < minUnits || sigs.length < minUnits || !errs.length || !sigs.length) continue;
-                xs.push(step);
-                errMed.push(hlQuantileSorted(errs, 0.5));
-                sigMed.push(hlQuantileSorted(sigs, 0.5));
-            }
-            if (!xs.length) continue;
-            perStrategy.push({ strat, xs, errMed, sigMed });
-        }
-        // Per strategy: the claimed σ line, then deviation shells above it, coloured by how far out they are
-        // (1σ-2σ amber, 2σ-3σ red), then the true-error line on top. Below σ is left clear: an error there is normal.
-        // Plotly fills 'tonexty' up to the previous trace, so each shell is the trace above the one beneath it.
-        for (const { strat, xs, errMed, sigMed } of perStrategy) {
-            const color = hlStratColor(strategies, strat);
-            const label = _shortStratLabel(strat);
-            traces.push({
-                x: xs, y: sigMed, mode: 'lines', legendgroup: strat, name: `${label} claimed σ`,
-                line: { color, width: 2, dash: 'dot' },
-                hovertemplate: 'step %{x}<br>median claimed σ %{y:.4g} Hz<extra>' + label + '</extra>',
-            });
-            (hlPaceBands ? [[2, '#f59e0b', 0.22], [3, '#dc2626', 0.18]] : []).forEach(([k, shell, alpha]) => {
-                traces.push({
-                    x: xs, y: sigMed.map(v => k * v), mode: 'lines', line: { width: 0 },
-                    fill: 'tonexty', fillcolor: hlHexToRgba(shell, alpha),
-                    legendgroup: strat, showlegend: false,
-                    hovertemplate: 'step %{x}<br>' + k + 'σ %{y:.4g} Hz<extra>' + label + '</extra>',
-                });
-            });
-            traces.push({
-                x: xs, y: errMed, mode: 'lines', legendgroup: strat, name: `${label} true |err|`,
-                line: { color, width: 2 },
-                hovertemplate: 'step %{x}<br>median true |err| %{y:.4g} Hz<extra>' + label + '</extra>',
-            });
-        }
-        if (!traces.length) {
-            div.innerHTML = '<p style="color:#94a3b8;padding:1em;font-size:0.9em;">No per-step series available.</p>';
-            return;
-        }
-        const layout = hlBaseLayout();
-        layout.xaxis = { ...layout.xaxis, title: { text: 'Measurements', font: { size: 11 } }, type: 'log' };
-        layout.yaxis = { ...layout.yaxis, title: { text: 'Median over repeats (Hz)', font: { size: 11 } }, type: 'log' };
-        const tauMed = hlMedian(taus);
-        if (tauMed != null && tauMed > 0) {
-            layout.shapes = [{ type: 'line', xref: 'paper', x0: 0, x1: 1, yref: 'y', y0: tauMed, y1: tauMed, line: { color: '#64748b', width: 1.5, dash: 'dash' } }];
-            layout.annotations = [{ xref: 'paper', x: 0.99, yref: 'y', y: Math.log10(tauMed), text: 'stop target τ', showarrow: false, font: { size: 9, color: '#64748b' }, yanchor: 'bottom', xanchor: 'right' }];
-        }
-        if (hlPaceBands) {
-            layout.annotations = (layout.annotations || []).concat([{
-                xref: 'paper', yref: 'paper', x: 0.01, y: 0.02, xanchor: 'left', yanchor: 'bottom', showarrow: false,
-                align: 'left', font: { size: 9, color: '#64748b' },
-                text: '<span style="color:#f59e0b">■</span> 1–2σ above claimed σ &nbsp; <span style="color:#dc2626">■</span> 2–3σ above claimed σ',
-            }]);
-        }
-        Plotly.react(div, traces, layout, { displayModeBar: false, responsive: true });
-    }
-
-    function renderHlSigmaReality(byStrategy, strategies, sfx) {
-        const div = document.getElementById(`hl-sigma-reality${sfx}`);
-        if (!div) return;
-        const traces = [];
-        let xMin = Infinity, xMax = -Infinity;
-        for (const strat of strategies) {
-            const xs = [], ys = [];
-            for (const p of byStrategy.get(strat)) {
-                const ser = p.series;
-                if (!ser || !ser.e || !ser.u) continue;
-                for (let i = 0; i < ser.s.length; i++) {
-                    if (ser.u[i] > 0 && ser.e[i] != null) { xs.push(ser.u[i]); ys.push(ser.e[i]); }
-                }
-            }
-            const bin = hlLogBinMedian(xs, ys, 20, 5);
-            if (!bin.cx.length) continue;
-            const color = hlStratColor(strategies, strat);
-            const label = _shortStratLabel(strat);
-            xMin = Math.min(xMin, bin.cx[0]);
-            xMax = Math.max(xMax, bin.cx[bin.cx.length - 1]);
-            traces.push({
-                x: bin.cx.concat([...bin.cx].reverse()), y: bin.hi.concat([...bin.lo].reverse()),
-                fill: 'toself', fillcolor: hlHexToRgba(color, 0.12), line: { width: 0 },
-                mode: 'lines', hoverinfo: 'skip', showlegend: false, legendgroup: strat,
-            });
-            traces.push({
-                x: bin.cx, y: bin.med, mode: 'lines+markers', legendgroup: strat, name: label,
-                line: { color, width: 2 }, marker: { color, size: 4 }, customdata: bin.n,
-                hovertemplate: 'claimed σ %{x:.3g} Hz<br>median true |err| %{y:.3g} Hz<br>n=%{customdata}<extra>' + label + '</extra>',
-            });
-        }
-        if (!traces.length) {
-            div.innerHTML = '<p style="color:#94a3b8;padding:1em;font-size:0.9em;">No (error, uncertainty) pairs available.</p>';
-            return;
-        }
-        // A calibrated Gaussian belief has median |error| = 0.6745 σ. A curve parallel to this line means σ tracks the
-        // real error up to a constant factor; a flatter curve means σ says little about the error.
-        traces.push({
-            x: [xMin, xMax], y: [0.6745 * xMin, 0.6745 * xMax], mode: 'lines', name: 'calibrated Gaussian (0.67 σ)',
-            line: { color: '#64748b', width: 1.5, dash: 'dash' }, hoverinfo: 'skip',
-        });
-        const layout = hlBaseLayout();
-        layout.xaxis = { ...layout.xaxis, title: { text: 'Claimed σ (Hz)', font: { size: 11 } }, type: 'log' };
-        layout.yaxis = { ...layout.yaxis, title: { text: 'True |error| (Hz): median and IQR per σ bin', font: { size: 11 } }, type: 'log' };
-        Plotly.react(div, traces, layout, { displayModeBar: false, responsive: true });
-    }
-
     function formatHz(v) {
         if (v == null || !isFinite(v)) return '?';
         if (Math.abs(v) >= 1e6) return (v / 1e6).toFixed(1) + ' MHz';
@@ -9007,26 +6890,14 @@ function main() {
     // route through here so the aggregate axes stay consistent.
     function showScanViewPanels(mode) {
         const repeatView = document.getElementById('scan-repeat-view');
-        const stepSizeView = document.getElementById('stepsize-view');
-        const ssControls = document.getElementById('ss-controls');
-        const accuracyView = document.getElementById('accuracy-view');
-        const stagesView = document.getElementById('stages-view');
-        const scalingView = document.getElementById('scaling-view');
+        const articleView = document.getElementById('article-view');
         const stoppingRow = document.getElementById('stopping-criteria-row');
-        const gen = compareGeneratorsArg();
-        const noises = compareNoisesArg();
 
         if (repeatView) repeatView.style.display = 'none';
         const runContent = document.getElementById('scan-run-content');
         // Collapsed, not display:none: the Run plots still render into it and Plotly cannot size a hidden panel.
         if (runContent) runContent.style.cssText = mode === 'single' ? '' : 'height:0; overflow:hidden; visibility:hidden;';
-        if (stepSizeView) stepSizeView.style.display = 'none';
-        // Stages shows them itself under "Whole run" (hlApplyStageSelector).
-        if (ssControls) ssControls.style.display = mode === 'sanity' ? 'block' : 'none';
-        updateSsStickyHeight();
-        if (accuracyView) accuracyView.style.display = 'none';
-        if (stagesView) stagesView.style.display = 'none';
-        if (scalingView) scalingView.style.display = 'none';
+        if (articleView) articleView.style.display = 'none';
 
         const compareSweepRow = document.getElementById('scan-compare-sweep-row') || document.getElementById('scan-compare-sweep-container');
         if (compareSweepRow) {
@@ -9041,25 +6912,12 @@ function main() {
         if (mode === 'single') {
             if (repeatView) repeatView.style.display = 'block';
             updateStoppingCriteriaVisibility(currentPlot);
-        } else if (mode === 'sanity') {
+        } else if (mode === 'article') {
+            // The Simulation page has its own line / window / SNR pickers (static/article-view.js).
             if (stoppingRow) stoppingRow.style.display = 'none';
-            if (accuracyView) {
-                accuracyView.style.display = 'block';
-                renderAccuracyTab(gen, noises);
-                renderStepSizeTab();   // the "Is the claimed σ right?" chart across the family
-                renderFailedRunsTab(gen, noises);
-            }
-        } else if (mode === 'stages') {
-            if (stoppingRow) stoppingRow.style.display = 'none';
-            if (stagesView) {
-                stagesView.style.display = 'block';
-                renderStagesTab(gen, noises);
-            }
-        } else if (mode === 'scaling') {
-            if (stoppingRow) stoppingRow.style.display = 'none';
-            if (scalingView) {
-                scalingView.style.display = 'block';
-                renderScalingTab(gen, noises);
+            if (articleView) {
+                articleView.style.display = 'block';
+                if (window.NVArticleView) window.NVArticleView.render(articleView);
             }
         }
         syncHashFromState();
@@ -9460,10 +7318,9 @@ function main() {
         const hNoise = params.get('noise');
         const hStrategy = params.get('strategy');
         const hRepeat = params.get('repeat');
-        // Views that were folded into others: Cost & search (view=locators) is the Whole run scope of Stages;
-        // Accuracy and Failed Runs are the Sanity view. Keep old links working.
+        // Removed views (Information / Stages, Scaling, Sanity, Cost & search, Accuracy) open the Simulation page.
         const hViewRaw = params.get('view');
-        const hView = hViewRaw === 'locators' ? 'stages' : (hViewRaw === 'accuracy' || hViewRaw === 'failed-runs') ? 'sanity' : hViewRaw;
+        const hView = ['stages', 'scaling', 'sanity', 'locators', 'accuracy', 'failed-runs'].includes(hViewRaw) ? 'article' : hViewRaw;
         const hBayesTab = params.get('bayesTab');
 
         if (hGenerator) scanGenerator.dataset.value = hGenerator;

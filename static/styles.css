@@ -1931,3 +1931,116 @@ tbody.ss-case.collapsed > tr:not(:first-child) { display: none; }
 #scan-section.lab-mode .panel-signal > *:not(#scan-generator-family-row) { display: none !important; }
 #scan-section.lab-mode .panel-locator { display: none !important; }
 body.lab-mode .last-run, body.lab-mode .header-actions, body.lab-mode .tab-bar { display: none !important; }
+
+/* ── Design-system tokens and components used by the article views (docs/design_system/tokens.css,
+      components/bundle.css: ChartCard, EmptyState, Notice). Values copied verbatim; keep them in sync. ── */
+:root {
+    --surface: #ffffff;
+    --surface-sunken: #fafafa;
+    --ink: #333333;
+    --ink-muted: #666666;
+    --border-control: #cccccc;
+    --chart-grid: #eeeeee;
+    --divider-soft: #eeeeee;
+    --slate-50: #f8fafc;
+    --slate-100: #f1f5f9;
+    --slate-200: #e2e8f0;
+    --slate-500: #64748b;
+    --slate-600: #475569;
+    --slate-700: #334155;
+    --slate-800: #1e293b;
+    --amber-50: #fef3c7;
+    --amber-200: #fde68a;
+    --amber-800: #92400e;
+    --green-700: #15803d;
+    --orange-700: #c2410c;
+    --red-700: #b91c1c;
+    --highlight-1: #2563eb;
+    --highlight-2: #f59e0b;
+    --highlight-3: #10b981;
+    --highlight-4: #8b5cf6;
+    --highlight-5: #ec4899;
+    --highlight-6: #ef4444;
+    --highlight-7: #06b6d4;
+    --highlight-8: #14b8a6;
+    --radius-md: 6px;
+    --radius-lg: 8px;
+}
+
+.view-panel {
+    margin-top: 1em;
+    padding-top: 1em;
+    border-top: 1px solid var(--divider-soft);
+}
+
+.view-panel > h2 { margin: 0 0 0.4em; }
+
+.group-label {
+    margin: 1.4em 0 0.3em;
+    color: var(--slate-600);
+    font-size: 0.95em;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    border-bottom: none;
+    padding-bottom: 0;
+}
+
+.group-label:first-of-type { margin-top: 0.8em; }
+
+.chart-pair {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 1.5em;
+}
+
+.chart-card {
+    background: var(--surface);
+    border: 1px solid var(--slate-100);
+    border-radius: var(--radius-lg);
+    padding: 10px;
+}
+
+.chart-pair > .chart-card {
+    flex: 1 1 46%;
+    min-width: 420px;
+}
+
+.chart-card > h3 { margin-left: 10px; }
+
+.chart-card > h4 {
+    margin: 1em 0 0.2em 10px;
+    font-size: 0.85em;
+    color: var(--slate-600);
+}
+
+.chart-card-full { margin-bottom: 1em; }
+
+/* The article claim a card tests, and what the data say: one line under the card title. */
+.chart-claim {
+    margin: 0 10px 0.4em;
+    font-size: 0.85em;
+    color: var(--slate-600);
+}
+
+.chart-claim .claim-value { font-family: ui-monospace, "SF Mono", "Cascadia Code", monospace; color: var(--slate-800); }
+
+.empty-state {
+    padding: 2em;
+    text-align: center;
+    color: var(--ink-muted);
+    background: var(--surface-sunken);
+    border: 1px dashed var(--border-control);
+    border-radius: var(--radius-lg);
+    margin: 1em 0;
+}
+
+.notice-amber {
+    margin-bottom: 1em;
+    padding: 0.6em 1em;
+    background: var(--amber-50);
+    border: 1px solid var(--amber-200);
+    border-radius: var(--radius-md);
+    font-size: 0.9em;
+    color: var(--amber-800);
+}
