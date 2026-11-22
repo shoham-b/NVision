@@ -70,6 +70,9 @@ uv run nv groups list
 # Run a group (shortcut: `uv run nv groups voigt-grid`)
 uv run nv groups run voigt-grid
 
+# The article's simulations only (Lorentzian single dip x span x SNR; Bayesian-SBED vs the sweep at k*, 70 tasks)
+uv run nv groups run article
+
 # Run a subset of a group's locators/signals (what the former *-only groups did)
 uv run nv run --run-group voigt-grid --filter-strategy "^Bayesian-SBED$"
 uv run nv run --run-group voigt-grid --filter-signal fw40
