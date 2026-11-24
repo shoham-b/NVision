@@ -147,11 +147,12 @@ centre, 0.3-1 the steep sides (the optimum is 0.58), 1-3 the wings, > 3 far.
 | span 50, SNR 5 | shape inferred | 0.58 | 0.58 | 0.34 / 0.64 / 0.00 / 0.02 |
 | span 50, SNR 5 | shape known | 0.95 | 0.94 | 0.00 / 0.83 / 0.03 / 0.14 |
 | span 50, SNR 10 | shape inferred | 0.56 | 0.56 | 0.33 / 0.64 / 0.01 / 0.03 |
+| span 50, SNR 10 | shape known | 0.93 | 0.81 | 0.10 / 0.77 / 0.03 / 0.10 (steps 300-800) |
 | lab mirror, W = 100 MHz, FWHM 1.82 MHz, SNR 5 (budget 300) | shape known | 0.96 | - | 0.00 / 0.83 / 0.03 / 0.14 |
 
 With the shape inferred, a third of the measurements go to the dip centre. There a shift of theta changes nothing,
 but the depth tells the contrast. Those measurements alone take q from about 0.9 to 0.57. With the shape known, the
-centre share drops to zero and q reaches 0.94-0.96. The far share (about 0.14) is the falsification probes (2-10 %)
+centre share drops to zero and q reaches 0.94-0.96. At SNR 10 the known-shape q falls to 0.81 late in the run (steps 300-800), with 10 % of the measurements back at the centre. The 1 % shape prior is then no longer narrow against what the data tell about the contrast, so the score spends on it again. A tighter known shape would remove this. The far share (about 0.14) is the falsification probes (2-10 %)
 plus measurements in the pads. The claimed sigma stays honest in both arms (cov2 0.94-1.00 at n = 300).
 
 The predictive-variance score is not wrong. It is the right greedy choice for the joint posterior over
