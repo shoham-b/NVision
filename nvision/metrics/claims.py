@@ -2,11 +2,11 @@
 
 What already exists is reused, not redone: the ``(n0, q)`` line and the sweep theory (``refine_rates``), the search
 bounds
-(``search_bounds``), localize (``localize``) and the posterior series (``posterior``). This module adds the missing
+(``search_bounds``), the detection-aligned localize ratio (``detection_aligned``) and the posterior series
+(``posterior``). This module adds the missing
 pieces, each a measurement that can fail its claim (nothing is tuned toward the prediction; a window that cannot support
 a number says why instead of widening):
 
-* ``prior_gap``, ``bound_ratio``: the van Trees bound against the run-averaged true error (claim: R <= 1);
 * ``regimes``: detection, Gaussian onset and converge end of the runs, plateau and tail slope of the run-averaged
   error (claim: four regimes: search + localize, collapse, converge, refine);
 * ``fit_with_gate``: the ``(n0, q)`` line of ``refine_rates.fit_rate_line`` plus a linearity gate and bootstrap
@@ -36,9 +36,6 @@ from nvision.metrics.refine_rates import RateFit, fit_rate_line, inverse_mse_cur
 
 BOOTSTRAP_SAMPLES = 200
 BOOTSTRAP_SEED = 20261118
-# R <= 1 + 1 % is the tolerance of the bound (the uniform average can undercut it that much;
-# docs/evaluation_metrics.md).
-BOUND_TOLERANCE = 0.01
 GAUSS_WITHIN = {1: 0.6826894921370859, 2: 0.9544997361036416}  # share of a Gaussian within k sigma
 MIN_RUNS = 10  # fewer repeats make every share and every bootstrap meaningless
 HALF_MIN_POINTS = 3  # grid points each half of the fit window needs for the linearity gate
@@ -80,13 +77,6 @@ def rms(mat: np.ndarray) -> np.ndarray:
 
 
 # --- bound -------------------------------------------------------------------------------------------------------
-def prior_gap(j0: float, j0_var: float) -> float:
-    """``sqrt(J0 / J0_var)`` = ``pi / sqrt3`` = 1.81 for a uniform window (``stage_prior_info`` over ``_var``)."""
-    if not (j0 > 0 and j0_var > 0):
-        raise ValueError(f"J0 and 1/Var must be positive, got {j0}, {j0_var}")
-    return math.sqrt(j0 / j0_var)
-
-
 def truth_spread_ratio(truth_phys: np.ndarray, lo_phys: float, hi_phys: float) -> float:
     """``rms(truth - window centre) / (W / sqrt12)``: 1 when the truths are uniform over the prior window.
 
@@ -100,31 +90,6 @@ def truth_spread_ratio(truth_phys: np.ndarray, lo_phys: float, hi_phys: float) -
     return float(np.sqrt(np.mean((t - 0.5 * (lo_phys + hi_phys)) ** 2)) / ((hi_phys - lo_phys) / math.sqrt(12.0)))
 
 
-def bound_ratio(grid: np.ndarray, err: np.ndarray, j0: float, imax: float) -> np.ndarray:
-    """``R(n) = 1 / mean(err^2 (J0 + n I_max))``, shape (n_grid,). The bound says ``R <= 1`` (+ 1 %).
-
-    ``err``: shape (n_runs, n_grid), Hz. With the claimed sigma instead of the true error, ``R > 1`` is overconfidence.
-    """
-    if not (j0 > 0 and imax > 0):
-        raise ValueError(f"J0 and I_max must be positive, got {j0}, {imax}")
-    return 1.0 / np.mean(err**2 * (j0 + grid * imax)[None, :], axis=0)
-
-
-def bound_ratio_ci(
-    grid: np.ndarray, err: np.ndarray, j0: float, imax: float, *, bootstrap: int = BOOTSTRAP_SAMPLES
-) -> tuple[np.ndarray, np.ndarray]:
-    """Bootstrap (2.5 %, 97.5 %) of :func:`bound_ratio` over the repeats, each shape (n_grid,)."""
-    rng = np.random.default_rng(BOOTSTRAP_SEED)
-    z = err**2 * (j0 + grid * imax)[None, :]
-    draws = np.array([1.0 / z[rng.integers(0, z.shape[0], z.shape[0])].mean(axis=0) for _ in range(bootstrap)])
-    return np.percentile(draws, 2.5, axis=0), np.percentile(draws, 97.5, axis=0)
-
-
-def bound_violated(ratio_lo: np.ndarray) -> bool:
-    """True when the lower end of R's interval is above ``1 + BOUND_TOLERANCE`` anywhere: the error beats the bound."""
-    return bool(np.any(ratio_lo > 1.0 + BOUND_TOLERANCE))
-
-
 # --- regimes -----------------------------------------------------------------------------------------------------
 @dataclass(frozen=True)
 class Regimes:
@@ -136,7 +101,7 @@ class Regimes:
     """
 
     plateau_ratio: float | None  # mean rms err over n < detection, in units of sigma_0 (~1 = plateau at the prior)
-    detection_step: float | None  # median dip_detected_step: end of search + localize
+    detection_step: float | None  # median detection_step: end of search + localize
     gaussian_onset: float | None  # median first step from which the negentropy stays below the Gaussian threshold
     converge_end: float | None  # first n from which rms err <= CONVERGE_TOLERANCE / sqrt(q n I_max)
     tail_slope: float | None  # log-log slope of rms err on n >= 2 detection (-0.5 = Cramer-Rao; an offset steepens it)
@@ -207,17 +172,17 @@ def regimes(
 class GatedFit:
     """``refine_rates.fit_rate_line`` on a window, plus bootstrap intervals and a gate on the window being linear.
 
-    ``q_halves``: q of the first and second half of the window; ``linear`` is True when their bootstrap intervals
+    ``rate_halves``: q of the first and second half of the window; ``linear`` is True when their bootstrap intervals
     overlap. ``None`` fit / ``why`` set when the window is too short or 1/MSE does not grow.
     """
 
     fit: RateFit | None
-    q_ci: tuple[float, float] | None
-    n0_ci: tuple[float, float] | None
-    q_halves: tuple[float, float] | None
+    rate_ci: tuple[float, float] | None
+    search_offset_ci: tuple[float, float] | None
+    rate_halves: tuple[float, float] | None
     linear: bool | None
     why: str | None = None
-    q_halves_ci: tuple[tuple[float, float] | None, tuple[float, float] | None] | None = None
+    rate_halves_ci: tuple[tuple[float, float] | None, tuple[float, float] | None] | None = None
 
 
 def _boot_fit(
@@ -263,35 +228,45 @@ def fit_with_gate(
     has not
     reached the late regime, and the q is then NOT a refine rate (it is still returned so it can be read with that
     caveat). A half whose slope is not positive is not an error: its interval, which then includes 0, is what is
-    compared, so a short window gives a wide interval and passes weakly; ``q_halves_ci`` shows how weak.
+    compared, so a short window gives a wide interval and passes weakly; ``rate_halves_ci`` shows how weak.
     """
     full, boots = _boot_fit(steps, vals, grid, imax, window, bootstrap)
     if full is None:
         return GatedFit(None, None, None, None, None, "fewer than 5 grid points in the fit window")
     if not full.slope > 0:
         return GatedFit(full, None, None, None, None, "1/MSE does not grow with n in the window (no information gain)")
-    q_ci = _ci([b.q for b in boots])
-    n0_ci = _ci([b.n0 for b in boots if b.slope > 0])
+    rate_ci = _ci([b.rate for b in boots])
+    search_offset_ci = _ci([b.search_offset for b in boots if b.slope > 0])
     inside = grid[(grid >= window[0]) & (grid <= window[1])]
     if inside.size < 2 * HALF_MIN_POINTS:
-        return GatedFit(full, q_ci, n0_ci, None, None, f"{inside.size} grid points: too few to test linearity")
+        return GatedFit(
+            full, rate_ci, search_offset_ci, None, None, f"{inside.size} grid points: too few to test linearity"
+        )
     mid = float(inside[inside.size // 2])
     halves = []
     for sub in ((window[0], float(inside[inside.size // 2 - 1])), (mid, window[1])):
         f, bs = _boot_fit(steps, vals, grid, imax, sub, bootstrap)
         if f is None:
-            return GatedFit(full, q_ci, n0_ci, None, None, "fewer than 5 grid points in one half of the window")
-        halves.append((f.q, _ci([b.q for b in bs])))
+            return GatedFit(
+                full, rate_ci, search_offset_ci, None, None, "fewer than 5 grid points in one half of the window"
+            )
+        halves.append((f.rate, _ci([b.rate for b in bs])))
     (q1, ci1), (q2, ci2) = halves
     if ci1 is None or ci2 is None:
         return GatedFit(
-            full, q_ci, n0_ci, (q1, q2), None, "too few bootstrap draws in a half to test linearity", (ci1, ci2)
+            full,
+            rate_ci,
+            search_offset_ci,
+            (q1, q2),
+            None,
+            "too few bootstrap draws in a half to test linearity",
+            (ci1, ci2),
         )
     linear = max(ci1[0], ci2[0]) <= min(ci1[1], ci2[1])
     why = (
         None if linear else f"not linear: q of the halves differ ({q1:.3g} vs {q2:.3g}), the late regime is not reached"
     )
-    return GatedFit(full, q_ci, n0_ci, (q1, q2), linear, why, (ci1, ci2))
+    return GatedFit(full, rate_ci, search_offset_ci, (q1, q2), linear, why, (ci1, ci2))
 
 
 def rate_ratio(claimed: GatedFit, true: GatedFit) -> float | None:
@@ -300,9 +275,9 @@ def rate_ratio(claimed: GatedFit, true: GatedFit) -> float | None:
 
     Both fits must have a positive slope on the same window; otherwise ``None`` (never a stand-in).
     """
-    if claimed.fit is None or true.fit is None or not (claimed.fit.q > 0 and true.fit.q > 0):
+    if claimed.fit is None or true.fit is None or not (claimed.fit.rate > 0 and true.fit.rate > 0):
         return None
-    return float(claimed.fit.q / true.fit.q)
+    return float(claimed.fit.rate / true.fit.rate)
 
 
 def sensitivity_ratio(grid: np.ndarray, err: np.ndarray, imax: float, window: tuple[float, float]) -> float | None:
@@ -338,7 +313,7 @@ def coverage_curve(
 
     ``err``, ``unc``: shape (n_runs, n_grid), Hz (true error and claimed sigma). ``gate``: shape (n_runs,), the step
     from
-    which a run counts (``refine_start_step``; NaN = never reached, excluded) because the article tests coverage only
+    which a run counts (its Gaussian onset; NaN = never reached, excluded) because the article tests coverage only
     once
     the posterior is Gaussian; ``within_k_all`` is the same over all runs so the effect of the gate is visible. A step
     with fewer than :data:`MIN_RUNS` counted runs reports ``None``. Below 0.683 / 0.954 is overconfident.

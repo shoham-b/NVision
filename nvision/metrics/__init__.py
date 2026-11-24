@@ -1,8 +1,9 @@
 """NVision metrics package: per-run metrics computed identically for every locator.
 
-Per-step series (:mod:`nvision.metrics.series`), convergence milestones (:mod:`nvision.metrics.milestones`),
-the search/localize/refine stage decomposition (:mod:`nvision.metrics.stages`) and the stage-by-stage
-locator comparison table (:mod:`nvision.metrics.compare`).
+Per-step series (:mod:`nvision.metrics.series`), the stop rule's convergence test (:mod:`nvision.metrics.milestones`),
+dip detection, I_max and the axes (:mod:`nvision.metrics.run_axes`), and the article-claim analyses
+(:mod:`nvision.metrics.claims`, :mod:`nvision.metrics.search_bounds`, :mod:`nvision.metrics.detection_aligned`,
+:mod:`nvision.metrics.refine_rates`).
 """
 
 from nvision.metrics.series import (

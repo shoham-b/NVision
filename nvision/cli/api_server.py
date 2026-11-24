@@ -30,6 +30,7 @@ from nvision.cli.search_bounds_api import add_search_bounds_route
 from nvision.gui.report import _STATIC_DIR, render_index_html
 from nvision.metrics.fit_gap import FIT_GAP_METRIC_KEYS
 from nvision.metrics.posterior import POSTERIOR_METRIC_KEYS
+from nvision.metrics.run_axes import RUN_AXIS_KEYS
 from nvision.runner.cache import _decompress_text
 from nvision.sim.combinations import PLAIN_SWEEP_STRATEGIES, CombinationGrid
 from nvision.sim.defaults import PARAM_ABSOLUTE_CONVERGENCE_THRESHOLDS
@@ -49,9 +50,9 @@ _STATIC_ASSET_NAMES = (
     "reload.js",
     "styles.css",
     "lab-view.js",
-    "search-bounds-view.js",
     "detection-aligned-view.js",
-    "refine-rates.js",
+    "article-view.js",
+    "claim-panels.js",
 )
 
 log = logging.getLogger("nvision.api_server")
@@ -201,37 +202,14 @@ def _find_repeat(bridge: CacheBridge, combo_key: str, repeat_idx: int) -> tuple[
     return None
 
 
-# Per-run fields behind the Speed tab's locator comparison (the `nv compare` tables); read from the locator
-# results row, falling back to the scan entry's metrics.
+# Per-run scalars behind the article views (/api/scan-fields and the claim endpoints built on it); read from the
+# locator results row, falling back to the scan entry's metrics.
 _COMPARE_FIELDS = (
     "final_err_primary",
     "uncert",
-    "dip_detected_step",
-    "focus_found_step",
-    "refine_start_step",
-    *(f"stage{k}_{m}" for k in (1, 2, 3) for m in ("steps", "unc_start", "unc_ratio", "err_end", "sens_eff")),
-    # The oracle and the axes behind the Stages / Scaling views (nvision/metrics/stages.py).
     "snr",
-    "stage_fisher_star",
-    "stage_eps_target_phys",
-    "stage_tau_phys",
-    "stage_fwhm_true_phys",
-    "stage_prior_fwhm_phys",
-    "stage_window_phys",
-    "stage_window_fwhm",
-    "stage_prior_info",
-    "stage_prior_info_var",
-    "stage_true_passage_step",
-    "stage_eta_eff",
-    "stage2_oracle_steps",
-    "stage2_efficiency",
-    "stage2_wasted_share",
-    "stage3_oracle_steps",
-    "stage3_efficiency",
-    "stage3_wasted_share",
-    "lock_tolerance_phys",
-    "lock_step_true",
-    "lock_step_claimed",
+    # Dip detection, I_max and the axes (nvision/metrics/run_axes.py).
+    *RUN_AXIS_KEYS,
     # Run-time posterior metrics of the primary parameter (nvision/metrics/posterior.py); per-step values are in the
     # scan entry's ``series`` (``z``, ``p``, ``g``, ``m``, ``j``, ``x``).
     *POSTERIOR_METRIC_KEYS,
@@ -295,13 +273,8 @@ _RUN_ROW_FIELDS = (
     "primary_converged_step",
     "final_err_primary",
     "uncert",
-    "stage_primary_param",
-    "dip_detected_step",
-    "focus_found_step",
-    "refine_start_step",
-    "stage1_steps",
-    "stage2_steps",
-    "stage3_steps",
+    "primary_param",
+    "detection_step",
     "noise_sigma",
 )
 
@@ -312,7 +285,7 @@ def _run_row(combo: dict, main_row: dict) -> dict:
     ``tau`` is the absolute convergence threshold of the run's primary parameter (Hz), the stop target the
     stop rule compares the claimed uncertainty against; None when the primary has no absolute threshold.
     """
-    primary = main_row.get("stage_primary_param")
+    primary = main_row.get("primary_param")
     row = {
         "generator": combo["generator"],
         "noise": combo["noise"],

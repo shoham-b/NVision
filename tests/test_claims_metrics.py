@@ -20,24 +20,10 @@ def _runs(n_runs, sigma_fn, grid, seed=0):
     return steps, vals
 
 
-def test_prior_gap_uniform_is_pi_over_sqrt3():
-    assert claims.prior_gap(4 * math.pi**2 / 100.0, 12 / 100.0) == pytest.approx(math.pi / math.sqrt(3))
-
-
 def test_truth_spread_ratio():
     t = np.linspace(-0.5, 0.5, 20001)
     assert claims.truth_spread_ratio(t, -0.5, 0.5) == pytest.approx(1.0, rel=1e-3)
     assert claims.truth_spread_ratio(0.5 * t, -0.5, 0.5) == pytest.approx(0.5, rel=1e-3)
-
-
-def test_bound_ratio_one_on_the_bound_and_violation_flag():
-    grid = claims.step_grid(500)
-    err = np.tile((J0 + grid * I_MAX) ** -0.5, (40, 1))  # every run exactly on the bound
-    assert claims.bound_ratio(grid, err, J0, I_MAX) == pytest.approx(1.0)
-    lo, _ = claims.bound_ratio_ci(grid, err, J0, I_MAX)
-    assert not claims.bound_violated(lo)
-    lo, _ = claims.bound_ratio_ci(grid, 0.5 * err, J0, I_MAX)  # error half the bound: R = 4, the claim fails
-    assert claims.bound_violated(lo)
 
 
 def test_regimes_four_boundaries():
@@ -76,7 +62,7 @@ def test_gate_passes_on_a_straight_line_and_fails_on_a_kink():
     steps, vals = _runs(40, lambda n: (q * I_MAX * np.maximum(n - n0, 1.0)) ** -0.5, grid)
     ok = claims.fit_with_gate(steps, vals, grid, I_MAX, win, bootstrap=60)
     assert ok.linear is True
-    assert ok.fit.q == pytest.approx(q, rel=0.3)
+    assert ok.fit.rate == pytest.approx(q, rel=0.3)
 
     def kinked(n):  # the information rate triples at n = 700: a kink, not a line
         return np.where(
@@ -187,31 +173,59 @@ def test_report_end_to_end_on_stored_rows():
         e = ((J0 + grid * I_MAX) ** -0.5 * (1.0 + 0.1 * rng.random(grid.size))).tolist()
         rows.append(
             {
-                "series": {"s": grid.tolist(), "e": e, "u": e, "g": np.where(grid < 60, 0.5, 0.01).tolist()},
+                "series": {
+                    "step": grid.tolist(),
+                    "error": e,
+                    "claimed_sigma": e,
+                    "negentropy": np.where(grid < 60, 0.5, 0.01).tolist(),
+                },
                 "compare": {
-                    "stage_prior_info": J0,
-                    "stage_prior_info_var": J0 * 3 / math.pi**2,
-                    "stage_fisher_star": I_MAX,
-                    "stage_window_phys": 10.0,
-                    "stage_fwhm_true_phys": 1.0,
-                    "stage_tau_phys": 0.05,
-                    "dip_detected_step": 20,
+                    "i_max": I_MAX,
+                    "window_phys": 10.0,
+                    "fwhm_phys": 1.0,
+                    "sigma_target_phys": 0.05,
+                    "detection_step": 20,
+                    "prior_kind": "uniform",
+                    "sigma0_phys": 0.3,
                 },
                 "true_params": {"params": {"zeeman_shift": 0.1 * i}, "bounds": {"zeeman_shift": [0.0, 1.1]}},
             }
         )
     out = analyse_use_case(rows)
-    assert out["prior_gap"] == pytest.approx(math.pi / math.sqrt(3))
-    assert 0.8 < out["R_true"][100] < 1.01
-    assert out["bound_violated"] is False
-    assert out["fit_true"]["q"] == pytest.approx(1.0, rel=0.15)
-    assert out["rate_ratio_claimed_over_true"] == pytest.approx(1.0)
+    assert out["sigma0_phys"] == pytest.approx(1.1 / math.sqrt(12))  # W / sqrt(12) of the drawn zeeman_shift range
+    rms = out["rms_curve"]
+    assert len(rms["n"]) == len(rms["error"]) == len(rms["claimed_sigma"])
+    assert rms["error"] == pytest.approx(rms["claimed_sigma"])  # e == u in these rows
+    assert rms["error"][-1] < rms["error"][0]
+    assert out["coverage_pit_final"] is None  # these rows store no pit series
+    assert out["fitted_rate"]["rate"] == pytest.approx(1.0, rel=0.15)
+    assert out["claimed_over_fitted_rate"] == pytest.approx(1.0)
     assert out["gaussian_share"] == 1.0
     assert out["regimes"]["detection_step"] == 20.0
-    assert 60 <= out["regimes"]["gaussian_onset"] <= 70
-    assert out["regimes"]["converge_end"] is not None
-    assert out["coverage_at_budget"]["runs_gated"] == 12
+    assert 60 <= out["regimes"]["gaussian_onset_step"] <= 70
+    assert out["regimes"]["converge_end_step"] is not None
+    assert out["coverage_gated_final"]["runs_gated"] == 12
     assert "unavailable" in analyse_use_case(rows[:3])
+
+
+def test_report_tracking_uses_the_gaussian_prior_sigma0():
+    grid = claims.step_grid(1000)
+    rows = []
+    for _ in range(12):
+        e = ((1.0 / 0.04 + grid * I_MAX) ** -0.5).tolist()
+        rows.append(
+            {
+                "series": {"step": grid.tolist(), "error": e, "claimed_sigma": e, "negentropy": [0.01] * grid.size},
+                "compare": {"i_max": I_MAX, "detection_step": 1, "prior_kind": "gaussian", "sigma0_phys": 0.2},
+                "true_params": {"params": {"zeeman_shift": 0.5}, "bounds": {"zeeman_shift": [0.0, 1.1]}},
+            }
+        )
+    out = analyse_use_case(rows)
+    assert out["prior_kind"] == "gaussian"
+    assert out["sigma0_phys"] == pytest.approx(0.2)  # the tracking prior's std, not W / sqrt(12)
+    mixed = [dict(r, compare={**r["compare"], "prior_kind": "uniform"}) if i == 0 else r for i, r in enumerate(rows)]
+    with pytest.raises(ValueError, match="one stored prior_kind"):
+        analyse_use_case(mixed)
 
 
 def test_report_excludes_runs_that_never_reach_the_gaussian_peak():
@@ -222,18 +236,19 @@ def test_report_excludes_runs_that_never_reach_the_gaussian_peak():
         g = np.where(grid < 60, 0.5, 0.01) if i < 9 else np.full(grid.size, 0.5)  # 3 of 12 stay non-Gaussian
         rows.append(
             {
-                "series": {"s": grid.tolist(), "e": e, "u": e, "g": g.tolist()},
+                "series": {"step": grid.tolist(), "error": e, "claimed_sigma": e, "negentropy": g.tolist()},
                 "compare": {
-                    "stage_prior_info": J0,
-                    "stage_prior_info_var": J0 * 3 / math.pi**2,
-                    "stage_fisher_star": I_MAX,
-                    "dip_detected_step": 20,
+                    "i_max": I_MAX,
+                    "detection_step": 20,
+                    "prior_kind": "uniform",
+                    "sigma0_phys": 0.3,
                 },
+                "true_params": {"params": {"zeeman_shift": 0.1 * i}, "bounds": {"zeeman_shift": [0.0, 1.1]}},
             }
         )
     out = analyse_use_case(rows)
     assert out["gaussian_share"] == pytest.approx(0.75)
-    assert out["coverage_at_budget"]["runs_gated"] == 9
-    bad = [dict(r, series={k: v for k, v in r["series"].items() if k != "g"}) for r in rows]
+    assert out["coverage_gated_final"]["runs_gated"] == 9
+    bad = [dict(r, series={k: v for k, v in r["series"].items() if k != "negentropy"}) for r in rows]
     with pytest.raises(ValueError, match="negentropy"):
         analyse_use_case(bad)

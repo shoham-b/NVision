@@ -191,11 +191,11 @@ def test_api_n_grid_log_spaced_integers_up_to_budget():
 def test_api_run_rejects_other_primary_and_missing_columns():
     from nvision.cli.search_bounds_api import UseCaseError, _Run
 
-    entries = [{"type": "scan", "series": {"s": [1], "e": [1.0]}, "true_params": {}, "metrics": {}}]
+    entries = [{"type": "scan", "series": {"step": [1], "error": [1.0]}, "true_params": {}, "metrics": {}}]
     with pytest.raises(UseCaseError, match="primary parameter"):
-        _Run(entries, {"stage_primary_param": "zero_field_freq"})
+        _Run(entries, {"primary_param": "zero_field_freq"})
     with pytest.raises(UseCaseError, match="zeeman_shift bounds"):
-        _Run(entries, {"stage_primary_param": "zeeman_shift", "stage3_err_end": 1.0})
+        _Run(entries, {"primary_param": "zeeman_shift", "final_err_primary": 1.0})
     with pytest.raises(UseCaseError, match="no scan entry"):
         _Run([], {})
 
@@ -203,21 +203,21 @@ def test_api_run_rejects_other_primary_and_missing_columns():
 def test_api_run_rejects_series_that_is_not_the_primary_error():
     from nvision.cli.search_bounds_api import UseCaseError, _Run
 
-    entries = [{"type": "scan", "series": {"s": [1], "e": [1.0]}, "true_params": {}, "metrics": {}}]
-    with pytest.raises(UseCaseError, match="neither the stage metrics"):
-        _Run(entries, {"stage_primary_param": "zeeman_shift", "stage3_err_end": 50.0})
-    with pytest.raises(UseCaseError, match="neither the stage metrics"):
-        _Run(entries, {"stage_primary_param": "zeeman_shift", "stage3_err_end": 50.0, "final_err_primary": 70.0})
+    entries = [{"type": "scan", "series": {"step": [1], "error": [1.0]}, "true_params": {}, "metrics": {}}]
+    with pytest.raises(UseCaseError, match="not the final error"):
+        _Run(entries, {"primary_param": "zeeman_shift"})
+    with pytest.raises(UseCaseError, match="not the final error"):
+        _Run(entries, {"primary_param": "zeeman_shift", "final_err_primary": 70.0})
 
 
 def test_api_run_accepts_a_sweep_series_that_ends_on_its_fit():
-    """A sweep's series ends on its fit estimate (extract_step_series), whose error is ``final_err_primary``, not the
-    belief's ``stage*_err_end``; the check must accept it and get as far as the next missing field."""
+    """A sweep's series ends on its fit estimate (extract_step_series), whose error is ``final_err_primary``; the
+    check must accept it and get as far as the next missing field."""
     from nvision.cli.search_bounds_api import UseCaseError, _Run
 
-    entries = [{"type": "scan", "series": {"s": [1], "e": [70.0]}, "true_params": {}, "metrics": {}}]
+    entries = [{"type": "scan", "series": {"step": [1], "error": [70.0]}, "true_params": {}, "metrics": {}}]
     with pytest.raises(UseCaseError, match="zeeman_shift bounds"):
-        _Run(entries, {"stage_primary_param": "zeeman_shift", "stage3_err_end": 50.0, "final_err_primary": 70.0})
+        _Run(entries, {"primary_param": "zeeman_shift", "final_err_primary": 70.0})
 
 
 def test_api_line_statistics_rebuilds_a_window_grid_line():

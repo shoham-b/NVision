@@ -14,7 +14,6 @@ import math
 import pytest
 
 from nvision.metrics.milestones import (
-    calculate_all_converged_metrics,
     calculate_zeeman_metrics,
     extract_milestone_metrics,
 )
@@ -108,40 +107,3 @@ def test_extract_milestone_metrics_override_only_touches_named_keys():
     # hyperfine_shift has no override entry, so it still comes from the belief.
     assert fs["est_shift"] == pytest.approx(TRUE_SPLIT)
     assert not math.isnan(fs["overall_uncert"])
-
-
-def test_calculate_all_converged_metrics_extracts_step_at_index():
-    """all_converged_step is 1-indexed (locator.step_count); index 1 => snapshots[0]."""
-    run_result = _make_run_result(
-        belief_estimates={"zero_field_freq": TRUE_FREQUENCY, "hyperfine_shift": TRUE_SPLIT + 2e-4},
-        fit_mode_estimates=None,
-    )
-
-    metrics = calculate_all_converged_metrics(run_result, all_converged_step=1, primary_param="hyperfine_shift")
-
-    assert metrics["err_primary_at_all_converged"] == pytest.approx(2e-4)
-    assert metrics["uncert_primary_at_all_converged"] == pytest.approx(1e-3)
-
-
-def test_calculate_all_converged_metrics_none_when_step_missing():
-    run_result = _make_run_result(
-        belief_estimates={"zero_field_freq": TRUE_FREQUENCY, "hyperfine_shift": TRUE_SPLIT},
-        fit_mode_estimates=None,
-    )
-
-    metrics = calculate_all_converged_metrics(run_result, all_converged_step=None, primary_param="hyperfine_shift")
-
-    assert metrics["err_primary_at_all_converged"] is None
-    assert metrics["uncert_primary_at_all_converged"] is None
-
-
-def test_calculate_all_converged_metrics_out_of_range_step():
-    run_result = _make_run_result(
-        belief_estimates={"zero_field_freq": TRUE_FREQUENCY, "hyperfine_shift": TRUE_SPLIT},
-        fit_mode_estimates=None,
-    )
-
-    metrics = calculate_all_converged_metrics(run_result, all_converged_step=5, primary_param="hyperfine_shift")
-
-    assert metrics["err_primary_at_all_converged"] is None
-    assert metrics["uncert_primary_at_all_converged"] is None

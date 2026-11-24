@@ -13,7 +13,7 @@ import polars as pl
 from nvision.metrics.fit_gap import FIT_GAP_METRIC_KEYS, compute_fit_gap
 from nvision.metrics.milestones import calculate_zeeman_metrics, detect_all_converged_step, resolve_primary_param
 from nvision.metrics.posterior import POSTERIOR_METRIC_KEYS, compute_posterior_metrics
-from nvision.metrics.stages import STAGE_METRIC_KEYS, compute_stage_metrics
+from nvision.metrics.run_axes import RUN_AXIS_KEYS, compute_run_axes
 from nvision.models.experiment import CoreExperiment
 from nvision.models.observer import RunResult
 from nvision.sim.grid_enums import is_plain_sweep
@@ -114,19 +114,19 @@ def generate_attempt_metrics(
         milestone_data = calculate_zeeman_metrics(run_result, primary_param=primary_param)
         for k, v in milestone_data.items():
             metrics_serialized[k] = _maybe_finite(v)
-        # Search / localize / refine stages, detected the same way for every locator (see metrics/stages.py).
-        stage_metrics = compute_stage_metrics(run_result)
-        for k, v in stage_metrics.items():
+        # Dip detection, I_max and the axes, read the same way for every locator (see metrics/run_axes.py).
+        axes = compute_run_axes(run_result)
+        for k, v in axes.items():
             metrics_serialized[k] = v if isinstance(v, str) else _maybe_finite(v)
         # Run-time posterior metrics of the primary parameter (J_tau, far placement; metrics/posterior.py). The
         # per-step series are attached to the scan entry in runner/plots.py from the same (memoised) computation.
-        posterior = compute_posterior_metrics(run_result, stage_metrics["stage_primary_param"], stage_metrics)
+        posterior = compute_posterior_metrics(run_result, axes["primary_param"], axes)
         for k, v in posterior["scalars"].items():
             metrics_serialized[k] = _maybe_finite(v)
         # Truth-free stuck-belief check: the final belief against a least-squares fit of the same data
         # (metrics/fit_gap.py). None for locators without a particle belief.
         final_belief = run_result.snapshots[-1].belief if run_result.snapshots else None
-        fit_gap = compute_fit_gap(final_belief, stage_metrics["stage_primary_param"])
+        fit_gap = compute_fit_gap(final_belief, axes["primary_param"])
         for k, v in fit_gap.items():
             metrics_serialized[k] = _maybe_finite(v)
 
@@ -149,17 +149,6 @@ def generate_attempt_metrics(
         steps_to_primary = metrics_serialized.get("steps_to_primary")
         primary_converged_step = None if steps_to_primary is None else int(steps_to_primary)
         all_converged_step = detect_all_converged_step(run_result)
-
-    # All-converged milestone metrics -- error/uncertainty of the primary (shift)
-    # parameter at all_converged_step, mirroring the primary-milestone fields above but
-    # keyed off the externally tracked step instead of re-detecting it (see
-    # calculate_all_converged_metrics docstring).
-    if run_result and all_converged_step is not None:
-        from nvision.metrics.milestones import calculate_all_converged_metrics
-
-        ac_metrics = calculate_all_converged_metrics(run_result, all_converged_step, primary_param=primary_param)
-        for k, v in ac_metrics.items():
-            metrics_serialized[k] = _maybe_finite(v)
 
     is_converged = False
     if not finalize_row.is_empty() and "converged" in finalize_row.columns:
@@ -312,13 +301,9 @@ def generate_attempt_metrics(
         "sweep_steps": sweep_steps,
         "locator_steps": locator_steps,
         "steps_to_primary": metrics_serialized.get("steps_to_primary"),
-        "err_primary_at_milestone": metrics_serialized.get("err_primary_at_milestone"),
-        "uncert_primary_at_milestone": metrics_serialized.get("uncert_primary_at_milestone"),
-        "err_primary_at_all_converged": metrics_serialized.get("err_primary_at_all_converged"),
-        "uncert_primary_at_all_converged": metrics_serialized.get("uncert_primary_at_all_converged"),
         "primary_converged_step": primary_converged_step,
         "all_converged_step": all_converged_step,
-        **{key: metrics_serialized.get(key) for key in STAGE_METRIC_KEYS},
+        **{key: metrics_serialized.get(key) for key in RUN_AXIS_KEYS},
         **{key: metrics_serialized.get(key) for key in POSTERIOR_METRIC_KEYS},
         **{key: metrics_serialized.get(key) for key in FIT_GAP_METRIC_KEYS},
         "failure_reason": failure_reason,

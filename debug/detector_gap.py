@@ -1,7 +1,7 @@
 """Dip-test detection vs the lab-style detection (first steep, lasting drop of the claimed sigma) on the cached
 article grid (read-only, in-process TestClient on /api/scan-fields).
 
-Per run: ``dip_detected_step`` (stored, the locator's own held dip test) and ``lab_search_fit.detection_step`` applied
+Per run: ``detection_step`` (stored, the locator's own held dip test) and ``lab_search_fit.detection_step`` applied
 to the stored claimed-sigma series ``u`` at its stored steps ``s`` (the series may be thinned, so the lab step is the
 stored step at the drop: exact where the series is per step). Reports, per strategy x span x SNR, the medians and the
 median and IQR of (lab - dip).
@@ -30,11 +30,11 @@ for span in spans:
         by: dict[str, list] = {}
         for r in rows:
             ser, cmp = r.get("series") or {}, r.get("compare") or {}
-            dip = cmp.get("dip_detected_step")
+            dip = cmp.get("detection_step")
             if not ser.get("u") or dip is None:
                 continue
-            s = np.asarray(ser["s"], dtype=float)
-            u = np.asarray(ser["u"], dtype=float)
+            s = np.asarray(ser["step"], dtype=float)
+            u = np.asarray(ser["claimed_sigma"], dtype=float)
             ok = np.isfinite(u) & (u > 0)
             s, u = s[ok], u[ok]
             k = detection_step(u) if u.size >= 2 else None

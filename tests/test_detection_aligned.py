@@ -3,8 +3,9 @@ import math
 import numpy as np
 import pytest
 
-from nvision.cli.detection_aligned_api import aligned_run, analyse_rows
+from nvision.cli.detection_aligned_api import analyse_rows, record_from_row
 from nvision.metrics import detection_aligned as da
+from nvision.metrics.run_record import DIP_TEST
 
 I_MAX = 1e-12  # Hz^-2 per measurement
 BUDGET = 200
@@ -77,7 +78,7 @@ def test_analyse_end_to_end_and_too_few_runs():
     out = da.analyse(runs, budget=BUDGET, i_max=I_MAX, dd_phys=1e6, n_undetected=1)
     assert out["n_runs"] == 12
     assert out["n_undetected"] == 1
-    assert out["rho_j_tau_at"]["10"] == pytest.approx(1.0)
+    assert out["rho_van_trees_at"]["10"] == pytest.approx(1.0)
     assert out["bound_violated"] is False
     assert out["j_d"] == pytest.approx(12e-12)
     assert out["gaussian"]["share_reached"] == 1.0
@@ -89,25 +90,26 @@ def test_better_than_bound_is_flagged():
     runs = [_run(tau=5 + i, j_tau=1e-10 * (1 + i % 3), scale=0.5) for i in range(12)]
     out = da.analyse(runs, budget=BUDGET, i_max=I_MAX, dd_phys=None, n_undetected=0)
     assert out["bound_violated"] is True
-    assert "rho_j_d" not in out
+    assert "rho_elimination" not in out
 
 
 def _row(tau: int | None, *, with_g: bool = True) -> dict:
     s = list(range(1, BUDGET + 1))
     return {
         "series": {
-            "s": s,
-            "e": [None] + [1e5 / math.sqrt(k) for k in s[1:]],
-            "g": [None, None] + [0.01] * (BUDGET - 2) if with_g else None,
-            "u": [None] + [0.5e5 / math.sqrt(k) for k in s[1:]],
-            "x": [None] + [0.0] * (BUDGET - 1),
+            "step": s,
+            "error": [None] + [1e5 / math.sqrt(k) for k in s[1:]],
+            "negentropy": [None, None] + [0.01] * (BUDGET - 2) if with_g else None,
+            "claimed_sigma": [None] + [0.5e5 / math.sqrt(k) for k in s[1:]],
+            "far_placed": [None] + [0.0] * (BUDGET - 1),
         },
         "compare": {
-            "dip_detected_step": tau,
-            "posterior_J_tau_phys": 1e-10,
-            "stage_fisher_star": I_MAX,
-            "posterior_far_mass_tau": 0.1,
-            "stage_fwhm_true_phys": 2e6,
+            "detection_step": tau,
+            "j_tau_phys": 1e-10,
+            "i_max": I_MAX,
+            "far_mass_tau": 0.1,
+            "fwhm_phys": 2e6,
+            "window_phys": 50e6,
             "snr": 10.0,
         },
         "true_params": {"bounds": {"zeeman_shift": [1e6, 40e6]}},
@@ -115,30 +117,34 @@ def _row(tau: int | None, *, with_g: bool = True) -> dict:
 
 
 def test_api_rows():
-    assert aligned_run(_row(None)) is None
-    a = aligned_run(_row(5))
+    assert da.align(record_from_row(_row(None)), DIP_TEST) is None
+    a = da.align(record_from_row(_row(5)), DIP_TEST)
     assert a.steps[0] == 2
     assert np.isnan(a.negentropy[0])
-    assert a.detected_step == 5
-    with pytest.raises(ValueError, match="no stored s/e/g/u"):
-        aligned_run(_row(5, with_g=False))
+    assert a.detection_step == 5
+    assert a.restart == 4  # the posterior before the measurement the dip test fired on
+    with pytest.raises(ValueError, match="no stored step/error/negentropy/claimed_sigma"):
+        record_from_row(_row(5, with_g=False))
     out = analyse_rows([_row(5 + i) for i in range(11)] + [_row(None)])
     assert out["n_runs"] == 11
     assert out["n_undetected"] == 1
     assert out["dd_phys"] > 0
+    assert out["detector"] == "dip-test"
+    cmp = out["detector_comparison"]
+    assert (cmp["a"], cmp["b"], cmp["n_runs"]) == ("dip-test", "sigma-drop", 12)
 
 
 def test_claimed_rate_calibrated_and_overconfident():
     runs = [_run(tau=5 + i, j_tau=1e-10) for i in range(12)]
     cal = da.analyse(runs, budget=BUDGET, i_max=I_MAX, dd_phys=None, n_undetected=0)["claimed_rate"]
     d = cal["from_detection"]
-    assert d["q_hat_over_q"] == pytest.approx(1.0)
-    assert d["q_hat"] == pytest.approx(d["q_true"])
-    assert d["q_hat_over_q_ci"][0] <= 1.0 <= d["q_hat_over_q_ci"][1]
+    assert d["claimed_over_fitted_rate"] == pytest.approx(1.0)
+    assert d["claimed_rate"] == pytest.approx(d["fitted_rate"])
+    assert d["claimed_over_fitted_rate_ci"][0] <= 1.0 <= d["claimed_over_fitted_rate_ci"][1]
     over = [_run(tau=5 + i, j_tau=1e-10, claim_scale=0.5) for i in range(12)]
     o = da.analyse(over, budget=BUDGET, i_max=I_MAX, dd_phys=None, n_undetected=0)["claimed_rate"]["from_detection"]
-    assert o["q_hat_over_q"] == pytest.approx(4.0)  # sigma half as large: 1/sigma^2 four times as steep
-    assert o["q_hat_over_q_ci"][0] > 1.0
+    assert o["claimed_over_fitted_rate"] == pytest.approx(4.0)  # sigma half as large: 1/sigma^2 four times as steep
+    assert o["claimed_over_fitted_rate_ci"][0] > 1.0
 
 
 def test_claimed_rate_from_gaussian_starts_at_onset():
@@ -147,7 +153,7 @@ def test_claimed_rate_from_gaussian_starts_at_onset():
     g = out["from_gaussian"]
     assert g["window"] == [0, BUDGET - 41]  # the latest onset (step 41) bounds the common lags
     assert g["window"][1] < out["from_detection"]["window"][1]
-    assert g["q_hat_over_q"] == pytest.approx(1.0)
+    assert g["claimed_over_fitted_rate"] == pytest.approx(1.0)
     never = [_run(tau=5 + i, j_tau=1e-10, neg_onset=None) for i in range(12)]
     n = da.analyse(never, budget=BUDGET, i_max=I_MAX, dd_phys=None, n_undetected=0)["claimed_rate"]
     assert "unavailable" in n["from_gaussian"]

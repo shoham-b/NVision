@@ -1,4 +1,4 @@
-"""Stage-by-stage locator comparison table and sweep strategy names."""
+"""Per-locator summary table and sweep strategy names."""
 
 from __future__ import annotations
 
@@ -25,10 +25,7 @@ def _results() -> pl.DataFrame:
             "failure_reason": [None, "max_steps", "timeout", None, None],
             "final_err_primary": [100.0, 300.0, 1.0, 50.0, 70.0],
             "uncert": [150.0, 100.0, 1.0, 40.0, 60.0],
-            "focus_found_step": [5, 7, None, None, 12],
-            "refine_start_step": [9, None, None, None, None],
-            "stage1_steps": [5, 7, None, 30, 12],
-            "stage1_unc_ratio": [0.1, 0.3, None, 0.9, 0.2],
+            "detection_step": [5, 7, None, None, 12],
         }
     )
 
@@ -40,16 +37,15 @@ def test_usable_runs_drops_timeouts_and_empty_runs_but_keeps_budget_hits():
 def test_compare_reports_reach_rates_and_medians_per_strategy():
     out = {r["strategy"]: r for r in compare_locators(_results()).iter_rows(named=True)}
     assert out["A"]["runs"] == 2
-    assert out["A"]["focus_found"] == pytest.approx(1.0)
-    assert out["A"]["max_info"] == pytest.approx(0.5)
+    assert out["A"]["detected"] == pytest.approx(1.0)
+    assert out["A"]["detect_step"] == pytest.approx(6.0)
     assert out["A"]["err_median"] == pytest.approx(200.0)
     assert out["A"]["cover_2sigma"] == pytest.approx(0.5)  # 100 <= 300 yes, 300 <= 200 no
-    assert out["B"]["focus_found"] == pytest.approx(0.5)
-    assert out["B"]["stage1_unc_ratio"] == pytest.approx(0.55)
+    assert out["B"]["detected"] == pytest.approx(0.5)
 
 
-def test_compare_tolerates_missing_stage_columns():
-    df = _results().drop("stage1_steps", "stage1_unc_ratio", "focus_found_step", "refine_start_step")
+def test_compare_tolerates_a_missing_detection_column():
+    df = _results().drop("detection_step")
     assert compare_locators(df).height == 2
 
 

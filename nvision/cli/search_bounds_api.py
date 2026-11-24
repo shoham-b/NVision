@@ -1,6 +1,6 @@
 """``/api/search-bounds``: the search-phase bounds against the measured search, per use case and locator.
 
-Reads only what is already in the cache (per-repeat ``series``, ``true_params`` and stage columns), so it works with
+Reads only what is already in the cache (per-repeat ``series``, ``true_params`` and the run axes), so it works with
 ``nv serve`` on an existing cache and needs no re-run. The formulas live in :mod:`nvision.metrics.search_bounds`; this
 module rebuilds the true line of a use case, checks the stored columns against it and assembles the payload.
 
@@ -68,7 +68,6 @@ class _Run:
         "fwhm",
         "noise_sigma",
         "params",
-        "prior_info",
         "snr",
         "steps",
         "theta",
@@ -84,29 +83,27 @@ class _Run:
         def field(name: str) -> Any:
             return row[name] if row.get(name) is not None else metrics.get(name)
 
-        if field("stage_primary_param") != PRIMARY_PARAM:
-            raise UseCaseError(f"primary parameter is {field('stage_primary_param')!r}, not {PRIMARY_PARAM!r}")
+        if field("primary_param") is None:
+            raise UseCaseError("a repeat has no primary_param column (recorded before the 2026-11-24 rename: re-run)")
+        if field("primary_param") != PRIMARY_PARAM:
+            raise UseCaseError(f"primary parameter is {field('primary_param')!r}, not {PRIMARY_PARAM!r}")
         series = scan.get("series") or {}
-        if not series.get("s"):
+        if not series.get("step"):
             raise UseCaseError("a repeat has no per-step series")
-        keep = [i for i, e in enumerate(series["e"]) if e is not None]
+        keep = [i for i, e in enumerate(series["error"]) if e is not None]
         if not keep:
             raise UseCaseError("a repeat has no true-error series")
-        self.steps = np.array([series["s"][i] for i in keep], dtype=float)
-        self.errs = np.array([series["e"][i] for i in keep], dtype=float)
-        # The series parameter is chosen by the series exporter, not by stage_primary_param: confirm it is the
-        # zeeman_shift error through its last point (the series is rounded to 4 significant digits). That point is
-        # the belief's error after the last measurement (the stage metrics' error of the last reached stage) for a
-        # belief locator, and the fit's error ``final_err_primary`` for a sweep, whose series ends on its fit
-        # estimate (nvision.metrics.series.extract_step_series; series cached before that change end on the belief).
-        # Both are errors of the primary parameter, so either identifies the series.
-        last_err = next((field(f"stage{k}_err_end") for k in (3, 2, 1) if field(f"stage{k}_err_end") is not None), None)
-        candidates = [float(v) for v in (last_err, field("final_err_primary")) if v is not None]
-        if not any(math.isclose(float(self.errs[-1]), v, rel_tol=_FINAL_ERR_REL_TOL) for v in candidates):
+        self.steps = np.array([series["step"][i] for i in keep], dtype=float)
+        self.errs = np.array([series["error"][i] for i in keep], dtype=float)
+        # The series parameter is chosen by the series exporter, not by primary_param: confirm it is the
+        # zeeman_shift error through its last point (the series is rounded to 4 significant digits), which is the
+        # run's final error ``final_err_primary`` (a sweep's series ends on its fit estimate, as that error does;
+        # nvision.metrics.series.extract_step_series).
+        final_err = field("final_err_primary")
+        if final_err is None or not math.isclose(float(self.errs[-1]), float(final_err), rel_tol=_FINAL_ERR_REL_TOL):
             raise UseCaseError(
-                f"the last point of the true-error series ({self.errs[-1]:g}) is neither the stage metrics' error "
-                f"after the last measurement ({last_err}) nor the final error ({field('final_err_primary')}): the "
-                "series is not the primary parameter's error"
+                f"the last point of the true-error series ({self.errs[-1]:g}) is not the final error ({final_err}): "
+                "the series is not the primary parameter's error"
             )
         true = scan.get("true_params") or {}
         self.params = dict(true.get("params") or {})
@@ -117,15 +114,14 @@ class _Run:
         if PRIMARY_PARAM not in self.params:
             raise UseCaseError("true_params carry no zeeman_shift value")
         self.theta = float(self.params[PRIMARY_PARAM])
-        for name in ("stage_fisher_star", "stage_fwhm_true_phys", "stage_prior_info", "snr", "noise_sigma"):
+        for name in ("i_max", "fwhm_phys", "snr", "noise_sigma"):
             if field(name) is None:
                 raise UseCaseError(f"stored column {name!r} is missing (rows from before it was added need a re-run)")
-        self.fisher_star = float(field("stage_fisher_star"))
-        self.fwhm = float(field("stage_fwhm_true_phys"))
-        self.prior_info = float(field("stage_prior_info"))
+        self.fisher_star = float(field("i_max"))
+        self.fwhm = float(field("fwhm_phys"))
         self.snr = float(field("snr"))
         self.noise_sigma = float(field("noise_sigma"))
-        det = field("dip_detected_step")
+        det = field("detection_step")
         self.detected = None if det is None else int(det)
 
 
@@ -155,7 +151,7 @@ def _line_statistics(
     the average over ``theta`` the bounds are on. ``dip = baseline - signal`` with the baseline the signal far from
     every line. The drawn range is read from the generator and must equal the width stored with the runs.
     """
-    from nvision.metrics.stages import _grad_sq_fn
+    from nvision.metrics.run_axes import _grad_sq_fn
     from nvision.sim.combinations import CombinationGrid
 
     gen = CombinationGrid()._resolve_generators.get(generator_name)  # the grid's name registry
@@ -208,23 +204,18 @@ def _locator_block(
     never_norm = 1.0 / kappa
     out: dict[str, Any] = {
         "n_runs": len(runs),
-        # Share of runs whose stored J0 (stage_prior_info) is 4 pi^2 / W^2 of the drawn range: a check on the stored
-        # columns only (W itself comes from the signal's bounds, confirmed against the generator). Not 1 means the rows
-        # were recorded with a different prior and need a re-run.
-        "prior_info_match_share": float(
-            np.mean([math.isclose(4.0 * math.pi**2 / width**2, r.prior_info, rel_tol=_WIDTH_REL_TOL) for r in runs])
-        ),
         "mse": _num_list(np.where(usable, mse, np.nan)),
         "survival": _num_list(np.where(usable, surv, np.nan)),
         "running_share": _num_list(running.mean(axis=0)),
-        "kappa_eff": _num(kappa_eff),
-        "kappa_ratio": None if kappa_eff is None else _num(kappa_eff / kappa),
+        # n_search_eff = 1 / kappa_eff, measurements per e-fold of the survival; search_efficiency = n_search / it.
+        "n_search_eff": None if not kappa_eff else _num(1.0 / kappa_eff),
+        "search_efficiency": None if kappa_eff is None else _num(kappa_eff / kappa),
         "detection": {
             "median": det.median,
             "p75": det.p75,
             "capped_share": det.capped_share,
-            "median_over_inv_kappa": det.median / never_norm,
-            "p75_over_inv_kappa": det.p75 / never_norm,
+            "median_over_n_search": det.median / never_norm,
+            "p75_over_n_search": det.p75 / never_norm,
             "median_over_cells": None if dd is None else det.median / (width / dd),
             "p75_over_cells": None if dd is None else det.p75 / (width / dd),
         },
@@ -273,7 +264,7 @@ def use_case_payload(generator: str, noise: str, rows: dict[str, list[_Run]], bu
     }
     if dd is not None:
         curves["finite_reach"] = _num_list(sb.finite_reach_curve(grid, width, dd))
-        curves["mean_model"] = _num_list(sb.mean_curve(grid, width, dd, fisher))
+        curves["elimination_model"] = _num_list(sb.mean_curve(grid, width, dd, fisher))
     cells = None if dd is None else width / dd
     predicted = None if dd is None or not width > dd else sb.predicted_sweep_ratio(width, dd)
     return {
@@ -286,12 +277,12 @@ def use_case_payload(generator: str, noise: str, rows: dict[str, list[_Run]], bu
         "noise_sigma": sigma,
         "shots": k,
         "fisher_max": fisher,
-        "kappa_bar": kappa,
-        "inv_kappa_bar": 1.0 / kappa,
-        "kappa_lorentzian": sb.kappa_bar_lorentzian(width, hwhm, snr, k),
+        # n_search = 1 / kappa_bar (Eq. search-cost: measurements per e-fold of the change-of-measure bound).
+        "n_search": 1.0 / kappa,
+        "n_search_lorentzian": 1.0 / sb.kappa_bar_lorentzian(width, hwhm, snr, k),
         "tolerance_phys": tolerance,
         "tolerance_hwhm": sb.SURVIVAL_TOLERANCE_HWHM,
-        "kappa_ratio_floor": 1.0 / (1.0 - 2.0 * tolerance / width),
+        "search_efficiency_floor": 1.0 / (1.0 - 2.0 * tolerance / width),
         "reach": None if reach is None else {"dd_phys": reach.dd_phys, "z": reach.z, "kind": reach.kind},
         "cells": cells,
         "regime": None if cells is None else ("finite-reach" if 1.0 / kappa < cells else "noise-limited"),

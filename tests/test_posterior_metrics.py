@@ -134,58 +134,58 @@ def _fake_run(clouds, drive_unit, truth=30e6, zff=2.0e9, n_obs=None):
 
 def test_run_metrics_z_far_mass_far_placement_and_j_tau(monkeypatch):
     # FWHM 2 MHz -> far = 6 MHz from the mode. dip drive position = zff + mode.
-    monkeypatch.setattr("nvision.metrics.stages._true_fwhm_phys", lambda ts: 2e6)
+    monkeypatch.setattr("nvision.metrics.run_axes._true_fwhm_phys", lambda ts: 2e6)
     rng = np.random.default_rng(5)
     wide = 30e6 + 8e6 * rng.standard_normal(N)
     mirror = np.concatenate([20e6 + 1e5 * rng.standard_normal(N // 2), 40e6 + 1e5 * rng.standard_normal(N // 2)])
     tight = 30e6 + 1e5 * rng.standard_normal(N)
     # step 1 measured at the dip of snapshot 0's mode?  mode of `wide` ~ 30 MHz -> drive 2.03 GHz -> unit 0.3
     run = _fake_run([wide, mirror, tight], drive_unit=[0.0, 0.3, 0.9])
-    out = compute_posterior_metrics(run, "zeeman_shift", {"dip_detected_step": 2})
+    out = compute_posterior_metrics(run, "zeeman_shift", {"detection_step": 2})
     s, ser = out["scalars"], out["series"]
     assert set(s) == set(POSTERIOR_METRIC_KEYS)
     assert set(ser) == set(POSTERIOR_SERIES_KEYS)
     assert all(len(v) == 3 for v in ser.values())
     # z = (mean - truth) / sigma_hat; the mirror cloud's mean is 30 MHz -> z ~ 0
-    assert ser["z"][1] == pytest.approx(0.0, abs=0.05)
-    assert ser["x"][0] is None  # no belief before the first measurement
-    assert ser["x"][1] == 0.0  # measured on the previous mode
-    assert ser["x"][2] == 1.0  # 0.9 -> 2.09 GHz, ~60 MHz from the previous belief's dip
-    assert s["posterior_far_placed_steps"] == 1
-    assert s["posterior_far_placed_share"] == pytest.approx(0.5)
+    assert ser["z_score"][1] == pytest.approx(0.0, abs=0.05)
+    assert ser["far_placed"][0] is None  # no belief before the first measurement
+    assert ser["far_placed"][1] == 0.0  # measured on the previous mode
+    assert ser["far_placed"][2] == 1.0  # 0.9 -> 2.09 GHz, ~60 MHz from the previous belief's dip
+    assert s["far_placed_steps"] == 1
+    assert s["far_placed_share"] == pytest.approx(0.5)
     # J_tau is the information of the posterior at tau = 2 (the two mirror peaks): >> 1 / sigma_hat^2
     sigma_hat = float(np.sqrt(np.var(mirror)))
-    assert s["posterior_J_tau_phys"] > 20.0 / sigma_hat**2
-    assert s["posterior_J_tau_phys"] == ser["j"][1]
+    assert s["j_tau_phys"] > 20.0 / sigma_hat**2
+    assert s["j_tau_phys"] == ser["posterior_fisher"][1]
     # far mass of the mirror cloud: half of it sits 20 MHz (> 6 MHz) from the mode
-    assert s["posterior_far_mass_tau"] == pytest.approx(0.5, abs=0.05)
-    assert ser["m"][2] == pytest.approx(0.0, abs=1e-9)
+    assert s["far_mass_tau"] == pytest.approx(0.5, abs=0.05)
+    assert ser["far_mass"][2] == pytest.approx(0.0, abs=1e-9)
 
 
 def test_pit_is_the_weight_below_the_truth_and_final_is_the_last_step(monkeypatch):
-    monkeypatch.setattr("nvision.metrics.stages._true_fwhm_phys", lambda ts: 2e6)
+    monkeypatch.setattr("nvision.metrics.run_axes._true_fwhm_phys", lambda ts: 2e6)
     rng = np.random.default_rng(7)
     below = 20e6 + 1e5 * rng.standard_normal(N)  # whole cloud below the truth 30 MHz: CDF at truth = 1
     above = 40e6 + 1e5 * rng.standard_normal(N)  # whole cloud above: 0
     centred = 30e6 + 1e5 * rng.standard_normal(N)
     out = compute_posterior_metrics(_fake_run([below, above, centred], drive_unit=[0.1, 0.1, 0.1]), "zeeman_shift", {})
-    p = out["series"]["p"]
+    p = out["series"]["pit"]
     assert p[0] == pytest.approx(1.0)
     assert p[1] == 0.0
     assert p[2] == pytest.approx(0.5, abs=0.1)
-    assert out["scalars"]["posterior_pit_final"] == p[2]
+    assert out["scalars"]["pit_final"] == p[2]
 
 
 def test_run_metrics_none_without_primary_particles_or_detection(monkeypatch):
-    monkeypatch.setattr("nvision.metrics.stages._true_fwhm_phys", lambda ts: 2e6)
+    monkeypatch.setattr("nvision.metrics.run_axes._true_fwhm_phys", lambda ts: 2e6)
     rng = np.random.default_rng(6)
     run = _fake_run([30e6 + 1e5 * rng.standard_normal(N)], drive_unit=[0.1])
-    s = compute_posterior_metrics(run, "zeeman_shift", {"dip_detected_step": None})["scalars"]
-    assert s["posterior_J_tau_phys"] is None
+    s = compute_posterior_metrics(run, "zeeman_shift", {"detection_step": None})["scalars"]
+    assert s["j_tau_phys"] is None
     empty = SimpleNamespace(snapshots=[], true_signal=None)
-    assert compute_posterior_metrics(empty, "zeeman_shift", {})["scalars"]["posterior_J_tau_phys"] is None
+    assert compute_posterior_metrics(empty, "zeeman_shift", {})["scalars"]["j_tau_phys"] is None
     grid = SimpleNamespace(snapshots=[SimpleNamespace(belief=object())], true_signal=None)
-    assert compute_posterior_metrics(grid, "zeeman_shift", {})["scalars"]["posterior_J_tau_phys"] is None
+    assert compute_posterior_metrics(grid, "zeeman_shift", {})["scalars"]["j_tau_phys"] is None
 
 
 def test_mirror_peaks_with_a_diffuse_background_and_a_far_straggler():
@@ -221,36 +221,36 @@ def test_mirror_peaks_with_a_diffuse_background_and_a_far_straggler():
 
 def test_belief_without_measurements_is_undefined_not_a_crash_and_is_counted(monkeypatch):
     """A sweep's belief is the flat prior until its first flush: no posterior, so no metrics for that step."""
-    monkeypatch.setattr("nvision.metrics.stages._true_fwhm_phys", lambda ts: 2e6)
+    monkeypatch.setattr("nvision.metrics.run_axes._true_fwhm_phys", lambda ts: 2e6)
     flat = np.linspace(0.0, 100e6, N)
     peaked = 30e6 + 1e5 * np.random.default_rng(8).standard_normal(N)
     run = _fake_run([flat, peaked, peaked + 1.0], drive_unit=[0.0, 0.3, 0.3], n_obs=[0, 1, 2])
-    out = compute_posterior_metrics(run, "zeeman_shift", {"dip_detected_step": 1})
-    assert out["scalars"]["posterior_undefined_steps"] == 1
-    assert out["series"]["j"][0] is None
-    assert out["series"]["m"][0] is None
-    assert out["series"]["z"][0] is not None  # z needs only the estimate and sigma
-    assert out["series"]["j"][1] is not None
-    assert out["series"]["x"][1] is None  # the previous belief is undefined: no mode to compare with
-    assert out["series"]["x"][2] is not None
-    assert out["scalars"]["posterior_J_tau_phys"] is None  # tau = 1 is the undefined step
+    out = compute_posterior_metrics(run, "zeeman_shift", {"detection_step": 1})
+    assert out["scalars"]["undefined_posterior_steps"] == 1
+    assert out["series"]["posterior_fisher"][0] is None
+    assert out["series"]["far_mass"][0] is None
+    assert out["series"]["z_score"][0] is not None  # z needs only the estimate and sigma
+    assert out["series"]["posterior_fisher"][1] is not None
+    assert out["series"]["far_placed"][1] is None  # the previous belief is undefined: no mode to compare with
+    assert out["series"]["far_placed"][2] is not None
+    assert out["scalars"]["j_tau_phys"] is None  # tau = 1 is the undefined step
 
 
 def test_density_is_computed_only_at_the_kept_steps_and_tau(monkeypatch):
-    monkeypatch.setattr("nvision.metrics.stages._true_fwhm_phys", lambda ts: 2e6)
+    monkeypatch.setattr("nvision.metrics.run_axes._true_fwhm_phys", lambda ts: 2e6)
     from nvision.metrics.series import MAX_SERIES_POINTS, _downsample_indices
 
     rng = np.random.default_rng(9)
     n = 200
     clouds = [30e6 + 1e5 * rng.standard_normal(N) for _ in range(n)]
     run = _fake_run(clouds, drive_unit=[0.3] * n)
-    out = compute_posterior_metrics(run, "zeeman_shift", {"dip_detected_step": 100})
+    out = compute_posterior_metrics(run, "zeeman_shift", {"detection_step": 100})
     expected = set(_downsample_indices(n, MAX_SERIES_POINTS)) | {99}
     assert set(out["density_steps"]) == expected
-    assert {t for t, v in enumerate(out["series"]["j"]) if v is not None} == expected
-    assert all(v is not None for v in out["series"]["z"])  # the cheap per-step series cover every step
-    assert all(v is not None for v in out["series"]["m"])
-    assert out["scalars"]["posterior_J_tau_phys"] == out["series"]["j"][99]
+    assert {t for t, v in enumerate(out["series"]["posterior_fisher"]) if v is not None} == expected
+    assert all(v is not None for v in out["series"]["z_score"])  # the cheap per-step series cover every step
+    assert all(v is not None for v in out["series"]["far_mass"])
+    assert out["scalars"]["j_tau_phys"] == out["series"]["posterior_fisher"][99]
 
 
 def _weighted_draws(target_pdf, centre, proposal_sd, seed):
@@ -293,43 +293,43 @@ def test_low_ess_weighted_clouds_do_not_inflate_j():
 
 
 def test_j_tau_bracket_and_h_series(monkeypatch):
-    monkeypatch.setattr("nvision.metrics.stages._true_fwhm_phys", lambda ts: 2e6)
+    monkeypatch.setattr("nvision.metrics.run_axes._true_fwhm_phys", lambda ts: 2e6)
     rng = np.random.default_rng(10)
     cloud = 30e6 + 1e5 * rng.standard_normal(N)
     run = _fake_run([cloud, cloud + 1.0], drive_unit=[0.3, 0.3])
-    out = compute_posterior_metrics(run, "zeeman_shift", {"dip_detected_step": 2})
+    out = compute_posterior_metrics(run, "zeeman_shift", {"detection_step": 2})
     s = out["scalars"]
-    assert s["posterior_J_tau_2h_phys"] < s["posterior_J_tau_phys"]  # more smoothing, less information
-    assert out["series"]["h"][1] == s["posterior_kde_bandwidth_tau_phys"]
+    assert s["j_tau_2h_phys"] < s["j_tau_phys"]  # more smoothing, less information
+    assert out["series"]["kde_bandwidth"][1] == s["kde_bandwidth_tau_phys"]
 
 
 def test_structureless_cloud_after_measurements_is_undefined_not_an_abort(monkeypatch):
     """A flat cloud after measurements (posterior still the prior) has no ISJ root: record it, do not abort."""
-    monkeypatch.setattr("nvision.metrics.stages._true_fwhm_phys", lambda ts: 2e6)
+    monkeypatch.setattr("nvision.metrics.run_axes._true_fwhm_phys", lambda ts: 2e6)
     flat = np.linspace(0.0, 100e6, N)
     peaked = 30e6 + 1e5 * np.random.default_rng(11).standard_normal(N)
     run = _fake_run([flat, peaked], drive_unit=[0.3, 0.3])  # n_obs = 1 for both
-    out = compute_posterior_metrics(run, "zeeman_shift", {"dip_detected_step": 1})
-    assert out["series"]["j"][0] is None
-    assert out["series"]["j"][1] is not None
-    assert out["scalars"]["posterior_undefined_steps"] == 1
-    assert out["scalars"]["posterior_J_tau_phys"] is None
-    assert out["scalars"]["posterior_J_tau_2h_phys"] is None
+    out = compute_posterior_metrics(run, "zeeman_shift", {"detection_step": 1})
+    assert out["series"]["posterior_fisher"][0] is None
+    assert out["series"]["posterior_fisher"][1] is not None
+    assert out["scalars"]["undefined_posterior_steps"] == 1
+    assert out["scalars"]["j_tau_phys"] is None
+    assert out["scalars"]["j_tau_2h_phys"] is None
 
 
 def test_attach_is_a_no_op_when_nothing_was_computed_and_raises_on_misalignment():
     from nvision.metrics.series import attach_posterior_series
 
     empty = compute_posterior_metrics(SimpleNamespace(snapshots=[], true_signal=None), "zeeman_shift", {})
-    series = {"s": [1, 2, 3]}
+    series = {"step": [1, 2, 3]}
     attach_posterior_series(series, empty)  # e.g. a real-data run: no primary, nothing attached, no error
-    assert set(series) == {"s"}
+    assert set(series) == {"step"}
     no_primary = compute_posterior_metrics(
         SimpleNamespace(snapshots=[SimpleNamespace(belief=object())], true_signal=None), None, {}
     )
     attach_posterior_series(series, no_primary)
-    assert set(series) == {"s"}
+    assert set(series) == {"step"}
     run = _fake_run([30e6 + 1e5 * np.random.default_rng(12).standard_normal(N) for _ in range(3)], [0.3] * 3)
     done = compute_posterior_metrics(run, "zeeman_shift", {})
     with pytest.raises(ValueError, match="not built for this run"):
-        attach_posterior_series({"s": [1, 2, 9]}, done)
+        attach_posterior_series({"step": [1, 2, 9]}, done)

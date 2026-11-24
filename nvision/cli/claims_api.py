@@ -9,7 +9,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 
 from nvision.metrics.claims_report import analyse_use_case
 
@@ -22,7 +22,10 @@ def add_claims_route(app: FastAPI, scan_fields: Callable[[str, str], list[dict[s
         grouped: dict[tuple[str, str, str], list[dict]] = {}
         for row in scan_fields(generator, noise):
             grouped.setdefault((row["generator"], row["noise"], row["strategy"]), []).append(row)
-        return [
-            {"generator": g, "noise": n, "strategy": s, **analyse_use_case(rows)}
-            for (g, n, s), rows in sorted(grouped.items())
-        ]
+        try:
+            return [
+                {"generator": g, "noise": n, "strategy": s, **analyse_use_case(rows)}
+                for (g, n, s), rows in sorted(grouped.items())
+            ]
+        except ValueError as exc:  # a run recorded without what the analysis needs: say which, do not guess
+            raise HTTPException(status_code=422, detail=str(exc)) from exc

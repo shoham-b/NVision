@@ -1,5 +1,5 @@
-// Lab view: calibration of the lab's own MATLAB Bayesian ESR runs, from /api/lab-study
-// (served only when `nv serve --lab-dir` was given). Called by app.js showScanViewPanels('lab').
+// Lab page: the article's lab claims (search cost, information after detection, calibration) from /api/lab-study and
+// /api/lab-detection-aligned, plus the per-run inspection. Shown when a lab is picked as the Study (app.js).
 // Needs ensurePlotly from plotly-utils.js.
 // Names of the labs the server found (empty without `nv serve --lab-dir`); app.js lists them as Studies.
 window.NVISION_LABS = [];
@@ -63,32 +63,49 @@ async function renderLabSync(bar) {
 }
 
 
-// sigma(n) = 1/sqrt(J0 + I*max(n - n0, 0)): J0 = 1/variance of the initial window (NOT fitted; a uniform window of width W has
-// variance W^2/12, so J0 = 12/W^2 in 1/MHz^2), I = information per measurement (1/MHz^2) once the search is over, n0 = step
-// at which information starts to accumulate.
-const windowJ0 = (windowMhz) => 12 / (windowMhz * windowMhz);
-const infoSigma = (n, f) => 1 / Math.sqrt(f.J0 + f.I * Math.max(n - f.n0, 0));
+// A design-system colour token, read from styles.css (:root), for Plotly traces.
+const labToken = (name) => getComputedStyle(document.documentElement).getPropertyValue(`--${name}`).trim();
 
-// Fit I and n0 of infoSigma to a curve (steps n >= 1, sigma > 0) with J0 fixed: grid over n0, golden-section search on log I for
-// each, minimising sum (log sigma_k - log infoSigma(n_k))^2 with every step weighted equally.
-function fitInfoCurve(steps, sigma, J0) {
-    const stride = Math.max(1, Math.ceil(steps.length / 100));  // uniform subsample keeps the equal weight per step
-    const pts = steps.map((n, k) => [n, sigma[k]]).filter(([n, s], k) => n > 0 && s > 0 && k % stride === 0);
-    const last = pts[pts.length - 1][0];
-    let overall = null;
-    for (let n0 = 0; n0 <= last / 2; n0 += Math.max(1, Math.round(last / 60))) {
-        const cost = (li) => pts.reduce((acc, [n, s]) => acc + (Math.log(s) + 0.5 * Math.log(J0 + Math.exp(li) * Math.max(n - n0, 0))) ** 2, 0);
-        let lo = Math.log(J0) - 20, hi = Math.log(J0) + 10;
-        const g = (Math.sqrt(5) - 1) / 2;
-        for (let it = 0; it < 80; it++) {
-            const m1 = hi - g * (hi - lo), m2 = lo + g * (hi - lo);
-            if (cost(m1) < cost(m2)) hi = m2; else lo = m1;
-        }
-        const li = (lo + hi) / 2, f = cost(li);
-        if (overall === null || f < overall.f) overall = { f, J0, I: Math.exp(li), n0 };
-    }
-    return overall;
+function labCard(title, help, claim, id, height = 400) {
+    return `<div class="chart-card">
+        <h3>${title} <span tabindex="0" class="help-icon-visible" title="${help.replace(/"/g, '&quot;')}">?</span></h3>
+        <p class="chart-claim">${claim}</p>
+        <div id="${id}" style="height:${height}px; width:100%;"></div>
+    </div>`;
 }
+
+// Lab adapter for the shared claim panels (static/claim-panels.js): one point per drive_freq window, in units of the
+// window's own line (W / Γ with Γ the FWHM the runs' model assumes). Claimed quantities only (LAB_REFERENCE).
+// The lab runs are the lab's own MATLAB BayesianESR, not NVision's SBED: say so on every lab trace.
+const LAB_SERIES = { name: 'Lab MATLAB BayesianESR', symbol: 'circle' };
+const labWOverGamma = (w) => w.window_mhz / w.model_fwhm_mhz;
+function labSearchPoints(wins) {
+    return wins.filter((w) => w.detection_step_median != null).map((w) => ({
+        x: labWOverGamma(w), median: w.detection_step_median, q25: w.detection_step_q25, q75: w.detection_step_q75,
+        snr: w.snr, label: `W = ${w.window_mhz} MHz, detected ${w.n_detected}/${w.n_runs}`,
+    }));
+}
+function labRatePoints(wins) {
+    return wins.map((w) => ({
+        x: labWOverGamma(w),
+        claimedRate: w.claimed_rate ? w.claimed_rate.claimed_rate ?? null : null,
+        placement: w.placement ? w.placement.placement_efficiency_median ?? null : null,
+        label: `W = ${w.window_mhz} MHz`,
+    }));
+}
+function labCalibrationPoints(windows) {
+    return windows.map((r) => ({
+        claimed: r.claimed_sigma_mhz, spread: r.across_run_std_mhz,
+        label: `W = ${r.window_mhz} MHz, ${r.n_converged}/${r.n_runs} converged, within 1σ ${r.within_1sigma?.toFixed(2)}`,
+    }));
+}
+
+const labMedian = (xs) => {
+    const v = xs.filter((x) => x != null && Number.isFinite(x)).sort((a, b) => a - b);
+    if (!v.length) return null;
+    const m = Math.floor(v.length / 2);
+    return v.length % 2 ? v[m] : 0.5 * (v[m - 1] + v[m]);
+};
 
 async function renderLabStudy(container, name) {
     const fmt = (x, d = 2) => (x == null || Number.isNaN(x) ? '–' : Number(x).toFixed(d));
@@ -107,75 +124,62 @@ async function renderLabStudy(container, name) {
         if (!resp.ok) throw new Error((await resp.json()).detail || `HTTP ${resp.status}`);
         data = await resp.json();
     } catch (err) {
-        body.innerHTML = `<p style="color:#64748b;">Lab "${name}" failed to load: ${err.message}.</p>`;
+        body.innerHTML = `<p class="empty-state">Lab "${name}" failed to load: ${err.message}.</p>`;
         return;
     }
-    const css = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-    const colors = ['#1e90ff', '#e05c00', '#00a878'];
     const cols = [
         ['Window (MHz)', (r) => r.window_mhz],
         ['Converged', (r) => `${r.n_converged}/${r.n_runs}`],
-        ['Steps, median (IQR)', (r) => `${fmt(r.steps_median, 0)} (${fmt(r.steps_q25, 0)}–${fmt(r.steps_q75, 0)})`],
         ['Claimed σ (MHz)', (r) => fmt(r.claimed_sigma_mhz)],
         ['Across-run std (MHz)', (r) => fmt(r.across_run_std_mhz)],
         ['Spread ÷ claimed σ', (r) => fmt(r.overconfidence)],
         ['Within 1σ (nominal 0.68)', (r) => fmt(r.within_1sigma)],
         ['Within 2σ (nominal 0.95)', (r) => fmt(r.within_2sigma)],
-        ['95% interval hit', (r) => fmt(r.ci95_hit)],
     ];
-    const cell = 'border:1px solid #e2e8f0; padding:0.35em 0.6em; text-align:right;';
-    // Focus-window check (from the runs' recorded focus candidates): found, covering the resonance, how early.
-    const pct = (x) => `${Math.round(100 * x)}%`;
-    const step = (x) => (x === null ? '–' : Math.round(x));
-    const focusCols = [
-        ['Window (MHz)', (r) => r.window_mhz],
-        ['Runs', (r) => r.n_runs],
-        ['Window found', (r) => pct(r.found_rate)],
-        ['Found at step', (r) => step(r.found_step)],
-        ['Covers resonance', (r) => pct(r.cover_rate)],
-        ['… from step', (r) => step(r.cover_step)],
-        ['Covers to the end', (r) => pct(r.stable_rate)],
-        ['… from step', (r) => step(r.stable_step)],
-        ['Median steps to converge', (r) => step(data.windows.find((w) => w.window_mhz === r.window_mhz)?.steps_median ?? null)],
-        ['Final window locked', (r) => pct(r.locked_rate)],
-        ['Final window width (MHz)', (r) => fmt(r.final_width_mhz, 1)],
-    ];
-    const focusTable = data.focus && data.focus.length ? `
-        <h3 style="margin:1em 0 0.3em; font-size:1em;">Focus window <span tabindex="0" class="help-icon-visible" title="From the focus candidates the runs recorded at every step. 'Found': at least one candidate window exists (not before the minimum focus steps). 'Covers resonance': some candidate contains the reference resonance; 'to the end': it does at every later step too. Compare these steps with the median steps to converge: a window found after the run has converged was no help. 'Locked': the run narrowed to a single final window; otherwise the final window is the whole scan range.">?</span></h3>
-        <table style="border-collapse:collapse; width:100%; font-size:0.9em; background:#fff; margin-bottom:1em;">
-            <thead><tr>${focusCols.map((c) => `<th style="${cell} background:#f8fafc; color:#475569;">${c[0]}</th>`).join('')}</tr></thead>
-            <tbody>${data.focus.map((r) => `<tr>${focusCols.map((c) => `<td style="${cell} font-family:ui-monospace,monospace;">${c[1](r)}</td>`).join('')}</tr>`).join('')}</tbody>
-        </table>` : '';
+    const cell = 'border:1px solid var(--slate-200); padding:0.35em 0.6em; text-align:right;';
     body.innerHTML = `
-        <p style="margin:0 0 0.5em; color:#475569; font-size:0.85em;">Lab: <b>${name}</b> · reference resonance ${fmt(data.reference_mhz, 2)} MHz (median of the converged runs' final means).</p>
+        <p style="margin:0 0 0.5em; color:var(--slate-600); font-size:0.85em;">Lab: <b>${name}</b> · runs of the lab's own MATLAB BayesianESR (not NVision SBED) · reference resonance <span class="claim-value">${fmt(data.reference_mhz, 2)} MHz</span> (median of the converged runs' final means). Each run is read from its own detection, the first steep, lasting drop of its claimed σ.</p>
         <div class="bayes-tab-bar" role="tablist" aria-label="Lab study views">
-            <button type="button" class="bayes-tab-button is-active" role="tab" aria-selected="true" data-lab-tab="aggregated">Aggregated</button>
+            <button type="button" class="bayes-tab-button is-active" role="tab" aria-selected="true" data-lab-tab="claims">Claims</button>
             <button type="button" class="bayes-tab-button" role="tab" aria-selected="false" data-lab-tab="per-run">Per Run</button>
-            <button type="button" class="bayes-tab-button" role="tab" aria-selected="false" data-lab-tab="from-detection">From detection</button>
-        </div>
-        <div class="bayes-tab-panel" role="tabpanel" data-lab-pane="from-detection">
-            <div id="lab-from-detection"></div>
         </div>
         <div class="bayes-tab-panel" role="tabpanel" data-lab-pane="per-run">
             <div id="lab-per-run"></div>
             <div id="lab-replay" style="margin:1.2em 0;"></div>
         </div>
-        <div class="bayes-tab-panel is-active" role="tabpanel" data-lab-pane="aggregated">
-        <table style="border-collapse:collapse; width:100%; font-size:0.9em; background:#fff;">
-            <thead><tr>${cols.map((c) => `<th style="${cell} background:#f8fafc; color:#475569;">${c[0]}</th>`).join('')}</tr></thead>
-            <tbody>${data.windows.map((r) => `<tr>${cols.map((c) => `<td style="${cell} font-family:ui-monospace,monospace;">${c[1](r)}</td>`).join('')}</tr>`).join('')}</tbody>
-        </table>
-        <p style="color:#475569; font-size:0.85em;">No ground truth exists for real data: error is measured against the reference, so the across-run std also contains any real drift of the resonance between runs. Read "Spread ÷ claimed σ" as an upper bound on miscalibration: the runs disagree with each other by that many times the σ each one claims.</p>
-        ${focusTable}
-        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(420px, 1fr)); gap:1em;">
-            <div>${labPlotHead('Claimed σ vs spread and error', "Solid: median self-reported posterior std (band: quartiles). Dashed: how far the runs' posterior means scatter from each other at that step (std across runs; not an error against a known truth). Dotted: rms over runs of each run's error (posterior mean − reference resonance) at that step: the evidence the claimed σ should match. During the search all runs sit near the window centre and agree, so the spread is small while the error is not. Dashed or dotted above solid means the runs are more uncertain than they claim. The spread includes only runs still measuring at that step, the error only the steps every run reached; folders imported before per-run histories were saved have no error curve.", 'lab-spread')}<div id="lab-spread" style="height:420px"></div></div>
-            <div>${labPlotHead('Claimed σ vs fit', 'Solid: median self-reported posterior std. Dotted: the article\'s search-phase model (elimination search over the window W, then information I per measurement), fitted to the median at import with W fixed and the reach Δd and I free. Folders imported before the fit existed show the older fit σ = 1/√(J0 + I·(n − n0)) instead.', 'lab-fit')}<div id="lab-fit" style="height:420px"></div></div>
-            <div><h3 style="margin:0 0 0.3em; font-size:1em;">Steps to convergence <span tabindex="0" class="help-icon-visible" title="Median number of measurements until the run's own stop rule fired, with the interquartile range, per drive_freq window.">?</span></h3><div id="lab-steps" style="height:420px"></div></div>
-        </div>
+        <div class="bayes-tab-panel is-active" role="tabpanel" data-lab-pane="claims">
+            <h3 class="group-label">Search + localize</h3>
+            <div class="chart-pair">
+                ${labCard('Search cost vs window',
+                    'Each point is one drive_freq window: the median step at which the runs detected the dip (bars: interquartile range), against Eq. search-cost, (8/π)(W/Γ)/(k SNR²) with k = 1 shot, Γ the FWHM of the line the runs assume and SNR = C/σ of their own model and noise. The equation is a lower bound for any strategy at low SNR: before the dip is found no strategy knows where to look.',
+                    '<span id="lab-search-claim">Article: the lab search cost grows linearly in W at about 25 × Eq. search-cost.</span>', 'lab-search')}
+                ${labCard('Information per measurement after detection',
+                    "Blue: the claimed information rate q̂ after each run's own detection, the slope of 1/⟨σ²⟩ per measurement in units of I_max of the lab line, over the second half of the lags. Orange: the placement efficiency, the mean I(d)/I_max of where the runs measured after detection, about each run's own final estimate. Dashed: the rate a sweep over the whole window gets, 8πΓ/(27W) (Eq. sweep-info). Measuring every time on the steepest slope reaches 1 (dotted).",
+                    'Article: after detection q̂ and the placement are near 0.4–0.5 in narrow windows and fall to the sweep rate above about 25 Γ.', 'da-lab-rates')}
+            </div>
+            <h3 class="group-label">Calibration</h3>
+            <div class="chart-pair">
+                ${labCard('Claimed σ vs repeated-run scatter',
+                    "One point per window: the median σ the runs claimed at their end against how far their final estimates scatter from each other. No ground truth exists for lab data, so the scatter also holds any drift of the line between recordings (0.4–0.6 MHz): read 'spread ÷ claimed σ' as an upper bound on the overconfidence. Calibrated runs sit on the dashed line.",
+                    '<span id="lab-calib-claim">A calibrated σ matches the scatter of repeated runs.</span>', 'lab-calibration')}
+                <div class="chart-card" style="overflow-x:auto;">
+                    <h3>Calibration per window <span tabindex="0" class="help-icon-visible" title="Within kσ: share of runs whose final estimate lies within k claimed σ of the reference. Against the nominal 0.68 and 0.95 of a calibrated Gaussian posterior.">?</span></h3>
+                    <table style="border-collapse:collapse; width:100%; font-size:0.9em; background:var(--surface);">
+                        <thead><tr>${cols.map((c) => `<th style="${cell} background:var(--slate-50); color:var(--slate-600);">${c[0]}</th>`).join('')}</tr></thead>
+                        <tbody>${data.windows.map((r) => `<tr>${cols.map((c) => `<td style="${cell} font-family:ui-monospace,monospace;">${c[1](r)}</td>`).join('')}</tr>`).join('')}</tbody>
+                    </table>
+                </div>
+            </div>
+            <div id="lab-da-table" style="overflow-x:auto; margin-top:1em;"><p class="empty-state">Aligning the runs at their own detection (reads every run file)…</p></div>
+            <details style="margin-top:1em;">
+                <summary style="cursor:pointer;"><h3 class="group-label" style="display:inline;">Claimed σ over the run, per window</h3></summary>
+                <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(420px, 1fr)); gap:1em; margin-top:0.6em;">
+                    <div>${labPlotHead('Claimed σ vs spread and error', "Solid: median self-reported posterior std (band: quartiles). Dashed: how far the runs' posterior means scatter from each other at that step (std across runs). Dotted: the rms error against the reference.", 'lab-spread')}<div id="lab-spread"></div></div>
+                    <div>${labPlotHead('Claimed σ vs the elimination model', "Solid: median self-reported posterior std. Dotted: the article's mean curve (elimination search over the window W, then van Trees from each detection with J_d and I_max), fitted to the median at import with W fixed. Dash-dot: van Trees fitted to the runs aligned at their own detection, drawn from the median detection step. Folders imported before the model was stored show the claimed σ only (re-import them with nv matlab).", 'lab-fit')}<div id="lab-fit"></div></div>
+                </div>
+            </details>
         </div>`;
-    // Per Run (the run's claimed sigma and error, then the live replay of one run) is drawn the first time it is shown:
-    // Plotly lays out a hidden pane at zero width.
-    let perRunDrawn = false, fromDetectionDrawn = false;
+    let perRunDrawn = false, curvesDrawn = false;
     body.querySelectorAll('[data-lab-tab]').forEach((btn) => btn.addEventListener('click', () => {
         const tab = btn.dataset.labTab;
         body.querySelectorAll('[data-lab-tab]').forEach((b) => {
@@ -183,11 +187,7 @@ async function renderLabStudy(container, name) {
             b.setAttribute('aria-selected', String(b === btn));
         });
         body.querySelectorAll('[data-lab-pane]').forEach((p) => p.classList.toggle('is-active', p.dataset.labPane === tab));
-        // From detection (static/detection-aligned-view.js) reads every run file: drawn only when first opened.
-        if (tab === 'from-detection' && !fromDetectionDrawn && window.renderLabDetectionAligned) {
-            fromDetectionDrawn = true;
-            window.renderLabDetectionAligned(body.querySelector('#lab-from-detection'), name);
-        }
+        // Plotly lays out a hidden pane at zero width: draw Per Run the first time it is shown.
         if (tab === 'per-run' && !perRunDrawn) {
             perRunDrawn = true;
             renderLabPerRun(body.querySelector('#lab-per-run'), data);
@@ -196,80 +196,93 @@ async function renderLabStudy(container, name) {
         body.querySelectorAll(`[data-lab-pane="${tab}"] .js-plotly-plot`).forEach((gd) => Plotly.Plots.resize(gd));
     }));
     await ensurePlotly();
-    // Every legend entry gets its own colour (window x series), so no two lines share a hue.
-    const palette = ['#2563eb', '#dc2626', '#059669', '#d97706', '#7c3aed', '#db2777', '#0891b2', '#65a30d', '#475569'];
-    let ci = 0;
-    const next = () => palette[ci++ % palette.length];
-    const spreadTraces = [], fitTraces = [];
-    data.windows.forEach((r) => {
-        const c = data.curves[String(r.window_mhz)];
-        const name = `${r.window_mhz} MHz`;
-        const claimedColor = next();
-        const spreadColor = claimedColor, fitColor = claimedColor; // one colour per window; solid = claimed, dashed = spread, dotted = fit
-        const band = (group) => [
-            { x: c.step, y: c.claimed_q75, mode: 'lines', line: { width: 0 }, hoverinfo: 'skip', showlegend: false, legendgroup: group },
-            { x: c.step, y: c.claimed_q25, mode: 'lines', line: { width: 0 }, fill: 'tonexty', fillcolor: claimedColor + '26', hoverinfo: 'skip', showlegend: false, legendgroup: group },
-        ];
-        // Whole-curve fit of the claimed median to sigma = 1/sqrt(J0 + I*max(n - n0, 0)) (see infoSigma): J0 = 12/W^2 fixed from the initial window (not fitted), I = information
-        // per measurement (1/MHz^2). A scale a in a/sqrt(...) would be degenerate with J0 and I, so a = 1. Least squares in
-        // log sigma, every step weighted equally so the end of the curve is matched.
-        // Folders imported with `nv matlab` carry the article's search-phase model fitted at import (c.search_fit); older ones keep this fit.
-        const sf = c.search_fit;
-        const fit = sf ? null : fitInfoCurve(c.step, c.claimed_median, windowJ0(r.window_mhz));
-        const claimed = (group) => ({ x: c.step, y: c.claimed_median, mode: 'lines', line: { color: claimedColor, width: 2.5 }, name: `${name} claimed σ`, legendgroup: group });
-        spreadTraces.push(...band(name + 's'), claimed(name + 's'),
-            { x: c.actual_step, y: c.across_run_std, mode: 'lines', line: { color: spreadColor, width: 2.5, dash: 'dash' }, name: `${name} across-run spread`, legendgroup: name + 's' });
-        if (c.rms_err_mhz) {
-            spreadTraces.push({ x: c.rms_err_mhz.map((_, k) => k + 1), y: c.rms_err_mhz, mode: 'lines', line: { color: spreadColor, width: 2.5, dash: 'dot' }, name: `${name} rms error vs reference`, legendgroup: name + 's' });
-        }
-        fitTraces.push(...band(name + 'f'), claimed(name + 'f'),
-            sf
-                ? { x: c.step, y: sf.model, mode: 'lines', line: { color: fitColor, width: 3, dash: 'dot' }, name: `${name} search + van Trees model (v=${sf.v_mhz_per_step.toPrecision(2)} MHz/meas, J_d=${sf.j_d_per_mhz2.toPrecision(2)}, I=${sf.i_max_per_mhz2.toPrecision(2)}/MHz², rms ln ${sf.rms_log.toPrecision(2)})`, legendgroup: name + 'f' }
-                : { x: c.step, y: c.step.map((n) => infoSigma(n, fit)), mode: 'lines', line: { color: fitColor, width: 3, dash: 'dot' }, name: `${name} fit (I=${fit.I.toPrecision(2)}/meas, n0=${fit.n0})`, legendgroup: name + 'f' });
-        // Van Trees fitted to the runs aligned at their own detection (each run's first steep, lasting drop of sigma),
-        // drawn from the median detection step, with a marker there. Fits stored before version 5 have no n_detected.
-        const det = sf && sf.detection;
-        if (det && det.n_detected !== undefined) {
-            fitTraces.push({
-                x: det.steps, y: det.model, mode: 'lines+markers', line: { color: fitColor, width: 2, dash: 'dashdot' },
-                marker: { size: det.steps.map((n, i) => (i === 0 ? 11 : 0)), symbol: 'diamond', color: fitColor },
-                name: `${name} van Trees from each run's detection, median n_d=${det.step} [${det.step_q25.toFixed(0)}–${det.step_q75.toFixed(0)}], ${det.n_detected}/${det.n_runs} runs (J_d=${det.j_d_per_mhz2.toPrecision(2)}, I=${det.i_max_per_mhz2.toPrecision(2)}/MHz², rms ln ${det.rms_log.toPrecision(2)})`,
-                legendgroup: name + 'f',
-            });
+    const over = NVClaimPanels.calibrationPanel(document.getElementById('lab-calibration'),
+        [{ ...LAB_SERIES, color: labToken('highlight-1'), points: labCalibrationPoints(data.windows) }],
+        'std of the final estimates across runs (MHz)');
+    if (over.length) {
+        document.getElementById('lab-calib-claim').innerHTML = `Spread ÷ claimed σ, median over windows: <span class="claim-value">${fmt(labMedian(over))}</span> (1 = calibrated; above 1 = overconfident, or line drift).`;
+    }
+    const details = body.querySelector('details');
+    details.addEventListener('toggle', () => {
+        if (details.open && !curvesDrawn) {
+            curvesDrawn = true;
+            labPlotCurves(data);
         }
     });
-    // The legend sits under the axis title and needs room for every entry: size the bottom margin and the plot height from the
-    // number of legend rows (one entry per row: each window's group of lines stacks vertically, and at most two groups share a row), so it never overlaps the plot or the axis title.
-    const sigmaPlot = (id, traces, perRow, filename, title) => {
-        const rows = Math.ceil(traces.filter((t) => t.showlegend !== false).length / perRow);
+    // The detection-aligned numbers read every run file (about a minute): drawn when they arrive.
+    let wins;
+    try {
+        const resp = await fetch(labApi(`lab-detection-aligned?name=${encodeURIComponent(name)}`), { cache: 'no-store' });
+        if (!resp.ok) throw new Error((await resp.json()).detail || `HTTP ${resp.status}`);
+        wins = await resp.json();
+    } catch (err) {
+        body.querySelector('#lab-da-table').innerHTML = `<p class="notice-amber">Detection-aligned analysis failed: ${err.message}</p>`;
+        return;
+    }
+    const ratios = NVClaimPanels.searchCostPanel(document.getElementById('lab-search'),
+        [{ ...LAB_SERIES, color: labToken('highlight-1'), points: labSearchPoints(wins) }]);
+    if (ratios.length) {
+        document.getElementById('lab-search-claim').innerHTML = `Article: the lab search cost grows linearly in W at about 25 × Eq. search-cost. Here: <span class="claim-value">${ratios.map((r) => r.toFixed(0)).join(', ')} ×</span> over the windows.`;
+    }
+    NVClaimPanels.ratesPanel(document.getElementById('da-lab-rates'),
+        [{ ...LAB_SERIES, color: labToken('highlight-1'), points: labRatePoints(wins) }]);
+    body.querySelector('#lab-da-table').innerHTML = daLabTable(wins);
+}
+
+// Claimed σ against the run, per window: against the across-run spread and error, and against the article's mean curve
+// fitted at import (c.search_fit). Folders without a stored fit show the claimed σ only: no fit is made up here.
+function labPlotCurves(data) {
+    const palette = ['highlight-1', 'highlight-6', 'highlight-3', 'highlight-2', 'highlight-4', 'highlight-5', 'highlight-7', 'highlight-8'].map(labToken);
+    const spreadTraces = [], fitTraces = [];
+    data.windows.forEach((r, j) => {
+        const c = data.curves[String(r.window_mhz)];
+        const name = `${r.window_mhz} MHz`;
+        const color = palette[j % palette.length];
+        const band = (group) => [
+            { x: c.step, y: c.claimed_q75, mode: 'lines', line: { width: 0 }, hoverinfo: 'skip', showlegend: false, legendgroup: group },
+            { x: c.step, y: c.claimed_q25, mode: 'lines', line: { width: 0 }, fill: 'tonexty', fillcolor: color + '26', hoverinfo: 'skip', showlegend: false, legendgroup: group },
+        ];
+        const claimed = (group) => ({ x: c.step, y: c.claimed_median, mode: 'lines', line: { color, width: 2.5 }, name: `${name} claimed σ`, legendgroup: group });
+        spreadTraces.push(...band(name + 's'), claimed(name + 's'),
+            { x: c.actual_step, y: c.across_run_std, mode: 'lines', line: { color, width: 2.5, dash: 'dash' }, name: `${name} across-run spread`, legendgroup: name + 's' });
+        if (c.rms_err_mhz) {
+            spreadTraces.push({ x: c.rms_err_mhz.map((_, k) => k + 1), y: c.rms_err_mhz, mode: 'lines', line: { color, width: 2.5, dash: 'dot' }, name: `${name} rms error vs reference`, legendgroup: name + 's' });
+        }
+        fitTraces.push(...band(name + 'f'), claimed(name + 'f'));
+        const sf = c.search_fit;
+        if (sf) {
+            fitTraces.push({ x: c.step, y: sf.model, mode: 'lines', line: { color, width: 3, dash: 'dot' }, name: `${name} mean curve (v=${sf.v_mhz_per_step.toPrecision(2)} MHz/meas, J_d=${sf.j_d_per_mhz2.toPrecision(2)}, I=${sf.i_max_per_mhz2.toPrecision(2)})`, legendgroup: name + 'f' });
+            const det = sf.detection;
+            if (det && det.n_detected !== undefined) {
+                fitTraces.push({
+                    x: det.steps, y: det.model, mode: 'lines+markers', line: { color, width: 2, dash: 'dashdot' },
+                    marker: { size: det.steps.map((n, i) => (i === 0 ? 11 : 0)), symbol: 'diamond', color },
+                    name: `${name} van Trees from each run's detection, median n_d=${det.step}, ${det.n_detected}/${det.n_runs} runs`,
+                    legendgroup: name + 'f',
+                });
+            }
+        }
+    });
+    const sigmaPlot = (id, traces, filename, title) => {
+        const rows = traces.filter((t) => t.showlegend !== false).length;
         const bottom = 70 + 24 * rows, plotH = 330;
         const el = document.getElementById(id);
         el.dataset.rows = rows;
         el.style.height = `${plotH + bottom + 10}px`;
         Plotly.newPlot(id, traces, {
             margin: { t: 10, r: 10, b: bottom, l: 60 }, hovermode: 'x unified', font: { size: 13 },
-            xaxis: { title: { text: 'measurement step', standoff: 8 }, type: 'log', gridcolor: '#eeeeee' },
-            yaxis: { title: 'σ (MHz)', type: 'log', gridcolor: '#eeeeee' },
+            xaxis: { title: { text: 'measurement step', standoff: 8 }, type: 'log', gridcolor: labToken('chart-grid') },
+            yaxis: { title: 'σ (MHz)', type: 'log', gridcolor: labToken('chart-grid') },
             legend: { orientation: 'h', yanchor: 'top', y: -(60 / plotH) },
         }, {
             responsive: true, displaylogo: false,
-            // The built-in camera button would save the on-screen plot as is: replace it with the same pretty export as the buttons above.
             modeBarButtonsToRemove: ['toImage'],
             modeBarButtonsToAdd: [{ name: 'Download figure (PNG)', icon: Plotly.Icons.camera, click: () => labExport(id, filename, title, 'png') }],
         });
+        wireLabDownloads(id, filename, title);
     };
-    sigmaPlot('lab-spread', spreadTraces, 1, 'claimed-sigma-vs-spread', 'Claimed σ vs spread and error');
-    sigmaPlot('lab-fit', fitTraces, 1, 'claimed-sigma-vs-fit', 'Claimed σ vs fit');
-    wireLabDownloads('lab-spread', 'claimed-sigma-vs-spread', 'Claimed σ vs spread and error');
-    wireLabDownloads('lab-fit', 'claimed-sigma-vs-fit', 'Claimed σ vs fit');
-    const w = data.windows;
-    Plotly.newPlot('lab-steps', [{
-        x: w.map((r) => `${r.window_mhz} MHz`), y: w.map((r) => r.steps_median), type: 'bar', marker: { color: colors[0] },
-        error_y: { type: 'data', symmetric: false, array: w.map((r) => r.steps_q75 - r.steps_median), arrayminus: w.map((r) => r.steps_median - r.steps_q25) },
-    }], {
-        margin: { t: 10, r: 10, b: 50, l: 60 },
-        xaxis: { title: 'drive_freq window' }, yaxis: { title: 'measurements to converge', gridcolor: '#eeeeee' },
-    }, { responsive: true });
+    sigmaPlot('lab-spread', spreadTraces, 'claimed-sigma-vs-spread', 'Claimed σ vs spread and error');
+    sigmaPlot('lab-fit', fitTraces, 'claimed-sigma-vs-model', 'Claimed σ vs the elimination model');
 }
 
 // Per Run tab: one lab run's claimed σ against measurement step, picked by window and run, over its window's median and

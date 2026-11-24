@@ -8,17 +8,15 @@ Its colours, type, spacing and component markup are documented as a design syste
 
 The UI shows the article's quantities under shorter labels; the full table is in the [glossary](glossary.md).
 
-* **σ in plots and tables** is the **claimed uncertainty** $\hat\sigma_N$ (weighted particle standard deviation), not a 68 % interval before the posterior is Gaussian. The Sanity view tests whether it is honest (1σ / 2σ / 3σ coverage); end-of-run accuracy is deliberately not shown.
+* **σ in plots and tables** is the **claimed uncertainty** $\hat\sigma_N$ (weighted particle standard deviation), not a 68 % interval before the posterior is Gaussian. The Simulation page's calibration panels test whether it is honest (coverage); end-of-run accuracy is deliberately not a quality metric.
 * **SNR** on every axis and button is the code label `contrast_total / noise σ`, i.e. twice the article's $C/\sigma$ (`contrast_total` $= 2C$).
-* **Bound** in the Information view is the van Trees bound (prior information J₀ plus n·I*); the stage-oracle column names still say `fisher_star` / CRLB.
-* **Stages** are search / localize / refine, as in the article (the underlying field names still say `focus_found_step`, `stage2_*`).
-* **Dip found** (`dip_detected_step`) is the dip test at `NVISION_DIP_P_FA`; **focus found** (`focus_found_step`) is the claimed-uncertainty drop. They are different markers.
+* **Regimes** are search + localize, converge and refine, as in the article. **Detection** (`detection_step`, the dip test at `NVISION_DIP_P_FA`) ends search + localize; the Run view's timeline marks it.
+* **I_max** is the stored `i_max`. Van Trees is drawn only from each run's own detection, with J_τ (`docs/evaluation_metrics.md`).
 
 ## Known deviations (UI vs. article)
 
-* The *localize* stage's boundaries come from the claimed uncertainty, not from the detection step.
 * Chart labels say "σ" and "CRLB"/"Fisher" where the article says $\hat\sigma_N$ and van Trees bound; the labels were not renamed.
-* The article's tracking (Gaussian prior) runs are not simulated; the UI's J₀ switch (4π²/W² vs 1/σ₀²) supports both, only the global-search case has data.
+* The article's tracking (Gaussian prior) runs are not simulated.
 
 ## File map
 
@@ -30,7 +28,11 @@ The UI shows the article's quantities under shorter labels; the full table is in
 | `format-utils.js` | ~70 | Pure formatting helpers (`formatHz`, `escapeHtml`, `formatMetricValue`, etc.) — no DOM or Plotly deps |
 | `plotly-utils.js` | ~80 | Plotly CDN loading, JSON/gz fetch, array decode (`_fetchJson`, `_decodePlotlyFigure`, `resolveAssetPath`, etc.) |
 | `run-status.js` | ~115 | Run status banner polling + help-toggle accordion buttons |
-| `app.js` | ~3950 | `main()` — all scan/Bayesian/comparison UI logic |
+| `app.js` | ~7400 | `main()` — scan/Bayesian Run view, controls, view switching |
+| `article-view.js` | ~650 | Simulation page: one panel per article claim (`window.NVArticleView.render`) |
+| `claim-panels.js` | ~130 | Panels shared by the Simulation and Lab pages (`window.NVClaimPanels`), fed by a per-source adapter |
+| `detection-aligned-view.js` | ~140 | Plots of runs aligned at their own detection (ρ, negentropy, lab rates), used by both pages |
+| `lab-view.js` | ~600 | Lab page: search cost, rates after detection, calibration; per-run replay |
 | `reload.js` | ~95 | Recalculate button, `r` keyboard shortcut, `init()` entry point that awaits bootstrap then calls `main()` |
 
 ## Script load order
@@ -144,78 +146,17 @@ Key sections inside `main()` (in order of appearance):
 5. **Scan plot rendering** — `renderPlotFromJson` (calls `ensurePlotly` + `_fetchJson`); measurement distribution legend sync
 6. **Comparison cards** — head-to-head scan comparison; trace building for sampled-measurement plot
 7. **Bayesian rendering** — posterior heatmap, convergence, metrics, Fisher, covariance ellipses, jitter
-8. **Aggregate views** — the `#scan-view-mode` control's modes besides *Run*, each reading per-repeat fields
-   for many repeats at once:
-   * **Cost & search** (the *Whole run* scope of the Stages view, `#stepsize-view` inside `#stages-view`; shown only while
-     the Stages "Show:" selector is on *Whole run*, by `hlApplyStageSelector`, which also calls `renderStepSizeTab`; the old
-     `view=locators` URL hash is mapped to Stages; `renderStepSizeTab`, `ss*` helpers) — every locator's cost and search metrics side by side, each
-     plain-sweep spacing k its own locator, with toggle chips to show or hide each one; nothing is ranked. Reads
-     `/api/run-rows` (per-repeat scalars: measurements, final error and claimed σ, focus-found step, contrast,
-     noise σ, grid axes) over the loaded family; `/api/sweep-spacings` lists the sweep
-     spacings the current code studies, so older spacings left in the cache are hidden. A **use case** is one signal
-     at one noise level (window x line shape x SNR in the SNR x window study; generator x noise elsewhere). The
-     **table** is per use case: one block per use case of the current Signal / Noise selection (the pickers above
-     the view). With several use cases selected the first block is the **median over the use cases** of each use
-     case's own number (never read off pooled runs; "runs" is then the per-use-case count), followed by one block per
-     use case.
-     Per locator it shows the median and p75 cost, the capped share, how often a dip was found, the search cost, and
-     whether the claimed σ is right (share of runs with |error| ≤ 1σ / 2σ / 3σ, nominal 68% / 95% / 99.7%). Selecting
-     several noise levels or windows gives several blocks. The **charts** ("Across use cases") span the whole family:
-     cost and search cost (and, in the **Sanity** view, the 1σ/2σ/3σ share: "Is the claimed σ right?") against SNR = C / noise σ, each point one use case, with a dotted
-     vertical line at the SNR of the selected use case in the panel of its window. They follow the SNR x window study:
-     x = SNR (log), one panel per window (`grid_window_fwhm`, absolute MHz in the tooltip), lines = locators at ONE
-     line shape chosen by a button group (default the selected use case's shape; the shape is named by its Lorentzian
-     share of the FWHM, `1 - grid_gaussian_share`, with `hwhm_lorentz` / `sigma_inhom` in the tooltip). "Compare
-     shapes" turns the lines into the shapes of one chosen locator. Runs without `grid_window_fwhm` /
-     `grid_gaussian_share` (older caches) get one panel and no shape controls. Runs stop once σ is below the target,
-     so the error at the end is not shown: only whether σ is honest. The locator chips, the line-shape buttons and the
-     run counts live in `#ss-controls`, shown above both the Stages view under *Whole run* (Cost & search) and the Sanity view (the σ chart is
-     rendered by `renderStepSizeContent`, which `showScanViewPanels` also calls for Sanity; a chart whose view is
-     hidden is skipped).
-   * **Information** (the tab keeps the id `stages`: `renderStagesTab`, `renderHlStages`, `#stages-view`) — how fast each
-     locator approaches the van Trees bound σ(n) ≥ (J₀ + n·I*)^(-1/2) (`docs/evaluation_metrics.md`). The **Show:** selector
-     (`hlStageShown`; the other section is collapsed, not `display:none`, so Plotly keeps its width) has *Whole run* and *Search*.
-     *Whole run*: `hl-info-ratio` (`renderHlInfoRatio`: R = 1/(mean error² · (J₀ + n·I*)), true error solid and claimed σ
-     dotted, 1 = the bound), `hl-info-cost` (`renderHlInfoCost`: measurements until the true error stays below τ = σ₀/gain
-     against the gain, with the bound's cost dashed), `hl-whole-table` (`renderHlWholeTable`: total cost plus the lag n₀,
-     efficiency e and cost at 5× gain from `hlInfoLadder`), the claimed-σ / true-error curves with the bound drawn from the
-     run's own prior (`renderHlStageCurve`, `hlFisherAt`), the information rate (`renderHlInfoCurve`, mode `rate`) and the
-     paired per-repeat difference (`hl-paired-0`, `renderHlPaired`, single use case only). *Search*, the one stage kept:
-     `hl-stage-compare-1`, `hl-stages-steps-1`, the claimed-σ / true-error curves over that stage and `hl-paired-1`. All
-     information metrics are computed in the browser from `series.e` / `series.u`, `stage_fisher_star` and
-     `stage_prior_info` (J₀ of the bound: 4π²/W² for a uniform global-search `zeeman_shift` prior of width W, 1/σ₀² for a
-     Gaussian tracking prior, computed from the locator's prior at run time; `stage_prior_info_var` = 1/Var(prior) is
-     stored alongside for models of actual error and is not used by the tab; one J₀ per use case: the median over every
-     locator's runs, which share the prior). Rows recorded before the 4π²/W² change carry 12/W²; `nv metrics recalc` rescales them (no re-run). The single-repeat panels (`#scan-run-content`) are shown only in the Run view, collapsed the same way elsewhere.
-   * **Scaling** (`renderScalingTab`, `renderScaling`, view `#scaling-view`) — one point per use case (median over its
-     repeats) of the stage steps against window, SNR and (FWHM/(SNR τ))², for the locators picked in `#scaling-pick`
-     (default SBED). A panel is drawn only when the selection spans at least two values of its x-axis (a window or SNR
-     range is chosen by dragging across the chips). Predicted scaling dotted, Fisher bound dashed.
-   * **Sanity** (the `sanity` mode, `#accuracy-view`; the tab label carries the failed-run count, "Sanity (3 failed)",
-     set by `updateFailedRunsButton`; the old `view=accuracy` and `view=failed-runs` URL hashes are mapped to it) — checks
-     that the other views can be trusted. First **Accuracy** (`renderAccuracyTab`): whether the stop is reliable, true error
-     at the stop in units of τ, claimed σ against the true error over measurements, and claimed σ against the true error;
-     then **Failed runs** (`renderFailedRunsTab`, `#failed-runs-section`): the count and breakdown of runs that did not
-     reach the stop target.
+8. **Views** — the `#scan-view-mode` control has two modes, switched by `showScanViewPanels`:
+   * **Run** (`single`) — one repeat: the scan plot, the Bayesian tabs and, at the bottom, **Failed runs**
+     (`renderFailedRunsTab`, `#failed-runs-section`) for the selected study and noise.
+   * **Simulation** (`article`) — `#article-view`, drawn by `static/article-view.js` with its own Line / Window / SNR
+     pickers (default: the `article` run group, `NVCenter-voigt-span<W>-gs0-hfunresolved`, Bayesian-SBED vs
+     SimpleSweep-optimal). One panel per claim of the article, grouped by regime; the data come from `/api/claims`,
+     `/api/search-bounds`, `/api/detection-aligned` and `/api/refine-rates`, fetched through one queue (the selected use
+     case first) and kept for the session. What each panel tests is in `docs/evaluation_metrics.md`. Old URL hashes
+     (`view=stages`, `scaling`, `sanity`, `locators`, `accuracy`, `failed-runs`) open it.
+   * **Lab** is not a mode: picking a lab as the Study shows `#lab-view` (`renderLabStudy` in `static/lab-view.js`).
 
-   Stages and Sanity (its Accuracy part) have a **scope** control (`#uc-scope-stages` / `#uc-scope-accuracy`, one setting, `ucScope`):
-   *Median over selection* (default) or *Each use case*. The markup inside `#stages-body` / `#accuracy-body` is a
-   template that `ucRenderBlocks` clones once per block, titled and with every element id suffixed `--uc<i>`; the
-   render functions take that suffix (`renderHlStages(gen, noises, sfx)`, `renderHlStopQuality(..., sfx)`). In the
-   median scope the selection is ONE block whose generator / noise arguments are arrays. Its numbers are medians over
-   the use cases of each use case's own value (`hlUnits`, `hlCaseShares`): table cells, stage bars and the stage
-   comparison, and the over-time curves (median of per-use-case medians at each step, shown while at least half the
-   use cases are still running). The Cost & search block under *Whole run* is not part of the scope control: it follows the
-   Signal / Noise pickers (its own median block, then one block per use case), and its median covers only the use cases
-   every shown locator has runs on.
-   The Accuracy stop table and σ-vs-error chart and the Stages refine curves pool the runs of the selection instead
-   (they are in units of τ / σ or relative to the refine start); the Accuracy pace chart (absolute Hz against
-   measurements) is shown only per use case. The controls that are one setting for the view (Stages "Show:", the
-   Accuracy deviation-band toggle) redraw every block. New elements inside either body must therefore be looked up
-   by `id + sfx`.
-
-   Stages and Sanity read `series`/`true_params`/stage fields from `/api/scan-fields` (`ensureScanFieldsFor`),
-   scoped to the current generator/noise selection.
 9. **Narrowed bounds panel** — reads `layout.meta.narrowed_param_bounds` from the scan figure
 10. **Tabs setup** — top-level tab bar (just "Scan measurements")
 11. **Event listeners** — wires all control-change and click events
@@ -250,6 +191,6 @@ Both formats are decoded by `_decodePlotlyFigure` in `plotly-utils.js`.
 After every change to `static/`, mirror to `artifacts/`:
 
 ```powershell
-@("bootstrap.js","run-status.js","lab-view.js","search-bounds-view.js","format-utils.js","plotly-utils.js","app.js","reload.js","index.html","styles.css") |
+@("bootstrap.js","run-status.js","lab-view.js","claim-panels.js","detection-aligned-view.js","article-view.js","format-utils.js","plotly-utils.js","app.js","reload.js","index.html","styles.css") |
     ForEach-Object { Copy-Item "static\$_" "artifacts\$_" -Force }
 ```
