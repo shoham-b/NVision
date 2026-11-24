@@ -22,15 +22,46 @@ uses the names on the right. Docs describing the algorithm use the article's ter
 | $W$ | the drive window `[drive_freq_min_phys, drive_freq_max_phys]` | |
 | $N_p$ | `NVISION_SMC_NUM_PARTICLES` (10000) | |
 | $\hat\theta_N$, $\hat\sigma_N$ | `belief.estimates()`, `belief.uncertainty()` | Posterior mean and weighted particle std. $\hat\sigma_N$ is the **claimed uncertainty**; it is *not* a 68 % interval before the posterior is Gaussian. |
-| van Trees bound | CRLB / `stage_fisher_star` ($I_{\max}$), `posterior_J_tau_phys` ($J_\tau$) (see [evaluation metrics](evaluation_metrics.md)) | Used only from each run's own detection, with the posterior's $J_\tau$; the code historically says "CRLB". |
+| van Trees bound | CRLB / `i_max` ($I_{\max}$), `j_tau_phys` ($J_\tau$) (see [evaluation metrics](evaluation_metrics.md)) | Used only from each run's own detection, with the posterior's $J_\tau$; the code historically says "CRLB". |
 | dip test | `find_dips` (`belief/dip_detection.py`), `NVISION_DIP_P_FA` | Boxcar score over measured stretches, Bonferroni threshold. |
 | falsification probe | exploration step in SBED `_acquire` (`EXPLORE_PROBABILITY_*`) | Measures the middle of the widest unmeasured gap. |
-| search + localize / converge / refine | `dip_detected_step` ends search + localize; the Gaussian onset (negentropy < 0.05) ends converge | Read from each run's own history. The *focus window / focus sections* (`FocusRegion`) are a different thing and keep their name. |
+| search + localize / converge / refine | `detection_step` ends search + localize; the Gaussian onset (negentropy < 0.05) ends converge | Read from each run's own history. The *focus window / focus sections* (`FocusRegion`) are a different thing and keep their name. |
 | SimpleSweep | `SimpleSweep-optimal`, `SimpleSweep-optimal-x0.5`, `-x2` | $\Gamma_0$ = FWHM of the prior-mean line; SimpleSweep spacing $\Gamma_0/k$: $k = m\,k^*$ with $m \in \{0.5, 1, 2\}$ and the per-task optimum $k^*$ = argmin of $\overline{P(k,\varphi)}\,n(k)$ (whole passes $P$ times points per pass $n$). |
 | Bayesian SBED | `Bayesian-SBED` | |
-| $R(n)$ (information against the bound) | `claims.bound_ratio` | $1/\overline{e^2 (J_0 + n I_{\max})}$ over runs; $\le 1$ (+1 %) for the true error. |
-| $q$, $n_0$ (Eq. strategy-numbers) | `RateFit.q`, `RateFit.n0` (`refine_rates.fit_rate_line`), gated by `claims.fit_with_gate` | Slope of $1/\mathrm{MSE}$ in units of $I_{\max}$ and its intercept on the late window. |
-| coverage | `claims.coverage_curve`, `claims.coverage_from_z` | Share of runs with $|e| \le k\hat\sigma$ ($k=1,2$); nominal 68 % / 95 %. |
+| $q$, $n_0$ (Eq. strategy-numbers) | `fitted_rate.rate`, `fitted_rate.search_offset` (`RateFit.rate`, `RateFit.search_offset` of `refine_rates.fit_rate_line`), gated by `claims.fit_with_gate` | Slope of $1/\mathrm{MSE}$ in units of $I_{\max}$ and its intercept on the late window. |
+| coverage | `claims.coverage_curve`, `coverage_z_final`, `coverage_pit_final` | Share of runs with $|e| \le k\hat\sigma$ ($k=1,2$), or inside the central 68 % / 95 % of their own posterior (PIT); nominal 68 % / 95 %. |
+
+## Metric names (renamed 2026-11-24)
+
+Every metric the article uses carries the article's name in the stored result columns, the API fields, the Python
+names in `nvision/metrics/` and the UI. There are no read-time aliases: a row recorded before the rename fails fast
+and needs a re-run. Physics and locator names (`zeeman_shift`, `drive_freq`, the focus window, the belief classes)
+are unchanged.
+
+| Article | Name now | Was |
+|---|---|---|
+| $n_d$, detection step | `detection_step` | `dip_detected_step`; API `detected_step_*` |
+| $I_{\max}$ | `i_max` | `stage_fisher_star`; API `I_max` |
+| $J_\tau$ | `j_tau_phys`, `j_tau_2h_phys` | `posterior_J_tau_phys`, `posterior_J_tau_2h_phys` |
+| $\sigma_0 = W/\sqrt{12}$ (Eq. prior) | `sigma0_phys` (a standard deviation) | `stage_prior_info_var` (= $1/\sigma_0^2$) |
+| stop target $\sigma_{\rm tgt}$ | `sigma_target_phys`; series `sigma_target` | `stage_tau_phys`; series `tau` |
+| $\Gamma$, $W$, $W/\Gamma$ | `fwhm_phys`, `window_phys`, `window_over_fwhm` | `stage_fwhm_true_phys`, `stage_window_phys`, `stage_window_fwhm` |
+| cost to a target | `target_cost_step` | `stage_true_passage_step` |
+| primary parameter | `primary_param` | `stage_primary_param` |
+| run axes (module) | `nvision/metrics/run_axes.py`: `compute_run_axes`, `RUN_AXIS_KEYS` | `stages.py`: `compute_stage_metrics`, `STAGE_METRIC_KEYS` |
+| PIT | `pit_final`; series `pit`; API `coverage_pit_final` | `posterior_pit_final`; series `p` |
+| per-step series | `step`, `error`, `claimed_sigma`, `z_score`, `negentropy`, `posterior_fisher`, `kde_bandwidth`, `far_mass`, `far_placed`, `crlb`, `focus_windows` | `s`, `e`, `u`, `z`, `g`, `j`, `h`, `m`, `x`, `c`, `w` |
+| posterior scalars at detection | `negentropy_tau`, `far_mass_tau`, `kde_bandwidth_tau_phys`, `far_placed_steps`, `far_placed_share`, `undefined_posterior_steps` | the same with a `posterior_` prefix |
+| $q$, fitted | `fitted_rate` {`rate`, `search_offset`, `rate_ci`, `search_offset_ci`, `rate_halves`, ...} | `fit_true` {`q`, `n0`, `q_ci`, ...}; detection-aligned `q_true` |
+| $\hat q$, claimed | `claimed_rate`; ratio `claimed_over_fitted_rate` | `fit_claimed`, `q_hat`; `rate_ratio_claimed_over_true`, `q_hat_over_q` |
+| $q$, placement | `placement_efficiency` (`refine_rates.placement_efficiency`), `placement_efficiency_median` | `q_place`, `place_efficiency`, `q_place_median`, lab `efficiency_median` |
+| speedup $R_\infty$ | `speedup_fitted`, `speedup_placement`, `speedup_lorentzian`, `speedup_exact` | `r_inf_err`, `r_inf_place`, `r_inf_lorentzian`, `r_inf_exact` |
+| Gaussian onset, converge end | `gaussian_onset_step`, `converge_end_step` (claims `regimes`) | `gaussian_onset`, `converge_end` |
+| $\rho$ against van Trees from detection | `rho_van_trees`, `rho_van_trees_at`, `rho_van_trees_max`, `van_trees_bound` | `rho_j_tau*`, `bound_j_tau` |
+| $\rho$ against the elimination model | `rho_elimination*`, `elimination_bound`; search-bounds curve `elimination_model` | `rho_j_d*`, `bound_j_d`; `mean_model` |
+| $\rho_{\rm search}$ against the change-of-measure bound | drawn from `curves.change_of_measure` / `mse` | — |
+| $n_{\rm search}$ (Eq. search-cost), $= 1/\bar\kappa$ | `n_search`, `n_search_lorentzian`, `n_search_eff`, `search_efficiency` | `kappa_bar`, `inv_kappa_bar`, `kappa_lorentzian`, `kappa_eff`, `kappa_ratio` |
+| coverage at the end | `coverage_z_final`, `coverage_gated_final` | `coverage_z_at_budget`, `coverage_at_budget` |
 
 ## Frequencies and shifts
 

@@ -181,7 +181,7 @@ All sweeps update the same SMC belief every step, so an uncertainty trajectory e
 
 ## Regimes
 
-A run passes the article's regimes: search + localize until its own dip test fires (`dip_detected_step`), converge until
+A run passes the article's regimes: search + localize until its own dip test fires (`detection_step`), converge until
 the posterior is a single Gaussian peak, then refine. They are read from each run's own history and judged against the
 article's bounds on the Simulation page; [evaluation metrics](evaluation_metrics.md) says how. The former stage model
 (boundaries from a 0.7 drop of the claimed σ and an ε tolerance, `focus_found_step`, `refine_start_step`,

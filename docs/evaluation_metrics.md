@@ -21,34 +21,60 @@ measurements after the start, because runs find the dip at different times:
 
 | Regime | Ends at | Stored as | Bound that applies |
 |---|---|---|---|
-| **Search + localize** | the run's own dip test fires (`NVISION_DIP_P_FA`), held for 3 steps | `dip_detected_step` | change-of-measure bound (Eq. search-bound); the elimination model (Eq. mean-curve) is a reference |
-| **Converge** | the posterior is one Gaussian peak: negentropy stays < 0.05 | per-step negentropy series `g`; the onset is computed (`detection_aligned.gaussian_onset`) | van Trees restarted at detection with the posterior's own information J_τ |
+| **Search + localize** | the run's own dip test fires (`NVISION_DIP_P_FA`), held for 3 steps | `detection_step` | change-of-measure bound (Eq. search-bound); the elimination model (Eq. mean-curve) is a reference |
+| **Converge** | the posterior is one Gaussian peak: negentropy stays < 0.05 | per-step `negentropy` series; the onset is computed (`detection_aligned.gaussian_onset`) | van Trees restarted at detection with the posterior's own information J_τ |
 | **Refine** | the end of the run | — | 1/MSE grows as q·I_max·(n − n₀), q ≤ 1 |
 
 The van Trees bound does **not** apply to the uniform global prior: its Fisher information is infinite (hard edges), so
-van Trees from n = 0 says nothing. It holds from each run's detection, with J_τ (`posterior_J_tau_phys`, the KDE Fisher
+van Trees from n = 0 says nothing. It holds from each run's detection, with J_τ (`j_tau_phys`, the KDE Fisher
 information of the posterior at detection) taking the place of J₀ (Eq. after-detection). The prior enters only through
 its spread σ₀ = W/√12 (Eq. prior), with W the range `zeeman_shift` is drawn from.
 
 ## Per-run quantities (stored at run time)
 
-`nvision/metrics/stages.py` (`compute_stage_metrics`), identical for every locator:
+`nvision/metrics/run_axes.py` (`compute_run_axes`), identical for every locator:
 
-* `dip_detected_step`, `stage_primary_param` (`zeeman_shift` for the NV generators);
-* `stage_fisher_star` = **I_max**: the Fisher information about the primary parameter of one measurement at the steepest
+* `detection_step`, `primary_param` (`zeeman_shift` for the NV generators);
+* `i_max` = **I_max**: the Fisher information about the primary parameter of one measurement at the steepest
   point of the true dip (shots × max g²/σ², Hz⁻² per measurement; every locator takes one shot per measurement);
-* the axes: `stage_tau_phys` (the stop target τ), `stage_fwhm_true_phys` (Γ), `stage_prior_fwhm_phys`,
-  `stage_window_phys` (the drive window), `stage_window_fwhm`, `stage_prior_info_var` = 1/Var(prior)
-  (12/W² when uniform), and `stage_true_passage_step` (first step from which the true error stays ≤ τ).
+* the axes: `sigma_target_phys` (the stop target τ), `fwhm_phys` (Γ), `prior_fwhm_phys`,
+  `window_phys` (the drive window), `window_over_fwhm`, `sigma0_phys` = σ₀, the prior's standard deviation
+  (W/√12 when uniform), and `target_cost_step` (first step from which the true error stays ≤ τ).
 
-`nvision/metrics/posterior.py` adds the posterior series per step — `z` (signed error / σ̂), `g` (negentropy), `m`, `j`
-(KDE Fisher information), `h`, `x` (far placement) — and the scalars `posterior_J_tau_phys`, `posterior_J_tau_2h_phys`,
-`posterior_negentropy_tau`, `posterior_far_mass_tau`, `posterior_far_placed_share`. The PIT series `p` and
-`posterior_pit_final` (posterior CDF at the truth) are being added in a separate change; runs recorded before it carry
-none.
+`nvision/metrics/series.py` stores the per-step series `step`, `error`, `claimed_sigma`, `sigma_target` (and
+`focus_windows` for the timeline); `nvision/metrics/posterior.py` adds `z_score` (signed error / σ̂), `pit` (the
+posterior CDF at the truth), `negentropy`, `far_mass`, `posterior_fisher` (KDE Fisher information), `kde_bandwidth`,
+`far_placed` and the scalars `j_tau_phys`, `j_tau_2h_phys`, `negentropy_tau`, `far_mass_tau`, `far_placed_share`,
+`pit_final`. The names are the article's (table in [the glossary](glossary.md#metric-names-renamed-2026-11-24)); rows
+recorded before the rename fail fast and need a re-run.
 
 **Claimed uncertainty** σ̂_N is the standard deviation the locator reports after N measurements (the posterior's spread).
 It is compared with the true error; it is not an accuracy measure on its own.
+
+## The shared run record
+
+Simulation and lab are the same metrics fed by two sources (`nvision/metrics/run_record.py`). One `RunRecord` per run
+holds the stored steps, the estimate, the claimed σ and the error per step, the drive frequencies and outcomes (when the
+source keeps them), the detection, I_max, W, Γ, SNR, the budget and the line-shape parameters. Every metric reads the
+record; the two sources differ only in four explicit, named places, never in scattered branches:
+
+| Difference | Simulation | Lab | Where |
+|---|---|---|---|
+| **Truth** (`TruthSource`) | `SIM_TRUTH`: the true parameter, drawn from the prior; ensemble quantities (MSE against the bounds, ρ, the fitted rate, PIT) are valid | `LAB_REFERENCE`: the reference sweep fit, whose standard error adds in quadrature and whose 0.4–0.6 MHz drift floors every error; only claimed quantities (q̂, placement, claimed-σ search cost, scatter of repeated runs) are valid | `RunRecord.truth.ensemble_valid`; the Lab page shows no ensemble panel |
+| **Detection** (`Detector`) | `DIP_TEST`: the run's dip test fires (stored as `detection_step`); restart at the posterior before that measurement (its J_τ is stored) | `SIGMA_DROP`: the first steep, lasting drop of the claimed σ (`lab_search_fit.detection_step`); restart at the first posterior after the drop | `detection_aligned.align(record, detector)` |
+| **Nuisances** | contrast and width inferred | held fixed (known) | `RunRecord.known_nuisances`; an input of I_max only |
+| **Stop and budget** | every run measures the whole 2500 | set 1 stops at claimed σ < 1 MHz or 300; set 2 measures the full 300 | `RunRecord.stop_rule`, `budget`; only lags every run reaches are used |
+
+`SIGMA_DROP` needs only the claimed σ, so it also runs on the simulated runs: `detector_comparison` of
+`/api/detection-aligned` reports, per use case and locator, the median step of each definition and their difference
+over the runs both detect (the Simulation page's *Two detection definitions* panel). On a simulated run the sigma drop
+is located to the stored steps (at most 80 per run). First reading (span 5, SNR 5): the sigma drop fires about 2× later
+than the dip test (median 12 vs 5 for SBED, 34 vs 16 for the sweep).
+
+Three panels are one component on both pages (`static/claim-panels.js`), each page feeding it through its adapter:
+*Search cost vs window* (Eq. search-cost), *Information per measurement after detection* (q̂ from `claimed_rate` of
+`detection_aligned`, the same function for both sources, and the placement) and *Claimed σ vs the spread of the runs*
+(the rms true error over the prior ensemble in the simulation, the scatter of repeated runs in the lab).
 
 ## The claims
 
@@ -60,7 +86,7 @@ enough: no re-run and no `nv render`. A number the data cannot give is `None` wi
 The run-averaged error stays near the prior W/√12 while the runs search, then falls as 1/√n at q × the data limit
 (n I_max)^(-1/2). Reference curves: the elimination model (Eq. mean-curve) and the change-of-measure bound.
 
-* Data: `rms_curve` of `GET /api/claims` (rms over the runs of the true error `e` and of σ̂ `u` on a common step grid;
+* Data: `rms_curve` of `GET /api/claims` (rms over the runs of the true error and of σ̂ on a common step grid, `rms_curve.error` / `.claimed_sigma`;
   a stopped run keeps its last value), `regimes` (median detection step, median Gaussian onset, converge end, plateau,
   tail slope).
 * Panel: *Error over the run* (one use case).
@@ -72,10 +98,12 @@ W²/(8e)·e^{−nκ̄}/(1+ln2+nκ̄)², with κ̄ = k∫dip²dx/(2σ²W) the mea
 form (W − nΔd)³/(12W) (Eq. search-mean) and the elimination model also hold, Δd the single-measurement reach (eq.
 sm-reach). The search ratio ρ_search(n) = bound MSE / measured MSE must stay ≤ 1 before detection.
 
-* Code: `nvision/metrics/search_bounds.py`, `GET /api/search-bounds` (`nvision/cli/search_bounds_api.py`). W is the
+* Code: `nvision/metrics/search_bounds.py`, `GET /api/search-bounds` (`nvision/cli/search_bounds_api.py`). The rate is
+  reported as `n_search` = 1/κ̄, the measurements per e-fold of the bound (Eq. search-cost). W is the
   range `zeeman_shift` is drawn from (checked against the generator). κ̄ is integrated on the true line rebuilt from the
   generator, so it holds for any line shape. SNR = line contrast / σ (the article convention), computed from σ.
-* Also returned: the survival S(n) of |error| > one HWHM, its decay rate κ_eff against κ̄, and the detection summary.
+* Also returned: the survival S(n) of |error| > one HWHM, `n_search_eff` = 1/κ_eff from its decay and
+  `search_efficiency` = `n_search` / `n_search_eff`, and the detection summary.
 * Panel: *Search against the bounds* (one use case).
 
 ### 3. Converge: van Trees restarted at detection (Fig. localize)
@@ -85,7 +113,8 @@ After its own detection n_d each run is compared with 1/(J_τ + k I_max), k = n 
 ρ near 1 means information at the data limit. The posterior becomes one Gaussian peak once its negentropy stays < 0.05.
 
 * Code: `nvision/metrics/detection_aligned.py`, `GET /api/detection-aligned`. Also the elimination-model curve with
-  J_d = 12/Δd², the claimed rate q̂ and the far placement.
+  J_d = 12/Δd² (`rho_elimination`), the claimed rate q̂ (`claimed_rate`; `claimed_rate_late` is the lab's definition)
+  and the far placement. ρ is `rho_van_trees` (`rho_van_trees_at`, `rho_van_trees_max`).
 * Panels: *After detection: ρ against restarted van Trees*, *Posterior negentropy after detection* (one use case).
 
 ### 4. Refine: the information rate q (Fig. strategy_plane)
@@ -93,13 +122,13 @@ After its own detection n_d each run is compared with 1/(J_τ + k I_max), k = n 
 Late in a run 1/MSE = q·I_max·(n − n₀) (Eq. strategy-numbers). SBED's q is about 0.5 at every window and SNR. A sweep
 spreads its measurements over the window and gets q_sweep = I_sweep/I_max = 8πΓ/(27W) (Eq. sweep-info).
 
-* `q` (true error): `claims.fit_with_gate` = `refine_rates.fit_rate_line` on the late window, with bootstrap intervals
+* `fitted_rate` (q from the true error, with `search_offset` = n₀): `claims.fit_with_gate` = `refine_rates.fit_rate_line` on the late window, with bootstrap intervals
   and a **linearity gate** (the q of the two halves of the window must agree); `linear = false` means the late regime is
-  not reached and q is not a refine rate. Also `fit_claimed` (the same on σ̂) and `rate_ratio_claimed_over_true`
+  not reached and q is not a refine rate. Also `claimed_rate` (the same on σ̂) and `claimed_over_fitted_rate`
   (above 1 = overconfident).
-* `q_place` (placement): the mean η = I(d)/I_max of the measurements after detection, judged on the true signal
+* `placement_efficiency` (placement): the mean η = I(d)/I_max of the measurements after detection, judged on the true signal
   (`nvision/metrics/refine_rates_runs.py`, `GET /api/refine-rates`; SBED's positions from its scan figure or
-  `meas_drive_freq_unit`, a sweep's from its design). `q_err / q_place` is what the filter keeps of the information the
+  `meas_drive_freq_unit`, a sweep's from its design). `fitted_over_placement` is what the filter keeps of the information the
   placement offered.
 * Offset histogram: where the measurements after detection fall from the nearest true line centre, in units of the true
   HWHM γ; the information peaks at ±γ/√3.
@@ -110,8 +139,8 @@ spreads its measurements over the window and gets q_sweep = I_sweep/I_max = 8π�
 For a precise target the speedup is the ratio of the rates, R = q_SBED/q_sweep ≈ 1.07 q W/Γ (27/(8π) W/Γ at q = 1),
 independent of SNR.
 
-* Data: `speedup` of `GET /api/refine-rates`: `r_inf_err` (ratio of the fitted q, the best sweep spacing as yardstick),
-  `r_inf_place`, and `ratio` = T_sweep(τ)/T_SBED(τ) on targets τ = σ₀/gain, σ₀ = W/√12, counted where at least half of
+* Data: `speedup` of `GET /api/refine-rates`: `speedup_fitted` (ratio of the fitted q, the best sweep spacing as yardstick),
+  `speedup_placement`, and `ratio` = T_sweep(τ)/T_SBED(τ) on targets τ = σ₀/gain, σ₀ = W/√12, counted where at least half of
   each locator's runs reached τ (the cost of a target is the first step from which the true error stays ≤ τ, median over
   all runs).
 * Panel: *Speedup over the sweep vs window*: measured R∞ and the cost ratio at the most precise common target, against
@@ -123,25 +152,23 @@ The accuracy at the end of a run is not a quality metric: a run stops once σ̂ 
 mostly reflects the target. What is tested is whether σ̂ is honest:
 
 * rms true error ÷ rms σ̂ over the run (`rms_curve`); 1 = honest on average.
-* Coverage from the signed z (`coverage_z_at_budget`: share of runs within 1 and 2 σ̂, Wilson intervals, mean and std
+* Coverage from the signed z (`coverage_z_final`: share of runs within 1 and 2 σ̂, Wilson intervals, mean and std
   of z) and, per n, `coverage_curve` counted from each run's Gaussian onset, since σ̂ is a 68 % interval only once the
   posterior is Gaussian (`within_k_all` without the gate, `gaussian_share` the share of runs that got there).
-* Coverage by the posterior's own quantiles (PIT): valid before the posterior is Gaussian. Read from
-  `coverage_pit_at_budget` once the claims report carries it; until the runs store `posterior_pit_final` the panel says
-  "needs re-run".
+* Coverage by the posterior's own quantiles (PIT, `coverage_pit_final` from the series `pit`): valid before the
+  posterior is Gaussian. Runs recorded before the `pit` series show "needs re-run".
 * Panels: *True error vs claimed σ over the run* (one use case), *Coverage at the end of the run vs window*,
   *Coverage by the posterior's own quantiles (PIT)*.
 
 ## Lab claims (Lab page)
 
-Lab runs have no ground truth and store no per-step particles. The reference is the median final mean of the converged
-runs (`nvision/metrics/lab_study.py`); the line drifts 0.4–0.6 MHz between recordings, which floors every error. Detection
-is the run's first steep, lasting drop of its claimed σ (`lab_search_fit.detection_step`).
+The lab runs go through the same record and functions (`lab_detection_aligned.record_from_trace`), with the lab's
+truth (`LAB_REFERENCE`) and detector (`SIGMA_DROP`); only claimed quantities are reported.
 
 | Claim | Data | Panel |
 |---|---|---|
 | The search cost grows linearly in W at about 25× Eq. search-cost, n_search ≳ (8/π)(W/Γ)/(k SNR²) | median detection step per window (`GET /api/lab-detection-aligned`, `nvision/metrics/lab_detection_aligned.py`), Γ and SNR = C/σ of the runs' own model and noise | *Search cost vs window* |
-| After detection q̂ and the placement are near 0.4–0.5 in narrow windows and fall to the sweep rate 8πΓ/(27W) above about 25 Γ | `claimed_rate.q_hat` (slope of 1/⟨σ̂²⟩ per measurement over the second half of the lags, in units of I_max) and `placement.efficiency_median` | *Information per measurement after detection* |
+| After detection q̂ and the placement are near 0.4–0.5 in narrow windows and fall to the sweep rate 8πΓ/(27W) above about 25 Γ | `claimed_rate.claimed_rate` (slope of 1/⟨σ̂²⟩ per measurement over the second half of the lags, in units of I_max) and `placement.placement_efficiency_median` | *Information per measurement after detection* |
 | The claimed σ matches the scatter of repeated runs | per window: median claimed σ, across-run std of the final estimates, within 1σ / 2σ (`GET /api/lab-study`) | *Claimed σ vs repeated-run scatter* and its table |
 
 The per-window claimed-σ curves against the elimination model fitted at import (`lab_search_fit`) and the per-run
@@ -164,13 +191,15 @@ replay stay on the page for inspection.
 
 | What | Code | Endpoint |
 |---|---|---|
-| Per-run markers and axes | `nvision/metrics/stages.py` | stored in the results row |
+| Per-run markers and axes | `nvision/metrics/run_axes.py` | stored in the results row |
+| Shared run record, truth sources, detectors | `nvision/metrics/run_record.py` | — |
 | Posterior series | `nvision/metrics/posterior.py`, `series.py` | stored in the scan entry |
 | Regimes, (n₀, q), coverage, rms curves | `nvision/metrics/claims.py`, `claims_report.py` | `/api/claims` |
 | Search bounds | `nvision/metrics/search_bounds.py`, `nvision/cli/search_bounds_api.py` | `/api/search-bounds` |
 | Van Trees from detection, negentropy | `nvision/metrics/detection_aligned.py` | `/api/detection-aligned` |
 | Placement, offsets, speedup | `nvision/metrics/refine_rates.py`, `refine_rates_runs.py` | `/api/refine-rates` |
 | Lab | `nvision/metrics/lab_*.py` | `/api/lab-study`, `/api/lab-detection-aligned` |
+| Panels shared by both pages | `static/claim-panels.js` | — |
 | Simulation page | `static/article-view.js` (plots from `static/detection-aligned-view.js`) | — |
 | Lab page | `static/lab-view.js` | — |
 

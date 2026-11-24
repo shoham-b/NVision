@@ -90,7 +90,7 @@ Items where the article and the code differ, or where this doc could not confirm
   drawn from. The generators additionally build *narrowed Gaussian priors* (`PRIOR_STD_FRACTION`, random prior mean offset
   `PRIOR_MEAN_OFFSET_SIGMAS`) for the other parameters; a Gaussian *tracking* run (truth drawn from the prior) is not simulated in
   the article yet. Whether the `zeeman_shift` prior is uniform in the shipped grids was not re-verified.
-- **Regimes.** A run passes search + localize (until its own dip test fires, `dip_detected_step`), converge (until the
+- **Regimes.** A run passes search + localize (until its own dip test fires, `detection_step`), converge (until the
   posterior is one Gaussian peak) and refine, read from each run's own history. See
   [evaluation metrics](evaluation_metrics.md).
 - **SNR.** The code label is `contrast_total / noise_sigma` with `contrast_total` $= 2C$; the article's SNR is $C/\sigma$.

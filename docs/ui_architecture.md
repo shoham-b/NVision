@@ -10,8 +10,8 @@ The UI shows the article's quantities under shorter labels; the full table is in
 
 * **σ in plots and tables** is the **claimed uncertainty** $\hat\sigma_N$ (weighted particle standard deviation), not a 68 % interval before the posterior is Gaussian. The Simulation page's calibration panels test whether it is honest (coverage); end-of-run accuracy is deliberately not a quality metric.
 * **SNR** on every axis and button is the code label `contrast_total / noise σ`, i.e. twice the article's $C/\sigma$ (`contrast_total` $= 2C$).
-* **Regimes** are search + localize, converge and refine, as in the article. **Detection** (`dip_detected_step`, the dip test at `NVISION_DIP_P_FA`) ends search + localize; the Run view's timeline marks it.
-* **I_max** is the stored `stage_fisher_star`. Van Trees is drawn only from each run's own detection, with J_τ (`docs/evaluation_metrics.md`).
+* **Regimes** are search + localize, converge and refine, as in the article. **Detection** (`detection_step`, the dip test at `NVISION_DIP_P_FA`) ends search + localize; the Run view's timeline marks it.
+* **I_max** is the stored `i_max`. Van Trees is drawn only from each run's own detection, with J_τ (`docs/evaluation_metrics.md`).
 
 ## Known deviations (UI vs. article)
 
@@ -29,7 +29,8 @@ The UI shows the article's quantities under shorter labels; the full table is in
 | `plotly-utils.js` | ~80 | Plotly CDN loading, JSON/gz fetch, array decode (`_fetchJson`, `_decodePlotlyFigure`, `resolveAssetPath`, etc.) |
 | `run-status.js` | ~115 | Run status banner polling + help-toggle accordion buttons |
 | `app.js` | ~7400 | `main()` — scan/Bayesian Run view, controls, view switching |
-| `article-view.js` | ~520 | Simulation page: one panel per article claim (`window.NVArticleView.render`) |
+| `article-view.js` | ~650 | Simulation page: one panel per article claim (`window.NVArticleView.render`) |
+| `claim-panels.js` | ~130 | Panels shared by the Simulation and Lab pages (`window.NVClaimPanels`), fed by a per-source adapter |
 | `detection-aligned-view.js` | ~140 | Plots of runs aligned at their own detection (ρ, negentropy, lab rates), used by both pages |
 | `lab-view.js` | ~600 | Lab page: search cost, rates after detection, calibration; per-run replay |
 | `reload.js` | ~95 | Recalculate button, `r` keyboard shortcut, `init()` entry point that awaits bootstrap then calls `main()` |
@@ -190,6 +191,6 @@ Both formats are decoded by `_decodePlotlyFigure` in `plotly-utils.js`.
 After every change to `static/`, mirror to `artifacts/`:
 
 ```powershell
-@("bootstrap.js","run-status.js","lab-view.js","detection-aligned-view.js","article-view.js","format-utils.js","plotly-utils.js","app.js","reload.js","index.html","styles.css") |
+@("bootstrap.js","run-status.js","lab-view.js","claim-panels.js","detection-aligned-view.js","article-view.js","format-utils.js","plotly-utils.js","app.js","reload.js","index.html","styles.css") |
     ForEach-Object { Copy-Item "static\$_" "artifacts\$_" -Force }
 ```
