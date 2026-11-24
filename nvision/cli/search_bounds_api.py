@@ -83,6 +83,8 @@ class _Run:
         def field(name: str) -> Any:
             return row[name] if row.get(name) is not None else metrics.get(name)
 
+        if field("primary_param") is None:
+            raise UseCaseError("a repeat has no primary_param column (recorded before the 2026-11-24 rename: re-run)")
         if field("primary_param") != PRIMARY_PARAM:
             raise UseCaseError(f"primary parameter is {field('primary_param')!r}, not {PRIMARY_PARAM!r}")
         series = scan.get("series") or {}

@@ -72,7 +72,8 @@ def analyse_use_case(rows: list[dict[str, Any]]) -> dict[str, Any]:
     runs = [r for r in rows if r.get("series") and all(r["series"].get(k) for k in ("step", "error", "claimed_sigma"))]
     if len(runs) < claims.MIN_RUNS:
         return {
-            "unavailable": f"{len(runs)} runs with a per-step series (need {claims.MIN_RUNS})",
+            "unavailable": f"{len(runs)} runs with a step/error/claimed_sigma series (need {claims.MIN_RUNS}; rows "
+            "recorded before the 2026-11-24 rename store the old names: re-run)",
             "repeats": len(runs),
         }
     cmp = [r.get("compare") or {} for r in runs]

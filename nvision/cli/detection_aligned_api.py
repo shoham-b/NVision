@@ -12,7 +12,7 @@ from collections.abc import Callable
 from typing import Any
 
 import numpy as np
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 
 from nvision.metrics import detection_aligned as da
 from nvision.metrics import search_bounds as sb
@@ -110,7 +110,10 @@ def add_detection_aligned_route(app: FastAPI, scan_fields: Callable[[str, str], 
         grouped: dict[tuple[str, str, str], list[dict]] = {}
         for row in scan_fields(generator, noise):
             grouped.setdefault((row["generator"], row["noise"], row["strategy"]), []).append(row)
-        return [
-            {"generator": g, "noise": n, "strategy": s, **analyse_rows(rows)}
-            for (g, n, s), rows in sorted(grouped.items())
-        ]
+        try:
+            return [
+                {"generator": g, "noise": n, "strategy": s, **analyse_rows(rows)}
+                for (g, n, s), rows in sorted(grouped.items())
+            ]
+        except ValueError as exc:  # a run recorded without what the analysis needs: say which, do not guess
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
