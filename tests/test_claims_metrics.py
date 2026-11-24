@@ -185,6 +185,8 @@ def test_report_end_to_end_on_stored_rows():
                     "fwhm_phys": 1.0,
                     "sigma_target_phys": 0.05,
                     "detection_step": 20,
+                    "prior_kind": "uniform",
+                    "sigma0_phys": 0.3,
                 },
                 "true_params": {"params": {"zeeman_shift": 0.1 * i}, "bounds": {"zeeman_shift": [0.0, 1.1]}},
             }
@@ -206,6 +208,26 @@ def test_report_end_to_end_on_stored_rows():
     assert "unavailable" in analyse_use_case(rows[:3])
 
 
+def test_report_tracking_uses_the_gaussian_prior_sigma0():
+    grid = claims.step_grid(1000)
+    rows = []
+    for _ in range(12):
+        e = ((1.0 / 0.04 + grid * I_MAX) ** -0.5).tolist()
+        rows.append(
+            {
+                "series": {"step": grid.tolist(), "error": e, "claimed_sigma": e, "negentropy": [0.01] * grid.size},
+                "compare": {"i_max": I_MAX, "detection_step": 1, "prior_kind": "gaussian", "sigma0_phys": 0.2},
+                "true_params": {"params": {"zeeman_shift": 0.5}, "bounds": {"zeeman_shift": [0.0, 1.1]}},
+            }
+        )
+    out = analyse_use_case(rows)
+    assert out["prior_kind"] == "gaussian"
+    assert out["sigma0_phys"] == pytest.approx(0.2)  # the tracking prior's std, not W / sqrt(12)
+    mixed = [dict(r, compare={**r["compare"], "prior_kind": "uniform"}) if i == 0 else r for i, r in enumerate(rows)]
+    with pytest.raises(ValueError, match="one stored prior_kind"):
+        analyse_use_case(mixed)
+
+
 def test_report_excludes_runs_that_never_reach_the_gaussian_peak():
     grid = claims.step_grid(1000)
     rows = []
@@ -218,6 +240,8 @@ def test_report_excludes_runs_that_never_reach_the_gaussian_peak():
                 "compare": {
                     "i_max": I_MAX,
                     "detection_step": 20,
+                    "prior_kind": "uniform",
+                    "sigma0_phys": 0.3,
                 },
                 "true_params": {"params": {"zeeman_shift": 0.1 * i}, "bounds": {"zeeman_shift": [0.0, 1.1]}},
             }

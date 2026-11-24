@@ -58,6 +58,7 @@ def _uniform_prior_on_mock_bounds(monkeypatch):
         return (hi - lo) ** 2 / 12.0
 
     monkeypatch.setattr(run_axes, "belief_prior_variance_phys", uniform_var)
+    monkeypatch.setattr(run_axes, "belief_prior_kind", lambda belief, name: "uniform")
 
 
 def _with_eta(monkeypatch, eta: list[float]) -> None:
@@ -227,6 +228,7 @@ def test_fisher_star_and_axes(monkeypatch):
     assert m["window_phys"] == pytest.approx(100e6)
     assert m["window_over_fwhm"] == pytest.approx(50e6)
     assert m["sigma0_phys"] == pytest.approx(60e6 / math.sqrt(12.0))  # W / sqrt(12) of the uniform zeeman_shift prior
+    assert m["prior_kind"] == "uniform"
     assert set(m) == set(run_axes.RUN_AXIS_KEYS)
 
 

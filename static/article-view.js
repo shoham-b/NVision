@@ -4,15 +4,24 @@
 //   /api/search-bounds      nvision/cli/search_bounds_api.py (change-of-measure bound, elimination model, search MSE)
 //   /api/detection-aligned  nvision/metrics/detection_aligned.py (ρ against van Trees restarted at detection, negentropy)
 //   /api/refine-rates       nvision/metrics/refine_rates_runs.py (placement q, offset histogram, speedup)
-// Default scope: the `article` run group, the Lorentzian NVCenter-voigt-span<W>-gs0-hfunresolved line at every window W
+// Default scope: the `article` run group's search grid, the Lorentzian NVCenter-voigt-span<W>-gs0-hfunresolved line at
+// every window W. The group's other families are selectable as a Line: the lab mirror (one generator per lab window)
+// and tracking (one per Gaussian prior width), where Bayesian-SBED-KnownShape also runs.
 // and SNR, Bayesian-SBED against SimpleSweep-optimal. Called by app.js (showScanViewPanels('article')).
 // Needs ensurePlotly from plotly-utils.js and daPlotRho / daPlotNegentropy from detection-aligned-view.js.
 (function () {
     const SBED = 'Bayesian-SBED';
     const SWEEP = 'SimpleSweep-optimal';
-    const LOCATORS = [SBED, SWEEP];
+    const KNOWN = 'Bayesian-SBED-KnownShape';
+    const LOCATORS = [SBED, KNOWN, SWEEP];
     const DEFAULT_FAMILY = 'NVCenter-voigt-span*-gs0-hfunresolved';
-    const SPAN_RE = /^(.*-span)([\d.]+)(-.*)$/;
+    // A family is a set of generators that differ in one number, the page's axis. First match wins.
+    const AXES = [
+        { re: /^(.*-span-lab-w)([\d.]+)(MHz-fwhm[\d.]+MHz)$/, name: 'Window', text: (v) => `${v} MHz` },
+        { re: /^(.*-hfunresolved-track)([\d.]+)()$/, name: 'Prior σ₀', text: (v) => `${v} FWHM` },
+        { re: /^(.*-span)([\d.]+)(-.*)$/, name: 'Window', text: (v) => `span ${v}` },
+    ];
+    const axisMatch = (gen) => { for (const a of AXES) { const m = a.re.exec(gen); if (m) return { a, m }; } return null; };
     const SNR_RE = /^SNR\(([\d.eE+-]+)\)$/;
     const GAUSS_WITHIN = { 1: 0.6827, 2: 0.9545 };
     const WORKERS = 3;
@@ -22,8 +31,8 @@
         return `${window.NVISION_ASSET_PREFIX || ''}api/${path}${q ? `?${q}` : ''}`;
     };
     const token = (name) => getComputedStyle(document.documentElement).getPropertyValue(`--${name}`).trim();
-    const colorOf = (s) => token(s === SBED ? 'highlight-1' : 'highlight-2');
-    const label = (s) => (s === SBED ? 'SBED' : s === SWEEP ? 'Sweep k*' : s);
+    const colorOf = (s) => token(s === SBED ? 'highlight-1' : s === KNOWN ? 'highlight-3' : 'highlight-2');
+    const label = (s) => (s === SBED ? 'SBED' : s === KNOWN ? 'SBED known shape' : s === SWEEP ? 'Sweep k*' : s);
     const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
     const fmt = (v, d = 3) => (v == null || !Number.isFinite(v) ? '–' : Number(v).toPrecision(d));
     const median = (xs) => {
@@ -32,8 +41,9 @@
         const m = Math.floor(v.length / 2);
         return v.length % 2 ? v[m] : 0.5 * (v[m - 1] + v[m]);
     };
-    const spanOf = (gen) => { const m = SPAN_RE.exec(gen); return m ? Number(m[2]) : null; };
-    const familyOf = (gen) => { const m = SPAN_RE.exec(gen); return m ? `${m[1]}*${m[3]}` : null; };
+    const spanOf = (gen) => { const x = axisMatch(gen); return x ? Number(x.m[2]) : null; };
+    const familyOf = (gen) => { const x = axisMatch(gen); return x ? `${x.m[1]}*${x.m[3]}` : null; };
+    const axisOf = (gen) => { const x = axisMatch(gen); return x ? x.a : AXES[AXES.length - 1]; };
     const snrOf = (noise) => { const m = SNR_RE.exec(noise); return m ? Number(m[1]) : null; };
 
     // ── Fetching: one queue for the whole page, the selected use case first; every response kept for the session ──
@@ -110,7 +120,7 @@
         <div class="sticky-selectors" style="display:flex; flex-wrap:wrap; align-items:center; gap:0.5em 1.2em; margin:0 0 0.6em;">
             <span class="control-row" style="margin:0;"><span class="control-label">Line:</span>
                 <select class="control-select" id="art-family" aria-label="Line shape family"></select></span>
-            <span class="control-row" style="margin:0;"><span class="control-label">Window:</span>
+            <span class="control-row" style="margin:0;"><span class="control-label" id="art-axis-label">Window:</span>
                 <span class="segmented-control" id="art-window" role="radiogroup" aria-label="Drive window"></span></span>
             <span class="control-row" style="margin:0;"><span class="control-label">SNR:</span>
                 <span class="segmented-control" id="art-snr" role="radiogroup" aria-label="SNR"></span></span>
@@ -166,7 +176,8 @@
         fam.innerHTML = families.map((f) => `<option value="${esc(f)}" ${f === state.family ? 'selected' : ''}>${esc(f)}</option>`).join('');
         fam.onchange = () => { selectFamily(fam.value); };
         const [g, n] = state.uc;
-        segmented(document.getElementById('art-window'), state.gens.map((x) => [x, `span ${spanOf(x)}`]), g, (v) => { state.uc = [v, state.uc[1]]; renderControls(); loadUseCase(); });
+        document.getElementById('art-axis-label').textContent = `${axisOf(g).name}:`;
+        segmented(document.getElementById('art-window'), state.gens.map((x) => [x, axisOf(x).text(spanOf(x))]), g, (v) => { state.uc = [v, state.uc[1]]; renderControls(); loadUseCase(); });
         segmented(document.getElementById('art-snr'), state.noises.map((x) => [x, String(snrOf(x) ?? x)]), n, (v) => { state.uc = [state.uc[0], v]; renderControls(); loadUseCase(); });
     }
 
@@ -286,6 +297,9 @@
         }
         const n = s.rms_curve ? s.rms_curve.n : [1, s.max_n];
         traces.push({ x: n, y: n.map((k) => 1 / Math.sqrt(k * imax) / gamma), ...theory('data limit (n I_max)^-1/2', 'dashdot') });
+        const tracking = s.prior_kind === 'gaussian';
+        const vt = (k) => 1 / Math.sqrt(1 / (s.sigma0_phys * s.sigma0_phys) + k * imax);
+        if (tracking) traces.push({ x: n, y: n.map((k) => vt(k) / gamma), name: 'van Trees from n = 0, J₀ = 1/σ₀² (tracking)', mode: 'lines', line: { color: token('red-700'), width: 2, dash: 'dash' } });
         const lay = layout('measurements n', 'error / Γ');
         const sb = c[SBED];
         lay.shapes = [hline(s.sigma0_phys / gamma, 'dot')];
@@ -296,6 +310,15 @@
         lay.yaxis.range = [Math.log10(1 / Math.sqrt(n[n.length - 1] * imax) / gamma) - 0.3, Math.log10(2 * s.sigma0_phys / gamma)];
         plot(div, traces, lay);
         const q = (name) => (c[name] && c[name].fitted_rate ? c[name].fitted_rate.rate : null);
+        if (tracking) {
+            // rho_vT(n) = bound variance / mean squared true error, <= 1 at every n for a tracking run.
+            const rho = LOCATORS.filter((name) => c[name] && c[name].rms_curve).map((name) => {
+                const r = c[name].rms_curve;
+                return `${label(name)} ${val(fmt(Math.max(...r.n.map((k, i) => (vt(k) / r.error[i]) ** 2)), 2))}`;
+            });
+            setClaim('art-overview', `Tracking (Gaussian prior σ₀ = ${val(fmt(s.sigma0_phys / gamma, 2))} Γ): the error follows van Trees from the first measurement, ρ = (J₀ + nI_max)⁻¹ ÷ MSE ≤ 1. Largest ρ: ${rho.join(', ')}.`);
+            return;
+        }
         setClaim('art-overview', `Plateau at the prior W/√12 (horizontal), then 1/√n at q × the data limit. q: SBED ${val(fmt(q(SBED), 2))}, sweep ${val(fmt(q(SWEEP), 2))}; SBED detects at n ≈ ${val(fmt(sb && sb.regimes && sb.regimes.detection_step, 3))} and is Gaussian from n ≈ ${val(fmt(sb && sb.regimes && sb.regimes.gaussian_onset_step, 3))}.`);
     }
 
@@ -434,7 +457,7 @@
     }
 
     // ── Shared with the Lab page (static/claim-panels.js): the sim adapter ──
-    const symbolOf = (name) => (name === SBED ? 'circle' : 'square');
+    const symbolOf = (name) => (name === SBED ? 'circle' : name === KNOWN ? 'diamond' : 'square');
     const findCase = (list, r) => list.find((u) => u.generator === r.generator && u.noise === r.noise);
     function drawShared(claimRows, rateCases, boundCases, alignedRows) {
         const P = window.NVClaimPanels;

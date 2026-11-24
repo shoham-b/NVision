@@ -60,6 +60,7 @@ RUN_AXIS_KEYS: tuple[str, ...] = (
     "window_phys",
     "window_over_fwhm",
     "sigma0_phys",
+    "prior_kind",
     "target_cost_step",
 )
 
@@ -251,7 +252,8 @@ def compute_run_axes(run_result: RunResult) -> dict[str, Any]:
     * ``fwhm_phys`` (``None`` for drive-controlled models, whose width depends on the drive),
       ``prior_fwhm_phys`` (the prior's mean FWHM), ``window_phys`` (the drive-frequency range) and
       ``window_over_fwhm`` = window over true FWHM.
-    * ``sigma0_phys`` = sigma_0, the standard deviation (Hz) of the primary parameter's prior, from the locator's prior.
+    * ``sigma0_phys`` = sigma_0, the standard deviation (Hz) of the primary parameter's prior, from the locator's prior;
+      ``prior_kind`` its shape (``uniform``: global search; ``gaussian``: tracking, van Trees from n = 0).
     * ``target_cost_step``: first step from which the true error stays ``<= tau`` for ``BOUNDARY_HOLD_STEPS``
       steps (the cost to the stop target; ``None`` if never).
     """
@@ -351,6 +353,22 @@ def _sin2_prior_variance_phys(k: float, width_phys: float) -> float:
     return i2 / i0 - mean**2
 
 
+def belief_prior_kind(belief: Any, name: str) -> str:
+    """``"uniform"`` (global search over the prior window), ``"gaussian"`` (tracking: van Trees holds from n = 0 with
+    ``J0 = 1 / sigma0^2``) or ``"sin^2"``: the shape of the prior ``belief`` started from on parameter ``name``."""
+    from nvision.belief.grid_marginal import GridMarginalDistribution
+    from nvision.belief.smc_marginal import SMCMarginalDistribution
+
+    if isinstance(belief, GridMarginalDistribution):
+        return "uniform"
+    if not isinstance(belief, SMCMarginalDistribution):
+        raise TypeError(f"Cannot read the prior of a {type(belief).__name__}: needs an SMC or grid belief")
+    entry = (belief.priors or {}).get(name)
+    if entry is None:
+        return "uniform"
+    return "sin^2" if entry[0] == "sin^2" else "gaussian"
+
+
 def belief_prior_variance_phys(belief: Any, name: str) -> float:
     """Variance (Hz^2) of the prior ``belief`` started from on parameter ``name`` (see :func:`prior_variance_phys`).
 
@@ -407,6 +425,7 @@ def _add_axes(run_result: RunResult, primary: str, err_trace: np.ndarray, out: d
     out["window_phys"] = _finite_or_none(float(x_hi_phys - x_lo_phys))
     out["window_over_fwhm"] = None if not fwhm_true else _finite_or_none(float(x_hi_phys - x_lo_phys) / fwhm_true)
     out["sigma0_phys"] = _finite_or_none(math.sqrt(belief_prior_variance_phys(belief, primary)))
+    out["prior_kind"] = belief_prior_kind(belief, primary)
     if tau is not None and float(tau) > 0:
         passed = _first_held(lambda i: err_trace[i] <= float(tau), 0, len(err_trace))
         if passed is not None:

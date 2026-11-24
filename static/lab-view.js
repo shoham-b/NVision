@@ -76,7 +76,8 @@ function labCard(title, help, claim, id, height = 400) {
 
 // Lab adapter for the shared claim panels (static/claim-panels.js): one point per drive_freq window, in units of the
 // window's own line (W / Γ with Γ the FWHM the runs' model assumes). Claimed quantities only (LAB_REFERENCE).
-const LAB_SERIES = { name: 'Lab SBED', symbol: 'circle' };
+// The lab runs are the lab's own MATLAB BayesianESR, not NVision's SBED: say so on every lab trace.
+const LAB_SERIES = { name: 'Lab MATLAB BayesianESR', symbol: 'circle' };
 const labWOverGamma = (w) => w.window_mhz / w.model_fwhm_mhz;
 function labSearchPoints(wins) {
     return wins.filter((w) => w.detection_step_median != null).map((w) => ({
@@ -137,7 +138,7 @@ async function renderLabStudy(container, name) {
     ];
     const cell = 'border:1px solid var(--slate-200); padding:0.35em 0.6em; text-align:right;';
     body.innerHTML = `
-        <p style="margin:0 0 0.5em; color:var(--slate-600); font-size:0.85em;">Lab: <b>${name}</b> · reference resonance <span class="claim-value">${fmt(data.reference_mhz, 2)} MHz</span> (median of the converged runs' final means). Each run is read from its own detection, the first steep, lasting drop of its claimed σ.</p>
+        <p style="margin:0 0 0.5em; color:var(--slate-600); font-size:0.85em;">Lab: <b>${name}</b> · runs of the lab's own MATLAB BayesianESR (not NVision SBED) · reference resonance <span class="claim-value">${fmt(data.reference_mhz, 2)} MHz</span> (median of the converged runs' final means). Each run is read from its own detection, the first steep, lasting drop of its claimed σ.</p>
         <div class="bayes-tab-bar" role="tablist" aria-label="Lab study views">
             <button type="button" class="bayes-tab-button is-active" role="tab" aria-selected="true" data-lab-tab="claims">Claims</button>
             <button type="button" class="bayes-tab-button" role="tab" aria-selected="false" data-lab-tab="per-run">Per Run</button>

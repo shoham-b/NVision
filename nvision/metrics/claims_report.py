@@ -86,8 +86,19 @@ def analyse_use_case(rows: list[dict[str, Any]]) -> dict[str, Any]:
     bounds = ((runs[0].get("true_params") or {}).get("bounds") or {}).get("zeeman_shift")
     if not bounds:
         return {"unavailable": "rows carry no zeeman_shift bounds", "repeats": len(runs)}
-    # The error of the best guess before any measurement: the spread of the uniform prior, W / sqrt(12) (Eq. prior).
-    sigma0 = (float(bounds[1]) - float(bounds[0])) / math.sqrt(12.0)
+    # The error of the best guess before any measurement: the prior's spread, W / sqrt(12) for the uniform window of a
+    # global search (Eq. prior), sigma_0 of the Gaussian prior when tracking (stored per run from the locator's prior).
+    kinds = {c.get("prior_kind") for c in cmp}
+    if len(kinds) != 1 or None in kinds:
+        raise ValueError(f"runs of one use case must share one stored prior_kind, got {sorted(map(str, kinds))}")
+    prior_kind = kinds.pop()
+    sigma0 = (
+        (float(bounds[1]) - float(bounds[0])) / math.sqrt(12.0)
+        if prior_kind == "uniform"
+        else _med([c.get("sigma0_phys") for c in cmp])
+    )
+    if not sigma0:
+        raise ValueError("a tracking use case has no stored sigma0_phys: re-run")
     steps = [np.asarray(r["series"]["step"], dtype=np.float64) for r in runs]
     errs = [np.asarray(r["series"]["error"], dtype=np.float64) for r in runs]
     uncs = [np.asarray(r["series"]["claimed_sigma"], dtype=np.float64) for r in runs]
@@ -100,6 +111,7 @@ def analyse_use_case(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "fwhm_phys": fwhm,
         "tau_phys": tau,
         "sigma0_phys": sigma0,
+        "prior_kind": prior_kind,
         "max_n": int(grid[-1]),
     }
     out["truth_spread_ratio"] = (

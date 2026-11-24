@@ -39,7 +39,7 @@ its spread σ₀ = W/√12 (Eq. prior), with W the range `zeeman_shift` is drawn
   point of the true dip (shots × max g²/σ², Hz⁻² per measurement; every locator takes one shot per measurement);
 * the axes: `sigma_target_phys` (the stop target τ), `fwhm_phys` (Γ), `prior_fwhm_phys`,
   `window_phys` (the drive window), `window_over_fwhm`, `sigma0_phys` = σ₀, the prior's standard deviation
-  (W/√12 when uniform), and `target_cost_step` (first step from which the true error stays ≤ τ).
+  (W/√12 when uniform), `prior_kind` (`uniform`: global search; `gaussian`: tracking), and `target_cost_step` (first step from which the true error stays ≤ τ).
 
 `nvision/metrics/series.py` stores the per-step series `step`, `error`, `claimed_sigma`, `sigma_target` (and
 `focus_windows` for the timeline); `nvision/metrics/posterior.py` adds `z_score` (signed error / σ̂), `pit` (the
@@ -89,7 +89,10 @@ The run-averaged error stays near the prior W/√12 while the runs search, then 
 * Data: `rms_curve` of `GET /api/claims` (rms over the runs of the true error and of σ̂ on a common step grid, `rms_curve.error` / `.claimed_sigma`;
   a stopped run keeps its last value), `regimes` (median detection step, median Gaussian onset, converge end, plateau,
   tail slope).
-* Panel: *Error over the run* (one use case).
+* Tracking (`prior_kind = gaussian`, the `article-tracking` group): the prior holds J₀ = 1/σ₀², so van Trees applies
+  from the first measurement, σ_vT(n) = (J₀ + n I_max)^(-1/2); the panel draws it and reports ρ = σ_vT² / MSE ≤ 1.
+* Panel: *Error over the run* (one use case). The Line picker also offers the `article-lab-mirror` family (one
+  generator per lab window, with `Bayesian-SBED-KnownShape`) and the tracking family (one per prior width).
 
 ### 2. Search against the bounds (Fig. search)
 
@@ -162,7 +165,8 @@ mostly reflects the target. What is tested is whether σ̂ is honest:
 
 ## Lab claims (Lab page)
 
-The lab runs go through the same record and functions (`lab_detection_aligned.record_from_trace`), with the lab's
+The lab runs are the lab's own MATLAB BayesianESR, not NVision's SBED, and the page labels them so. They go through
+the same record and functions (`lab_detection_aligned.record_from_trace`), with the lab's
 truth (`LAB_REFERENCE`) and detector (`SIGMA_DROP`); only claimed quantities are reported.
 
 | Claim | Data | Panel |
