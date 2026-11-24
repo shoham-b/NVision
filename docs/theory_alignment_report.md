@@ -14,10 +14,10 @@ Every number comes from a read-only script in `debug/`, named in its item, run o
 |---|---|---|
 | 1 | Lab refine falls to the sweep rate in wide windows | (a) running manner: the lab's own locator never locks its focus at W >= 50 MHz |
 | 2 | Lab claimed sigma ~2x too small | (a) running manner: a mis-calibrated fixed contrast (set 1); a jumping line (set 2) |
-| 3 | SBED's refine q ~ 0.5, not 1 | see item 3 |
+| 3 | SBED's refine q ~ 0.5, not 1 | (c) text: q = 1 holds for a known shape (measured 0.94-0.96); inferring C and Gamma costs the rest |
 | 4 | Calibration claimed only for 1.6-5 Gamma | (c) text: the claim extends to 50 Gamma |
 | 5 | The sweep gains ~10 % less than 8 pi Gamma / (27 W) | (c) text: W is the swept window; finite-window terms explain the rest |
-| 6 | Tracking regime has no scenario | (b) new scenario `article-tracking`; see item 6 |
+| 6 | Tracking regime has no scenario | (b) new scenario `article-tracking`; (c) text: "from the first measurement" holds only with the shape known, after ~10 measurements |
 
 ## The lab runs are not NVision's SBED
 
@@ -131,6 +131,72 @@ model credited each measurement with about 4.6 times its information. In the sec
 consecutive runs agree within 1.2-1.4 times their claimed uncertainty, while the line itself moved by 0.5-1 MHz
 between some recordings."
 
+## Item 3. SBED refines at q ~ 0.5, not 1
+
+**Evidence.** `debug/repro_known_shape_q.py` (in-process dry runs, nothing cached) runs `Bayesian-SBED` and the new
+`Bayesian-SBED-KnownShape` on the same 16 truths, and `debug/analyse_known_shape_q.py` summarises them. Known shape
+means the contrast and the width are centred on the truth at 1 %, as the lab holds them. q is the mean oracle
+efficiency eta over a fixed step range, not "k steps after detection", so arms that detect at different times are
+compared at the same run time. The offsets (in HWHM gamma) say where the measurements sit: |u| < 0.3 is the dip
+centre, 0.3-1 the steep sides (the optimum is 0.58), 1-3 the wings, > 3 far.
+
+| use case | arm | q, steps 100-300 | q, steps 300-800 | centre / sides / wings / far |
+|---|---|---|---|---|
+| span 20, SNR 5 | shape inferred | 0.57 | 0.56 | 0.32 / 0.63 / 0.02 / 0.03 |
+| span 20, SNR 5 | shape known | 0.95 | 0.94 | 0.01 / 0.84 / 0.00 / 0.15 |
+| span 50, SNR 5 | shape inferred | 0.58 | 0.58 | 0.34 / 0.64 / 0.00 / 0.02 |
+| span 50, SNR 5 | shape known | 0.95 | 0.94 | 0.00 / 0.83 / 0.03 / 0.14 |
+| span 50, SNR 10 | shape inferred | 0.56 | 0.56 | 0.33 / 0.64 / 0.01 / 0.03 |
+| lab mirror, W = 100 MHz, FWHM 1.82 MHz, SNR 5 (budget 300) | shape known | 0.96 | - | 0.00 / 0.83 / 0.03 / 0.14 |
+
+With the shape inferred, a third of the measurements go to the dip centre. There a shift of theta changes nothing,
+but the depth tells the contrast. Those measurements alone take q from about 0.9 to 0.57. With the shape known, the
+centre share drops to zero and q reaches 0.94-0.96. The far share (about 0.14) is the falsification probes (2-10 %)
+plus measurements in the pads. The claimed sigma stays honest in both arms (cov2 0.94-1.00 at n = 300).
+
+The predictive-variance score is not wrong. It is the right greedy choice for the joint posterior over
+(theta, Gamma, C). It differs from the theory's assumption that only theta is unknown. The article already says
+the bounds treat Gamma and C as known, and that inferring them "adds nothing when the measurements are placed
+symmetrically": that is true of the information on theta at a given placement, but the placement itself changes,
+because the greedy score spends measurements on C.
+
+**Verdict: (c) text.** The theory's q = 1 is reached by SBED when the shape is known; with it inferred, SBED spends
+about 40 % of its refine budget on the contrast. A code change (a score on theta alone, the Schur-complement
+variance) was tried before and was slower in paired runs (memory `split-targeted-acquisition-negative-2026-11-02`),
+so this report does not propose one.
+
+**Proposed wording (after Eq. strategy-numbers, or Results, refine).** "Greedy EIG reaches $q\approx1$ only when
+$\theta$ is the sole unknown: with the contrast and the width known, SBED measures at the steepest slope and gains
+$q=0.94$-$0.96$. Inferring them as well, it spends about a third of its measurements at the bottom of the dip, where
+they tell the depth but nothing about $\theta$, and gains $q\approx0.57$."
+
+**Runs needed (b).** The numbers above are 16 dry-run repeats per arm. The `article-lab-mirror` member runs both
+arms on the lab's signals at 50 repeats; see "Runs to make".
+
+## Item 4. Calibration at 10-50 Gamma
+
+**Evidence.** `debug/article_claims_coverage.py` computes `/api/claims` in process (FastAPI TestClient, read-only
+against the main cache). That is the article's own coverage at the budget, gated at each run's Gaussian onset. The
+table gives SBED's within-2-sigma share per SNR (1/2/5/10/20), 50 runs each:
+
+| span | within 2 sigma | within 1 sigma |
+|---|---|---|
+| 1.6-5 | 0.92-0.98 | 0.56-0.78 |
+| 10 | 0.94/0.98/0.92/0.98/0.94 | 0.84/0.62/0.56/0.68/0.60 |
+| 20 | 0.98/0.96/0.98/0.98/0.94 | 0.78/0.74/0.70/0.74/0.66 |
+| 50 | 0.96/1.00/0.96/0.98/0.94 | 0.66/0.68/0.56/0.72/0.62 |
+
+All 50 runs pass the Gaussian-onset gate at spans 10-50. The ungated end-of-run z from the parquet agrees: pooled over
+SNR, cov2 is 0.95/0.97/0.97 at spans 10/20/50, 250 runs each (`debug/article_grid_calibration.py`). The rows are
+post-#348: the largest true Zeeman shift reaches 0.98 W_drive at span 50. The 1-sigma share at span 10, SNR 5 (0.56)
+and span 50, SNR 5 (0.56) sits below 0.68, at the edge of its 95 % interval with 50 runs. The sweep's gated coverage
+is 0.84-0.98.
+
+**Verdict: (c) text.** The claim can extend to 1.6-50 Gamma. Nothing in the data limits it to 5 Gamma.
+
+**Proposed wording (Results, calibration).** "The claimed uncertainty is honest at every window, 1.6 to 50
+linewidths: 92-100 % of the runs lie within $2\hat\sigma_N$ at the budget, at every SNR."
+
 ## Item 5. The sweep gains ~10 % less than 8 pi Gamma / (27 W)
 
 **Evidence.** `debug/sweep_q_finite_window.py` takes the measured placement of `SimpleSweep-optimal` (the
@@ -173,3 +239,97 @@ is the prior range.
 A side observation: the sweep's prior FWHM (`stage_prior_fwhm_phys`) is 3.85x the true FWHM on the article grid,
 so its grid is sized off a much wider line than the true one. `optimal_sweep_spacing` compensates by choosing a
 large k*, and the result is about 3 points per true FWHM. Worth knowing when reading `sweep_k`.
+
+## Item 6. Tracking regime
+
+**Decision.** A scenario is needed. The theory makes a quantitative claim ("a tracking run with
+$\sigma_0^{\rm track}\lesssim\Gamma$ ... is all refine", following van Trees from the start), and nothing tested it.
+The new member `article-tracking` (`sim.presets.tracking_generators`) is the article grid's span-20 Lorentzian with
+an honest Gaussian prior on the line: std sigma_0 = 0.25, 0.5 or 1 FWHM, and mean drawn from N(truth, sigma_0)
+(`NVCenterCoreGenerator.tracking_prior_std_fwhm`). An honest prior is required for J0 = 1/sigma_0^2: the
+generator's usual nuisance priors are deliberately offset by 3 sigma, which would invalidate the bound. It runs
+`Bayesian-SBED`, `Bayesian-SBED-KnownShape` and the sweep at k* over the SNR grid. The prior is drawn last in
+`generate()`, so no other scenario's draws change.
+
+**Evidence.** Dry runs at sigma_0 = 0.5 FWHM, SNR 5, 16 runs per arm. R(n) = sigma_vT(n)^2 / mean err(n)^2 with
+sigma_vT^-2 = J0 + n I_max and the run's own I_max; R <= 1 is required, and R near 1 means the bound is followed.
+n_c = J0 / I_max = 0.09, so the prior is worth a tenth of one measurement. With 16 runs, R carries about 35 %
+relative error.
+
+| arm | R(1) | R(3) | R(10) | R(30) | R(100) | R(300) |
+|---|---|---|---|---|---|---|
+| shape known, belief prior as shipped (10 % uniform mixture) | 0.05 | 0.08 | 0.39 | 0.67 | 1.25 | 1.15 |
+| shape known, belief prior = the stated Gaussian (`BROAD_FRACTION=0`) | 0.22 | 0.20 | 0.87 | 0.68 | 0.47 | 0.51 |
+| shape inferred, prior as shipped | TRACK_SBED |
+| shape inferred, prior = the stated Gaussian | 0.18 | 0.10 | 0.09 | 0.19 | 0.05 | 0.30 |
+
+Two things stop SBED from following the bound "from the first measurement":
+
+- **The belief does not use the stated prior.** `PRIOR_BROAD_FRACTION = 0.1` (`belief/smc_marginal.py`) draws 10 %
+  of the prior's particles uniformly over the whole window. This is a robustness choice against wrongly centred
+  priors (memory `locator-overconfident-calibration`). After one measurement the shipped belief claims 3-7 MHz
+  against sigma_0 = 1 MHz, and its estimate is pulled toward the window. With the mixture off, R(1) rises from 0.05
+  to 0.22 and R(10) from 0.39 to 0.87.
+- **The bound is not tight while the prior is as wide as the line.** At sigma_0 = Gamma/2 the first measurements
+  cannot all sit at the steepest slope of a line whose position is uncertain by a half width, so I(d) < I_max even
+  for an ideal design, and R(1-3) of about 0.2 is the nonlinear regime, not a flaw. It closes by n of about 10,
+  once the posterior is well inside the line.
+- **With the shape inferred**, tracking stays at R of 0.05-0.3 throughout: the bound treats C and Gamma as known,
+  and SBED must learn them from a run that starts on the line. That is item 3's cost, without a search to hide it.
+
+**Verdict: (b) runs, and (c) text.** Run the member (see below) for 50-run numbers at three sigma_0 and every SNR.
+The text should qualify the claim. Whether to turn the broad mixture off for tracking priors is a design choice for
+the author: it would make SBED follow the bound sooner, at the cost of robustness to a wrong prior. It is not
+changed here.
+
+**Proposed wording (Theory, regimes).** Replace "A tracking run with $\sigma_0^{\rm track}\lesssim\Gamma$ has the
+dip located from the start, so it has no search and is all refine" with "A tracking run with
+$\sigma_0^{\rm track}\lesssim\Gamma$ has the dip located from the start, so it has no search: once its posterior is
+well inside the line, after about ten measurements, it follows the van Trees bound, provided the width and the
+contrast are known."
+
+## Detection: the dip test against the lab-style claimed-sigma drop
+
+The orchestrator asked how far apart the two detectors are on simulated runs. Both will become pluggable. The dip
+test is `dip_detected_step`, the locator's held boxcar GLRT (`stages.py`). The lab-style detector is
+`lab_search_fit.detection_step`, the first steep, lasting drop of the claimed sigma. `debug/detector_gap.py` applies
+both per run to the cached article grid (50 runs per use case). The claimed sigma comes from the stored series,
+which may be thinned, so the lab step is the stored step at the drop.
+
+DETECTOR_TABLE
+
+## Runs to make
+
+None of this needs a re-run of existing results. The new strategy and generators add new cache keys only; existing
+combinations keep their keys (the key hashes the names and the physics fingerprint, not the generator's fields).
+`Bayesian-SBED` is unchanged. **No physics fingerprint bump is needed and nothing cached is stale.**
+
+```powershell
+# The article group: the existing 70 search combinations are served from cache; this runs only the new members
+# (lab mirror 2 x 6 x 3 = 36 tasks at SNR 5; tracking 3 x 5 x 3 = 45 tasks), 50 repeats, budget 2500
+uv run nv groups run article --repeats 50
+```
+
+```powershell
+# The lab mirror at the lab's own budget of 300, in a separate folder (the sweep's step k* depends on the budget)
+$env:NVISION_MAX_MEASUREMENTS = "300"; uv run nv run --run-group article-lab-mirror --repeats 50 --out artifacts_lab300
+```
+
+These will show the following:
+
+- the lab mirror: q of SBED with the shape known against inferred at the lab's windows. The dry run gives 0.96 at
+  100 MHz, so the lab's wide-window tail is its locator, not the physics. Also the claimed-sigma coverage with the
+  lab's known shape.
+- tracking: R(n) at three sigma_0 over the SNR grid, and the sweep's constant rate as a reference.
+
+## Code changes in this PR
+
+- `Bayesian-SBED-KnownShape` (opt-in strategy): `belief_builders.apply_known_prior` / `apply_known_shape` (applied
+  after the Voigt-to-Lorentzian renaming), `_TaskRunner._known_shape_prior_phys` (truth-centred, std
+  `KNOWN_SHAPE_STD_FRACTION = 0.01`), `StrategyFilter.BAYESIAN_SBED_KNOWN_SHAPE`. Simulation-only (an oracle mean).
+  `KNOWN_SHAPE_STD_FRACTION` is a module constant. Whether to expose it in `.env` is open for the user.
+- `NVCenterCoreGenerator.tracking_prior_std_fwhm` (honest Gaussian prior on `zeeman_shift`).
+- `sim.presets.lab_mirror_generators`, `tracking_generators`, registered in `CombinationGrid`.
+- `run_groups`: `article-lab-mirror` and `article-tracking`, members of `article` and runnable alone.
+- No lab file (`nvision/metrics/lab_*.py`, `static/lab-view.js`) is changed; the lab analysis is in `debug/` only.
+- Tests: `tests/test_known_shape_prior.py`, the article-group tests in `tests/test_run_groups_param_grid.py`.
