@@ -137,6 +137,38 @@ def test_coverage_from_z():
     assert claims.coverage_from_z(3 * z)["within_1"] < 0.4
 
 
+def test_coverage_from_pit_uniform_is_calibrated():
+    pit = np.random.default_rng(5).uniform(size=5000)
+    c = claims.coverage_from_pit(pit)
+    assert c["within_1"] == pytest.approx(0.68, abs=0.03)
+    assert c["within_2"] == pytest.approx(0.95, abs=0.02)
+    assert c["within_1_ci"][0] < 0.68 < c["within_1_ci"][1]
+    assert c["std"] == pytest.approx(1 / math.sqrt(12), abs=0.01)
+
+
+def test_coverage_from_pit_overconfident_is_u_shaped():
+    pit = np.concatenate([np.full(50, 0.001), np.full(50, 0.999), np.full(20, 0.5)])
+    c = claims.coverage_from_pit(pit)
+    assert c["within_1"] == pytest.approx(20 / 120)
+    assert c["within_2"] == pytest.approx(20 / 120)
+
+
+def test_coverage_from_pit_boundaries_inclusive():
+    pit = np.array([0.16, 0.84, 0.025, 0.975] * 5)
+    c = claims.coverage_from_pit(pit)
+    assert c["within_1"] == 0.5
+    assert c["within_2"] == 1.0
+
+
+def test_coverage_from_pit_rejects_bad_input():
+    with pytest.raises(ValueError, match="PIT"):
+        claims.coverage_from_pit(np.array([0.5, 1.5] * 10))
+    with pytest.raises(ValueError, match="PIT"):
+        claims.coverage_from_pit(np.array([0.5, np.nan] * 10))
+    with pytest.raises(ValueError, match="PIT"):
+        claims.coverage_from_pit(np.array([0.5]))
+
+
 def test_wilson_interval_rejects_bad_counts():
     with pytest.raises(ValueError, match="hits"):
         claims.wilson_interval(5, 3)

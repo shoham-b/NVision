@@ -204,7 +204,7 @@ def extract_step_series(
 
 
 def attach_posterior_series(series: dict[str, Any], posterior: dict[str, Any]) -> None:
-    """Add the run-time posterior per-step series (``z``, ``g``, ``m``, ``j``, ``h``, ``x``) to a step series in place.
+    """Add the run-time posterior per-step series (``z``, ``p``, ``g``, ``m``, ``j``, ``h``, ``x``) to a step series.
 
     ``series``: the dict :func:`extract_step_series` built; ``posterior``: ``compute_posterior_metrics`` of the same
     run. Values are taken at the steps of ``series["s"]`` (1-indexed). Raises ``ValueError`` if the posterior was

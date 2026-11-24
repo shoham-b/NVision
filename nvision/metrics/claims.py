@@ -14,6 +14,7 @@ intervals
   (claim: ``1/MSE`` is linear in ``n`` late in the run);
 * ``rate_ratio``: claimed information rate over the true one (claim: > 1 means overconfident);
 * ``coverage_curve``, ``coverage_from_z``: share of runs within 1 and 2 claimed sigma (claim: 68 % / 95 %);
+  ``coverage_from_pit``: the same from quantiles of the particle posterior (the PIT series ``p``);
 * ``sensitivity_ratio``: measured over article sensitivity (claim: ``eta / sqrt(q)``).
 
 Conventions: ``steps[i]``, ``vals[i]`` are one repeat's stored per-step series (measurement counts ascending, values in
@@ -377,4 +378,29 @@ def coverage_from_z(z: np.ndarray) -> dict[str, float | list[float] | int]:
         hits = int((np.abs(z) <= k).sum())
         out[f"within_{k}"] = hits / z.size
         out[f"within_{k}_ci"] = list(wilson_interval(hits, z.size))
+    return out
+
+
+def coverage_from_pit(pit: np.ndarray) -> dict[str, float | list[float] | int]:
+    """Quantile coverage from the PIT ``p`` (posterior CDF at the truth, series ``p``) of one step.
+
+    ``pit``: shape (n_runs,), values in [0, 1]. A run is inside the central 68 % interval of its own particle
+    posterior when ``0.16 <= p <= 0.84`` and inside the central 95 % one when ``0.025 <= p <= 0.975``
+    (``within_1`` / ``within_2``, nominal 0.68 / 0.95, with Wilson intervals). Needs no Gaussian peak. ``mean`` and
+    ``std`` of ``p`` are 1/2 and 1/sqrt(12) when calibrated (a U-shaped histogram, std above that, is overconfident).
+    """
+    pit = np.asarray(pit, dtype=np.float64)
+    if pit.ndim != 1 or pit.size < MIN_RUNS or not np.all(np.isfinite(pit)):
+        raise ValueError(f"need >= {MIN_RUNS} finite PIT values, got shape {pit.shape}")
+    if pit.min() < 0.0 or pit.max() > 1.0:
+        raise ValueError("PIT values must lie in [0, 1]")
+    out: dict[str, float | list[float] | int] = {
+        "runs": int(pit.size),
+        "mean": float(pit.mean()),
+        "std": float(pit.std()),
+    }
+    for k, lo, hi in ((1, 0.16, 0.84), (2, 0.025, 0.975)):
+        hits = int(((pit >= lo) & (pit <= hi)).sum())
+        out[f"within_{k}"] = hits / pit.size
+        out[f"within_{k}_ci"] = list(wilson_interval(hits, pit.size))
     return out
