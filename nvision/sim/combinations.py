@@ -312,16 +312,23 @@ class CombinationGrid:
 
         strats = [
             ("Bayesian-SBED", {"class": SequentialBayesianExperimentDesignLocator, "config": sbed_config}),
-            # Opt-in (only the article's lab-mirror and tracking scenarios use it): SBED with the line shape known, as
-            # the lab runs it -- contrast and widths at their true values to KNOWN_SHAPE_STD_FRACTION, so the score
-            # spends nothing on them. Simulation oracle; see _TaskRunner._known_shape_prior_phys.
-            (
-                StrategyFilter.BAYESIAN_SBED_KNOWN_SHAPE.value,
-                {"class": SequentialBayesianExperimentDesignLocator, "config": {**sbed_config, "known_shape": True}},
-            ),
             # The sweep at its task's optimal step k*, and at multiples of it.
             *((optimal_sweep_strategy_name(m), sweep(OPTIMAL_SPACING, m)) for m in OPTIMAL_SWEEP_MULTIPLIERS),
         ]
+        if generator_name.startswith("NVCenter-voigt-span"):
+            # Opt-in, window-grid signals only (the article's lab-mirror and tracking scenarios use it): SBED with the
+            # line shape known, as the lab runs it -- contrast and widths at their true values to
+            # KNOWN_SHAPE_STD_FRACTION, so the score spends nothing on them. Simulation oracle; see
+            # _TaskRunner._known_shape_prior_phys.
+            strats.append(
+                (
+                    StrategyFilter.BAYESIAN_SBED_KNOWN_SHAPE.value,
+                    {
+                        "class": SequentialBayesianExperimentDesignLocator,
+                        "config": {**sbed_config, "known_shape": True},
+                    },
+                )
+            )
         if drive_lineshape is not None:
             # Only drive-controlled generators have a drive to choose.
             strats.append(
