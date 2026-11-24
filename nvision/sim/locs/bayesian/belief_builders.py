@@ -36,6 +36,75 @@ from nvision.spectra.drive import DriveSetting
 from nvision.spectra.noise_model import NoiseSignalModel
 from nvision.spectra.unit_cube import UnitCubeSignalModel
 
+# Half-width, in prior standard deviations, of the box a known parameter is confined to (:func:`apply_known_prior`).
+# 4 sigma keeps 99.99 % of the normal's mass, so the truncation is negligible; it also keeps the prior's broad
+# (uniform) particles inside that box.
+KNOWN_PRIOR_BOUND_SIGMAS: float = 4.0
+
+# Line-shape parameters a known shape fixes, whichever of them the belief has: the contrast and the line widths
+# (``hwhm`` for a Lorentzian belief, ``hwhm_lorentz``/``sigma_inhom`` for a Voigt one).
+KNOWN_SHAPE_WIDTH_PARAMS: tuple[str, ...] = ("hwhm", "hwhm_lorentz", "sigma_inhom")
+KNOWN_SHAPE_PARAMS: tuple[str, ...] = ("contrast_total", *KNOWN_SHAPE_WIDTH_PARAMS)
+
+# How well a known shape is known (Bayesian-SBED-KnownShape): its prior std as a fraction of the true contrast and of
+# the true total HWHM. The lab holds them exactly; 1 % keeps the box non-empty while the widths' and the contrast's
+# share of the predictive variance (the acquisition score) stays negligible against the centre's.
+KNOWN_SHAPE_STD_FRACTION: float = 0.01
+
+
+def apply_known_prior(bounds: dict[str, object], name: str, value_phys: float, std_phys: float) -> None:
+    """Make *bounds* carry a known prior ``N(value_phys, std_phys)`` on parameter *name*, in place.
+
+    The bound becomes ``value +- KNOWN_PRIOR_BOUND_SIGMAS * std`` intersected with the parameter's own bound (its
+    support: a width cannot go below 0), and ``bounds["_priors"][name] = (value, std)``. The ``"_priors"`` dict is
+    copied, never mutated, since callers share it. *bounds* is the physical bounds dict of
+    :func:`nv_center_smc_belief` (Hz for widths, dimensionless for the contrast).
+
+    Raises ``ValueError`` if *name* is not in *bounds*, ``std_phys <= 0``, the value lies outside the bound, or the
+    box would be empty.
+    """
+    if name not in bounds:
+        raise ValueError(
+            f"A known {name!r} needs a model with that free parameter; "
+            f"this one has {sorted(k for k in bounds if not k.startswith('_'))}."
+        )
+    v_phys = float(value_phys)
+    std_phys = float(std_phys)
+    if not std_phys > 0.0:
+        raise ValueError(f"Known {name} std must be > 0, got {std_phys!r}.")
+    lo_phys, hi_phys = (float(b) for b in bounds[name])
+    if not lo_phys <= v_phys <= hi_phys:
+        raise ValueError(f"Known {name} {v_phys} lies outside its bound ({lo_phys}, {hi_phys}).")
+    box_lo_phys = max(lo_phys, v_phys - KNOWN_PRIOR_BOUND_SIGMAS * std_phys)
+    box_hi_phys = min(hi_phys, v_phys + KNOWN_PRIOR_BOUND_SIGMAS * std_phys)
+    if not box_hi_phys > box_lo_phys:
+        raise ValueError(f"Known {name} {v_phys} +- {std_phys} leaves an empty box ({box_lo_phys}, {box_hi_phys}).")
+    bounds[name] = (box_lo_phys, box_hi_phys)
+    priors = dict(bounds.get("_priors") or {})
+    priors[name] = (v_phys, std_phys)
+    bounds["_priors"] = priors
+
+
+def apply_known_shape(bounds: dict[str, object], known_shape_phys: Mapping[str, tuple[float, float]]) -> None:
+    """Apply :func:`apply_known_prior` for every entry of *known_shape_phys* the belief has, in place.
+
+    *known_shape_phys*: ``{name: (value_phys, std_phys)}`` over :data:`KNOWN_SHAPE_PARAMS`; it may name widths under
+    both the Lorentzian and the Voigt names, and only those *bounds* carries are applied. Raises ``ValueError`` on a
+    name outside :data:`KNOWN_SHAPE_PARAMS`, or when the contrast or every width is left free (a half-known shape is
+    not what was asked for).
+    """
+    unknown = sorted(set(known_shape_phys) - set(KNOWN_SHAPE_PARAMS))
+    if unknown:
+        raise ValueError(f"known_shape_phys names {unknown}, not line-shape parameters {KNOWN_SHAPE_PARAMS}.")
+    applied = [name for name in known_shape_phys if name in bounds]
+    if "contrast_total" not in applied or not any(name in applied for name in KNOWN_SHAPE_WIDTH_PARAMS):
+        raise ValueError(
+            f"A known shape needs the contrast and a width in the belief; given {sorted(known_shape_phys)}, "
+            f"belief has {sorted(k for k in bounds if not k.startswith('_'))}."
+        )
+    for name in applied:
+        apply_known_prior(bounds, name, *known_shape_phys[name])
+
 
 def nv_lineshape_for_model(model: object) -> str:
     """Map a true-signal model instance to the ``lineshape`` name :func:`nv_center_smc_belief` expects.
@@ -80,6 +149,7 @@ def nv_center_smc_belief(
     seed: int | None = None,
     fixed_drive: DriveSetting | None = None,
     voigt_bounds_as_lorentzian: bool = False,
+    known_shape_phys: Mapping[str, tuple[float, float]] | None = None,
 ) -> SMCMarginalDistribution:
     """NV-center belief: **unit** parameter particles, **physical** signal model.
 
@@ -121,6 +191,11 @@ def nv_center_smc_belief(
     with no Gaussian part (the SNR x window study at Gaussian share 0), which is exactly a Lorentzian whose ``hwhm`` is
     the Voigt's ``hwhm_lorentz``. That width's bounds and prior are read under the Lorentzian name; the Voigt's
     ``sigma_inhom`` is not a belief dimension. Raises if the bounds carry no ``hwhm_lorentz``.
+
+    ``known_shape_phys`` = ``{name: (value, std)}`` declares the line shape known, as the lab's Bayesian ESR runs it:
+    the contrast and the widths the belief has get the narrow normal priors of :func:`apply_known_shape`, applied after
+    the Voigt-to-Lorentzian renaming so the belief's own names are matched. ``None`` (default) keeps the bounds and
+    priors given in *parameter_bounds*.
     """
     if noise_model is None:
         raise ValueError(
@@ -224,6 +299,9 @@ def nv_center_smc_belief(
         # Preserve priors if passed in
         if "_priors" in parameter_bounds:
             merged_bounds["_priors"] = parameter_bounds["_priors"]
+
+    if known_shape_phys is not None:
+        apply_known_shape(merged_bounds, known_shape_phys)
 
     # Merge noise parameter bounds
     noise_spec = noise_model.spec

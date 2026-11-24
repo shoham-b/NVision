@@ -20,7 +20,9 @@ spectrum with tight nuisance priors; it still uses the prior's width, never the 
 |---|---|---|---|
 | `voigt-grid` | Voigt window/FWHM x Gaussian share x isotope (fixed total FWHM) | SNR grid | the six below |
 | `drive-control` | CW / pulsed drive-controlled NV x isotope | SNR grid (nominal) | `Bayesian-SBED`, `Bayesian-SBED-Drive` |
-| `article` | pure Lorentzian single dip x window span (1.6-50 FWHM) | SNR grid | `Bayesian-SBED`, `SimpleSweep-optimal` (70 tasks; the article's simulations) |
+| `article` | pure Lorentzian single dip x window span (1.6-50 FWHM) | SNR grid | `Bayesian-SBED`, `SimpleSweep-optimal` (70 tasks; the article's simulations), plus the two members below |
+| `article-lab-mirror` | the lab's line (C 0.14, FWHM 1.82 / 3.5 MHz) in 5-150 MHz windows | SNR 5 | `Bayesian-SBED-KnownShape`, `Bayesian-SBED`, `SimpleSweep-optimal` |
+| `article-tracking` | 20-FWHM window, honest Gaussian prior of 0.25 / 0.5 / 1 FWHM on the line | SNR grid | `Bayesian-SBED`, `Bayesian-SBED-KnownShape`, `SimpleSweep-optimal` |
 | `all` | the two above | the two above | each scenario's own set (`nv groups count all`) |
 
 `nv groups list` shows every group with its task count. The former groups `both-sbed`, `both-sbed-only`,

@@ -11,6 +11,7 @@ class StrategyFilter(StrEnum):
     SIMPLE_SWEEP = "SimpleSweep"
     BAYESIAN_SBED = "Bayesian-SBED"
     BAYESIAN_SBED_DRIVE = "Bayesian-SBED-Drive"
+    BAYESIAN_SBED_KNOWN_SHAPE = "Bayesian-SBED-KnownShape"
 
 
 class GeneratorName(StrEnum):

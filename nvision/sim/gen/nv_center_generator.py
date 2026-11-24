@@ -106,6 +106,11 @@ class NVCenterCoreGenerator:
     # Zeeman range is the window less those pads (see ``zeeman_max_phys``). None = the default window and
     # MAX_ZEEMAN_SHIFT. Voigt variant only.
     window_fwhm: float | None = None
+    # Tracking (window-grid signals only): the locator is told where the line was, a Gaussian prior on
+    # ``zeeman_shift`` of std ``tracking_prior_std_fwhm`` x the total FWHM, whose mean is drawn from N(truth, std).
+    # Drawn that way the prior is honest (truth - mean ~ N(0, std)), as the van Trees bound with J0 = 1/std^2 needs.
+    # None (default) = the global search: a uniform prior over the window.
+    tracking_prior_std_fwhm: float | None = None
 
     @property
     def gaussian_share(self) -> float | None:
@@ -589,7 +594,29 @@ class NVCenterCoreGenerator:
                     "zero_field_freq": ("sin^2", np.pi / (2.0 * MIN_HWHM)),
                 }
 
+        if self.tracking_prior_std_fwhm is not None:
+            # Drawn last, so it consumes no random number another parameter would have used.
+            bounds = self._with_tracking_prior(rng, bounds, zeeman_shift)
         return _true_signal_from_typed(model=model, typed_params=typed_params, bounds=bounds)
+
+    def _with_tracking_prior(self, rng: random.Random, bounds: dict, zeeman_shift_phys: float) -> dict:
+        """*bounds* with an honest Gaussian tracking prior on ``zeeman_shift`` (see ``tracking_prior_std_fwhm``).
+
+        The std is ``tracking_prior_std_fwhm`` x the total FWHM (Hz); the mean is drawn from ``N(truth, std)``. The
+        ``"_priors"`` dict is copied, never mutated. Raises unless this is a window-grid Zeeman signal with a positive
+        ``tracking_prior_std_fwhm``.
+        """
+        if self.window_fwhm is None or not self.with_zeeman_splitting:
+            raise ValueError(
+                "tracking_prior_std_fwhm needs a window-grid signal (window_fwhm set) with a Zeeman shift."
+            )
+        if not self.tracking_prior_std_fwhm > 0.0:
+            raise ValueError(f"tracking_prior_std_fwhm must be > 0, got {self.tracking_prior_std_fwhm!r}.")
+        fwhm_total_phys, _ = _voigt_reparam_scalar(self.hwhm, self.sigma_inhom)
+        std_phys = self.tracking_prior_std_fwhm * fwhm_total_phys
+        priors = dict(bounds.get("_priors") or {})
+        priors["zeeman_shift"] = (rng.gauss(zeeman_shift_phys, std_phys), std_phys)
+        return {**bounds, "_priors": priors}
 
     def _generate_drive_controlled(self, rng: random.Random, zero_field_freq: float, zeeman_shift: float):
         """Drive-controlled CW (``variant="cw_drive"``) or pulsed (``"pulsed_drive"``) NV signal.

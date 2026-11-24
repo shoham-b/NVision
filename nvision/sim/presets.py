@@ -382,6 +382,83 @@ def voigt_snr_window_param_grid_generators() -> list[tuple[str, object]]:
     return generators
 
 
+# The lab's Bayesian ESR (articles/sections/results.tex, lab section): one 15N-polarized NV line, CW ODMR, contrast
+# C = 0.14 and the width held fixed at a calibrated value, swept windows of 5-150 MHz. Two widths were used, FWHM
+# 3.5 MHz (first set, 40/100/150 MHz) and 1.82 MHz (second set, 5-100 MHz). Units: Hz, contrast dimensionless
+# (C = the dip depth = contrast_total / 2, see line_contrast).
+LAB_MIRROR_CONTRAST: float = 0.14
+LAB_MIRROR_FWHMS_PHYS: tuple[float, ...] = (1.82e6, 3.5e6)
+LAB_MIRROR_WINDOWS_PHYS: tuple[float, ...] = (5e6, 10e6, 20e6, 50e6, 100e6, 150e6)
+LAB_MIRROR_SNR: float = 5.0
+
+# Tracking: the article's claim is for a prior narrower than the line (sigma_0 <~ Gamma); these straddle it, in a
+# window wide enough (TRACKING_SPAN FWHMs) that a global search would cost far more than the refine.
+TRACKING_PRIOR_STD_FWHMS: tuple[float, ...] = (0.25, 0.5, 1.0)
+TRACKING_SPAN: float = 20.0
+
+
+def _window_grid_lorentzian(window_phys: float, fwhm_phys: float, contrast_total: float, **extra) -> object:
+    """A pure-Lorentzian single-line window-grid signal: drive window ``[D, D + window_phys]`` (Hz), the dip drawn
+    uniformly over the window less a half-FWHM edge pad on each side (the article grid's convention)."""
+    from nvision.spectra.nv_center import NV_ZERO_FIELD_SPLITTING_HZ, hyperfine_geometry, zeeman_shift_edge_pad
+
+    pad = zeeman_shift_edge_pad(fwhm_phys, hyperfine_geometry("unresolved")[0])
+    prior_range = window_phys - 2.0 * pad
+    if not prior_range > 0.0:
+        raise ValueError(f"Window {window_phys:g} Hz leaves no room for a {fwhm_phys:g} Hz line inside its edge pads.")
+    return NVCenterCoreGenerator(
+        drive_freq_min_phys=NV_ZERO_FIELD_SPLITTING_HZ,
+        drive_freq_max_phys=NV_ZERO_FIELD_SPLITTING_HZ + window_phys,
+        variant="voigt",
+        hwhm=fwhm_phys / 2.0,
+        contrast_total=contrast_total,
+        sigma_inhom=0.0,
+        hyperfine="unresolved",
+        window_fwhm=prior_range / fwhm_phys,
+        **extra,
+    )
+
+
+def lab_mirror_generator_name(window_phys: float, fwhm_phys: float) -> str:
+    """``NVCenter-voigt-span-lab-w<W>MHz-fwhm<Gamma>MHz``: named by the lab's own window and width (MHz)."""
+    return f"NVCenter-voigt-span-lab-w{window_phys / 1e6:g}MHz-fwhm{fwhm_phys / 1e6:g}MHz"
+
+
+def lab_mirror_generators() -> list[tuple[str, object]]:
+    """The simulated mirror of the lab runs: a Lorentzian line of the lab's contrast and widths in its windows.
+
+    The truth is drawn over the window as in the article grid (the lab's line sat at the window centre). Run with
+    ``Bayesian-SBED-KnownShape`` it infers only the line position and the noise, as the lab's Bayesian ESR does.
+    """
+    contrast_total = 2.0 * LAB_MIRROR_CONTRAST
+    return [
+        (lab_mirror_generator_name(w, g), _window_grid_lorentzian(w, g, contrast_total))
+        for g in LAB_MIRROR_FWHMS_PHYS
+        for w in LAB_MIRROR_WINDOWS_PHYS
+    ]
+
+
+def tracking_generator_name(prior_std_fwhm: float) -> str:
+    """``NVCenter-voigt-span<N>-gs0-hfunresolved-track<s>``: the article-grid signal of span N, tracked with a prior
+    of std ``s`` FWHM."""
+    return f"NVCenter-voigt-{_fmt_span(TRACKING_SPAN)}-gs0-hfunresolved-track{prior_std_fwhm:g}"
+
+
+def tracking_generators() -> list[tuple[str, object]]:
+    """Tracking: the article grid's pure-Lorentzian signal at ``TRACKING_SPAN``, with an honest Gaussian prior of std
+    ``TRACKING_PRIOR_STD_FWHMS`` x FWHM on the line position (``tracking_prior_std_fwhm``)."""
+    from nvision.sim.defaults import NVISION_SBED_FWHM, NVISION_SBED_SNR_CONTRAST
+
+    window = (TRACKING_SPAN + 1.0) * NVISION_SBED_FWHM  # span x FWHM plus a half-FWHM pad each side
+    return [
+        (
+            tracking_generator_name(s),
+            _window_grid_lorentzian(window, NVISION_SBED_FWHM, NVISION_SBED_SNR_CONTRAST, tracking_prior_std_fwhm=s),
+        )
+        for s in TRACKING_PRIOR_STD_FWHMS
+    ]
+
+
 def saturation_voigt_param_grid_generators() -> list[tuple[str, object]]:
     """Full contrast x sigma_inhom grid of named saturation-Voigt generators.
 
