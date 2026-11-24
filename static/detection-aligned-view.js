@@ -83,26 +83,6 @@ function daPlotNegentropy(div, locs, colorOf, threshold) {
 // The information rate a sweep over W gets per measurement, in units of I_max (Eq. sweep-info): 8πΓ / (27 W).
 const daSweepQ = (fwhm, window) => (8 * Math.PI * fwhm) / (27 * window);
 
-function daPlotLabRates(div, wins) {
-    const ok = wins.filter((w) => w.claimed_rate && w.claimed_rate.claimed_rate != null);
-    const placed = wins.filter((w) => w.placement && w.placement.placement_efficiency_median != null);
-    const xs = wins.map((w) => w.window_mhz);
-    const lo = Math.min(...xs), hi = Math.max(...xs);
-    const grid = Array.from({ length: 40 }, (_, i) => lo * (hi / lo) ** (i / 39));
-    const fwhm = wins[0].model_fwhm_mhz;
-    const traces = [
-        { x: ok.map((w) => w.window_mhz), y: ok.map((w) => w.claimed_rate.claimed_rate), mode: 'lines+markers', name: 'claimed rate q̂ after detection',
-            line: { color: '#2563eb', width: 2.5 }, marker: { size: 9 } },
-        { x: placed.map((w) => w.window_mhz), y: placed.map((w) => w.placement.placement_efficiency_median), mode: 'lines+markers', name: 'placement efficiency ⟨I(d)/I_max⟩',
-            line: { color: '#e05c00', width: 2.5 }, marker: { size: 9, symbol: 'square' } },
-        { x: grid, y: grid.map((w) => Math.min(1, daSweepQ(fwhm, w))), mode: 'lines', name: `a sweep over W: 8πΓ/(27W), Γ = ${daFmt(fwhm, 3)} MHz`,
-            line: { color: DA_REF_COLOR, width: 2, dash: 'dash' } },
-    ];
-    const layout = daLayout('drive_freq window W (MHz)', 'information per measurement / I_max', 'log', 'log');
-    layout.shapes = [daHLine(1)];
-    Plotly.newPlot(div, traces, layout, { responsive: true });
-}
-
 function daLabTable(wins) {
     const rows = wins.map((w) => {
         const p = w.placement || {};
@@ -117,19 +97,18 @@ function daLabTable(wins) {
             <td style="${daCell}">${w.detection_step_median == null ? '–' : `${daFmt(w.detection_step_median, 3)} (${daFmt(w.detection_step_q25, 3)}–${daFmt(w.detection_step_q75, 3)})`}</td>
             <td style="${daCell}">${w.max_lag ?? '–'}</td>
             <td style="${daCell}">${daFmt(w.claimed_rate && w.claimed_rate.claimed_rate, 2)}</td>
-            <td style="${daCell}">${daFmt(p.efficiency_median, 2)}</td>
+            <td style="${daCell}">${daFmt(p.placement_efficiency_median, 2)}</td>
             <td style="${daCell}">${p.far_share_median == null ? '–' : `${Math.round(100 * p.far_share_median)} %`}</td>
             <td style="${daCell}">${daFmt(daSweepQ(w.model_fwhm_mhz, w.window_mhz), 2)}</td>
-            <td style="${daCell}">${daFmt(tail(w.rmse_at), 2)}</td>
             <td style="${daCell}">${daFmt(tail(w.rms_claimed_at), 2)}</td>
             <td style="padding:3px 10px; font-size:0.9em; color:#92400e; text-align:left;">${daEsc(w.unavailable || w.j_d_unavailable || '')}</td>
         </tr>`;
     });
     return daTable(
         ['W (MHz)', 'detected', 'model Γ (MHz)', 'SNR', 'I_max (MHz⁻²)', 'detection step, median (IQR)', 'common lags', 'q̂',
-            'placement', '> 3 HWHM off', 'sweep 8πΓ/27W', 'rms error at the last lag (MHz)', 'rms claimed σ there (MHz)', 'note'],
+            'placement', '> 3 HWHM off', 'sweep 8πΓ/27W', 'rms claimed σ at the last lag (MHz)', 'note'],
         rows,
-        'Detection is each run\'s first steep, lasting drop of its claimed σ. q̂ is the slope of 1/⟨σ²⟩ per measurement in units of I_max over the second half of the lags. Placement is ⟨I(d)/I_max⟩ of the measurements after detection, about each run\'s own final estimate. The error is against the lab reference (the median final mean of the converged runs), so it cannot fall below the drift of the line between recordings (0.4–0.6 MHz).',
+        'Detection is each run\'s first steep, lasting drop of its claimed σ. q̂ is the slope of 1/⟨σ²⟩ per measurement in units of I_max over the second half of the lags. Placement is ⟨I(d)/I_max⟩ of the measurements after detection, about each run\'s own final estimate. Only claimed quantities are shown: the lab reference (the median final mean of the converged runs) drifts 0.4–0.6 MHz between recordings, so no error against it averages like the simulation\'s prior ensemble.',
     );
 }
 

@@ -66,11 +66,6 @@ async function renderLabSync(bar) {
 // A design-system colour token, read from styles.css (:root), for Plotly traces.
 const labToken = (name) => getComputedStyle(document.documentElement).getPropertyValue(`--${name}`).trim();
 
-// Eq. search-cost: before the dip is found, a measurement learns about it only within about a linewidth Γ (FWHM), so
-// the window holds W/Γ places to check, each needing about 1/(k SNR²) measurements: n_search ≳ (8/π) (W/Γ) / (k SNR²).
-// k = 1 shot per lab measurement; SNR = C/σ of the run's own model and noise (lab_detection_aligned.analyse_window).
-const labSearchCost = (w) => (8 / Math.PI) * (w.window_mhz / w.model_fwhm_mhz) / (w.snr * w.snr);
-
 function labCard(title, help, claim, id, height = 400) {
     return `<div class="chart-card">
         <h3>${title} <span tabindex="0" class="help-icon-visible" title="${help.replace(/"/g, '&quot;')}">?</span></h3>
@@ -79,64 +74,29 @@ function labCard(title, help, claim, id, height = 400) {
     </div>`;
 }
 
-function labLayout(xTitle, yTitle) {
-    return {
-        template: 'plotly_white',
-        margin: { t: 30, b: 55, l: 70, r: 15 },
-        hovermode: 'closest',
-        legend: { orientation: 'h', yanchor: 'bottom', y: 1.02, xanchor: 'right', x: 1, font: { size: 10 } },
-        xaxis: { title: xTitle, type: 'log', gridcolor: labToken('chart-grid') },
-        yaxis: { title: yTitle, type: 'log', gridcolor: labToken('chart-grid') },
-    };
+// Lab adapter for the shared claim panels (static/claim-panels.js): one point per drive_freq window, in units of the
+// window's own line (W / Γ with Γ the FWHM the runs' model assumes). Claimed quantities only (LAB_REFERENCE).
+const LAB_SERIES = { name: 'Lab SBED', symbol: 'circle' };
+const labWOverGamma = (w) => w.window_mhz / w.model_fwhm_mhz;
+function labSearchPoints(wins) {
+    return wins.filter((w) => w.detection_step_median != null).map((w) => ({
+        x: labWOverGamma(w), median: w.detection_step_median, q25: w.detection_step_q25, q75: w.detection_step_q75,
+        snr: w.snr, label: `W = ${w.window_mhz} MHz, detected ${w.n_detected}/${w.n_runs}`,
+    }));
 }
-
-// Fig. lab_search: the median detection step of each window against Eq. search-cost.
-function labPlotSearch(div, wins) {
-    const det = wins.filter((w) => w.detection_step_median != null);
-    const x = det.map((w) => w.window_mhz / w.model_fwhm_mhz);
-    const traces = [
-        {
-            x, y: det.map((w) => w.detection_step_median), mode: 'lines+markers', name: 'median detection step (IQR)',
-            line: { color: labToken('highlight-1'), width: 2.5 }, marker: { size: 9 },
-            error_y: {
-                type: 'data', symmetric: false,
-                array: det.map((w) => w.detection_step_q75 - w.detection_step_median),
-                arrayminus: det.map((w) => w.detection_step_median - w.detection_step_q25),
-            },
-            customdata: det.map((w) => [w.window_mhz, w.snr, w.detection_step_median / labSearchCost(w), `${w.n_detected}/${w.n_runs}`]),
-            hovertemplate: 'W = %{customdata[0]} MHz, W/Γ = %{x:.3g}<br>detection step %{y}<br>SNR %{customdata[1]:.2f}<br>'
-                + '%{customdata[2]:.3g} × Eq. search-cost<br>detected %{customdata[3]}<extra></extra>',
-        },
-        {
-            x, y: det.map(labSearchCost), mode: 'lines+markers', name: 'Eq. search-cost (8/π)(W/Γ)/SNR²',
-            line: { color: labToken('slate-700'), width: 2, dash: 'dash' }, marker: { size: 6, symbol: 'diamond' },
-        },
-    ];
-    Plotly.newPlot(div, traces, labLayout('window W / Γ', 'measurements to detection'), { responsive: true });
-    return det.map((w) => w.detection_step_median / labSearchCost(w));
+function labRatePoints(wins) {
+    return wins.map((w) => ({
+        x: labWOverGamma(w),
+        claimedRate: w.claimed_rate ? w.claimed_rate.claimed_rate ?? null : null,
+        placement: w.placement ? w.placement.placement_efficiency_median ?? null : null,
+        label: `W = ${w.window_mhz} MHz`,
+    }));
 }
-
-// Calibration: the spread of the runs' final estimates against the σ they claim, one point per window.
-function labPlotCalibration(div, windows) {
-    const ok = windows.filter((r) => r.claimed_sigma_mhz != null && r.across_run_std_mhz != null);
-    const vals = ok.flatMap((r) => [r.claimed_sigma_mhz, r.across_run_std_mhz]);
-    const lo = Math.min(...vals) / 1.5, hi = Math.max(...vals) * 1.5;
-    const traces = [
-        {
-            x: ok.map((r) => r.claimed_sigma_mhz), y: ok.map((r) => r.across_run_std_mhz), mode: 'markers+text',
-            text: ok.map((r) => `${r.window_mhz} MHz`), textposition: 'top center', name: 'one window',
-            marker: { size: 11, color: labToken('highlight-1') },
-            customdata: ok.map((r) => [r.window_mhz, r.overconfidence, r.within_1sigma, r.within_2sigma, `${r.n_converged}/${r.n_runs}`]),
-            hovertemplate: 'W = %{customdata[0]} MHz (%{customdata[4]} converged)<br>claimed σ %{x:.3g} MHz<br>across-run std %{y:.3g} MHz<br>'
-                + 'spread ÷ claimed %{customdata[1]:.2f}<br>within 1σ %{customdata[2]:.2f}, within 2σ %{customdata[3]:.2f}<extra></extra>',
-        },
-        { x: [lo, hi], y: [lo, hi], mode: 'lines', name: 'calibrated: spread = claimed σ', line: { color: labToken('slate-500'), dash: 'dash', width: 1.5 } },
-    ];
-    const layout = labLayout('median claimed σ at the end of the run (MHz)', 'std of the final estimates across runs (MHz)');
-    layout.xaxis.range = [Math.log10(lo), Math.log10(hi)];
-    layout.yaxis.range = [Math.log10(lo), Math.log10(hi)];
-    Plotly.newPlot(div, traces, layout, { responsive: true });
-    return ok.map((r) => r.overconfidence).filter((v) => v != null);
+function labCalibrationPoints(windows) {
+    return windows.map((r) => ({
+        claimed: r.claimed_sigma_mhz, spread: r.across_run_std_mhz,
+        label: `W = ${r.window_mhz} MHz, ${r.n_converged}/${r.n_runs} converged, within 1σ ${r.within_1sigma?.toFixed(2)}`,
+    }));
 }
 
 const labMedian = (xs) => {
@@ -235,7 +195,9 @@ async function renderLabStudy(container, name) {
         body.querySelectorAll(`[data-lab-pane="${tab}"] .js-plotly-plot`).forEach((gd) => Plotly.Plots.resize(gd));
     }));
     await ensurePlotly();
-    const over = labPlotCalibration(document.getElementById('lab-calibration'), data.windows);
+    const over = NVClaimPanels.calibrationPanel(document.getElementById('lab-calibration'),
+        [{ ...LAB_SERIES, color: labToken('highlight-1'), points: labCalibrationPoints(data.windows) }],
+        'std of the final estimates across runs (MHz)');
     if (over.length) {
         document.getElementById('lab-calib-claim').innerHTML = `Spread ÷ claimed σ, median over windows: <span class="claim-value">${fmt(labMedian(over))}</span> (1 = calibrated; above 1 = overconfident, or line drift).`;
     }
@@ -256,11 +218,13 @@ async function renderLabStudy(container, name) {
         body.querySelector('#lab-da-table').innerHTML = `<p class="notice-amber">Detection-aligned analysis failed: ${err.message}</p>`;
         return;
     }
-    const ratios = labPlotSearch(document.getElementById('lab-search'), wins);
+    const ratios = NVClaimPanels.searchCostPanel(document.getElementById('lab-search'),
+        [{ ...LAB_SERIES, color: labToken('highlight-1'), points: labSearchPoints(wins) }]);
     if (ratios.length) {
         document.getElementById('lab-search-claim').innerHTML = `Article: the lab search cost grows linearly in W at about 25 × Eq. search-cost. Here: <span class="claim-value">${ratios.map((r) => r.toFixed(0)).join(', ')} ×</span> over the windows.`;
     }
-    daPlotLabRates(document.getElementById('da-lab-rates'), wins);
+    NVClaimPanels.ratesPanel(document.getElementById('da-lab-rates'),
+        [{ ...LAB_SERIES, color: labToken('highlight-1'), points: labRatePoints(wins) }]);
     body.querySelector('#lab-da-table').innerHTML = daLabTable(wins);
 }
 

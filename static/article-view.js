@@ -122,6 +122,10 @@
             ${card('art-overview', 'Error over the run (one use case)', "Root mean square over the runs of the true error of zeeman_shift, in units of the line's FWHM Γ, against the measurement count n. Dotted: the elimination model, the article's mean curve (Eq. mean-curve: a search that clears the window one reach Δd per measurement, then van Trees from each detection). Dashed: the change-of-measure bound, which no strategy can beat during the search. Dash-dot: the data limit (n I_max)^-1/2, reached only by measuring every time at the steepest slope. Vertical lines: SBED's median detection step and median Gaussian onset.")}
             ${card('art-search', 'Search against the bounds (one use case)', 'ρ_search(n) = bound MSE ÷ measured mean squared true error over the runs, during the search. Solid: against the change-of-measure bound (Eq. search-bound), which holds for any strategy, adaptive or not: ρ must stay ≤ 1. Dotted: against the elimination model, a reference rather than a bound. Shown where enough runs are still running; vertical lines mark each locator\'s median detection step.')}
         </div>
+        <div class="chart-pair" style="margin-top:1.5em;">
+            ${card('art-searchcost', 'Search cost vs window (shared with the Lab page)', 'One point per use case: the median step at which the runs detected the dip (the dip test), against Eq. search-cost, (8/π)(W/Γ)/(k SNR²) with k = 1 shot, Γ the FWHM and SNR = C/σ the article SNR of the use case. A lower bound for any strategy at low SNR. The Lab page draws the same panel from the lab runs.')}
+            ${card('art-detectors', 'Two detection definitions on the same runs', "One point per use case and locator: the median step of the lab's detector (the first steep, lasting drop of the claimed σ, located to the stored steps) against the median step of the simulation's dip test, over the runs both detect. On the dashed line the two definitions agree.")}
+        </div>
         <h3 class="group-label">Converge</h3>
         <div class="chart-pair">
             ${card('art-rho', 'After detection: ρ against restarted van Trees (one use case)', "Every run is aligned at its own detection (lag k = n − n_d). ρ(k) = mean over runs of the van Trees bound restarted there, 1/(J_τ + k I_max) with J_τ the Fisher information of the run's posterior at detection, ÷ the mean squared true error. ρ ≤ 1 by van Trees; ρ near 1 means the run gains information at the data limit. Dotted: the same with the elimination model's J_d = 12/Δd².")}
@@ -135,6 +139,10 @@
         <div class="chart-pair" style="margin-top:1.5em;">
             ${card('art-speedup', 'Speedup over the sweep vs window', 'Filled: the measured speedup at a precise target, R∞ = q(SBED) ÷ q(best sweep), each q fitted to the late true error. Open: the ratio of the measurements to the most precise target both reach in at least half of their runs. Dotted: the prediction 27/(8π)·q·W/Γ ≈ 1.07 q W/Γ with q SBED\'s own rate in that use case (Eq. speedup times q); dashed: the same at q = 1.')}
             ${card('art-calib', 'True error vs claimed σ over the run (one use case)', 'Root mean square of the true error over the runs ÷ root mean square of the claimed σ, against n. 1 (dashed) = the claimed σ is honest on average; above 1 = overconfident. Before the posterior is Gaussian the claimed σ is not a 68 % interval, so read the curve from the Gaussian onset (vertical lines) on.')}
+        </div>
+        <div class="chart-pair" style="margin-top:1.5em;">
+            ${card('art-rates', 'Information per measurement after detection (shared with the Lab page)', "Circles: the claimed rate q̂, the slope of 1/⟨σ̂²⟩ per measurement in units of I_max over the second half of the lags after each run's detection; it needs only the claimed σ, so the lab reads the same number. Crosses: the placement efficiency, the mean I(d)/I_max of the measurements after detection. Dashed: the sweep rate 8πΓ/(27W).")}
+            ${card('art-spread', 'Claimed σ vs the spread of the runs (shared with the Lab page)', 'One point per use case and locator: the rms claimed σ at the end of the run against the rms true error over the runs (the prior ensemble). On the dashed line the claimed σ is honest on average. The Lab page draws the same panel with the scatter of repeated runs in place of the true error.')}
         </div>
         <h3 class="group-label">Calibration</h3>
         <div class="chart-pair">
@@ -181,6 +189,8 @@
     // ── Data per use case ──
     const claimsUrl = (g) => api('claims', { generator: g, noise: state.noises.join(',') });
     const ratesUrl = (g) => api('refine-rates', { generator: g, noise: state.noises.join(',') });
+    const boundsUrl = (g) => api('search-bounds', { generator: g, noise: state.noises.join(',') });
+    const alignedUrl = (g) => api('detection-aligned', { generator: g, noise: state.noises.join(',') });
 
     async function claimsOf(g, n, priority = false) {
         const rows = await fetchJson(claimsUrl(g), priority);
@@ -201,8 +211,8 @@
             if (div) div.innerHTML = '<p class="empty-state">Loading (the first view of a use case reads every run, up to a minute)…</p>';
             setClaim(id, '');
         });
-        const sb = fetchJson(api('search-bounds', { generator: g, noise: n }), true).then((r) => r.find((u) => u.generator === g && u.noise === n));
-        const da = fetchJson(api('detection-aligned', { generator: g, noise: n }), true);
+        const sb = fetchJson(boundsUrl(g), true).then((r) => r.find((u) => u.generator === g && u.noise === n));
+        const da = fetchJson(alignedUrl(g), true);
         const cl = claimsOf(g, n, true);
         Promise.all([sb, cl]).then(([u, c]) => { if (here()) { drawOverview(u, c); drawSearch(u, c); drawCalibration(c); } })
             .catch((err) => { if (here()) ['art-overview', 'art-search'].forEach((id) => empty(document.getElementById(id), err.message)); });
@@ -219,7 +229,7 @@
         const gens = [state.uc[0], ...state.gens.filter((x) => x !== state.uc[0])];
         let count = 0;
         const errors = [];
-        const total = 2 * gens.length;
+        const total = 4 * gens.length;
         const progress = () => {
             const el = document.getElementById('art-progress');
             if (!el) return;
@@ -229,12 +239,16 @@
         progress();
         const redraw = () => { if (state.family === family) drawAcross(); };
         const track = (url) => fetchJson(url).catch((err) => { errors.push(err.message); }).then(() => { count += 1; progress(); redraw(); });
-        gens.forEach((g) => { track(claimsUrl(g)); track(ratesUrl(g)); });
+        gens.forEach((g) => { track(claimsUrl(g)); track(ratesUrl(g)); track(boundsUrl(g)); track(alignedUrl(g)); });
     }
 
     function drawAcross() {
-        const claimRows = [], rateCases = [], failures = [];
+        const claimRows = [], rateCases = [], failures = [], boundCases = [], alignedRows = [];
         for (const g of state.gens) {
+            const b = done.get(boundsUrl(g));
+            if (b) boundCases.push(...b);
+            const a = done.get(alignedUrl(g));
+            if (a) alignedRows.push(...a.filter((r) => LOCATORS.includes(r.strategy)));
             const c = done.get(claimsUrl(g));
             if (c) claimRows.push(...c.filter((r) => LOCATORS.includes(r.strategy)));
             const r = done.get(ratesUrl(g));
@@ -247,6 +261,7 @@
         drawSpeedup(rateCases, claimRows);
         drawCoverage(claimRows);
         drawPit(claimRows);
+        drawShared(claimRows, rateCases, boundCases, alignedRows);
         const note = document.getElementById('art-notice');
         const msgs = failures.flatMap((f) => (f.errors || []).map((e) => `${f.generator} ${f.noise}: ${e.message}`));
         if (note) note.innerHTML = msgs.length ? `<p class="notice-amber">Refine rates could not rebuild ${msgs.length} use case(s): ${esc(msgs.slice(0, 3).join('; '))}${msgs.length > 3 ? '…' : ''}</p>` : '';
@@ -416,6 +431,82 @@
         plot(div, traces, lay);
         const ratio = meas.map((u) => { const q = qOf(u); return q ? u.speedup.speedup_fitted / ((27 / (8 * Math.PI)) * q * u.window_over_fwhm) : null; });
         setClaim('art-speedup', `Article: at a precise target the speedup is about 1.07 q W/Γ. Measured ÷ predicted, median over ${meas.length} use cases: ${val(fmt(median(ratio), 2))}.`);
+    }
+
+    // ── Shared with the Lab page (static/claim-panels.js): the sim adapter ──
+    const symbolOf = (name) => (name === SBED ? 'circle' : 'square');
+    const findCase = (list, r) => list.find((u) => u.generator === r.generator && u.noise === r.noise);
+    function drawShared(claimRows, rateCases, boundCases, alignedRows) {
+        const P = window.NVClaimPanels;
+        const xOf = (r) => (r.window_phys && r.fwhm_phys ? r.window_phys / r.fwhm_phys : null);
+        const search = LOCATORS.map((name) => ({
+            name: label(name), color: colorOf(name), symbol: symbolOf(name),
+            points: claimRows.filter((r) => r.strategy === name).map((r) => {
+                const u = findCase(boundCases, r);
+                return { x: xOf(r), median: r.regimes ? r.regimes.detection_step : null, snr: u && !u.error ? u.snr : null, label: r.noise };
+            }).filter((q) => q.x && q.snr),
+        }));
+        if (search.some((s) => s.points.length)) {
+            const ratios = P.searchCostPanel(document.getElementById('art-searchcost'), search);
+            setClaim('art-searchcost', `Eq. search-cost is a lower bound at low SNR. Median detection step ÷ Eq. search-cost over the use cases: ${val(fmt(median(ratios), 3))}.`);
+        }
+        const rates = LOCATORS.map((name) => ({
+            name: label(name), color: colorOf(name),
+            points: alignedRows.filter((r) => r.strategy === name).map((r) => {
+                const c = findCase(claimRows.filter((x) => x.strategy === name), r);
+                const u = findCase(rateCases, r);
+                const late = r.claimed_rate_late || {};
+                return {
+                    x: c ? xOf(c) : null, claimedRate: late.claimed_rate ?? null,
+                    placement: u && u.locators && u.locators[name] ? u.locators[name].placement_efficiency_median : null, label: r.noise,
+                };
+            }).filter((q) => q.x),
+        }));
+        if (rates.some((s) => s.points.length)) {
+            P.ratesPanel(document.getElementById('art-rates'), rates);
+            const q = rates[0].points.map((p) => p.claimedRate);
+            setClaim('art-rates', `Claimed rate q̂ of SBED after detection, median over the use cases: ${val(fmt(median(q), 2))} (the lab reads the same number).`);
+        }
+        const spread = LOCATORS.map((name) => ({
+            name: label(name), color: colorOf(name), symbol: symbolOf(name),
+            points: claimRows.filter((r) => r.strategy === name && r.rms_curve).map((r) => ({
+                claimed: r.rms_curve.claimed_sigma.at(-1), spread: r.rms_curve.error.at(-1), label: r.noise,
+            })),
+        }));
+        if (spread.some((s) => s.points.length)) {
+            const ratios = P.calibrationPanel(document.getElementById('art-spread'), spread, 'rms true error at the end of the run');
+            setClaim('art-spread', `rms true error ÷ rms claimed σ at the end, median over use cases and locators: ${val(fmt(median(ratios), 2))} (1 = honest).`);
+        }
+        drawDetectors(alignedRows);
+    }
+
+    function drawDetectors(alignedRows) {
+        const div = document.getElementById('art-detectors');
+        const traces = [];
+        const vals = [];
+        const deltas = [];
+        for (const name of LOCATORS) {
+            const pts = alignedRows.filter((r) => r.strategy === name && r.detector_comparison && r.detector_comparison.median_a != null);
+            if (!pts.length) continue;
+            const c = pts.map((r) => r.detector_comparison);
+            vals.push(...c.flatMap((d) => [d.median_a, d.median_b]));
+            deltas.push(...c.map((d) => d.ratio_median));
+            traces.push({
+                x: c.map((d) => d.median_a), y: c.map((d) => d.median_b), mode: 'markers', name: label(name),
+                marker: { color: colorOf(name), size: 9, symbol: symbolOf(name) },
+                text: pts.map((r) => `${r.generator.replace(/^NVCenter-/, '')} ${r.noise} · both ${r.detector_comparison.n_both}/${r.detector_comparison.n_runs}, Δ median ${fmt(r.detector_comparison.delta_median, 3)}`),
+                hovertemplate: 'dip test %{x}<br>sigma drop %{y}<br>%{text}<extra></extra>',
+            });
+        }
+        if (!traces.length) {
+            if (alignedRows.length) empty(div, 'No use case has runs that both detectors detect (re-run: needs the stored claimed σ series).');
+            return;
+        }
+        const lo = Math.max(1, Math.min(...vals) / 1.5), hi = Math.max(...vals) * 1.5;
+        traces.push({ x: [lo, hi], y: [lo, hi], mode: 'lines', name: 'the two definitions agree', line: { color: token('slate-500'), dash: 'dash', width: 1.5 } });
+        const lay = layout("median step, simulation's dip test", "median step, lab's sigma drop");
+        plot(div, traces, lay);
+        setClaim('art-detectors', `Sigma drop ÷ dip test, median over use cases (per use case: median over runs): ${val(fmt(median(deltas), 3))}.`);
     }
 
     // ── Calibration ──
