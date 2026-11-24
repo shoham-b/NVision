@@ -4,7 +4,7 @@ usage: [NVISION_MAX_MEASUREMENTS=n] [KS_CONTRAST_SCALE=x] uv run python debug/re
        <generator> <noise> <strategy> <repeats> <out.json>
 
 Runs ``nv run-single ... --dry-run --runners 1`` in-process and records, per repeat: every measurement's oracle
-Fisher efficiency ``eta = g(x)^2 / max g^2`` (``nvision.metrics.stages.primary_sensitivity_at``, the stored metrics'
+Fisher efficiency ``eta = g(x)^2 / max g^2`` (``nvision.metrics.run_axes.primary_sensitivity_at``, the stored metrics'
 own definition), its offset from the true line in half widths, the dip-detection step, the true error and claimed
 sigma of ``zeeman_shift`` after every step, and the belief's contrast/width bounds (to check the known shape took).
 Analyse with ``debug/analyse_known_shape_q.py``.
@@ -18,7 +18,7 @@ import numpy as np
 
 from nvision.metrics.refine_rates import nearest_centre_offsets
 from nvision.metrics.refine_rates_runs import line_centres_phys
-from nvision.metrics.stages import primary_sensitivity_at
+from nvision.metrics.run_axes import primary_sensitivity_at
 from nvision.runner import executor as _ex
 
 GEN, NOISE, STRAT, REPS, OUT = sys.argv[1:6]

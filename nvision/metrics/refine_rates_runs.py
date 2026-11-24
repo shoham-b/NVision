@@ -431,13 +431,13 @@ def _speedup(locators: dict[str, dict[str, Any]], sweeps: list[str]) -> dict[str
 
     q_err_sbed = None if sbed["fitted_rate"] is None else sbed["fitted_rate"]["q"]
     err_sweep, q_err_sweep = best(lambda d: None if d["fitted_rate"] is None else d["fitted_rate"]["q"])
-    place_sweep, q_place_sweep = best(lambda d: d["placement_efficiency_median"])
+    place_sweep, placement_sweep = best(lambda d: d["placement_efficiency_median"])
     return {
         "ratio": ratio,
         "speedup_fitted": q_err_sbed / q_err_sweep if q_err_sbed and q_err_sweep else None,
         "best_sweep_fitted": err_sweep,
-        "speedup_placement": sbed["placement_efficiency_median"] / q_place_sweep
-        if sbed["placement_efficiency_median"] and q_place_sweep
+        "speedup_placement": sbed["placement_efficiency_median"] / placement_sweep
+        if sbed["placement_efficiency_median"] and placement_sweep
         else None,
         "best_sweep_placement": place_sweep,
     }

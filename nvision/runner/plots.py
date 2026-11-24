@@ -863,7 +863,7 @@ def generate_attempt_plots(
             if step_series:
                 scan_entry["series"] = step_series
                 # Where every measurement was taken (unit coordinates of the drive window, float32), for every
-                # repeat: q_place needs it, and the scan figure keeps only the first repeats.
+                # repeat: the placement efficiency needs it, and the scan figure keeps only the first repeats.
                 scan_entry["meas_drive_freq_unit"] = base64.b64encode(
                     np.array([s.obs.drive_freq_unit for s in run_result.snapshots], dtype="<f4").tobytes()
                 ).decode("ascii")
