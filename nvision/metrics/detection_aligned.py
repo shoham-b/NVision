@@ -37,6 +37,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from nvision.metrics.claims import BOOTSTRAP_SAMPLES, BOOTSTRAP_SEED, MIN_RUNS
+from nvision.metrics.run_record import DIP_TEST, SIGMA_DROP, Detector, RunRecord
 
 # Negentropy (nats) below which the posterior counts as a single Gaussian peak: well above the ~0.01 floor of the
 # density estimate on a Gaussian cloud, well below the 0.18 of a uniform posterior and the 0.3-0.5 of two peaks.
@@ -54,10 +55,13 @@ class AlignedRun:
     err: np.ndarray  # |estimate - truth| of the primary parameter, Hz
     negentropy: np.ndarray  # posterior negentropy, nats; nan where undefined
     claimed: np.ndarray  # claimed sigma of the primary parameter, Hz (finite, > 0)
-    detected_step: int  # tau, 1-based measurement at which the dip test first fired
+    detection_step: int  # 1-based measurement at which the run's detector fired (the dip test for a simulated run)
     j_tau: float | None  # Fisher information of the posterior at detection, Hz^-2
     far: np.ndarray | None = None  # 1 if the measurement was placed far from the belief's mode, else 0; nan if unknown
     far_mass_tau: float | None = None  # posterior mass far from the mode at detection, in [0, 1]
+    # Measurements behind the restart posterior: detection_step - 1 for the dip test (J_tau is the posterior before the
+    # measurement that fired), detection_step for the sigma drop (the first posterior after the drop).
+    restart_step: int | None = None
 
     def __post_init__(self) -> None:
         s, e, g, c = self.steps, self.err, self.negentropy, self.claimed
@@ -74,15 +78,15 @@ class AlignedRun:
             raise ValueError("err must be finite and >= 0 (absolute errors)")
         if not np.all(np.isfinite(c)) or np.any(c <= 0):
             raise ValueError("claimed must be finite and > 0 (claimed sigma)")
-        if self.detected_step < 1:
-            raise ValueError(f"detected_step is 1-based, got {self.detected_step}")
+        if self.detection_step < 1:
+            raise ValueError(f"detection_step is 1-based, got {self.detection_step}")
         if self.j_tau is not None and not (math.isfinite(self.j_tau) and self.j_tau >= 0):
             raise ValueError(f"j_tau must be finite and >= 0, got {self.j_tau}")
 
     @property
     def restart(self) -> int:
         """``n_d = tau - 1``: the measurements behind the posterior whose information is ``j_tau``."""
-        return self.detected_step - 1
+        return self.detection_step - 1 if self.restart_step is None else self.restart_step
 
 
 def lag_grid(max_lag: int) -> np.ndarray:
@@ -94,6 +98,49 @@ def lag_grid(max_lag: int) -> np.ndarray:
         return dense
     tail = np.unique(np.round(np.geomspace(DENSE_LAGS, max_lag, LAG_POINTS)))
     return np.unique(np.concatenate([dense, tail]))
+
+
+# Lags a claimed rate needs in the second half of the common lag range.
+MIN_LAGS = 3
+
+
+def align(record: RunRecord, detector: Detector) -> AlignedRun | None:
+    """A run on the lag axis of ``detector``'s detection; ``None`` when that detector does not fire for it.
+
+    The restart point is the posterior the detection hands over: the one before the measurement that fired for the
+    dip test (whose ``J_tau`` is stored), the first one after the drop for the sigma drop. A source without a
+    negentropy series (the lab) gets ``nan`` there: no Gaussian onset can be read from it.
+    """
+    step = detector.step(record)
+    if step is None:
+        return None
+    restart = step - 1 if detector is DIP_TEST else step if detector is SIGMA_DROP else None
+    if restart is None:
+        raise ValueError(f"no restart convention for detector {detector.name!r}")
+    neg = record.negentropy if record.negentropy is not None else np.full(record.steps.shape, np.nan)
+    return AlignedRun(
+        record.steps.astype(np.float64),
+        record.error,
+        neg,
+        record.claimed_sigma,
+        int(step),
+        record.j_tau if detector is DIP_TEST else None,
+        far=record.far_placed,
+        far_mass_tau=record.far_mass_tau,
+        restart_step=restart,
+    )
+
+
+def claimed_rate(lags: np.ndarray, claimed_var: np.ndarray, i_max: float) -> dict:
+    """Claimed information rate q-hat: the slope of ``1 / mean claimed variance`` per measurement, in units of
+    ``I_max``, over the second half of the lag range (refine, after converge). ``lags``, ``claimed_var``: shape
+    (n_lag,), unit^2. Needs only the claimed sigma, so it is valid for the lab too. ``> 1`` means the claimed sigma fell
+    faster than the data allow."""
+    half = lags >= 0.5 * lags[-1]
+    if np.count_nonzero(half) < MIN_LAGS:
+        return {"unavailable": f"{np.count_nonzero(half)} lags in the second half (need {MIN_LAGS})"}
+    slope, _ = np.polyfit(lags[half], 1.0 / claimed_var[half], 1)
+    return {"claimed_rate": float(slope / i_max), "window": [int(lags[half][0]), int(lags[-1])]}
 
 
 def _at(steps: np.ndarray, vals: np.ndarray, n: np.ndarray) -> np.ndarray:
@@ -324,8 +371,8 @@ def analyse(runs: Sequence[AlignedRun], *, budget: int, i_max: float, dd_phys: f
     out: dict = {
         "n_runs": len(runs),
         "n_undetected": n_undetected,
-        "detection_step_median": _med([r.detected_step for r in runs]),
-        "detection_step_max": max(r.detected_step for r in runs),
+        "detection_step_median": _med([r.detection_step for r in runs]),
+        "detection_step_max": max(r.detection_step for r in runs),
         "max_lag": max_lag,
         "lags": lags.astype(int).tolist(),
         "mse": mse.tolist(),
@@ -370,5 +417,7 @@ def analyse(runs: Sequence[AlignedRun], *, budget: int, i_max: float, dd_phys: f
         "negentropy_by_lag": _quantiles(g),
     }
     out["claimed_rate"] = _claimed_rates(runs, budget=budget, i_max=i_max)
+    # The claimed rate the lab can also read (second half of the lags, claimed sigma only), for one comparison.
+    out["claimed_rate_late"] = claimed_rate(lags, np.mean(aligned(runs, lags, "claimed") ** 2, axis=0), i_max)
     out["far_placed"] = far_placed(runs)
     return out

@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 from nvision.metrics import lab_detection_aligned as lda
+from nvision.metrics.detection_aligned import claimed_rate
 
 REF = 1466.0
 MODEL = {"baseline": 1.0, "contrast": 0.14, "fwhm_mhz": 1.82, "shape_final_only": False}
@@ -54,10 +55,10 @@ def test_analyse_window_aligns_at_detection():
     assert out["max_lag"] == 120 - 10
     assert out["lags"][0] == 0
     assert out["snr"] == pytest.approx(0.14 / 0.025, rel=0.15)
-    assert "rho_elimination_at" in out
+    assert "rho_claimed_at" in out
+    assert (out["detector"], out["truth"]) == ("sigma-drop", "lab-reference")
+    assert "mse" not in out  # the lab reference is not ensemble-valid: no error-based quantity
     assert "unavailable" in out["gaussian"]
-    # Errors drawn at the claimed sigma: the mean claimed variance tracks the MSE.
-    assert np.allclose(out["mse"][5], out["mean_claimed_var"][5], rtol=1.0)
 
 
 def test_analyse_window_rejects_mixed_windows_and_models():
@@ -77,7 +78,7 @@ def test_too_few_detected_runs():
 def test_claimed_rate_recovers_the_slope():
     lags = np.arange(0, 200, dtype=float)
     imax = 10.0
-    out = lda.claimed_rate(lags, 1.0 / (2.0 + 0.4 * imax * lags), imax)
+    out = claimed_rate(lags, 1.0 / (2.0 + 0.4 * imax * lags), imax)
     assert out["claimed_rate"] == pytest.approx(0.4)
 
 

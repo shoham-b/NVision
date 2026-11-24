@@ -3,8 +3,9 @@ import math
 import numpy as np
 import pytest
 
-from nvision.cli.detection_aligned_api import aligned_run, analyse_rows
+from nvision.cli.detection_aligned_api import analyse_rows, record_from_row
 from nvision.metrics import detection_aligned as da
+from nvision.metrics.run_record import DIP_TEST
 
 I_MAX = 1e-12  # Hz^-2 per measurement
 BUDGET = 200
@@ -108,6 +109,7 @@ def _row(tau: int | None, *, with_g: bool = True) -> dict:
             "i_max": I_MAX,
             "far_mass_tau": 0.1,
             "fwhm_phys": 2e6,
+            "window_phys": 50e6,
             "snr": 10.0,
         },
         "true_params": {"bounds": {"zeeman_shift": [1e6, 40e6]}},
@@ -115,17 +117,21 @@ def _row(tau: int | None, *, with_g: bool = True) -> dict:
 
 
 def test_api_rows():
-    assert aligned_run(_row(None)) is None
-    a = aligned_run(_row(5))
+    assert da.align(record_from_row(_row(None)), DIP_TEST) is None
+    a = da.align(record_from_row(_row(5)), DIP_TEST)
     assert a.steps[0] == 2
     assert np.isnan(a.negentropy[0])
-    assert a.detected_step == 5
-    with pytest.raises(ValueError, match="no stored s/e/g/u"):
-        aligned_run(_row(5, with_g=False))
+    assert a.detection_step == 5
+    assert a.restart == 4  # the posterior before the measurement the dip test fired on
+    with pytest.raises(ValueError, match="no stored step/error/negentropy/claimed_sigma"):
+        record_from_row(_row(5, with_g=False))
     out = analyse_rows([_row(5 + i) for i in range(11)] + [_row(None)])
     assert out["n_runs"] == 11
     assert out["n_undetected"] == 1
     assert out["dd_phys"] > 0
+    assert out["detector"] == "dip-test"
+    cmp = out["detector_comparison"]
+    assert (cmp["a"], cmp["b"], cmp["n_runs"]) == ("dip-test", "sigma-drop", 12)
 
 
 def test_claimed_rate_calibrated_and_overconfident():
