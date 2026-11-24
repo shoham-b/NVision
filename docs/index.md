@@ -17,6 +17,7 @@ Welcome to the NVision documentation.
 -   [Deferred Graph Generation (graph workers, `nv graphs`)](graph_queue.md)
 -   [Locator comparison: sweeps, SBED, search/localize/refine stages, known deviations from the article](locator_comparison.md)
 -   [Evaluation metrics: what to measure per stage, and the rules that keep it meaningful](evaluation_metrics.md)
+-   [Theory alignment report: where simulation and lab data contradict the article, and why](theory_alignment_report.md)
 -   [Classmethod Pattern](classmethod_pattern.md)
 -   [Amplitude Reparametrization (contrast → contrast_total)](contrast_reparametrization.md)
 -   [Microwave Drive Control (CW / pulsed, Bayesian-SBED-Drive)](amplitude_control.md)

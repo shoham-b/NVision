@@ -70,8 +70,12 @@ uv run nv groups list
 # Run a group (shortcut: `uv run nv groups voigt-grid`)
 uv run nv groups run voigt-grid
 
-# The article's simulations only (Lorentzian single dip x span x SNR; Bayesian-SBED vs the sweep at k*, 70 tasks)
+# The article's simulations only: Lorentzian single dip x span x SNR (Bayesian-SBED vs the sweep at k*, 70 tasks),
+# plus its lab-mirror and tracking members (see docs/theory_alignment_report.md)
 uv run nv groups run article
+
+# One member alone, e.g. the lab mirror at the lab's budget of 300 measurements, in its own output folder
+$env:NVISION_MAX_MEASUREMENTS = "300"; uv run nv run --run-group article-lab-mirror --out artifacts_lab300
 
 # Run a subset of a group's locators/signals (what the former *-only groups did)
 uv run nv run --run-group voigt-grid --filter-strategy "^Bayesian-SBED$"
