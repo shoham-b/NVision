@@ -52,6 +52,8 @@ def _capture(self, **kw):
             "true": {k: float(v) for k, v in values.items()},
             "window_phys": float(hi - lo),
             "hwhm_phys": hwhm,
+            # Fisher information of one measurement at the steepest slope (Hz^-2), with this run's noise.
+            "i_max": float(sens.best / float(snaps[0].obs.noise_std) ** 2),
             "finalize": {k: v for k, v in finalize_record.items() if isinstance(v, (int, float, str)) or v is None},
         }
     )
@@ -59,6 +61,14 @@ def _capture(self, **kw):
 
 
 _ex._TaskRunner._run_single_repeat = _capture
+
+# BROAD_FRACTION=x: the share of the prior's particles drawn uniformly over each bound (PRIOR_BROAD_FRACTION, 0.1 by
+# default). 0 gives the belief exactly the stated Gaussian prior (item 6, tracking). Debug-only.
+_BROAD = __import__("os").environ.get("BROAD_FRACTION")
+if _BROAD is not None:
+    from nvision.sim.locs.bayesian import belief_builders as _bb
+
+    _bb.nv_center_smc_belief.__kwdefaults__["prior_broad_fraction"] = float(_BROAD)
 
 # KS_CONTRAST_SCALE=x (item 2): the known shape's contrast is x times the truth (a mis-calibrated lab contrast), the
 # width stays true. Debug-only: the shipped strategy always uses the truth.

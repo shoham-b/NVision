@@ -59,9 +59,14 @@ for path in a.files:
         snr, std_fwhm, fwhm = a.track
         gamma = fwhm / 2.0
         i_max = (snr * 3.0 * math.sqrt(3.0) / 8.0 / gamma) ** 2
+        if "i_max" in reps[0]:  # the run's own, from the true signal and noise
+            i_max = float(np.median([r["i_max"] for r in reps]))
         j0 = 1.0 / (std_fwhm * fwhm) ** 2
         for k in (1, 3, 10, 30, 100, 300):
             if k > n:
                 continue
             mse = float(np.mean([r["err"][k - 1] ** 2 for r in reps]))
-            print(f"  van Trees R(n={k:3d}) = {1.0 / (j0 + k * i_max) / mse:.3f}  (n_c = J0/I_max = {j0 / i_max:.2f})")
+            print(
+                f"  van Trees R(n={k:3d}) = {1.0 / (j0 + k * i_max) / mse:.3f}  (n_c = J0/I_max = {j0 / i_max:.2f}, "
+                f"{len(reps)} runs: R's relative standard error about {math.sqrt(2.0 / len(reps)):.2f})"
+            )
