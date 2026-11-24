@@ -260,7 +260,7 @@ relative error.
 |---|---|---|---|---|---|---|
 | shape known, belief prior as shipped (10 % uniform mixture) | 0.05 | 0.08 | 0.39 | 0.67 | 1.25 | 1.15 |
 | shape known, belief prior = the stated Gaussian (`BROAD_FRACTION=0`) | 0.22 | 0.20 | 0.87 | 0.68 | 0.47 | 0.51 |
-| shape inferred, prior as shipped | TRACK_SBED |
+| shape inferred, prior as shipped | 0.06 | 0.03 | 0.007 | 0.35 | 0.45 | 0.45 |
 | shape inferred, prior = the stated Gaussian | 0.18 | 0.10 | 0.09 | 0.19 | 0.05 | 0.30 |
 
 Two things stop SBED from following the bound "from the first measurement":
@@ -274,7 +274,7 @@ Two things stop SBED from following the bound "from the first measurement":
   cannot all sit at the steepest slope of a line whose position is uncertain by a half width, so I(d) < I_max even
   for an ideal design, and R(1-3) of about 0.2 is the nonlinear regime, not a flaw. It closes by n of about 10,
   once the posterior is well inside the line.
-- **With the shape inferred**, tracking stays at R of 0.05-0.3 throughout: the bound treats C and Gamma as known,
+- **With the shape inferred**, tracking stays at R of 0.01-0.45 throughout: the bound treats C and Gamma as known,
   and SBED must learn them from a run that starts on the line. That is item 3's cost, without a search to hide it.
 
 **Verdict: (b) runs, and (c) text.** Run the member (see below) for 50-run numbers at three sigma_0 and every SNR.
@@ -296,7 +296,31 @@ test is `dip_detected_step`, the locator's held boxcar GLRT (`stages.py`). The l
 both per run to the cached article grid (50 runs per use case). The claimed sigma comes from the stored series,
 which may be thinned, so the lab step is the stored step at the drop.
 
-DETECTOR_TABLE
+Medians over runs (steps). Gap = lab-style step minus dip-test step. Cells where fewer than 50 runs have a held dip
+test are marked with their n.
+
+| span | SNR | SBED dip | SBED lab | SBED gap [IQR] | sweep dip | sweep lab | sweep gap [IQR] |
+|---|---|---|---|---|---|---|---|
+| 1.6 | 1 / 5 / 20 | 14 / 5 (n 37) / 5 | 40 / 8 / 2 | +24 [11,66] / +2 [0,7] / -3 [-3,-3] | 28 / 8 / 8 | 54 / 22 / 12 | +22 / +9 / +4 |
+| 5 | 1 / 5 / 20 | 30 / 5 / 5 | 73 / 12 / 2 | +38 [18,60] / +7 [4,7] / -2 [-3,-1] | 95 / 16 / 8 | 136 / 34 / 16 | +26 / +14 / +8 |
+| 10 | 1 / 5 / 20 | 58 / 6 / 5 | 112 / 17 / 4 | +39 [27,66] / +7 [6,13] / 0 [-2,3] | 206 / 36 / 16 | 275 / 57 / 34 | +44 / +18 / +13 |
+| 20 | 1 / 5 / 20 | 95 / 10 / 6 | 218 / 23 / 10 | +64 [50,100] / +12 [8,16] / +1 [-1,7] | 362 / 72 / 40 | 738 / 81 / 60 | +239 / +24 / +10 |
+| 50 | 1 / 5 / 20 | 224 / 18 / 10 | 442 / 46 / 23 | +143 [101,208] / +26 [20,32] / +15 [6,18] | 894 / 140 / 112 | 2496 / 201 / 121 | +1484 / +49 / +18 |
+
+SNR 2 and 10 fall between their neighbours (`debug/detector_gap.py` prints every cell). For SBED at SNR 10 and
+spans <= 5, only 1-10 of 50 runs have a held dip test.
+
+- **The two detectors measure different events.** The dip test fires when the data show a significant dip. The
+  claimed-sigma drop comes when the posterior collapses onto it, which is the end of localize, not of search. For SBED
+  the drop comes a median of 1.5-2.5x the dip step later, a gap that grows with the window and falls with the SNR
+  (+143 steps at 50 Gamma / SNR 1, +15 at SNR 20).
+- **At high SNR and narrow windows the order flips.** The drop comes 2-3 steps before the dip test, because the dip
+  test must hold its result while the sigma drop is read at its first step.
+- **For the sweep the gap is larger.** Its posterior collapses only after it has passed the line and fitted it, up to
+  a whole pass later at low SNR (+1484 at 50 Gamma / SNR 1).
+- **What this means.** A detector-aligned metric moves by these amounts when the detector is swapped. The lab-style
+  step is close to the article's "end of localize", so on lab data it should be read as such, not as the detection
+  step of the search bound.
 
 ## Runs to make
 
