@@ -50,11 +50,11 @@ def test_noise_sigma_rejects_inferred_shape():
 def test_analyse_window_aligns_at_detection():
     out = lda.analyse_window([_trace(i) for i in range(12)], REF)
     assert out["n_detected"] == 12
-    assert out["detected_step_median"] == 10
+    assert out["detection_step_median"] == 10
     assert out["max_lag"] == 120 - 10
     assert out["lags"][0] == 0
     assert out["snr"] == pytest.approx(0.14 / 0.025, rel=0.15)
-    assert "rho_j_d_at" in out
+    assert "rho_elimination_at" in out
     assert "unavailable" in out["gaussian"]
     # Errors drawn at the claimed sigma: the mean claimed variance tracks the MSE.
     assert np.allclose(out["mse"][5], out["mean_claimed_var"][5], rtol=1.0)
@@ -78,7 +78,7 @@ def test_claimed_rate_recovers_the_slope():
     lags = np.arange(0, 200, dtype=float)
     imax = 10.0
     out = lda.claimed_rate(lags, 1.0 / (2.0 + 0.4 * imax * lags), imax)
-    assert out["q_hat"] == pytest.approx(0.4)
+    assert out["claimed_rate"] == pytest.approx(0.4)
 
 
 def test_runs_that_stop_at_detection_are_unavailable():
@@ -106,5 +106,5 @@ def test_relative_information_peaks_at_the_steepest_slope():
 
 def test_placement_of_uniform_measurements_is_low():
     out = lda.analyse_window([_trace(i, window=100.0) for i in range(12)], REF)
-    assert out["placement"]["efficiency_median"] < 0.1
+    assert out["placement"]["placement_efficiency_median"] < 0.1
     assert out["placement"]["far_share_median"] > 0.8

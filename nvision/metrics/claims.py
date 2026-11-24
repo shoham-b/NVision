@@ -172,17 +172,17 @@ def regimes(
 class GatedFit:
     """``refine_rates.fit_rate_line`` on a window, plus bootstrap intervals and a gate on the window being linear.
 
-    ``q_halves``: q of the first and second half of the window; ``linear`` is True when their bootstrap intervals
+    ``rate_halves``: q of the first and second half of the window; ``linear`` is True when their bootstrap intervals
     overlap. ``None`` fit / ``why`` set when the window is too short or 1/MSE does not grow.
     """
 
     fit: RateFit | None
-    q_ci: tuple[float, float] | None
-    n0_ci: tuple[float, float] | None
-    q_halves: tuple[float, float] | None
+    rate_ci: tuple[float, float] | None
+    search_offset_ci: tuple[float, float] | None
+    rate_halves: tuple[float, float] | None
     linear: bool | None
     why: str | None = None
-    q_halves_ci: tuple[tuple[float, float] | None, tuple[float, float] | None] | None = None
+    rate_halves_ci: tuple[tuple[float, float] | None, tuple[float, float] | None] | None = None
 
 
 def _boot_fit(
@@ -228,35 +228,45 @@ def fit_with_gate(
     has not
     reached the late regime, and the q is then NOT a refine rate (it is still returned so it can be read with that
     caveat). A half whose slope is not positive is not an error: its interval, which then includes 0, is what is
-    compared, so a short window gives a wide interval and passes weakly; ``q_halves_ci`` shows how weak.
+    compared, so a short window gives a wide interval and passes weakly; ``rate_halves_ci`` shows how weak.
     """
     full, boots = _boot_fit(steps, vals, grid, imax, window, bootstrap)
     if full is None:
         return GatedFit(None, None, None, None, None, "fewer than 5 grid points in the fit window")
     if not full.slope > 0:
         return GatedFit(full, None, None, None, None, "1/MSE does not grow with n in the window (no information gain)")
-    q_ci = _ci([b.q for b in boots])
-    n0_ci = _ci([b.n0 for b in boots if b.slope > 0])
+    rate_ci = _ci([b.rate for b in boots])
+    search_offset_ci = _ci([b.search_offset for b in boots if b.slope > 0])
     inside = grid[(grid >= window[0]) & (grid <= window[1])]
     if inside.size < 2 * HALF_MIN_POINTS:
-        return GatedFit(full, q_ci, n0_ci, None, None, f"{inside.size} grid points: too few to test linearity")
+        return GatedFit(
+            full, rate_ci, search_offset_ci, None, None, f"{inside.size} grid points: too few to test linearity"
+        )
     mid = float(inside[inside.size // 2])
     halves = []
     for sub in ((window[0], float(inside[inside.size // 2 - 1])), (mid, window[1])):
         f, bs = _boot_fit(steps, vals, grid, imax, sub, bootstrap)
         if f is None:
-            return GatedFit(full, q_ci, n0_ci, None, None, "fewer than 5 grid points in one half of the window")
-        halves.append((f.q, _ci([b.q for b in bs])))
+            return GatedFit(
+                full, rate_ci, search_offset_ci, None, None, "fewer than 5 grid points in one half of the window"
+            )
+        halves.append((f.rate, _ci([b.rate for b in bs])))
     (q1, ci1), (q2, ci2) = halves
     if ci1 is None or ci2 is None:
         return GatedFit(
-            full, q_ci, n0_ci, (q1, q2), None, "too few bootstrap draws in a half to test linearity", (ci1, ci2)
+            full,
+            rate_ci,
+            search_offset_ci,
+            (q1, q2),
+            None,
+            "too few bootstrap draws in a half to test linearity",
+            (ci1, ci2),
         )
     linear = max(ci1[0], ci2[0]) <= min(ci1[1], ci2[1])
     why = (
         None if linear else f"not linear: q of the halves differ ({q1:.3g} vs {q2:.3g}), the late regime is not reached"
     )
-    return GatedFit(full, q_ci, n0_ci, (q1, q2), linear, why, (ci1, ci2))
+    return GatedFit(full, rate_ci, search_offset_ci, (q1, q2), linear, why, (ci1, ci2))
 
 
 def rate_ratio(claimed: GatedFit, true: GatedFit) -> float | None:
@@ -265,9 +275,9 @@ def rate_ratio(claimed: GatedFit, true: GatedFit) -> float | None:
 
     Both fits must have a positive slope on the same window; otherwise ``None`` (never a stand-in).
     """
-    if claimed.fit is None or true.fit is None or not (claimed.fit.q > 0 and true.fit.q > 0):
+    if claimed.fit is None or true.fit is None or not (claimed.fit.rate > 0 and true.fit.rate > 0):
         return None
-    return float(claimed.fit.q / true.fit.q)
+    return float(claimed.fit.rate / true.fit.rate)
 
 
 def sensitivity_ratio(grid: np.ndarray, err: np.ndarray, imax: float, window: tuple[float, float]) -> float | None:

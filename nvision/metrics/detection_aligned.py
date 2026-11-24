@@ -153,12 +153,12 @@ def information_rates(claimed: np.ndarray, err: np.ndarray, lags: np.ndarray, i_
     return {
         "n_runs": n,
         "window": [int(lags[0]), int(lags[-1])],
-        "q_hat": q_hat,
-        "q_hat_ci": ci(draws[:, 0]),
-        "q_true": q_true,
+        "claimed_rate": q_hat,
+        "claimed_rate_ci": ci(draws[:, 0]),
+        "fitted_rate": q_true,
         "q_true_ci": ci(draws[:, 1]),
-        "q_hat_over_q": q_hat / q_true,
-        "q_hat_over_q_ci": ci(ratio),
+        "claimed_over_fitted_rate": q_hat / q_true,
+        "claimed_over_fitted_rate_ci": ci(ratio),
     }
 
 
@@ -324,8 +324,8 @@ def analyse(runs: Sequence[AlignedRun], *, budget: int, i_max: float, dd_phys: f
     out: dict = {
         "n_runs": len(runs),
         "n_undetected": n_undetected,
-        "detected_step_median": _med([r.detected_step for r in runs]),
-        "detected_step_max": max(r.detected_step for r in runs),
+        "detection_step_median": _med([r.detected_step for r in runs]),
+        "detection_step_max": max(r.detected_step for r in runs),
         "max_lag": max_lag,
         "lags": lags.astype(int).tolist(),
         "mse": mse.tolist(),
@@ -339,13 +339,13 @@ def analyse(runs: Sequence[AlignedRun], *, budget: int, i_max: float, dd_phys: f
         rho = localize_ratio(e_j, b_tau)
         lo, hi = localize_ratio_ci(e_j, b_tau)
         out["j_tau_median"] = _med([r.j_tau for r in with_j])
-        out["bound_j_tau"] = b_tau.mean(axis=0).tolist()
-        out["rho_j_tau"] = rho.tolist()
-        out["rho_j_tau_at"] = _at_lags(lags, rho, REPORT_LAGS)
-        out["rho_j_tau_ci_at"] = {
-            k: [_at_lags(lags, lo, [int(k)])[k], _at_lags(lags, hi, [int(k)])[k]] for k in out["rho_j_tau_at"]
+        out["van_trees_bound"] = b_tau.mean(axis=0).tolist()
+        out["rho_van_trees"] = rho.tolist()
+        out["rho_van_trees_at"] = _at_lags(lags, rho, REPORT_LAGS)
+        out["rho_van_trees_ci_at"] = {
+            k: [_at_lags(lags, lo, [int(k)])[k], _at_lags(lags, hi, [int(k)])[k]] for k in out["rho_van_trees_at"]
         }
-        out["rho_j_tau_max"] = float(np.max(rho))
+        out["rho_van_trees_max"] = float(np.max(rho))
         out["bound_violated"] = bool(np.any(lo > 1.0 + 0.01))
     if dd_phys is not None:
         j_d = 12.0 / dd_phys**2
@@ -353,9 +353,9 @@ def analyse(runs: Sequence[AlignedRun], *, budget: int, i_max: float, dd_phys: f
         rho_d = localize_ratio(err, b_d)
         out["j_d"] = j_d
         out["dd_phys"] = dd_phys
-        out["bound_j_d"] = b_d[0].tolist()
-        out["rho_j_d"] = rho_d.tolist()
-        out["rho_j_d_at"] = _at_lags(lags, rho_d, REPORT_LAGS)
+        out["elimination_bound"] = b_d[0].tolist()
+        out["rho_elimination"] = rho_d.tolist()
+        out["rho_elimination_at"] = _at_lags(lags, rho_d, REPORT_LAGS)
     g = aligned(runs, lags, "negentropy")
     onsets = [gaussian_onset(r.steps, r.negentropy) for r in runs]
     reached = [(o, r) for o, r in zip(onsets, runs, strict=True) if o is not None]

@@ -92,18 +92,18 @@ function labLayout(xTitle, yTitle) {
 
 // Fig. lab_search: the median detection step of each window against Eq. search-cost.
 function labPlotSearch(div, wins) {
-    const det = wins.filter((w) => w.detected_step_median != null);
+    const det = wins.filter((w) => w.detection_step_median != null);
     const x = det.map((w) => w.window_mhz / w.model_fwhm_mhz);
     const traces = [
         {
-            x, y: det.map((w) => w.detected_step_median), mode: 'lines+markers', name: 'median detection step (IQR)',
+            x, y: det.map((w) => w.detection_step_median), mode: 'lines+markers', name: 'median detection step (IQR)',
             line: { color: labToken('highlight-1'), width: 2.5 }, marker: { size: 9 },
             error_y: {
                 type: 'data', symmetric: false,
-                array: det.map((w) => w.detected_step_q75 - w.detected_step_median),
-                arrayminus: det.map((w) => w.detected_step_median - w.detected_step_q25),
+                array: det.map((w) => w.detection_step_q75 - w.detection_step_median),
+                arrayminus: det.map((w) => w.detection_step_median - w.detection_step_q25),
             },
-            customdata: det.map((w) => [w.window_mhz, w.snr, w.detected_step_median / labSearchCost(w), `${w.n_detected}/${w.n_runs}`]),
+            customdata: det.map((w) => [w.window_mhz, w.snr, w.detection_step_median / labSearchCost(w), `${w.n_detected}/${w.n_runs}`]),
             hovertemplate: 'W = %{customdata[0]} MHz, W/Γ = %{x:.3g}<br>detection step %{y}<br>SNR %{customdata[1]:.2f}<br>'
                 + '%{customdata[2]:.3g} × Eq. search-cost<br>detected %{customdata[3]}<extra></extra>',
         },
@@ -113,7 +113,7 @@ function labPlotSearch(div, wins) {
         },
     ];
     Plotly.newPlot(div, traces, labLayout('window W / Γ', 'measurements to detection'), { responsive: true });
-    return det.map((w) => w.detected_step_median / labSearchCost(w));
+    return det.map((w) => w.detection_step_median / labSearchCost(w));
 }
 
 // Calibration: the spread of the runs' final estimates against the σ they claim, one point per window.

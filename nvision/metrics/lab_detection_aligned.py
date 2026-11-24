@@ -87,7 +87,11 @@ def placement(detected: Sequence[tuple[int, dict]], fwhm_mhz: float) -> dict:
         far.append(float(np.mean(np.abs(d - centre) > FAR_HWHM * 0.5 * fwhm_mhz)))
     if not eff:
         return {"unavailable": "no run measures after its detection"}
-    return {"efficiency_median": float(np.median(eff)), "far_share_median": float(np.median(far)), "n_runs": len(eff)}
+    return {
+        "placement_efficiency_median": float(np.median(eff)),
+        "far_share_median": float(np.median(far)),
+        "n_runs": len(eff),
+    }
 
 
 def i_max_per_mhz2(baseline: float, contrast: float, fwhm_mhz: float, sigma: float) -> float:
@@ -163,9 +167,9 @@ def analyse_window(traces: Sequence[dict], reference_mhz: float) -> dict:
     at = {str(k): int(np.argmin(np.abs(lags - k))) for k in REPORT_LAGS if k <= lags[-1]}
     out.update(
         {
-            "detected_step_median": float(np.median(n_ds)),
-            "detected_step_q25": float(np.percentile(n_ds, 25)),
-            "detected_step_q75": float(np.percentile(n_ds, 75)),
+            "detection_step_median": float(np.median(n_ds)),
+            "detection_step_q25": float(np.percentile(n_ds, 25)),
+            "detection_step_q75": float(np.percentile(n_ds, 75)),
             "max_lag": int(max_lag),
             "lags": lags.astype(int).tolist(),
             "mse": mse.tolist(),
@@ -200,10 +204,10 @@ def analyse_window(traces: Sequence[dict], reference_mhz: float) -> dict:
         {
             "dd_mhz": reach.dd_phys,
             "j_d_per_mhz2": j_d,
-            "bound_j_d": bound[0].tolist(),
-            "rho_j_d": rho.tolist(),
-            "rho_j_d_at": {k: float(rho[i]) for k, i in at.items()},
-            "rho_j_d_ci_at": {k: [float(lo[i]), float(hi[i])] for k, i in at.items()},
+            "elimination_bound": bound[0].tolist(),
+            "rho_elimination": rho.tolist(),
+            "rho_elimination_at": {k: float(rho[i]) for k, i in at.items()},
+            "rho_elimination_ci_at": {k: [float(lo[i]), float(hi[i])] for k, i in at.items()},
             "rho_claimed_at": {k: float(rho_c[i]) for k, i in at.items()},
         }
     )
@@ -218,4 +222,4 @@ def claimed_rate(lags: np.ndarray, claimed_var: np.ndarray, imax: float) -> dict
     if np.count_nonzero(half) < MIN_LAGS:
         return {"unavailable": f"{np.count_nonzero(half)} lags in the second half (need {MIN_LAGS})"}
     slope, _ = np.polyfit(lags[half], 1.0 / claimed_var[half], 1)
-    return {"q_hat": float(slope / imax), "window": [int(lags[half][0]), int(lags[-1])]}
+    return {"claimed_rate": float(slope / imax), "window": [int(lags[half][0]), int(lags[-1])]}

@@ -26,8 +26,8 @@ def test_known_q_and_n0_are_recovered():
     window = rr.late_window(inv, [100] * 20)
     assert window == (1000.0, 2000.0)  # the second half of the usable range, after the dip
     fit = rr.fit_rate_line(inv, i_max, window)
-    assert fit.q == pytest.approx(q, rel=2e-3)
-    assert fit.n0 == pytest.approx(n0, abs=1.0)
+    assert fit.rate == pytest.approx(q, rel=2e-3)
+    assert fit.search_offset == pytest.approx(n0, abs=1.0)
     assert fit.r2 == pytest.approx(1.0, abs=1e-4)
 
 
@@ -48,16 +48,16 @@ def test_non_positive_slope_is_a_measurement_not_a_failure():
     n = np.linspace(100, 200, 10)
     inv = rr.InverseMse(n, 5.0 - 0.01 * n, np.ones(10))  # the information falls: no growth to report
     fit = rr.fit_rate_line(inv, 1e-12, (100.0, 200.0))
-    assert fit.q < 0.0
-    assert math.isnan(fit.n0)
+    assert fit.rate < 0.0
+    assert math.isnan(fit.search_offset)
 
 
 def test_place_efficiency_counts_only_measurements_after_the_dip():
     eta = np.array([0.0, 0.0, 0.0, 1.0, 0.5])
-    assert rr.place_efficiency(eta, 3) == pytest.approx(0.75)  # steps 4 and 5
-    assert rr.place_efficiency(eta, 5) is None  # the run ends at the detection
+    assert rr.placement_efficiency(eta, 3) == pytest.approx(0.75)  # steps 4 and 5
+    assert rr.placement_efficiency(eta, 5) is None  # the run ends at the detection
     with pytest.raises(ValueError, match="1-indexed"):
-        rr.place_efficiency(eta, 0)
+        rr.placement_efficiency(eta, 0)
 
 
 def test_lorentzian_closed_forms_match_the_numerical_sweep_ratio():

@@ -10,10 +10,11 @@ gains information at ``q * I_max`` per measurement after a lag ``n0``::
 
 Two different things are called ``q`` and the gap between them is the point:
 
-* ``q_place`` = mean oracle efficiency ``eta_t = g(x_t)^2 / max g^2`` of the measurements after the dip was detected.
+* ``placement_efficiency`` = mean oracle efficiency ``eta_t = g(x_t)^2 / max g^2`` of the measurements after the
+  dip was detected.
   It is exact (from where the locator measured, with the true signal) and says how well the *placement* is chosen.
 * ``q_err`` = the slope of ``1 / mean(err^2)`` in units of ``I_max``. It is what the *estimate* gained. The gap
-  ``q_err / q_place`` is what the particle filter loses (an unbiased, efficient estimator would give 1).
+  ``q_err / placement_efficiency`` is what the particle filter loses (an unbiased, efficient estimator would give 1).
 
 A sweep spreads its measurements uniformly over the window ``W``; for a single Lorentzian line of FWHM ``Gamma``
 ``q_sweep = I_sweep / I_max = 8 pi / 27 * Gamma / W`` and the speedup of an adaptive locator that always measures at
@@ -90,8 +91,8 @@ def sweep_positions_phys(x_lo_phys: float, x_hi_phys: float, n_points: int, n_me
     return grid[np.arange(n_measurements) % n_points]
 
 
-def place_efficiency(eta: np.ndarray, detection_step: int) -> float | None:
-    """``q_place`` of one run: mean ``eta`` over the measurements after ``detection_step``.
+def placement_efficiency(eta: np.ndarray, detection_step: int) -> float | None:
+    """``placement_efficiency`` of one run: mean ``eta`` over the measurements after ``detection_step``.
 
     ``eta``: shape (n_steps,), per-measurement Fisher efficiency in [0, 1] (every measurement has the same shot
     count, so the plain mean is the shot-weighted one). ``detection_step``: 1-indexed step the dip test first showed
@@ -148,8 +149,8 @@ def inverse_mse_curve(
 class RateFit(NamedTuple):
     """``1 / mean(err^2) = slope * n + intercept`` over a window, as ``q * I_max * (n - n0)``."""
 
-    q: float  # slope / I_max; the share of the best information rate the estimate gained
-    n0: float  # -intercept / slope, measurements; NaN when the slope is not positive
+    rate: float  # slope / I_max; the share of the best information rate the estimate gained
+    search_offset: float  # -intercept / slope, measurements; NaN when the slope is not positive
     slope: float  # Hz^-2 per measurement
     intercept: float  # Hz^-2
     r2: float  # coefficient of determination of the line over the window (1 = straight)

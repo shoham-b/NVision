@@ -88,9 +88,9 @@ class RunTrace:
     j_tau_2h: float | None = None  # the same at twice the KDE bandwidth (the other end of its factor-2 bracket)
 
     @property
-    def q_place(self) -> float | None:
+    def placement_efficiency(self) -> float | None:
         """Mean ``eta`` after the dip detection; ``None`` if no dip was detected or the run ended there."""
-        return None if self.dip_step is None or self.eta is None else rr.place_efficiency(self.eta, self.dip_step)
+        return None if self.dip_step is None or self.eta is None else rr.placement_efficiency(self.eta, self.dip_step)
 
 
 def line_centres_phys(true_signal: Any, x_lo_phys: float, x_hi_phys: float) -> np.ndarray:
@@ -311,21 +311,22 @@ def _clean(x: Any) -> Any:
 
 def _locator_summary(traces: list[RunTrace], i_max: float, taus: np.ndarray) -> dict[str, Any]:
     """Placement, rate fit, cost curve and offset histogram of one locator in one use case."""
-    q_places = [q for t in traces if (q := t.q_place) is not None]
+    placement_efficiencies = [q for t in traces if (q := t.placement_efficiency) is not None]
     n_grid = np.linspace(1.0, float(max(t.end for t in traces)), 240)
     inv = rr.inverse_mse_curve(
         [t.steps for t in traces], [t.errs for t in traces], np.array([t.end for t in traces]), n_grid
     )
     window = rr.late_window(inv, [t.dip_step for t in traces if t.dip_step is not None])
     fit = None if window is None else rr.fit_rate_line(inv, i_max, window)
-    # Mean eta over the SAME measurements the rate line was fitted on, so q_err / q_place_window compares like with like
-    # (q_place also counts the localize stage, where the placement is still improving).
+    # Mean eta over the SAME measurements the rate line was fitted on, so the fitted rate / placement_efficiency_window
+    # compares like with like
+    # (placement_efficiency also counts the localize stage, where the placement is still improving).
     in_window = (
         []
         if fit is None
         else [float(t.eta[int(fit.n_lo) - 1 : int(fit.n_hi)].mean()) for t in traces if t.eta is not None]
     )
-    q_place_window = float(np.median(in_window)) if in_window else None
+    placement_efficiency_window = float(np.median(in_window)) if in_window else None
     cost = rr.cost_curve([t.steps for t in traces], [t.errs for t in traces], taus)
 
     def hist(part: str) -> dict[str, Any] | None:
@@ -348,14 +349,18 @@ def _locator_summary(traces: list[RunTrace], i_max: float, taus: np.ndarray) -> 
     return {
         "n_runs": len(traces),
         "n_dip": sum(t.dip_step is not None for t in traces),
-        "n_place": len(q_places),
+        "n_placement": len(placement_efficiencies),
         "capped_share": float(np.mean([t.capped for t in traces])),
-        "q_place_median": _median(q_places),
-        "q_place_mean": float(np.mean(q_places)) if q_places else None,
-        "fit": None if fit is None else fit._asdict(),
-        "q_err_over_place": None if fit is None or not q_places else fit.q / float(np.median(q_places)),
-        "q_place_window": q_place_window,
-        "q_err_over_place_window": None if fit is None or not q_place_window else fit.q / q_place_window,
+        "placement_efficiency_median": _median(placement_efficiencies),
+        "placement_efficiency_mean": float(np.mean(placement_efficiencies)) if placement_efficiencies else None,
+        "fitted_rate": None if fit is None else fit._asdict(),
+        "fitted_over_placement": None
+        if fit is None or not placement_efficiencies
+        else fit.rate / float(np.median(placement_efficiencies)),
+        "placement_efficiency_window": placement_efficiency_window,
+        "fitted_over_placement_window": None
+        if fit is None or not placement_efficiency_window
+        else fit.rate / placement_efficiency_window,
         "curve": {"n": n_grid, "inv_mse": inv.inv_mse},
         "cost": {"t_median": cost.t_median, "t_p75": cost.t_p75, "share": cost.share},
         "hist": {"before": hist("before"), "after": hist("after")},
@@ -401,9 +406,9 @@ def use_case_summary(generator: str, noise: str, traces: dict[str, list[RunTrace
         "n_lines": int(np.median([t.n_lines for t in placed])),
         "theory": {
             "q_sweep_lorentzian": rr.lorentzian_sweep_q(fwhm, window),
-            "r_inf_lorentzian": rr.lorentzian_speedup(fwhm, window),
+            "speedup_lorentzian": rr.lorentzian_speedup(fwhm, window),
             "q_sweep_exact": q_exact,
-            "r_inf_exact": 1.0 / q_exact,
+            "speedup_exact": 1.0 / q_exact,
             "slope_offset_gamma": rr.LORENTZIAN_SLOPE_OFFSET_GAMMA,
             "peak_offset_gamma": float(np.median([t.peak_offset_gamma for t in placed])),
         },
@@ -424,15 +429,17 @@ def _speedup(locators: dict[str, dict[str, Any]], sweeps: list[str]) -> dict[str
         vals = {s: v for s, v in vals.items() if v is not None and v > 0.0}
         return (max(vals, key=vals.get), max(vals.values())) if vals else (None, None)
 
-    q_err_sbed = None if sbed["fit"] is None else sbed["fit"]["q"]
-    err_sweep, q_err_sweep = best(lambda d: None if d["fit"] is None else d["fit"]["q"])
-    place_sweep, q_place_sweep = best(lambda d: d["q_place_median"])
+    q_err_sbed = None if sbed["fitted_rate"] is None else sbed["fitted_rate"]["q"]
+    err_sweep, q_err_sweep = best(lambda d: None if d["fitted_rate"] is None else d["fitted_rate"]["q"])
+    place_sweep, q_place_sweep = best(lambda d: d["placement_efficiency_median"])
     return {
         "ratio": ratio,
-        "r_inf_err": q_err_sbed / q_err_sweep if q_err_sbed and q_err_sweep else None,
-        "best_sweep_err": err_sweep,
-        "r_inf_place": sbed["q_place_median"] / q_place_sweep if sbed["q_place_median"] and q_place_sweep else None,
-        "best_sweep_place": place_sweep,
+        "speedup_fitted": q_err_sbed / q_err_sweep if q_err_sbed and q_err_sweep else None,
+        "best_sweep_fitted": err_sweep,
+        "speedup_placement": sbed["placement_efficiency_median"] / q_place_sweep
+        if sbed["placement_efficiency_median"] and q_place_sweep
+        else None,
+        "best_sweep_placement": place_sweep,
     }
 
 

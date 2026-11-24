@@ -257,16 +257,16 @@
         const div = document.getElementById('art-overview');
         const s = c[SBED] || c[SWEEP];
         if (!s || s.unavailable) { empty(div, (s && s.unavailable) || 'No claims for this use case.'); return; }
-        const gamma = s.fwhm_phys, imax = s.I_max;
+        const gamma = s.fwhm_phys, imax = s.i_max;
         const traces = [];
         for (const name of LOCATORS) {
             const r = c[name];
             if (!r || !r.rms_curve) continue;
-            traces.push({ x: r.rms_curve.n, y: r.rms_curve.err.map((v) => v / gamma), mode: 'lines', name: `${label(name)} rms true error`, line: { color: colorOf(name), width: 2.5 } });
+            traces.push({ x: r.rms_curve.n, y: r.rms_curve.error.map((v) => v / gamma), mode: 'lines', name: `${label(name)} rms true error`, line: { color: colorOf(name), width: 2.5 } });
         }
         if (u) {
             const sq = (arr) => arr.map((v) => (v == null ? null : Math.sqrt(v) / gamma));
-            if (u.curves.mean_model) traces.push({ x: u.n, y: sq(u.curves.mean_model), ...theory('elimination model (Eq. mean-curve)', 'dot') });
+            if (u.curves.elimination_model) traces.push({ x: u.n, y: sq(u.curves.elimination_model), ...theory('elimination model (Eq. mean-curve)', 'dot') });
             traces.push({ x: u.n, y: sq(u.curves.change_of_measure), ...theory('change-of-measure bound (Eq. search-bound)', 'dash') });
         }
         const n = s.rms_curve ? s.rms_curve.n : [1, s.max_n];
@@ -276,12 +276,12 @@
         lay.shapes = [hline(s.sigma0_phys / gamma, 'dot')];
         if (sb && sb.regimes) {
             if (sb.regimes.detection_step) lay.shapes.push(vline(sb.regimes.detection_step, colorOf(SBED), 'dot'));
-            if (sb.regimes.gaussian_onset) lay.shapes.push(vline(sb.regimes.gaussian_onset, colorOf(SBED), 'dash'));
+            if (sb.regimes.gaussian_onset_step) lay.shapes.push(vline(sb.regimes.gaussian_onset_step, colorOf(SBED), 'dash'));
         }
         lay.yaxis.range = [Math.log10(1 / Math.sqrt(n[n.length - 1] * imax) / gamma) - 0.3, Math.log10(2 * s.sigma0_phys / gamma)];
         plot(div, traces, lay);
-        const q = (name) => (c[name] && c[name].fit_true ? c[name].fit_true.q : null);
-        setClaim('art-overview', `Plateau at the prior W/√12 (horizontal), then 1/√n at q × the data limit. q: SBED ${val(fmt(q(SBED), 2))}, sweep ${val(fmt(q(SWEEP), 2))}; SBED detects at n ≈ ${val(fmt(sb && sb.regimes && sb.regimes.detection_step, 3))} and is Gaussian from n ≈ ${val(fmt(sb && sb.regimes && sb.regimes.gaussian_onset, 3))}.`);
+        const q = (name) => (c[name] && c[name].fitted_rate ? c[name].fitted_rate.rate : null);
+        setClaim('art-overview', `Plateau at the prior W/√12 (horizontal), then 1/√n at q × the data limit. q: SBED ${val(fmt(q(SBED), 2))}, sweep ${val(fmt(q(SWEEP), 2))}; SBED detects at n ≈ ${val(fmt(sb && sb.regimes && sb.regimes.detection_step, 3))} and is Gaussian from n ≈ ${val(fmt(sb && sb.regimes && sb.regimes.gaussian_onset_step, 3))}.`);
     }
 
     function drawSearch(u, c) {
@@ -299,7 +299,7 @@
             const ratio = (curve) => u.n.map((k, i) => (loc.mse[i] == null || curve[i] == null || !(loc.mse[i] > 0) ? null : curve[i] / loc.mse[i]));
             const rho = ratio(u.curves.change_of_measure);
             traces.push({ x: u.n, y: rho, mode: 'lines', name: `${label(name)} vs change of measure`, line: { color: colorOf(name), width: 2.5 }, connectgaps: false });
-            if (u.curves.mean_model) traces.push({ x: u.n, y: ratio(u.curves.mean_model), mode: 'lines', name: `${label(name)} vs elimination model`, line: { color: colorOf(name), width: 1.5, dash: 'dot' }, connectgaps: false });
+            if (u.curves.elimination_model) traces.push({ x: u.n, y: ratio(u.curves.elimination_model), mode: 'lines', name: `${label(name)} vs elimination model`, line: { color: colorOf(name), width: 1.5, dash: 'dot' }, connectgaps: false });
             if (det) {
                 lay.shapes.push(vline(det, colorOf(name)));
                 const inSearch = rho.filter((v, i) => v != null && u.n[i] <= det);
@@ -325,7 +325,7 @@
         const withG = locs.filter(([, loc]) => loc.gaussian && loc.gaussian.negentropy_by_lag);
         if (withG.length) daPlotNegentropy(negDiv, withG, colorOf, withG[0][1].gaussian.threshold);
         else empty(negDiv, 'These runs store no negentropy series: re-run them.');
-        const rhoMax = locs.map(([name, loc]) => `${label(name)} ${val(fmt(loc.rho_j_tau_max, 2))}${loc.bound_violated ? ' (violates the bound)' : ''}`);
+        const rhoMax = locs.map(([name, loc]) => `${label(name)} ${val(fmt(loc.rho_van_trees_max, 2))}${loc.bound_violated ? ' (violates the bound)' : ''}`);
         setClaim('art-rho', `Van Trees restarted at each run's detection with J_τ: ρ ≤ 1. Largest ρ: ${rhoMax.join(', ')}.`);
         const onset = withG.map(([name, loc]) => `${label(name)} ${val(fmt(loc.gaussian.onset_lag_median, 3))} (${val(Math.round(100 * loc.gaussian.share_reached) + ' %')} of runs)`);
         setClaim('art-negentropy', `The posterior becomes a single Gaussian peak (negentropy < 0.05). Median onset lag after detection: ${onset.join(', ') || '–'}.`);
@@ -338,17 +338,17 @@
         const traces = [];
         const xs = [];
         for (const name of LOCATORS) {
-            const rows = claimRows.filter((r) => r.strategy === name && r.fit_true && r.fit_true.q != null && r.window_phys && r.fwhm_phys);
+            const rows = claimRows.filter((r) => r.strategy === name && r.fitted_rate && r.fitted_rate.rate != null && r.window_phys && r.fwhm_phys);
             const x = rows.map((r) => r.window_phys / r.fwhm_phys);
             xs.push(...x);
             traces.push({
-                x, y: rows.map((r) => r.fit_true.q), mode: 'markers', name: `${label(name)} q (late true error)`,
-                marker: { color: rows.map((r) => (r.fit_true.linear ? colorOf(name) : 'rgba(0,0,0,0)')), line: { color: colorOf(name), width: 1.5 }, size: 9, symbol: name === SBED ? 'circle' : 'square' },
-                text: rows.map((r) => `${r.noise}${r.fit_true.linear ? '' : ' · not linear'}`), hovertemplate: 'W/Γ %{x:.3g}<br>q %{y:.3g}<br>%{text}<extra></extra>',
+                x, y: rows.map((r) => r.fitted_rate.rate), mode: 'markers', name: `${label(name)} q (late true error)`,
+                marker: { color: rows.map((r) => (r.fitted_rate.linear ? colorOf(name) : 'rgba(0,0,0,0)')), line: { color: colorOf(name), width: 1.5 }, size: 9, symbol: name === SBED ? 'circle' : 'square' },
+                text: rows.map((r) => `${r.noise}${r.fitted_rate.linear ? '' : ' · not linear'}`), hovertemplate: 'W/Γ %{x:.3g}<br>q %{y:.3g}<br>%{text}<extra></extra>',
             });
-            const placed = rateCases.filter((u) => u.locators && u.locators[name] && u.locators[name].q_place_median != null);
+            const placed = rateCases.filter((u) => u.locators && u.locators[name] && u.locators[name].placement_efficiency_median != null);
             traces.push({
-                x: placed.map((u) => u.window_over_fwhm), y: placed.map((u) => u.locators[name].q_place_median), mode: 'markers', name: `${label(name)} placement ⟨I(d)/I_max⟩`,
+                x: placed.map((u) => u.window_over_fwhm), y: placed.map((u) => u.locators[name].placement_efficiency_median), mode: 'markers', name: `${label(name)} placement ⟨I(d)/I_max⟩`,
                 marker: { color: colorOf(name), size: 8, symbol: 'x-thin', line: { color: colorOf(name), width: 2 } },
                 text: placed.map((u) => u.noise), hovertemplate: 'W/Γ %{x:.3g}<br>placement %{y:.3g}<br>%{text}<extra></extra>',
             });
@@ -361,9 +361,9 @@
         const lay = layout('window W / Γ', 'q = rate / I_max');
         lay.shapes = [hline(1, 'dot')];
         plot(div, traces, lay);
-        const qs = claimRows.filter((r) => r.strategy === SBED && r.fit_true && r.fit_true.linear).map((r) => r.fit_true.q);
-        const sweepRatio = claimRows.filter((r) => r.strategy === SWEEP && r.fit_true && r.fit_true.linear && r.window_phys && r.fwhm_phys)
-            .map((r) => r.fit_true.q / ((8 * Math.PI) / (27 * (r.window_phys / r.fwhm_phys))));
+        const qs = claimRows.filter((r) => r.strategy === SBED && r.fitted_rate && r.fitted_rate.linear).map((r) => r.fitted_rate.rate);
+        const sweepRatio = claimRows.filter((r) => r.strategy === SWEEP && r.fitted_rate && r.fitted_rate.linear && r.window_phys && r.fwhm_phys)
+            .map((r) => r.fitted_rate.rate / ((8 * Math.PI) / (27 * (r.window_phys / r.fwhm_phys))));
         setClaim('art-q', `Article: SBED's q is about 0.5 at every window and SNR; the sweep follows 8πΓ/(27W). SBED q, median over ${qs.length} linear use cases: ${val(fmt(median(qs), 2))}; sweep q ÷ 8πΓ/(27W): ${val(fmt(median(sweepRatio), 2))}.`);
     }
 
@@ -395,14 +395,14 @@
         if (!cases.length) { if (rateCases.length) empty(div, 'No use case has SBED and a sweep with a rate fit.'); return; }
         const qOf = (u) => {
             const r = claimRows.find((c) => c.generator === u.generator && c.noise === u.noise && c.strategy === SBED);
-            return r && r.fit_true ? r.fit_true.q : null;
+            return r && r.fitted_rate ? r.fitted_rate.rate : null;
         };
-        const meas = cases.filter((u) => u.speedup.r_inf_err);
+        const meas = cases.filter((u) => u.speedup.speedup_fitted);
         const precise = cases.map((u) => ({ u, r: [...(u.speedup.ratio || [])].reverse().find((v) => v != null) })).filter((p) => p.r != null);
         const pred = cases.map((u) => ({ u, q: qOf(u) })).filter((p) => p.q != null && p.q > 0);
         const traces = [
-            { x: meas.map((u) => u.window_over_fwhm), y: meas.map((u) => u.speedup.r_inf_err), mode: 'markers', name: 'measured R∞ = q(SBED)/q(best sweep)',
-                marker: { color: colorOf(SBED), size: 9 }, text: meas.map((u) => `${u.noise} · best sweep ${u.speedup.best_sweep_err}`), hovertemplate: 'W/Γ %{x:.3g}<br>R∞ %{y:.3g}<br>%{text}<extra></extra>' },
+            { x: meas.map((u) => u.window_over_fwhm), y: meas.map((u) => u.speedup.speedup_fitted), mode: 'markers', name: 'measured R∞ = q(SBED)/q(best sweep)',
+                marker: { color: colorOf(SBED), size: 9 }, text: meas.map((u) => `${u.noise} · best sweep ${u.speedup.best_sweep_fitted}`), hovertemplate: 'W/Γ %{x:.3g}<br>R∞ %{y:.3g}<br>%{text}<extra></extra>' },
             { x: precise.map((p) => p.u.window_over_fwhm), y: precise.map((p) => p.r), mode: 'markers', name: 'cost ratio at the most precise common target',
                 marker: { color: 'rgba(0,0,0,0)', line: { color: colorOf(SBED), width: 1.5 }, size: 9, symbol: 'diamond' }, text: precise.map((p) => p.u.noise), hovertemplate: 'W/Γ %{x:.3g}<br>T_sweep/T_SBED %{y:.3g}<br>%{text}<extra></extra>' },
             { x: pred.map((p) => p.u.window_over_fwhm), y: pred.map((p) => (27 / (8 * Math.PI)) * p.q * p.u.window_over_fwhm), mode: 'markers', name: 'prediction 1.07 q W/Γ (SBED q)',
@@ -414,7 +414,7 @@
         const lay = layout('window W / Γ', 'speedup over the best sweep');
         lay.shapes = [hline(1, 'dot')];
         plot(div, traces, lay);
-        const ratio = meas.map((u) => { const q = qOf(u); return q ? u.speedup.r_inf_err / ((27 / (8 * Math.PI)) * q * u.window_over_fwhm) : null; });
+        const ratio = meas.map((u) => { const q = qOf(u); return q ? u.speedup.speedup_fitted / ((27 / (8 * Math.PI)) * q * u.window_over_fwhm) : null; });
         setClaim('art-speedup', `Article: at a precise target the speedup is about 1.07 q W/Γ. Measured ÷ predicted, median over ${meas.length} use cases: ${val(fmt(median(ratio), 2))}.`);
     }
 
@@ -428,9 +428,9 @@
         for (const name of LOCATORS) {
             const r = c[name];
             if (!r || !r.rms_curve) continue;
-            const y = r.rms_curve.err.map((e, i) => (r.rms_curve.claimed[i] > 0 ? e / r.rms_curve.claimed[i] : null));
+            const y = r.rms_curve.error.map((e, i) => (r.rms_curve.claimed_sigma[i] > 0 ? e / r.rms_curve.claimed_sigma[i] : null));
             traces.push({ x: r.rms_curve.n, y, mode: 'lines', name: label(name), line: { color: colorOf(name), width: 2.5 } });
-            if (r.regimes && r.regimes.gaussian_onset) lay.shapes.push(vline(r.regimes.gaussian_onset, colorOf(name), 'dot'));
+            if (r.regimes && r.regimes.gaussian_onset_step) lay.shapes.push(vline(r.regimes.gaussian_onset_step, colorOf(name), 'dot'));
             tail.push(`${label(name)} ${val(fmt(y[y.length - 1], 2))}`);
         }
         if (!traces.length) { empty(div, 'No claims for this use case.'); return; }
@@ -440,16 +440,16 @@
 
     function drawCoverage(claimRows) {
         const div = document.getElementById('art-coverage');
-        const rows = claimRows.filter((r) => r.coverage_z_at_budget && r.window_phys && r.fwhm_phys);
+        const rows = claimRows.filter((r) => r.coverage_z_final && r.window_phys && r.fwhm_phys);
         if (!rows.length) { if (claimRows.length) empty(div, 'These runs store no signed z series: re-run them.'); return; }
         const traces = [];
         for (const name of LOCATORS) {
             const own = rows.filter((r) => r.strategy === name);
             for (const k of [1, 2]) {
                 traces.push({
-                    x: own.map((r) => r.window_phys / r.fwhm_phys), y: own.map((r) => r.coverage_z_at_budget[`within_${k}`]), mode: 'markers',
+                    x: own.map((r) => r.window_phys / r.fwhm_phys), y: own.map((r) => r.coverage_z_final[`within_${k}`]), mode: 'markers',
                     name: `${label(name)} within ${k}σ`, marker: { color: colorOf(name), size: 8, symbol: k === 1 ? 'circle' : 'diamond' },
-                    error_y: { type: 'data', symmetric: false, array: own.map((r) => r.coverage_z_at_budget[`within_${k}_ci`][1] - r.coverage_z_at_budget[`within_${k}`]), arrayminus: own.map((r) => r.coverage_z_at_budget[`within_${k}`] - r.coverage_z_at_budget[`within_${k}_ci`][0]), thickness: 1, width: 0, color: colorOf(name) },
+                    error_y: { type: 'data', symmetric: false, array: own.map((r) => r.coverage_z_final[`within_${k}_ci`][1] - r.coverage_z_final[`within_${k}`]), arrayminus: own.map((r) => r.coverage_z_final[`within_${k}`] - r.coverage_z_final[`within_${k}_ci`][0]), thickness: 1, width: 0, color: colorOf(name) },
                     text: own.map((r) => r.noise), hovertemplate: 'W/Γ %{x:.3g}<br>%{y:.2f}<br>%{text}<extra></extra>',
                 });
             }
@@ -459,13 +459,13 @@
         lay.shapes = [hline(GAUSS_WITHIN[1]), hline(GAUSS_WITHIN[2])];
         plot(div, traces, lay);
         const sb = rows.filter((r) => r.strategy === SBED);
-        setClaim('art-coverage', `SBED within 1σ / 2σ, median over ${sb.length} use cases: ${val(fmt(median(sb.map((r) => r.coverage_z_at_budget.within_1)), 2))} / ${val(fmt(median(sb.map((r) => r.coverage_z_at_budget.within_2)), 2))} (calibrated: 0.68 / 0.95).`);
+        setClaim('art-coverage', `SBED within 1σ / 2σ, median over ${sb.length} use cases: ${val(fmt(median(sb.map((r) => r.coverage_z_final.within_1)), 2))} / ${val(fmt(median(sb.map((r) => r.coverage_z_final.within_2)), 2))} (calibrated: 0.68 / 0.95).`);
     }
 
     function drawPit(claimRows) {
         const div = document.getElementById('art-pit');
         if (!claimRows.length) return;
-        const rows = claimRows.filter((r) => r.coverage_pit_at_budget && r.window_phys && r.fwhm_phys);
+        const rows = claimRows.filter((r) => r.coverage_pit_final && r.window_phys && r.fwhm_phys);
         if (!rows.length) {
             div.innerHTML = '<p class="empty-state">Needs re-run: these runs store no PIT (pit_final), so coverage by the posterior\'s own quantiles cannot be read. Runs recorded after the PIT series was added show it here.</p>';
             setClaim('art-pit', 'Coverage holds also before the posterior is Gaussian when read from its own quantiles.');
@@ -476,7 +476,7 @@
             const own = rows.filter((r) => r.strategy === name);
             for (const k of [1, 2]) {
                 traces.push({
-                    x: own.map((r) => r.window_phys / r.fwhm_phys), y: own.map((r) => r.coverage_pit_at_budget[`within_${k}`]), mode: 'markers',
+                    x: own.map((r) => r.window_phys / r.fwhm_phys), y: own.map((r) => r.coverage_pit_final[`within_${k}`]), mode: 'markers',
                     name: `${label(name)} central ${k === 1 ? 68 : 95} %`, marker: { color: colorOf(name), size: 8, symbol: k === 1 ? 'circle' : 'diamond' },
                     text: own.map((r) => r.noise), hovertemplate: 'W/Γ %{x:.3g}<br>%{y:.2f}<br>%{text}<extra></extra>',
                 });
@@ -487,7 +487,7 @@
         lay.shapes = [hline(GAUSS_WITHIN[1]), hline(GAUSS_WITHIN[2])];
         plot(div, traces, lay);
         const sb = rows.filter((r) => r.strategy === SBED);
-        setClaim('art-pit', `SBED inside its central 68 % / 95 %, median over ${sb.length} use cases: ${val(fmt(median(sb.map((r) => r.coverage_pit_at_budget.within_1)), 2))} / ${val(fmt(median(sb.map((r) => r.coverage_pit_at_budget.within_2)), 2))}.`);
+        setClaim('art-pit', `SBED inside its central 68 % / 95 %, median over ${sb.length} use cases: ${val(fmt(median(sb.map((r) => r.coverage_pit_final.within_1)), 2))} / ${val(fmt(median(sb.map((r) => r.coverage_pit_final.within_2)), 2))}.`);
     }
 
     // ── Entry point ──

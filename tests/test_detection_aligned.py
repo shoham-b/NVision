@@ -77,7 +77,7 @@ def test_analyse_end_to_end_and_too_few_runs():
     out = da.analyse(runs, budget=BUDGET, i_max=I_MAX, dd_phys=1e6, n_undetected=1)
     assert out["n_runs"] == 12
     assert out["n_undetected"] == 1
-    assert out["rho_j_tau_at"]["10"] == pytest.approx(1.0)
+    assert out["rho_van_trees_at"]["10"] == pytest.approx(1.0)
     assert out["bound_violated"] is False
     assert out["j_d"] == pytest.approx(12e-12)
     assert out["gaussian"]["share_reached"] == 1.0
@@ -89,7 +89,7 @@ def test_better_than_bound_is_flagged():
     runs = [_run(tau=5 + i, j_tau=1e-10 * (1 + i % 3), scale=0.5) for i in range(12)]
     out = da.analyse(runs, budget=BUDGET, i_max=I_MAX, dd_phys=None, n_undetected=0)
     assert out["bound_violated"] is True
-    assert "rho_j_d" not in out
+    assert "rho_elimination" not in out
 
 
 def _row(tau: int | None, *, with_g: bool = True) -> dict:
@@ -132,13 +132,13 @@ def test_claimed_rate_calibrated_and_overconfident():
     runs = [_run(tau=5 + i, j_tau=1e-10) for i in range(12)]
     cal = da.analyse(runs, budget=BUDGET, i_max=I_MAX, dd_phys=None, n_undetected=0)["claimed_rate"]
     d = cal["from_detection"]
-    assert d["q_hat_over_q"] == pytest.approx(1.0)
-    assert d["q_hat"] == pytest.approx(d["q_true"])
-    assert d["q_hat_over_q_ci"][0] <= 1.0 <= d["q_hat_over_q_ci"][1]
+    assert d["claimed_over_fitted_rate"] == pytest.approx(1.0)
+    assert d["claimed_rate"] == pytest.approx(d["fitted_rate"])
+    assert d["claimed_over_fitted_rate_ci"][0] <= 1.0 <= d["claimed_over_fitted_rate_ci"][1]
     over = [_run(tau=5 + i, j_tau=1e-10, claim_scale=0.5) for i in range(12)]
     o = da.analyse(over, budget=BUDGET, i_max=I_MAX, dd_phys=None, n_undetected=0)["claimed_rate"]["from_detection"]
-    assert o["q_hat_over_q"] == pytest.approx(4.0)  # sigma half as large: 1/sigma^2 four times as steep
-    assert o["q_hat_over_q_ci"][0] > 1.0
+    assert o["claimed_over_fitted_rate"] == pytest.approx(4.0)  # sigma half as large: 1/sigma^2 four times as steep
+    assert o["claimed_over_fitted_rate_ci"][0] > 1.0
 
 
 def test_claimed_rate_from_gaussian_starts_at_onset():
@@ -147,7 +147,7 @@ def test_claimed_rate_from_gaussian_starts_at_onset():
     g = out["from_gaussian"]
     assert g["window"] == [0, BUDGET - 41]  # the latest onset (step 41) bounds the common lags
     assert g["window"][1] < out["from_detection"]["window"][1]
-    assert g["q_hat_over_q"] == pytest.approx(1.0)
+    assert g["claimed_over_fitted_rate"] == pytest.approx(1.0)
     never = [_run(tau=5 + i, j_tau=1e-10, neg_onset=None) for i in range(12)]
     n = da.analyse(never, budget=BUDGET, i_max=I_MAX, dd_phys=None, n_undetected=0)["claimed_rate"]
     assert "unavailable" in n["from_gaussian"]

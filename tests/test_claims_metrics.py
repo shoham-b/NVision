@@ -62,7 +62,7 @@ def test_gate_passes_on_a_straight_line_and_fails_on_a_kink():
     steps, vals = _runs(40, lambda n: (q * I_MAX * np.maximum(n - n0, 1.0)) ** -0.5, grid)
     ok = claims.fit_with_gate(steps, vals, grid, I_MAX, win, bootstrap=60)
     assert ok.linear is True
-    assert ok.fit.q == pytest.approx(q, rel=0.3)
+    assert ok.fit.rate == pytest.approx(q, rel=0.3)
 
     def kinked(n):  # the information rate triples at n = 700: a kink, not a line
         return np.where(
@@ -192,16 +192,17 @@ def test_report_end_to_end_on_stored_rows():
     out = analyse_use_case(rows)
     assert out["sigma0_phys"] == pytest.approx(1.1 / math.sqrt(12))  # W / sqrt(12) of the drawn zeeman_shift range
     rms = out["rms_curve"]
-    assert len(rms["n"]) == len(rms["err"]) == len(rms["claimed"])
-    assert rms["err"] == pytest.approx(rms["claimed"])  # e == u in these rows
-    assert rms["err"][-1] < rms["err"][0]
-    assert out["fit_true"]["q"] == pytest.approx(1.0, rel=0.15)
-    assert out["rate_ratio_claimed_over_true"] == pytest.approx(1.0)
+    assert len(rms["n"]) == len(rms["error"]) == len(rms["claimed_sigma"])
+    assert rms["error"] == pytest.approx(rms["claimed_sigma"])  # e == u in these rows
+    assert rms["error"][-1] < rms["error"][0]
+    assert out["coverage_pit_final"] is None  # these rows store no pit series
+    assert out["fitted_rate"]["rate"] == pytest.approx(1.0, rel=0.15)
+    assert out["claimed_over_fitted_rate"] == pytest.approx(1.0)
     assert out["gaussian_share"] == 1.0
     assert out["regimes"]["detection_step"] == 20.0
-    assert 60 <= out["regimes"]["gaussian_onset"] <= 70
-    assert out["regimes"]["converge_end"] is not None
-    assert out["coverage_at_budget"]["runs_gated"] == 12
+    assert 60 <= out["regimes"]["gaussian_onset_step"] <= 70
+    assert out["regimes"]["converge_end_step"] is not None
+    assert out["coverage_gated_final"]["runs_gated"] == 12
     assert "unavailable" in analyse_use_case(rows[:3])
 
 
@@ -223,7 +224,7 @@ def test_report_excludes_runs_that_never_reach_the_gaussian_peak():
         )
     out = analyse_use_case(rows)
     assert out["gaussian_share"] == pytest.approx(0.75)
-    assert out["coverage_at_budget"]["runs_gated"] == 9
+    assert out["coverage_gated_final"]["runs_gated"] == 9
     bad = [dict(r, series={k: v for k, v in r["series"].items() if k != "negentropy"}) for r in rows]
     with pytest.raises(ValueError, match="negentropy"):
         analyse_use_case(bad)

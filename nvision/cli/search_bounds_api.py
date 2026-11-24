@@ -205,14 +205,15 @@ def _locator_block(
         "mse": _num_list(np.where(usable, mse, np.nan)),
         "survival": _num_list(np.where(usable, surv, np.nan)),
         "running_share": _num_list(running.mean(axis=0)),
-        "kappa_eff": _num(kappa_eff),
-        "kappa_ratio": None if kappa_eff is None else _num(kappa_eff / kappa),
+        # n_search_eff = 1 / kappa_eff, measurements per e-fold of the survival; search_efficiency = n_search / it.
+        "n_search_eff": None if not kappa_eff else _num(1.0 / kappa_eff),
+        "search_efficiency": None if kappa_eff is None else _num(kappa_eff / kappa),
         "detection": {
             "median": det.median,
             "p75": det.p75,
             "capped_share": det.capped_share,
-            "median_over_inv_kappa": det.median / never_norm,
-            "p75_over_inv_kappa": det.p75 / never_norm,
+            "median_over_n_search": det.median / never_norm,
+            "p75_over_n_search": det.p75 / never_norm,
             "median_over_cells": None if dd is None else det.median / (width / dd),
             "p75_over_cells": None if dd is None else det.p75 / (width / dd),
         },
@@ -261,7 +262,7 @@ def use_case_payload(generator: str, noise: str, rows: dict[str, list[_Run]], bu
     }
     if dd is not None:
         curves["finite_reach"] = _num_list(sb.finite_reach_curve(grid, width, dd))
-        curves["mean_model"] = _num_list(sb.mean_curve(grid, width, dd, fisher))
+        curves["elimination_model"] = _num_list(sb.mean_curve(grid, width, dd, fisher))
     cells = None if dd is None else width / dd
     predicted = None if dd is None or not width > dd else sb.predicted_sweep_ratio(width, dd)
     return {
@@ -274,12 +275,12 @@ def use_case_payload(generator: str, noise: str, rows: dict[str, list[_Run]], bu
         "noise_sigma": sigma,
         "shots": k,
         "fisher_max": fisher,
-        "kappa_bar": kappa,
-        "inv_kappa_bar": 1.0 / kappa,
-        "kappa_lorentzian": sb.kappa_bar_lorentzian(width, hwhm, snr, k),
+        # n_search = 1 / kappa_bar (Eq. search-cost: measurements per e-fold of the change-of-measure bound).
+        "n_search": 1.0 / kappa,
+        "n_search_lorentzian": 1.0 / sb.kappa_bar_lorentzian(width, hwhm, snr, k),
         "tolerance_phys": tolerance,
         "tolerance_hwhm": sb.SURVIVAL_TOLERANCE_HWHM,
-        "kappa_ratio_floor": 1.0 / (1.0 - 2.0 * tolerance / width),
+        "search_efficiency_floor": 1.0 / (1.0 - 2.0 * tolerance / width),
         "reach": None if reach is None else {"dd_phys": reach.dd_phys, "z": reach.z, "kind": reach.kind},
         "cells": cells,
         "regime": None if cells is None else ("finite-reach" if 1.0 / kappa < cells else "noise-limited"),
