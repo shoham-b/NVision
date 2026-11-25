@@ -1,5 +1,7 @@
 """Deferred graph generation: queue protocol, the first-N rule, and an end-to-end deferral round trip."""
 
+import contextlib
+import multiprocessing
 import queue
 from pathlib import Path
 
@@ -65,6 +67,55 @@ def test_a_ready_combination_is_claimed_by_exactly_one_worker(tmp_path):
     assert {first, second} == {"combo_1", "combo_2"}
     assert third is None
     assert graph_queue.pending_counts(spool)[0] == 2  # claimed = still in progress
+
+
+def _claim_until_empty(spool: Path, start, results) -> None:
+    """Claim and immediately release, like a worker whose combination takes no time."""
+    start.wait()
+    claimed = []
+    while graph_queue.pending_counts(spool)[0]:
+        slug = graph_queue.claim_ready(spool)
+        if slug is not None:
+            claimed.append(slug)
+            # Releasing only fails if another process holds the same claim; the assertion reports that.
+            with contextlib.suppress(OSError):
+                (spool / f"{slug}.claimed").unlink()
+    results.put(claimed)
+
+
+def test_competing_worker_processes_never_claim_the_same_combination(tmp_path):
+    """Real processes: on Windows, several can succeed at renaming the same file."""
+    spool = tmp_path / "graph_queue"
+    slugs = [f"combo_{i:03d}" for i in range(200)]
+    for slug in slugs:
+        graph_queue.mark_ready(spool, slug)
+
+    ctx = multiprocessing.get_context("spawn")
+    n_workers = 3
+    start, results = ctx.Barrier(n_workers), ctx.Queue()
+    procs = [ctx.Process(target=_claim_until_empty, args=(spool, start, results)) for _ in range(n_workers)]
+    for proc in procs:
+        proc.start()
+    try:
+        claimed = [slug for _ in procs for slug in results.get(timeout=45)]
+    finally:
+        for proc in procs:
+            proc.join(timeout=10)
+            if proc.is_alive():
+                proc.terminate()
+
+    assert sorted(claimed) == slugs  # every combination exactly once
+    assert graph_queue.pending_counts(spool) == (0, 0)
+
+
+def test_a_claim_released_after_the_spool_was_listed_is_not_taken_again(tmp_path, monkeypatch):
+    spool = tmp_path / "graph_queue"
+    stale = spool / "combo_1.ready"  # listed, then claimed, processed and released by another worker
+    spool.mkdir()
+    monkeypatch.setattr(graph_queue, "_names", lambda *args, **kwargs: [stale])
+
+    assert graph_queue.claim_ready(spool) is None
+    assert list(spool.iterdir()) == []  # no claim marker left behind
 
 
 def test_prepare_spool_returns_abandoned_claims_and_clears_the_done_marker(tmp_path):

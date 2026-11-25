@@ -9,8 +9,8 @@ separate graph-worker processes:
    (:class:`GraphJob`).
 2. When *all* repeats of a combination are saved -- the same moment it becomes archivable --
    the parent marks the combination **ready** (:func:`mark_ready`).
-3. A graph worker claims a ready combination (:func:`claim_ready`, an atomic rename, so any
-   number of workers can run side by side and never share a combination), generates the graphs
+3. A graph worker claims a ready combination (:func:`claim_ready`, an exclusive file create,
+   so any number of workers can run side by side and never share a combination), generates the graphs
    of all its repeats, re-saves each repeat with them, and only then archives the combination.
 
 Spool layout (``<out_dir>/graph_queue/``)::
@@ -122,13 +122,24 @@ def mark_ready(spool: Path, slug: str) -> None:
 
 
 def claim_ready(spool: Path) -> str | None:
-    """Atomically take one ready combination; returns its slug, or ``None`` if none is ready."""
+    """Exclusively take one ready combination; returns its slug, or ``None`` if none is ready.
+
+    The claim is the *exclusive creation* of ``<slug>.claimed``. Renaming ``.ready`` instead
+    is not exclusive on Windows: processes racing the same ``os.replace`` can all succeed.
+    """
     for path in _names(spool, _READY):
         slug = path.name[: -len(_READY)]
+        claimed = spool / f"{slug}{_CLAIMED}"
         try:
-            os.replace(path, spool / f"{slug}{_CLAIMED}")
-        except (FileNotFoundError, PermissionError):
-            continue  # another worker claimed it first
+            os.close(os.open(claimed, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+        except (FileExistsError, PermissionError):
+            continue  # held by another worker (PermissionError: Windows, while it is being deleted)
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            # Another worker claimed, finished and released it after we listed the spool.
+            claimed.unlink()
+            continue
         return slug
     return None
 
