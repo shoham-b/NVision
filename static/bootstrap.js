@@ -22,8 +22,9 @@ window.NVISION_GRID_AXIS_ORDER = ['drive_mode', 'window', 'gaussian_share', 'wid
 window.NVISION_GRID_AXIS_INFO = {
     // Derived from grid_variant ("cw_drive"/"pulsed_drive"), not a recorded grid_* field.
     drive_mode: { label: 'Drive', short: 'drive', metricsKey: 'grid_drive_mode', scaleToMHz: false },
-    // Share of the drive-frequency window one dip group covers, hyperfine lines included (the SNR x window study grid).
-    window: { label: 'Signal occupancy', short: 'occupancy', metricsKey: 'grid_signal_occupancy', scaleToMHz: false },
+    // Prior range in effective widths (the width one dip group covers, hyperfine lines included): the SNR x window
+    // study grid. Recorded as its inverse, grid_signal_occupancy; rounded so 1 / (1 / 1.6) is one value, not two.
+    window: { label: 'Window size (effective widths)', short: 'window', metricsKey: 'grid_signal_occupancy', scaleToMHz: false, toAxisValue: (occupancy) => Number((1 / occupancy).toPrecision(6)) },
     // Gaussian part of the total FWHM at a fixed total FWHM (the SNR x window study); 0 = pure Lorentzian.
     gaussian_share: { label: 'Gaussian share of FWHM', short: 'gauss share', metricsKey: 'grid_gaussian_share', scaleToMHz: false },
     width: { label: 'HWHM (MHz)', short: 'hwhm', metricsKey: 'grid_hwhm', scaleToMHz: true },
@@ -68,7 +69,8 @@ window.nvisionGeneratorAxes = function (rawGridInfo) {
         const info = window.NVISION_GRID_AXIS_INFO[key];
         const raw = gridInfo[info.metricsKey];
         if (raw == null) continue;
-        const value = info.scaleToMHz && typeof raw === 'number' ? raw / 1e6 : raw;
+        const scaled = info.scaleToMHz && typeof raw === 'number' ? raw / 1e6 : raw;
+        const value = info.toAxisValue ? info.toAxisValue(scaled) : scaled;
         axes.push({ key, label: info.label, value });
     }
     if (!axes.length) return null;

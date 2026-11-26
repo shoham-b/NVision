@@ -308,7 +308,7 @@ def voigt_snr_window_param_grid_generators() -> list[tuple[str, object]]:
       (its hyperfine lines' FWHM intervals, overlap counted once). ONE total FWHM (``NVISION_SBED_FWHM``) is shared by
       every signal, so the covered width is that FWHM times the lines it spans and the window is ``x`` times that width:
       the same span is a different absolute window per isotope, and the same share of signal in view
-      (occupancy ``1 / x``, which is what the results and UI report).
+      (occupancy ``1 / x``, which is what the results record; the UI shows ``x`` as the window size).
       The truth's Zeeman shift is drawn uniformly over ``x * covered`` (the prior range, a round number of linewidths),
       and the drive window ``[D, D + x * covered + 2 pad]`` adds one edge pad on each side
       (:func:`~nvision.spectra.nv_center.zeeman_shift_edge_pad`). Fixing the FWHM rather than
