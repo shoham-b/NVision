@@ -253,3 +253,13 @@ def test_extract_step_series_ends_on_the_fit_estimate():
     # No fit covariance (NaN): the uncertainty stays the belief's.
     run.fit_mode_uncertainties = {"zero_field_freq": float("nan")}
     assert extract_step_series(run, param="zero_field_freq")["claimed_sigma"][-1] == belief_only["claimed_sigma"][-1]
+
+
+def test_extract_step_series_keeps_focus_window_edges_unrounded():
+    """GHz section edges must survive storage: 4 significant digits would move them by up to 0.5 MHz."""
+    sections = [(1463711799.645424, 1467523229.5811176)]
+    run = _make_run(n_steps=3, focus_windows=[sections] * 3)
+
+    series = extract_step_series(run, param="zero_field_freq")
+
+    assert series["focus_windows"][-1] == [[1463711799.645424, 1467523229.5811176]]
