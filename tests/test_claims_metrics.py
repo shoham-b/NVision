@@ -208,21 +208,44 @@ def test_report_end_to_end_on_stored_rows():
     assert "unavailable" in analyse_use_case(rows[:3])
 
 
-def test_report_tracking_uses_the_gaussian_prior_sigma0():
+def _tracking_rows(err_scale: float = 1.0, prior: object = (0.5, 0.2)) -> list[dict]:
+    """12 tracking runs whose error sits at ``err_scale`` x van Trees from n = 0 with the honest prior std 0.2; the
+    locator's own (broad-mixture) prior spread is stored as 0.9 to tell the two apart."""
     grid = claims.step_grid(1000)
     rows = []
-    for _ in range(12):
-        e = ((1.0 / 0.04 + grid * I_MAX) ** -0.5).tolist()
+    for i in range(12):
+        rng = np.random.default_rng(i)
+        e = (err_scale * (1.0 / 0.04 + grid * I_MAX) ** -0.5 * (1.0 + 0.02 * rng.standard_normal(grid.size))).tolist()
         rows.append(
             {
                 "series": {"step": grid.tolist(), "error": e, "claimed_sigma": e, "negentropy": [0.01] * grid.size},
-                "compare": {"i_max": I_MAX, "detection_step": 1, "prior_kind": "gaussian", "sigma0_phys": 0.2},
-                "true_params": {"params": {"zeeman_shift": 0.5}, "bounds": {"zeeman_shift": [0.0, 1.1]}},
+                "compare": {"i_max": I_MAX, "detection_step": 1, "prior_kind": "gaussian", "sigma0_phys": 0.9},
+                "true_params": {
+                    "params": {"zeeman_shift": 0.5},
+                    "bounds": {"zeeman_shift": [0.0, 1.1], "_priors": {"zeeman_shift": prior}},
+                },
             }
         )
+    return rows
+
+
+def test_report_tracking_uses_the_truths_gaussian_prior_not_the_locators_belief():
+    rows = _tracking_rows()
     out = analyse_use_case(rows)
     assert out["prior_kind"] == "gaussian"
-    assert out["sigma0_phys"] == pytest.approx(0.2)  # the tracking prior's std, not W / sqrt(12)
+    assert out["sigma0_phys"] == pytest.approx(0.2)  # the honest prior's std, not W / sqrt(12) nor the belief's 0.9
+    assert out["locator_prior_sigma_phys"] == pytest.approx(0.9)
+    vt = out["van_trees_from_start"]
+    assert vt["rho_at"]["1"] == pytest.approx(1.0, abs=0.05)  # errors at the bound: rho ~ 1 at every n
+    assert vt["rho_at"]["1000"] == pytest.approx(1.0, abs=0.05)
+    assert analyse_use_case(_tracking_rows(err_scale=1.5))["van_trees_from_start"]["violated"] is False
+    below = analyse_use_case(_tracking_rows(err_scale=0.5))["van_trees_from_start"]
+    assert below["violated"] is True
+    assert below["rho_max"] == pytest.approx(4.0, rel=0.1)
+    with pytest.raises(ValueError, match="no Gaussian zeeman_shift prior"):
+        analyse_use_case(_tracking_rows(prior=("sin^2", 1.0)))
+    with pytest.raises(ValueError, match="no Gaussian zeeman_shift prior"):
+        analyse_use_case(_tracking_rows(prior=None))
     mixed = [dict(r, compare={**r["compare"], "prior_kind": "uniform"}) if i == 0 else r for i, r in enumerate(rows)]
     with pytest.raises(ValueError, match="one stored prior_kind"):
         analyse_use_case(mixed)

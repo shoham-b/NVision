@@ -228,7 +228,7 @@
         Promise.all([sb, cl]).then(([u, c]) => { if (here()) { drawOverview(u, c); drawSearch(u, c); drawCalibration(c); } })
             .catch((err) => { if (here()) ['art-overview', 'art-search'].forEach((id) => empty(document.getElementById(id), err.message)); });
         cl.catch((err) => { if (here()) empty(document.getElementById('art-calib'), err.message); });
-        da.then((rows) => { if (here()) drawConverge(rows.filter((r) => r.noise === n && r.generator === g)); })
+        Promise.all([da, cl.catch(() => ({}))]).then(([rows, c]) => { if (here()) drawConverge(rows.filter((r) => r.noise === n && r.generator === g), Object.values(c).some((r) => r && r.prior_kind === 'gaussian')); })
             .catch((err) => { if (here()) ['art-rho', 'art-negentropy'].forEach((id) => empty(document.getElementById(id), err.message)); });
         ratesOf(g, n, true).then((u) => { if (here()) drawHist(u); })
             .catch((err) => { if (here()) empty(document.getElementById('art-hist'), err.message); });
@@ -311,12 +311,12 @@
         plot(div, traces, lay);
         const q = (name) => (c[name] && c[name].fitted_rate ? c[name].fitted_rate.rate : null);
         if (tracking) {
-            // rho_vT(n) = bound variance / mean squared true error, <= 1 at every n for a tracking run.
-            const rho = LOCATORS.filter((name) => c[name] && c[name].rms_curve).map((name) => {
-                const r = c[name].rms_curve;
-                return `${label(name)} ${val(fmt(Math.max(...r.n.map((k, i) => (vt(k) / r.error[i]) ** 2)), 2))}`;
+            // rho_vT(n) = bound variance / mean squared true error, <= 1 at every n (server: van_trees_from_start).
+            const rho = LOCATORS.filter((name) => c[name] && c[name].van_trees_from_start).map((name) => {
+                const v = c[name].van_trees_from_start;
+                return `${label(name)} ${val(fmt(v.rho_max, 2))} at n = ${val(fmt(v.rho_max_n, 3))}${v.violated ? ' (violates the bound)' : ''}`;
             });
-            setClaim('art-overview', `Tracking (Gaussian prior σ₀ = ${val(fmt(s.sigma0_phys / gamma, 2))} Γ): the error follows van Trees from the first measurement, ρ = (J₀ + nI_max)⁻¹ ÷ MSE ≤ 1. Largest ρ: ${rho.join(', ')}.`);
+            setClaim('art-overview', `Tracking (Gaussian prior σ₀ = ${val(fmt(s.sigma0_phys / gamma, 2))} Γ, the prior the truth is drawn around): the error follows van Trees from the first measurement, ρ = (J₀ + nI_max)⁻¹ ÷ MSE ≤ 1 with J₀ = 1/σ₀². Largest ρ: ${rho.join(', ')}.`);
             return;
         }
         setClaim('art-overview', `Plateau at the prior W/√12 (horizontal), then 1/√n at q × the data limit. q: SBED ${val(fmt(q(SBED), 2))}, sweep ${val(fmt(q(SWEEP), 2))}; SBED detects at n ≈ ${val(fmt(sb && sb.regimes && sb.regimes.detection_step, 3))} and is Gaussian from n ≈ ${val(fmt(sb && sb.regimes && sb.regimes.gaussian_onset_step, 3))}.`);
@@ -349,7 +349,7 @@
     }
 
     // ── Converge ──
-    function drawConverge(rows) {
+    function drawConverge(rows, tracking) {
         const locs = LOCATORS.map((name) => [name, rows.find((r) => r.strategy === name)]).filter(([, loc]) => loc && !loc.unavailable && loc.lags);
         const rhoDiv = document.getElementById('art-rho'), negDiv = document.getElementById('art-negentropy');
         if (!locs.length) {
@@ -364,7 +364,8 @@
         if (withG.length) daPlotNegentropy(negDiv, withG, colorOf, withG[0][1].gaussian.threshold);
         else empty(negDiv, 'These runs store no negentropy series: re-run them.');
         const rhoMax = locs.map(([name, loc]) => `${label(name)} ${val(fmt(loc.rho_van_trees_max, 2))}${loc.bound_violated ? ' (violates the bound)' : ''}`);
-        setClaim('art-rho', `Van Trees restarted at each run's detection with J_τ: ρ ≤ 1. Largest ρ: ${rhoMax.join(', ')}.`);
+        const trackNote = tracking ? ' Tracking is judged by van Trees from n = 0 (error over the run, above): with the shape known the dip test fires late, after the posterior is already Gaussian, so this restart is for reference only.' : '';
+        setClaim('art-rho', `Van Trees restarted at each run's detection with J_τ: ρ ≤ 1. Largest ρ: ${rhoMax.join(', ')}.${trackNote}`);
         const onset = withG.map(([name, loc]) => `${label(name)} ${val(fmt(loc.gaussian.onset_lag_median, 3))} (${val(Math.round(100 * loc.gaussian.share_reached) + ' %')} of runs)`);
         setClaim('art-negentropy', `The posterior becomes a single Gaussian peak (negentropy < 0.05). Median onset lag after detection: ${onset.join(', ') || '–'}.`);
     }

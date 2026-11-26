@@ -14,7 +14,7 @@ from typing import Any
 import numpy as np
 
 from nvision.metrics import claims
-from nvision.metrics.detection_aligned import gaussian_onset
+from nvision.metrics.detection_aligned import gaussian_onset, localize_ratio, localize_ratio_ci
 from nvision.metrics.refine_rates import InverseMse, inverse_mse_curve, late_window
 
 COVERAGE_STEPS = (30, 100, 300, 1000)
@@ -63,6 +63,52 @@ def _gaussian_onset(series: dict[str, Any]) -> float:
     return math.nan if onset is None else float(onset)
 
 
+VAN_TREES_REPORT_STEPS = (1, 10, 30, 100, 300, 1000)
+"""Measurement counts at which ``van_trees_from_start`` reports rho."""
+
+
+def tracking_prior_std_phys(row: dict[str, Any]) -> float:
+    """Std (Hz) of the honest Gaussian prior a tracking run's truth was drawn around: the generator's
+    ``bounds['_priors']['zeeman_shift'][1]`` (``tracking_prior_std_fwhm`` x FWHM), stored in ``true_params``.
+
+    Raises if the row stores no Gaussian ``zeeman_shift`` prior, so a tracking use case never falls back to another
+    spread.
+    """
+    priors = ((row.get("true_params") or {}).get("bounds") or {}).get("_priors") or {}
+    entry = priors.get("zeeman_shift")
+    if entry is None or isinstance(entry[0], str) or not float(entry[1]) > 0.0:
+        raise ValueError(f"a tracking run stores no Gaussian zeeman_shift prior in true_params, got {entry!r}")
+    return float(entry[1])
+
+
+def van_trees_from_start(grid: np.ndarray, err: np.ndarray, sigma0_phys: float, i_max: float) -> dict[str, Any]:
+    """Tracking: rho(n) = (J0 + n I_max)^-1 / MSE(n), van Trees from the first measurement with J0 = 1 / sigma_0^2.
+
+    ``grid``: shape (n_grid,), measurement counts n. ``err``: shape (n_runs, n_grid), true error (Hz) of the primary
+    parameter after n measurements. ``sigma0_phys``: std (Hz) of the truth's Gaussian prior. ``i_max``: Hz^-2 per
+    measurement. rho <= 1 at every n for any estimator (the window's edges truncate the prior of a truth within a few
+    sigma_0 of them, which this ignores). ``violated``: the bootstrap 2.5 % bound of rho exceeds 1 at some n.
+    """
+    if not sigma0_phys > 0.0 or not i_max > 0.0:
+        raise ValueError(f"sigma0_phys and i_max must be positive, got {sigma0_phys}, {i_max}")
+    if err.shape != (err.shape[0], grid.size):
+        raise ValueError(f"err {err.shape} does not match the grid {grid.shape}")
+    bound = np.broadcast_to(1.0 / (1.0 / sigma0_phys**2 + grid * i_max), err.shape)
+    rho = localize_ratio(err, bound)
+    lo, hi = localize_ratio_ci(err, bound)
+    at = {str(k): float(rho[int(np.argmin(np.abs(grid - k)))]) for k in VAN_TREES_REPORT_STEPS if k <= grid[-1]}
+    i = int(np.argmax(rho))
+    return {
+        "n": grid.tolist(),
+        "rho": rho.tolist(),
+        "rho_at": at,
+        "rho_max": float(rho[i]),
+        "rho_max_n": float(grid[i]),
+        "rho_max_ci": [float(lo[i]), float(hi[i])],
+        "violated": bool(np.any(lo > 1.0)),
+    }
+
+
 def analyse_use_case(rows: list[dict[str, Any]]) -> dict[str, Any]:
     """The claim numbers of one locator's repeats in one use case.
 
@@ -87,7 +133,10 @@ def analyse_use_case(rows: list[dict[str, Any]]) -> dict[str, Any]:
     if not bounds:
         return {"unavailable": "rows carry no zeeman_shift bounds", "repeats": len(runs)}
     # The error of the best guess before any measurement: the prior's spread, W / sqrt(12) for the uniform window of a
-    # global search (Eq. prior), sigma_0 of the Gaussian prior when tracking (stored per run from the locator's prior).
+    # global search (Eq. prior), sigma_0 of the Gaussian prior when tracking. The tracking sigma_0 is the std of the
+    # honest prior the truth was drawn around (the generator's), not the spread of the locator's belief, which mixes in
+    # a broad share (PRIOR_BROAD_FRACTION) over the whole window: van Trees is a property of the truth's prior, so it
+    # holds for every locator with J0 = 1 / sigma_0^2 whatever prior the locator starts from.
     kinds = {c.get("prior_kind") for c in cmp}
     if len(kinds) != 1 or None in kinds:
         raise ValueError(f"runs of one use case must share one stored prior_kind, got {sorted(map(str, kinds))}")
@@ -95,10 +144,8 @@ def analyse_use_case(rows: list[dict[str, Any]]) -> dict[str, Any]:
     sigma0 = (
         (float(bounds[1]) - float(bounds[0])) / math.sqrt(12.0)
         if prior_kind == "uniform"
-        else _med([c.get("sigma0_phys") for c in cmp])
+        else _med([tracking_prior_std_phys(r) for r in runs])
     )
-    if not sigma0:
-        raise ValueError("a tracking use case has no stored sigma0_phys: re-run")
     steps = [np.asarray(r["series"]["step"], dtype=np.float64) for r in runs]
     errs = [np.asarray(r["series"]["error"], dtype=np.float64) for r in runs]
     uncs = [np.asarray(r["series"]["claimed_sigma"], dtype=np.float64) for r in runs]
@@ -111,6 +158,9 @@ def analyse_use_case(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "fwhm_phys": fwhm,
         "tau_phys": tau,
         "sigma0_phys": sigma0,
+        # The spread of the prior the locator started from (its belief's variance); differs from sigma0_phys when
+        # tracking, because the belief mixes a broad share over the window into the honest Gaussian.
+        "locator_prior_sigma_phys": _med([c.get("sigma0_phys") for c in cmp]),
         "prior_kind": prior_kind,
         "max_n": int(grid[-1]),
     }
@@ -123,6 +173,8 @@ def analyse_use_case(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "error": claims.rms(err).tolist(),
         "claimed_sigma": claims.rms(unc).tolist(),
     }
+    # Tracking: van Trees from the first measurement, rho(n) = (J0 + n I_max)^-1 / MSE(n) <= 1 at every n.
+    out["van_trees_from_start"] = van_trees_from_start(grid, err, sigma0, imax) if prior_kind == "gaussian" else None
     # Per-run Gaussian onset from the stored ``negentropy`` series (NaN = never reached the Gaussian peak).
     onsets = np.array([_gaussian_onset(r["series"]) for r in runs], dtype=np.float64)
     # 3. (n0, q) on master's late window, true error and claimed sigma, with the linearity gate.

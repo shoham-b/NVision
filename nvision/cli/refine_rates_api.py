@@ -16,11 +16,12 @@ from typing import Any
 
 from fastapi import FastAPI
 
-from nvision.metrics.refine_rates_runs import SBED, build_run_trace, use_case_summary
+from nvision.metrics.refine_rates_runs import SBED, SBED_KNOWN_SHAPE, SBED_STRATEGIES, build_run_trace, use_case_summary
 from nvision.sim.combinations import PLAIN_SWEEP_STRATEGIES, CombinationGrid
 
-# Strategies in scope: Bayesian-SBED and the three sweep spacings (never the Smart-* experiments).
-STRATEGIES: tuple[str, ...] = (SBED, *PLAIN_SWEEP_STRATEGIES)
+# Strategies in scope: Bayesian-SBED, SBED with the shape known (lab mirror, tracking) and the plain sweeps (never the
+# Smart-* experiments). The speedup stays SBED's (shape inferred) over the best sweep.
+STRATEGIES: tuple[str, ...] = (SBED, SBED_KNOWN_SHAPE, *PLAIN_SWEEP_STRATEGIES)
 
 _WORKERS = 4
 
@@ -47,7 +48,7 @@ def _use_case(
             )
             continue
         # Only SBED needs the scan figures (where it measured); a sweep's positions come from its design.
-        repeats = repo._repeats.load_repeats(key, n) if strat == SBED else None
+        repeats = repo._repeats.load_repeats(key, n) if strat in SBED_STRATEGIES else None
         repeats = repeats or repo._repeats.load_repeats_meta(key, n) or repo._repeats.load_repeats(key, n)
         offset = int(combo.get("repeat_offset", 0))
         failed: Counter[str] = Counter()
