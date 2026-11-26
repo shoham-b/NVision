@@ -189,3 +189,19 @@ def test_true_signal_is_rebuilt_with_the_repeat_stratum():
         rebuild_true_signal(gen, name, idx, {"seed": seed, "repeats": total // 2}, scan)
     with pytest.raises(ValueError, match="no total repeat count"):
         rebuild_true_signal(gen, name, idx, {"seed": seed}, scan)
+
+
+def test_speedup_reads_the_fitted_rate_under_its_article_name():
+    """``fitted_rate`` is a ``RateFit`` dict (``rate``, not the pre-rename ``q``); every use case 500'd on it."""
+    from nvision.metrics.refine_rates_runs import SBED, _speedup
+
+    steps = np.array([1.0, 10.0, 100.0])
+    taus = np.array([0.5])
+
+    def loc(rate: float, placement: float) -> dict:
+        cost = rr.cost_curve([steps], [np.array([5.0, 1.0, 0.1])], taus)
+        return {"_cost": cost, "fitted_rate": {"rate": rate}, "placement_efficiency_median": placement}
+
+    out = _speedup({SBED: loc(0.8, 0.9), "sweep": loc(0.2, 0.3)}, ["sweep"])
+    assert out["speedup_fitted"] == pytest.approx(4.0)
+    assert out["speedup_placement"] == pytest.approx(3.0)

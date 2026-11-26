@@ -429,8 +429,8 @@ def _speedup(locators: dict[str, dict[str, Any]], sweeps: list[str]) -> dict[str
         vals = {s: v for s, v in vals.items() if v is not None and v > 0.0}
         return (max(vals, key=vals.get), max(vals.values())) if vals else (None, None)
 
-    q_err_sbed = None if sbed["fitted_rate"] is None else sbed["fitted_rate"]["q"]
-    err_sweep, q_err_sweep = best(lambda d: None if d["fitted_rate"] is None else d["fitted_rate"]["q"])
+    q_err_sbed = None if sbed["fitted_rate"] is None else sbed["fitted_rate"]["rate"]
+    err_sweep, q_err_sweep = best(lambda d: None if d["fitted_rate"] is None else d["fitted_rate"]["rate"])
     place_sweep, placement_sweep = best(lambda d: d["placement_efficiency_median"])
     return {
         "ratio": ratio,
