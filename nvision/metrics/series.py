@@ -2,10 +2,11 @@
 
 ``{"step": [steps], "error": [|estimate - truth|], "claimed_sigma": [claimed sigma], "sigma_target": stop target}``
 
-Steps are 1-indexed; values are rounded to 4 significant digits to keep the cache small. ``sigma_target`` is the
-effective absolute convergence threshold of the parameter (the stop target).
+Steps are 1-indexed; values other than ``"focus_windows"`` are rounded to 4 significant digits to keep the cache
+small. ``sigma_target`` is the effective absolute convergence threshold of the parameter (the stop target).
 
-An optional ``"focus_windows"`` key carries the per-step focus-window-candidate history (physical Hz), aligned with
+An optional ``"focus_windows"`` key carries the per-step focus-window-candidate history (physical Hz, unrounded: 4
+significant digits of a ~1.5 GHz edge is 1 MHz, a large part of a section a few MHz wide), aligned with
 ``"step"``: each entry is ``None`` (no live candidate window yet) or a list of ``[lo, hi]`` pairs, more than one while
 several dip candidates compete. It drives the timeline's focus-window playback (``static/plotly-utils.js``). The
 posterior series (``z_score``, ``pit``, ``negentropy``, ``far_mass``, ``posterior_fisher``, ``kde_bandwidth``,
@@ -153,7 +154,7 @@ def extract_step_series(
         series["crlb"] = [_round_sig(crlbs[i]) for i in keep]
     if any(windows):
         series["focus_windows"] = [
-            [[_round_sig(lo), _round_sig(hi)] for lo, hi in windows[i]] if windows[i] else None for i in keep
+            [[float(lo), float(hi)] for lo, hi in windows[i]] if windows[i] else None for i in keep
         ]
     tau = effective_convergence_threshold(run_result, param)
     if tau is not None:
