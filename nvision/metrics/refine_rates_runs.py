@@ -39,6 +39,9 @@ HIST_EDGES = np.arange(-8.0, 8.0 + 1e-9, 0.2)
 # A dip of the clean signal is a local minimum at least this deep, as a share of the signal's own range.
 _DIP_DEPTH_SHARE = 0.3
 SBED = "Bayesian-SBED"
+# SBED with the line shape known (the lab mirror and tracking); its positions come from the scan figure like SBED's.
+SBED_KNOWN_SHAPE = "Bayesian-SBED-KnownShape"
+SBED_STRATEGIES = (SBED, SBED_KNOWN_SHAPE)
 _SWEEP_RE = re.compile(r"^SimpleSweep-(\d+(?:\.\d+)?)perFWHM$")
 
 
@@ -238,7 +241,7 @@ def build_run_trace(
         "j_tau": _float_or_none(row.get("j_tau_phys")),
         "j_tau_2h": _float_or_none(row.get("j_tau_2h_phys")),
     }
-    is_sbed = strategy == SBED
+    is_sbed = strategy in SBED_STRATEGIES
     if is_sbed and scan.get("plot_skipped") and "meas_drive_freq_unit" not in scan:
         return RunTrace(
             x_phys=None,
@@ -264,7 +267,7 @@ def build_run_trace(
         n_points = rr.sweep_n_points(x_hi - x_lo, _sweep_prior_fwhm_phys(true_signal), k)
         x_phys = rr.sweep_positions_phys(x_lo, x_hi, n_points, n_steps)
     else:
-        raise ValueError(f"{strategy!r} is not Bayesian-SBED or a SimpleSweep.")
+        raise ValueError(f"{strategy!r} is not Bayesian-SBED(-KnownShape) or a SimpleSweep.")
 
     sens = primary_sensitivity_at(true_signal, primary, x_lo, x_hi, x_phys, [None] * n_steps)
     eta = sens.measured / max(sens.best, float(sens.measured.max()))

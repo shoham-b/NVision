@@ -91,6 +91,12 @@ The run-averaged error stays near the prior W/√12 while the runs search, then 
   tail slope).
 * Tracking (`prior_kind = gaussian`, the `article-tracking` group): the prior holds J₀ = 1/σ₀², so van Trees applies
   from the first measurement, σ_vT(n) = (J₀ + n I_max)^(-1/2); the panel draws it and reports ρ = σ_vT² / MSE ≤ 1.
+  σ₀ here is the std of the honest Gaussian prior the truth is drawn around (the generator's
+  `true_params.bounds._priors.zeeman_shift`), not the spread of the locator's belief, which mixes a broad share
+  (`PRIOR_BROAD_FRACTION`) over the whole window into it; the belief's spread is reported as `locator_prior_sigma_phys`.
+  `/api/claims` returns `van_trees_from_start` (ρ per n, `rho_at`, `rho_max` with its bootstrap CI, `violated` when the
+  CI's lower end exceeds 1). The detection-restarted ρ is not the tracking test: with the shape known the dip test fires
+  after the posterior is already Gaussian.
 * Panel: *Error over the run* (one use case). The Line picker also offers the `article-lab-mirror` family (one
   generator per lab window, with `Bayesian-SBED-KnownShape`) and the tracking family (one per prior width).
 
