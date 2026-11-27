@@ -284,6 +284,46 @@ def common_max_lag(runs: Sequence[AlignedRun], budget: int) -> int:
     return budget - worst
 
 
+def moving_line_bound(
+    j: np.ndarray, counts: np.ndarray, i_max: float, walk_step_phys: float, *, first_step_moves: bool
+) -> np.ndarray:
+    """Bayesian bound on the error of the line's *current* position after ``counts`` more measurements.
+
+    The line takes a Gaussian random-walk step of std ``walk_step_phys`` (Hz) between measurements, so the
+    information is lost to it before each new measurement adds ``I_max``:
+    ``J_m = 1 / (1 / J_{m-1} + step^2) + I_max``. For a still line (step 0) this is ``J + m I_max``.
+
+    ``j``: shape (n_runs,), starting information, Hz^-2. ``counts``: shape (n_counts,), whole numbers of
+    measurements >= 0. ``first_step_moves``: whether the line moves between the state ``j`` describes and the
+    first of those measurements (not from the start of a run, where ``j`` describes the line at measurement 1).
+    Returns the bound variance, shape (n_runs, n_counts), Hz^2.
+    """
+    if not i_max > 0:
+        raise ValueError(f"i_max must be positive, got {i_max}")
+    if not (walk_step_phys >= 0 and math.isfinite(walk_step_phys)):
+        raise ValueError(f"walk_step_phys must be finite and >= 0, got {walk_step_phys}")
+    if np.any(~np.isfinite(j)) or np.any(j < 0):
+        raise ValueError("J must be finite and >= 0 for every run")
+    whole = np.rint(counts).astype(np.int64)
+    if np.any(whole < 0) or np.any(np.abs(counts - whole) > 1e-6):
+        raise ValueError("counts must be whole numbers of measurements >= 0")
+    if walk_step_phys == 0.0:
+        info = j[:, None] + whole[None, :] * i_max
+    else:
+        q_var = walk_step_phys**2
+        info = np.empty((j.size, whole.size))
+        current = j.astype(np.float64)
+        for m in range(int(whole.max()) + 1):
+            if m > 0:
+                if m > 1 or first_step_moves:
+                    current = current / (1.0 + current * q_var)  # 1 / (1/J + q), also right at J = 0
+                current = current + i_max
+            info[:, whole == m] = current[:, None]
+    if np.any(info <= 0):
+        raise ValueError("J + k I_max must be positive (J = 0 at lag 0 has no bound)")
+    return 1.0 / info
+
+
 def restarted_bound(j: np.ndarray, lags: np.ndarray, i_max: float) -> np.ndarray:
     """``1 / (J_i + k I_max)`` for every run and lag. ``j``: shape (n_runs,), Hz^-2 -> shape (n_runs, n_lag), Hz^2."""
     if not i_max > 0:
@@ -354,11 +394,21 @@ def _med(v: Sequence[float]) -> float | None:
     return float(np.median(v)) if len(v) else None
 
 
-def analyse(runs: Sequence[AlignedRun], *, budget: int, i_max: float, dd_phys: float | None, n_undetected: int) -> dict:
+def analyse(
+    runs: Sequence[AlignedRun],
+    *,
+    budget: int,
+    i_max: float,
+    dd_phys: float | None,
+    n_undetected: int,
+    walk_step_phys: float = 0.0,
+) -> dict:
     """Localize ratio and Gaussian onset of one locator in one use case.
 
     ``runs``: the runs that detected the dip. ``dd_phys``: the detection cell ``Delta d`` (Hz) of the elimination model
     for ``J_d = 12 / Delta d^2``, or ``None`` when the SNR gives no single-measurement reach (then no ``J_d`` curve).
+    ``walk_step_phys``: std (Hz) of the true line's random-walk step per measurement (0 = still line); both bound
+    curves follow :func:`moving_line_bound`.
     """
     if len(runs) < MIN_RUNS:
         return {"unavailable": f"{len(runs)} runs detected the dip (need {MIN_RUNS})", "n_runs": len(runs)}
@@ -382,7 +432,9 @@ def analyse(runs: Sequence[AlignedRun], *, budget: int, i_max: float, dd_phys: f
     if len(with_j) >= MIN_RUNS:
         keep = [i for i, r in enumerate(runs) if r.j_tau is not None and r.j_tau > 0]
         e_j = err[keep]
-        b_tau = restarted_bound(np.array([r.j_tau for r in with_j]), lags, i_max)
+        b_tau = moving_line_bound(
+            np.array([r.j_tau for r in with_j]), lags, i_max, walk_step_phys, first_step_moves=True
+        )
         rho = localize_ratio(e_j, b_tau)
         lo, hi = localize_ratio_ci(e_j, b_tau)
         out["j_tau_median"] = _med([r.j_tau for r in with_j])
@@ -396,7 +448,7 @@ def analyse(runs: Sequence[AlignedRun], *, budget: int, i_max: float, dd_phys: f
         out["bound_violated"] = bool(np.any(lo > 1.0 + 0.01))
     if dd_phys is not None:
         j_d = 12.0 / dd_phys**2
-        b_d = restarted_bound(np.full(len(runs), j_d), lags, i_max)
+        b_d = moving_line_bound(np.full(len(runs), j_d), lags, i_max, walk_step_phys, first_step_moves=True)
         rho_d = localize_ratio(err, b_d)
         out["j_d"] = j_d
         out["dd_phys"] = dd_phys

@@ -243,6 +243,14 @@ def max_zeeman_shift_for_window(window_width_phys: float, edge_pad_phys: float) 
 # left half-maximum crossing lies inside the window. The default is half a FWHM (one HWHM) so a 2-FWHM window can
 # hold a dip (unresolved isotope only; the hyperfine offsets need more room). See :func:`zeeman_shift_edge_pad`.
 NV_ZEEMAN_EDGE_PAD_FWHM: float = float(os.getenv("NVISION_NV_ZEEMAN_EDGE_PAD_FWHM", "0.5"))
+
+# Line jitter of every run-group signal (window grid, lab mirror, tracking, drive-controlled), as a real experiment
+# has: the true zeeman_shift takes a Gaussian random-walk step of this std, in total FWHMs, between measurements.
+# The locators assume a still line. 0 = a still line. Drive-controlled signals, whose width depends on the drive, use
+# NVISION_SBED_FWHM as the unit.
+NV_LINE_JITTER_STEP_FWHM: float = float(os.getenv("NVISION_LINE_JITTER_STEP_FWHM", "0.0003"))
+if not (math.isfinite(NV_LINE_JITTER_STEP_FWHM) and NV_LINE_JITTER_STEP_FWHM >= 0.0):
+    raise ValueError(f"NVISION_LINE_JITTER_STEP_FWHM must be finite and >= 0, got {NV_LINE_JITTER_STEP_FWHM}")
 if NV_ZEEMAN_EDGE_PAD_FWHM < 0.0:
     raise ValueError(f"NVISION_NV_ZEEMAN_EDGE_PAD_FWHM must be >= 0, got {NV_ZEEMAN_EDGE_PAD_FWHM!r}.")
 
@@ -354,6 +362,10 @@ def physics_config_fingerprint() -> str:
         # baseline, and runs joined by significant windows (a strong dip's wings) became one dip: dips, focus
         # sections and SBED trajectories differ.
         "dip-baseline-one-v1",
+        # Bumped when every run-group signal's line started random-walking during the run (the locators still assume
+        # a still line): measurements differ and errors are scored against the moving truth. The step is hashed too.
+        "line-walk-v1",
+        NV_LINE_JITTER_STEP_FWHM,
         NV_ZEEMAN_EDGE_PAD_FWHM,
         MIN_HWHM,
         MAX_HWHM,

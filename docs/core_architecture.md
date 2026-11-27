@@ -88,8 +88,9 @@ Items where the article and the code differ, or where this doc could not confirm
 
 - **Prior.** The article's simulated runs are global searches: uniform prior on $\delta_Z$ over the window the truth is
   drawn from. The generators additionally build *narrowed Gaussian priors* (`PRIOR_STD_FRACTION`, random prior mean offset
-  `PRIOR_MEAN_OFFSET_SIGMAS`) for the other parameters; a Gaussian *tracking* run (truth drawn from the prior) is not simulated in
-  the article yet. Whether the `zeeman_shift` prior is uniform in the shipped grids was not re-verified.
+  `PRIOR_MEAN_OFFSET_SIGMAS`) for the other parameters; the `article-tracking` group simulates Gaussian *tracking* runs. In every
+  run-group signal the true line also random-walks during the run, which no locator models
+  (`docs/evaluation_metrics.md`, *Moving line*). Whether the `zeeman_shift` prior is uniform in the shipped grids was not re-verified.
 - **Regimes.** A run passes search + localize (until its own dip test fires, `detection_step`), converge (until the
   posterior is one Gaussian peak) and refine, read from each run's own history. See
   [evaluation metrics](evaluation_metrics.md).

@@ -45,6 +45,9 @@ class _FakeTrueSignal:
     def parameter_values(self) -> dict[str, float]:
         return dict(self._values)
 
+    def get_param_value(self, name: str) -> float:
+        return float(self._values[name])
+
 
 class _FakeObs:
     drive_freq_unit = 0.0

@@ -243,6 +243,10 @@ large k*, and the result is about 3 points per true FWHM. Worth knowing when rea
 
 ## Item 6. Tracking regime
 
+> **Superseded in part.** Since the `line-walk-v1` physics fingerprint, the line also random-walks during every
+> run-group run (tracking and global search alike), which no locator models. The results in this section are from a
+> still line; the current setup and bound are in `docs/evaluation_metrics.md`, *Moving line*.
+
 **Decision.** A scenario is needed. The theory makes a quantitative claim ("a tracking run with
 $\sigma_0^{\rm track}\lesssim\Gamma$ ... is all refine", following van Trees from the start), and nothing tested it.
 The new member `article-tracking` (`sim.presets.tracking_generators`) is the article grid's span-20 Lorentzian with

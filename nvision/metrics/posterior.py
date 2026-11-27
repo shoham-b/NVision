@@ -378,7 +378,7 @@ def compute_posterior_metrics(
     from nvision.metrics.run_axes import _true_fwhm_phys  # the same FWHM the run axes use
 
     true_signal = run_result.true_signal
-    truth = float(true_signal.get_param_value(primary))
+    truth = run_result.truth_trace(primary)  # shape: (n_steps,), Hz
     fwhm = _true_fwhm_phys(true_signal)  # None for drive-controlled models (width depends on the drive)
     zff_true = float(true_signal.get_param_value("zero_field_freq")) if primary == "zeeman_shift" else None
 
@@ -403,8 +403,8 @@ def compute_posterior_metrics(
         sigma = float(snap.belief.uncertainty()[primary])
         if not sigma > 0.0:
             raise ValueError(f"Claimed uncertainty of {primary!r} is {sigma} at step {t + 1}; cannot standardise.")
-        series["z_score"][t] = (est - truth) / sigma
-        series["pit"][t] = post.pit(truth)
+        series["z_score"][t] = (est - truth[t]) / sigma
+        series["pit"][t] = post.pit(truth[t])
         series["far_mass"][t] = post.far_mass
         if t in density_steps:
             post.ensure_density()

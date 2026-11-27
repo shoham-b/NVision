@@ -295,8 +295,11 @@ def extract_milestone_metrics(
     uncertainties = snapshot.belief.reported_uncertainty()
 
     param_values = run_result.true_signal.parameter_values()
-    true_primary = param_values.get(primary_param, math.nan)
-    true_shift = param_values.get(shift_param, math.nan)
+    # The truth at this step: the line may move during a run.
+    true_primary, true_shift = (
+        float(run_result.truth_trace(name)[step_idx]) if name in param_values else math.nan
+        for name in (primary_param, shift_param)
+    )
 
     est_primary = estimates.get(primary_param, math.nan)
     est_shift = estimates.get(shift_param, math.nan)

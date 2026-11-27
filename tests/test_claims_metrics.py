@@ -180,6 +180,7 @@ def test_report_end_to_end_on_stored_rows():
                     "negentropy": np.where(grid < 60, 0.5, 0.01).tolist(),
                 },
                 "compare": {
+                    "line_walk_step_phys": 0.0,
                     "i_max": I_MAX,
                     "window_phys": 10.0,
                     "fwhm_phys": 1.0,
@@ -219,7 +220,13 @@ def _tracking_rows(err_scale: float = 1.0, prior: object = (0.5, 0.2)) -> list[d
         rows.append(
             {
                 "series": {"step": grid.tolist(), "error": e, "claimed_sigma": e, "negentropy": [0.01] * grid.size},
-                "compare": {"i_max": I_MAX, "detection_step": 1, "prior_kind": "gaussian", "sigma0_phys": 0.9},
+                "compare": {
+                    "line_walk_step_phys": 0.0,
+                    "i_max": I_MAX,
+                    "detection_step": 1,
+                    "prior_kind": "gaussian",
+                    "sigma0_phys": 0.9,
+                },
                 "true_params": {
                     "params": {"zeeman_shift": 0.5},
                     "bounds": {"zeeman_shift": [0.0, 1.1], "_priors": {"zeeman_shift": prior}},
@@ -261,6 +268,7 @@ def test_report_excludes_runs_that_never_reach_the_gaussian_peak():
             {
                 "series": {"step": grid.tolist(), "error": e, "claimed_sigma": e, "negentropy": g.tolist()},
                 "compare": {
+                    "line_walk_step_phys": 0.0,
                     "i_max": I_MAX,
                     "detection_step": 20,
                     "prior_kind": "uniform",

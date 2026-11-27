@@ -1358,6 +1358,13 @@ class _TaskRunner:
         finally:
             reset_combination_log_initials(token)
 
+        if experiment.drift is not None:
+            # Set before any metric reads the truth: every error is scored where the line is at that step.
+            result.moving_truth_phys = experiment.drift.truth_traces(
+                experiment.true_signal.typed_parameters, len(result.snapshots), n_shots
+            )
+            result.line_walk_step_phys = experiment.drift.spec.zeeman_walk_step_hz * math.sqrt(n_shots)
+
         last_loc = observer.last_locator
         if last_loc is not None:
             locator_instance = last_loc

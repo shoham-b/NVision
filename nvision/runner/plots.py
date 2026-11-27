@@ -367,7 +367,13 @@ def _bayesian_auxiliary_entries(
     # that call _posterior_animation_inputs_all_params / _posterior_animation_inputs.
     from dataclasses import replace as _dc_replace
 
-    viz_run_result = _dc_replace(run_result, snapshots=list(all_snapshots[:sweep_steps]) + bayesian_snapshots)
+    viz_snapshots = list(all_snapshots[:sweep_steps]) + bayesian_snapshots
+    step_of = {id(s): i for i, s in enumerate(all_snapshots)}
+    viz_truth = run_result.moving_truth_phys
+    if viz_truth is not None:  # a moving truth is per step, so it is subsampled with the snapshots
+        kept = [step_of[id(s)] for s in viz_snapshots]
+        viz_truth = {name: trace[kept] for name, trace in viz_truth.items()}
+    viz_run_result = _dc_replace(run_result, snapshots=viz_snapshots, moving_truth_phys=viz_truth)
 
     resampled_steps = [i for i, s in enumerate(bayesian_snapshots) if getattr(s, "resampled", False)]
     # ESS as the filter actually saw it, over the full particle cloud and *before*

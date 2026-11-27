@@ -75,7 +75,7 @@ class CoreExperiment:
         Carries what :meth:`measure` would attach for this experiment: the over-frequency noise model and the
         baseline drive. Only for static experiments; a drifting one would be fed a truth from the wrong moment.
         """
-        if self.drift is not None or (self.noise is not None and self.noise.drift is not None):
+        if self.moves:
             raise ValueError("Cannot replay a stored measurement into a drifting experiment.")
         return Observation(
             drive_freq_unit=drive_freq_unit,
@@ -133,7 +133,7 @@ class CoreExperiment:
         width = self.drive_freq_max_phys - self.drive_freq_min_phys
         x_physical = self.drive_freq_min_phys + drive_freq_unit * width
 
-        if self.drift is not None or (self.noise is not None and self.noise.drift is not None):
+        if self.moves:
             return self._measure_drifting(drive_freq_unit, x_physical, rng, n_shots, shot_index, drive)
 
         # Get true (clean) signal value
@@ -166,6 +166,16 @@ class CoreExperiment:
             drive=drive,
         )
 
+    @property
+    def moves(self) -> bool:
+        """Whether the true signal changes during a run (a drift scenario or the signal's own line jitter)."""
+        return (
+            self.drift is not None
+            or (self.noise is not None and self.noise.drift is not None)
+            # Duck-typed true signals (plain callables, MATLAB proxies) have no jitter.
+            or getattr(self.true_signal, "line_walk_step_phys", 0.0) > 0.0
+        )
+
     def resolve_drive(self, drive: DriveSetting | None) -> DriveSetting | None:
         """The drive a measurement requested with ``drive`` is actually taken at.
 
@@ -191,7 +201,7 @@ class CoreExperiment:
     ) -> Observation:
         if self.drift is None:
             raise ValueError(
-                "Experiment noise has drift but no drift realization is attached; "
+                "The true signal moves but no drift realization is attached; "
                 "call nvision.noises.drift.attach_drift_for_repeat first."
             )
         if shot_index is None:

@@ -111,6 +111,9 @@ class NVCenterCoreGenerator:
     # Drawn that way the prior is honest (truth - mean ~ N(0, std)), as the van Trees bound with J0 = 1/std^2 needs.
     # None (default) = the global search: a uniform prior over the window.
     tracking_prior_std_fwhm: float | None = None
+    # Line jitter: std (Hz) of the Gaussian random-walk step the true ``zeeman_shift`` takes between
+    # measurements, as in a real experiment. It moves the truth only: no locator is told about it. 0 = a still line.
+    line_walk_step_phys: float = 0.0
 
     @property
     def gaussian_share(self) -> float | None:
@@ -597,7 +600,9 @@ class NVCenterCoreGenerator:
         if self.tracking_prior_std_fwhm is not None:
             # Drawn last, so it consumes no random number another parameter would have used.
             bounds = self._with_tracking_prior(rng, bounds, zeeman_shift)
-        return _true_signal_from_typed(model=model, typed_params=typed_params, bounds=bounds)
+        return _true_signal_from_typed(
+            model=model, typed_params=typed_params, bounds=bounds, line_walk_step_phys=self.line_walk_step_phys
+        )
 
     def _with_tracking_prior(self, rng: random.Random, bounds: dict, zeeman_shift_phys: float) -> dict:
         """*bounds* with an honest Gaussian tracking prior on ``zeeman_shift`` (see ``tracking_prior_std_fwhm``).
@@ -709,5 +714,9 @@ class NVCenterCoreGenerator:
 
         bounds["_priors"] = priors
         return _true_signal_from_typed(
-            model=model, typed_params=typed_params, bounds=bounds, baseline_drive=baseline_drive
+            model=model,
+            typed_params=typed_params,
+            bounds=bounds,
+            baseline_drive=baseline_drive,
+            line_walk_step_phys=self.line_walk_step_phys,
         )

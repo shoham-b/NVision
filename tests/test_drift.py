@@ -179,6 +179,67 @@ def test_splitting_drift_on_a_single_dip_signal_fails_loudly():
         exp.measure(0.5, random.Random(0), shot_index=1)
 
 
+def _jittered_experiment(step_hz: float, noise=None) -> CoreExperiment:
+    generator = NVCenterCoreGenerator(
+        drive_freq_min_phys=2.6e9, drive_freq_max_phys=3.1e9, variant="lorentzian", line_walk_step_phys=step_hz
+    )
+    return CoreExperiment(
+        true_signal=generator.generate(random.Random(3), repeat_idx=0, n_repeats=1),
+        noise=noise,
+        drive_freq_min_phys=2.6e9,
+        drive_freq_max_phys=3.1e9,
+    )
+
+
+def test_line_jitter_is_a_shared_random_walk_of_the_stated_step():
+    exp = _jittered_experiment(600.0)
+    a = attach_drift_for_repeat(exp, 1, "g", 0)
+    b = attach_drift_for_repeat(_jittered_experiment(600.0, presets.gauss_with_drift(0.01, None)), 1, "g", 0)
+    path = np.array([a.drift.zeeman_shift_offset_hz(i) for i in range(20000)])
+    assert path[0] == 0.0
+    assert np.std(np.diff(path)) == pytest.approx(600.0, rel=0.03)
+    # The same path for every noise level and strategy of the repeat, in any query order.
+    assert b.drift.zeeman_shift_offset_hz(15000) == path[15000]
+    assert attach_drift_for_repeat(exp, 1, "g", 1).drift.zeeman_shift_offset_hz(500) != path[500]
+
+
+def test_jittering_signal_cannot_be_measured_as_if_still():
+    exp = _jittered_experiment(600.0)
+    with pytest.raises(ValueError, match="no drift realization"):
+        exp.measure(0.5, random.Random(0), shot_index=0)
+
+
+def test_truth_traces_follow_the_walk_per_measurement():
+    exp = attach_drift_for_repeat(_jittered_experiment(600.0), 1, "g", 0)
+    base = exp.true_signal.typed_parameters
+    traces = exp.drift.truth_traces(base, 5, n_shots=2)
+    expected = [base.zeeman_shift + exp.drift.zeeman_shift_offset_hz(2 * i + 1) for i in range(5)]
+    assert list(traces) == ["zeeman_shift"]
+    assert traces["zeeman_shift"] == pytest.approx(expected)
+
+
+def test_run_group_signals_jitter_and_the_bound_levels_off():
+    from nvision.metrics.detection_aligned import moving_line_bound
+    from nvision.spectra.nv_center import NV_LINE_JITTER_STEP_FWHM
+
+    for name, gen in presets.tracking_generators() + presets.lab_mirror_generators():
+        assert gen.line_walk_step_phys > 0, name
+    for name, gen in presets.voigt_snr_window_param_grid_generators():
+        assert gen.line_walk_step_phys == pytest.approx(
+            NV_LINE_JITTER_STEP_FWHM * sim_defaults.NVISION_SBED_FWHM, rel=0.01
+        ), name
+    counts = np.array([1.0, 2.0, 100000.0])
+    j0, i_max, q = np.array([2.0]), 3.0, 0.1
+    still = moving_line_bound(j0, counts, i_max, 0.0, first_step_moves=False)[0]
+    assert still == pytest.approx(1.0 / (2.0 + counts * i_max))
+    moving = moving_line_bound(j0, counts, i_max, q, first_step_moves=False)[0]
+    assert moving[0] == pytest.approx(1.0 / 5.0)  # no step before the first measurement
+    assert moving[1] == pytest.approx(1.0 / (1.0 / (1.0 / 5.0 + q**2) + i_max))
+    # Steady state: P solves 1/P = 1/(P + q^2) + I.
+    steady = (-(q**2) + math.sqrt(q**4 + 4.0 * q**2 / i_max)) / 2.0
+    assert moving[2] == pytest.approx(steady)
+
+
 def test_drift_noise_names_round_trip():
     names = [name for name, _ in presets.drift_study_noises()]
     assert len(names) == 1 + len(presets.drift_scenarios())

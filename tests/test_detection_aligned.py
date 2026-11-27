@@ -104,6 +104,7 @@ def _row(tau: int | None, *, with_g: bool = True) -> dict:
             "far_placed": [None] + [0.0] * (BUDGET - 1),
         },
         "compare": {
+            "line_walk_step_phys": 0.0,
             "detection_step": tau,
             "j_tau_phys": 1e-10,
             "i_max": I_MAX,

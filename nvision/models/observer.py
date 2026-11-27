@@ -82,6 +82,20 @@ class RunResult:
     # Memo of ``nvision.metrics.posterior.compute_posterior_metrics`` (scalars and per-step series), so the row metrics
     # and the scan-entry series share one computation.
     posterior_cache: dict | None = field(default=None, repr=False, compare=False)
+    # True value (Hz) at each measurement of every parameter that moved during the run, each shape (n_snapshots,).
+    # ``true_signal`` holds the values at the first measurement. None for a static truth.
+    moving_truth_phys: dict[str, np.ndarray] | None = field(default=None, repr=False, compare=False)
+    # Std (Hz) of the line's random-walk step per measurement; 0 for a still line.
+    line_walk_step_phys: float = 0.0
+
+    def truth_trace(self, param: str) -> np.ndarray:
+        """True value of ``param`` at each measurement, shape (n_snapshots,): what an estimate is scored against."""
+        if self.moving_truth_phys is not None and param in self.moving_truth_phys:
+            trace = self.moving_truth_phys[param]
+            if trace.shape != (len(self.snapshots),):
+                raise ValueError(f"truth trace of {param!r} has shape {trace.shape}, run has {len(self.snapshots)}")
+            return trace
+        return np.full(len(self.snapshots), float(self.true_signal.get_param_value(param)))
 
     def convergence_step(self, param: str, threshold: float) -> int | None:
         """Find first step where parameter converged below threshold.
