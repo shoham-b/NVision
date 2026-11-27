@@ -317,7 +317,7 @@
                 const v = c[name].van_trees_from_start;
                 return `${label(name)} ${val(fmt(v.rho_max, 2))} at n = ${val(fmt(v.rho_max_n, 3))}${v.violated ? ' (violates the bound)' : ''}`;
             });
-            setClaim('art-overview', `Tracking (Gaussian prior σ₀ = ${val(fmt(s.sigma0_phys / gamma, 2))} Γ, the prior the truth is drawn around): the line also random-walks during the run (step ${val(fmt(s.line_walk_step_phys / gamma, 2))} Γ per measurement, which the locators ignore), so the bound levels off. ρ = bound variance ÷ MSE ≤ 1 from the first measurement, with J₀ = 1/σ₀². Largest ρ: ${rho.join(', ')}.`);
+            setClaim('art-overview', `Tracking (Gaussian prior σ₀ = ${val(fmt(s.sigma0_phys / gamma, 2))} Γ, the prior the truth is drawn around): the line keeps random-walking during the run (step ${val(fmt(s.line_walk_step_phys / gamma, 3))} Γ per measurement, which the locators are told and model), so the bound levels off. ρ = bound variance ÷ MSE ≤ 1 from the first measurement, with J₀ = 1/σ₀². Largest ρ: ${rho.join(', ')}.`);
             return;
         }
         setClaim('art-overview', `Plateau at the prior W/√12 (horizontal), then 1/√n at q × the data limit. q: SBED ${val(fmt(q(SBED), 2))}, sweep ${val(fmt(q(SWEEP), 2))}; SBED detects at n ≈ ${val(fmt(sb && sb.regimes && sb.regimes.detection_step, 3))} and is Gaussian from n ≈ ${val(fmt(sb && sb.regimes && sb.regimes.gaussian_onset_step, 3))}.`);

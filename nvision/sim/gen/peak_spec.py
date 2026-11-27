@@ -70,13 +70,16 @@ def _true_signal_from_typed(
     bounds: dict[str, tuple[float, float]],
     baseline_drive=None,
     line_walk_step_phys: float = 0.0,
+    locator_walk_step_phys: float = 0.0,
 ) -> TrueSignal:
     """Create a backward-compatible TrueSignal from typed model params (``baseline_drive``: drive-controlled only;
-    ``line_walk_step_phys``: std, Hz, of the line's random-walk step per measurement)."""
+    ``line_walk_step_phys``: std, Hz, of the line's random-walk step per measurement;
+    ``locator_walk_step_phys``: the step the locator is told to model, 0 = still)."""
     return TrueSignal.from_typed(
         model=model,
         params=typed_params,
         bounds=bounds,
         baseline_drive=baseline_drive,
         line_walk_step_phys=line_walk_step_phys,
+        locator_walk_step_phys=locator_walk_step_phys,
     )

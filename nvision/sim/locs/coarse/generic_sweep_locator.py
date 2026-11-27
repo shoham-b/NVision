@@ -126,7 +126,7 @@ class GenericSweepLocator(ConvergenceStopRules, SweepingLocator):
     locator's. The grid is repeated (averaging the passes) for ``max_measurements`` measurements (whole passes only,
     at least one); the convergence rule Bayesian-SBED uses (:class:`ConvergenceStopRules`) is recorded every step but
     does not stop the sweep. The reported estimate is the final fit to the averaged passes (see
-    :meth:`finalize`).
+    :meth:`finalize`; a belief that models a walking line is reported as is, without a fit).
 
     Parameters
     ----------
@@ -1390,12 +1390,16 @@ class GenericSweepLocator(ConvergenceStopRules, SweepingLocator):
         A fit that finds no dip (``SweepFitNoDipError``) is recorded, not raised: ``fit_failed`` is set and no
         estimate is reported. Any other fit failure raises — see ``_fit_model``.
 
+        No fit is made when the belief models a walking line (tracking): a least-squares fit of the averaged
+        passes would be of a line that stood still. The sweep then reports what Bayesian-SBED reports, the belief's
+        estimate of the line's position at the last measurement, so the two differ only in where they measure.
+
         No-ops if no measurements were taken (e.g. the run was skipped
         outright by the pre-run CRLB feasibility gate in ``executor.py``,
         which still calls ``finalize()`` on a freshly-created, unobserved
         locator instance).
         """
-        if self.history.count == 0:
+        if self.history.count == 0 or getattr(self.belief, "line_walk_step_phys", 0.0) > 0.0:
             return
         domain_width = self._domain_hi - self._domain_lo
         passes = self.passes_done

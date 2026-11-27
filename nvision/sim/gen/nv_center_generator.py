@@ -114,6 +114,8 @@ class NVCenterCoreGenerator:
     # Line jitter: std (Hz) of the Gaussian random-walk step the true ``zeeman_shift`` takes between
     # measurements, as in a real experiment. It moves the truth only: no locator is told about it. 0 = a still line.
     line_walk_step_phys: float = 0.0
+    # Tell the locators the line's step, so their particle filter models the motion (tracking only).
+    locator_models_line_walk: bool = False
 
     @property
     def gaussian_share(self) -> float | None:
@@ -601,7 +603,11 @@ class NVCenterCoreGenerator:
             # Drawn last, so it consumes no random number another parameter would have used.
             bounds = self._with_tracking_prior(rng, bounds, zeeman_shift)
         return _true_signal_from_typed(
-            model=model, typed_params=typed_params, bounds=bounds, line_walk_step_phys=self.line_walk_step_phys
+            model=model,
+            typed_params=typed_params,
+            bounds=bounds,
+            line_walk_step_phys=self.line_walk_step_phys,
+            locator_walk_step_phys=self.line_walk_step_phys if self.locator_models_line_walk else 0.0,
         )
 
     def _with_tracking_prior(self, rng: random.Random, bounds: dict, zeeman_shift_phys: float) -> dict:

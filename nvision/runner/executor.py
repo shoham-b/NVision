@@ -1321,6 +1321,14 @@ class _TaskRunner:
             cfg["fixed_drive"] = experiment.true_signal.baseline_drive
         if requires_belief:
             cfg["noise_model"] = experiment.true_signal.noise_model
+        walk_told_phys = getattr(experiment.true_signal, "locator_walk_step_phys", 0.0)
+        if walk_told_phys > 0.0:
+            # Tracking: the locator's belief is told how the line moves (per shot; the belief scales by n_shots).
+            if "builder" not in cfg:
+                raise ValueError(
+                    f"{locator_class.__name__} builds no belief that can model the walking line it is told about."
+                )
+            cfg["line_walk_step_phys"] = walk_told_phys
         if not is_bayesian:
             cfg["noise_std"] = batch_noise_std
             # Sweep locators use the noise/signal-span hints and are handed a belief + signal model;

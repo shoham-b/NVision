@@ -27,7 +27,9 @@ spectrum with tight nuisance priors; it still uses the prior's width, never the 
 
 In every group the line also moves during the run: `zeeman_shift` takes a random-walk step of
 `NVISION_LINE_JITTER_STEP_FWHM` (default 0.0003) total FWHMs between measurements (drive-controlled signals: of
-`NVISION_SBED_FWHM`). Every locator assumes a still line. The same walk is shared by all strategies and noise levels of
+`NVISION_SBED_FWHM`). The locators assume a still line, except in tracking, where the step is
+sigma_0 / sqrt(`NVISION_MAX_MEASUREMENTS`) and the locators' particle filter is told it and models the motion (the
+sweep then reports the filter's estimate instead of its fit; see `evaluation_metrics.md`, *Moving line*). The same walk is shared by all strategies and noise levels of
 a repeat. Signals resolved by name outside the run groups (e.g. `NVCenter-lorentzian`) stay still.
 
 `nv groups list` shows every group with its task count. The former groups `both-sbed`, `both-sbed-only`,

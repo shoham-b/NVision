@@ -247,7 +247,8 @@ NV_ZEEMAN_EDGE_PAD_FWHM: float = float(os.getenv("NVISION_NV_ZEEMAN_EDGE_PAD_FWH
 # Line jitter of every run-group signal (window grid, lab mirror, tracking, drive-controlled), as a real experiment
 # has: the true zeeman_shift takes a Gaussian random-walk step of this std, in total FWHMs, between measurements.
 # The locators assume a still line. 0 = a still line. Drive-controlled signals, whose width depends on the drive, use
-# NVISION_SBED_FWHM as the unit.
+# NVISION_SBED_FWHM as the unit. Tracking does not use it: its step follows its prior
+# (sim.presets.tracking_walk_step_fwhm) and its locators model it.
 NV_LINE_JITTER_STEP_FWHM: float = float(os.getenv("NVISION_LINE_JITTER_STEP_FWHM", "0.0003"))
 if not (math.isfinite(NV_LINE_JITTER_STEP_FWHM) and NV_LINE_JITTER_STEP_FWHM >= 0.0):
     raise ValueError(f"NVISION_LINE_JITTER_STEP_FWHM must be finite and >= 0, got {NV_LINE_JITTER_STEP_FWHM}")
@@ -365,6 +366,7 @@ def physics_config_fingerprint() -> str:
         # Bumped when every run-group signal's line started random-walking during the run (the locators still assume
         # a still line): measurements differ and errors are scored against the moving truth. The step is hashed too.
         "line-walk-v1",
+        "tracking-motion-model-v1",
         NV_LINE_JITTER_STEP_FWHM,
         NV_ZEEMAN_EDGE_PAD_FWHM,
         MIN_HWHM,
