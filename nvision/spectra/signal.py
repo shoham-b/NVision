@@ -232,8 +232,17 @@ class TrueSignal[ParamsT]:
     # Drive used by measurements that do not choose one (fixed-drive locators), for drive-controlled
     # models only. An explicit experiment setting -- every such measurement records it.
     baseline_drive: DriveSetting | None = None
+    # Line jitter: std (Hz) of the Gaussian random-walk step ``zeeman_shift`` takes between measurements.
+    # ``typed_parameters`` are the values at the first measurement. 0 = a still line.
+    line_walk_step_phys: float = 0.0
+    # The step the locator is told to model (Hz per measurement); 0 = the locator assumes a still line.
+    locator_walk_step_phys: float = 0.0
 
     def __post_init__(self) -> None:
+        if not self.line_walk_step_phys >= 0.0:
+            raise ValueError(f"line_walk_step_phys must be >= 0, got {self.line_walk_step_phys}")
+        if not self.locator_walk_step_phys >= 0.0:
+            raise ValueError(f"locator_walk_step_phys must be >= 0, got {self.locator_walk_step_phys}")
         if self.model.controls_drive and self.baseline_drive is None:
             raise ValueError(f"A drive-controlled TrueSignal ({type(self.model).__name__}) needs a baseline_drive.")
         if not self.model.controls_drive and self.baseline_drive is not None:
@@ -302,6 +311,8 @@ class TrueSignal[ParamsT]:
         *,
         bounds: Mapping[str, tuple[float, float]],
         baseline_drive: DriveSetting | None = None,
+        line_walk_step_phys: float = 0.0,
+        locator_walk_step_phys: float = 0.0,
     ) -> TrueSignal[ParamsT]:
         """Build a TrueSignal from typed params plus explicit legacy bounds."""
 
@@ -311,4 +322,11 @@ class TrueSignal[ParamsT]:
         if missing:
             raise KeyError(f"Missing bounds for typed TrueSignal parameters: {missing}")
         _ = values  # Keep pack validation coupled to names order.
-        return cls(model=model, typed_parameters=params, bounds=dict(bounds), baseline_drive=baseline_drive)
+        return cls(
+            model=model,
+            typed_parameters=params,
+            bounds=dict(bounds),
+            baseline_drive=baseline_drive,
+            line_walk_step_phys=line_walk_step_phys,
+            locator_walk_step_phys=locator_walk_step_phys,
+        )

@@ -16,7 +16,8 @@ The UI shows the article's quantities under shorter labels; the full table is in
 ## Known deviations (UI vs. article)
 
 * Chart labels say "σ" and "CRLB"/"Fisher" where the article says $\hat\sigma_N$ and van Trees bound; the labels were not renamed.
-* The article's tracking (Gaussian prior) runs are not simulated.
+* The simulated line moves during each run (see `evaluation_metrics.md`, *Moving line*); the article's theory assumes
+  it is still while being measured.
 
 ## File map
 

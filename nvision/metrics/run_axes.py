@@ -62,6 +62,7 @@ RUN_AXIS_KEYS: tuple[str, ...] = (
     "sigma0_phys",
     "prior_kind",
     "target_cost_step",
+    "line_walk_step_phys",
 )
 
 
@@ -254,6 +255,7 @@ def compute_run_axes(run_result: RunResult) -> dict[str, Any]:
       ``window_over_fwhm`` = window over true FWHM.
     * ``sigma0_phys`` = sigma_0, the standard deviation (Hz) of the primary parameter's prior, from the locator's prior;
       ``prior_kind`` its shape (``uniform``: global search; ``gaussian``: tracking, van Trees from n = 0).
+    * ``line_walk_step_phys``: std (Hz) of the true line's random-walk step per measurement (0 = still line).
     * ``target_cost_step``: first step from which the true error stays ``<= tau`` for ``BOUNDARY_HOLD_STEPS``
       steps (the cost to the stop target; ``None`` if never).
     """
@@ -278,8 +280,10 @@ def compute_run_axes(run_result: RunResult) -> dict[str, Any]:
     dip_idx = _first_held(shows_dip, 0, n_steps)
     out["detection_step"] = None if dip_idx is None else dip_idx + 1
 
-    true_value = float(run_result.true_signal.get_param_value(primary))
-    err_trace = np.array([abs(float(s.belief.estimates()[primary]) - true_value) for s in snapshots])  # Hz
+    truth = run_result.truth_trace(primary)  # shape: (n_steps,), Hz
+    estimates = np.array([float(s.belief.estimates()[primary]) for s in snapshots])  # shape: (n_steps,), Hz
+    err_trace = np.abs(estimates - truth)  # Hz
+    out["line_walk_step_phys"] = float(run_result.line_walk_step_phys)
     _add_axes(run_result, primary, err_trace, out)
     return out
 

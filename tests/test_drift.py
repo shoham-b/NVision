@@ -6,6 +6,7 @@ import numpy as np
 import pytest
 
 from nvision.models.experiment import CoreExperiment
+from nvision.models.observation import Observation
 from nvision.noises.drift import (
     NV_D_TEMPERATURE_COEFF_HZ_PER_K,
     NV_GYROMAGNETIC_HZ_PER_MG,
@@ -23,6 +24,8 @@ from nvision.sim.combinations import (
     parse_snr,
 )
 from nvision.sim.gen.nv_center_generator import NVCenterCoreGenerator
+from nvision.sim.locs.bayesian.belief_builders import nv_center_smc_belief
+from tests.noise import gaussian_noise
 
 
 def _signal(seed: int = 3):
@@ -177,6 +180,138 @@ def test_splitting_drift_on_a_single_dip_signal_fails_loudly():
     assert not hasattr(exp.true_signal.typed_parameters, "zeeman_shift")
     with pytest.raises(ValueError, match="zeeman_shift"):
         exp.measure(0.5, random.Random(0), shot_index=1)
+
+
+def _jittered_experiment(step_hz: float, noise=None) -> CoreExperiment:
+    generator = NVCenterCoreGenerator(
+        drive_freq_min_phys=2.6e9, drive_freq_max_phys=3.1e9, variant="lorentzian", line_walk_step_phys=step_hz
+    )
+    return CoreExperiment(
+        true_signal=generator.generate(random.Random(3), repeat_idx=0, n_repeats=1),
+        noise=noise,
+        drive_freq_min_phys=2.6e9,
+        drive_freq_max_phys=3.1e9,
+    )
+
+
+def test_line_jitter_is_a_shared_random_walk_of_the_stated_step():
+    exp = _jittered_experiment(600.0)
+    a = attach_drift_for_repeat(exp, 1, "g", 0)
+    b = attach_drift_for_repeat(_jittered_experiment(600.0, presets.gauss_with_drift(0.01, None)), 1, "g", 0)
+    path = np.array([a.drift.zeeman_shift_offset_hz(i) for i in range(20000)])
+    assert path[0] == 0.0
+    assert np.std(np.diff(path)) == pytest.approx(600.0, rel=0.03)
+    # The same path for every noise level and strategy of the repeat, in any query order.
+    assert b.drift.zeeman_shift_offset_hz(15000) == path[15000]
+    assert attach_drift_for_repeat(exp, 1, "g", 1).drift.zeeman_shift_offset_hz(500) != path[500]
+
+
+def test_jittering_signal_cannot_be_measured_as_if_still():
+    exp = _jittered_experiment(600.0)
+    with pytest.raises(ValueError, match="no drift realization"):
+        exp.measure(0.5, random.Random(0), shot_index=0)
+
+
+def test_truth_traces_follow_the_walk_per_measurement():
+    exp = attach_drift_for_repeat(_jittered_experiment(600.0), 1, "g", 0)
+    base = exp.true_signal.typed_parameters
+    traces = exp.drift.truth_traces(base, 5, n_shots=2)
+    expected = [base.zeeman_shift + exp.drift.zeeman_shift_offset_hz(2 * i + 1) for i in range(5)]
+    assert list(traces) == ["zeeman_shift"]
+    assert traces["zeeman_shift"] == pytest.approx(expected)
+
+
+def test_run_group_signals_jitter_and_the_bound_levels_off():
+    from nvision.metrics.detection_aligned import moving_line_bound
+    from nvision.spectra.nv_center import NV_LINE_JITTER_STEP_FWHM
+
+    for name, gen in presets.tracking_generators() + presets.lab_mirror_generators():
+        assert gen.line_walk_step_phys > 0, name
+    for name, gen in presets.voigt_snr_window_param_grid_generators():
+        assert gen.line_walk_step_phys == pytest.approx(
+            NV_LINE_JITTER_STEP_FWHM * sim_defaults.NVISION_SBED_FWHM, rel=0.01
+        ), name
+    counts = np.array([1.0, 2.0, 100000.0])
+    j0, i_max, q = np.array([2.0]), 3.0, 0.1
+    still = moving_line_bound(j0, counts, i_max, 0.0, first_step_moves=False)[0]
+    assert still == pytest.approx(1.0 / (2.0 + counts * i_max))
+    moving = moving_line_bound(j0, counts, i_max, q, first_step_moves=False)[0]
+    assert moving[0] == pytest.approx(1.0 / 5.0)  # no step before the first measurement
+    assert moving[1] == pytest.approx(1.0 / (1.0 / (1.0 / 5.0 + q**2) + i_max))
+    # Steady state: P solves 1/P = 1/(P + q^2) + I.
+    steady = (-(q**2) + math.sqrt(q**4 + 4.0 * q**2 / i_max)) / 2.0
+    assert moving[2] == pytest.approx(steady)
+
+
+def _walking_belief(step_phys: float):
+    return nv_center_smc_belief(noise_model=gaussian_noise(), num_particles=4000, seed=3, line_walk_step_phys=step_phys)
+
+
+def _shift_unit(belief) -> np.ndarray:
+    return belief._particles[:, belief.parameter_names.index("zeeman_shift")].astype(np.float64)
+
+
+def test_walking_belief_spreads_by_one_step_between_observations(monkeypatch):
+    """With an uninformative likelihood only the motion acts: no step before the first observation, then one each."""
+    lo, hi = _walking_belief(0.0).physical_param_bounds["zeeman_shift"]
+    step_unit = 0.002
+    belief = _walking_belief(step_unit * (hi - lo))
+    column = belief.parameter_names.index("zeeman_shift")
+    belief._particles[:, column] = 0.5  # one point, far from the bounds
+    belief.auto_resample = False
+    monkeypatch.setattr(belief, "_log_likelihood_and_update_noise", lambda obs, predicted: np.zeros_like(predicted))
+    belief.update(Observation(0.5, 1.0))
+    assert np.std(_shift_unit(belief)) == 0.0
+    for _ in range(25):
+        belief.update(Observation(0.5, 1.0))
+    assert np.std(_shift_unit(belief)) == pytest.approx(step_unit * math.sqrt(25), rel=0.05)
+
+
+def test_walking_belief_stays_in_bounds_and_a_batch_matches_single_updates():
+    lo, hi = _walking_belief(0.0).physical_param_bounds["zeeman_shift"]
+    one, batch = (_walking_belief(0.2 * (hi - lo)) for _ in range(2))  # a huge step: the walk must reflect
+    for belief in (one, batch):
+        belief.auto_resample = False
+    observations = [Observation(0.1 * i, 0.99) for i in range(1, 6)]
+    for obs in observations:
+        one.update(obs)
+    batch.batch_update(observations)
+    np.testing.assert_array_equal(one._particles, batch._particles)
+    np.testing.assert_allclose(one._weights, batch._weights, rtol=1e-4)
+    assert _shift_unit(one).min() >= 0.0
+    assert _shift_unit(one).max() <= 1.0
+    assert one.copy().line_walk_step_phys == one.line_walk_step_phys
+
+
+def test_walking_belief_resample_and_eig_follow_the_moved_particles():
+    lo, hi = _walking_belief(0.0).physical_param_bounds["zeeman_shift"]
+    belief = _walking_belief(0.001 * (hi - lo))
+    belief.auto_resample = False
+    candidates = belief.get_candidate_drive_freq_phys()
+    belief.update(Observation(0.3, 0.99))
+    belief.expected_information_gain(candidates)
+    subset = belief._eig_cache[3]
+    predictions = belief._eig_cache[1].copy()
+    belief.update(Observation(0.3, 0.99))
+    belief.expected_information_gain(candidates)
+    assert belief._eig_cache[3] is subset  # same epoch, same particle subset
+    assert not np.array_equal(belief._eig_cache[1], predictions)  # re-predicted after the walk
+    parents = belief._noise_betas.copy()
+    belief._resample()
+    assert np.isin(belief._noise_betas, parents).all()  # carried from parents, not replayed
+
+
+def test_only_tracking_tells_the_locators_the_step():
+    for name, gen in presets.tracking_generators():
+        signal = gen.generate(random.Random(0), repeat_idx=0, n_repeats=1)
+        std_phys = gen.tracking_prior_std_fwhm * sim_defaults.NVISION_SBED_FWHM
+        expected = std_phys / math.sqrt(sim_defaults.NVISION_MAX_MEASUREMENTS)
+        assert signal.line_walk_step_phys == pytest.approx(expected, rel=0.01), name
+        assert signal.locator_walk_step_phys == signal.line_walk_step_phys, name
+    for name, gen in presets.lab_mirror_generators():
+        signal = gen.generate(random.Random(0), repeat_idx=0, n_repeats=1)
+        assert signal.line_walk_step_phys > 0, name
+        assert signal.locator_walk_step_phys == 0.0, name
 
 
 def test_drift_noise_names_round_trip():

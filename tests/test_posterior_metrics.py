@@ -129,7 +129,11 @@ def _fake_run(clouds, drive_unit, truth=30e6, zff=2.0e9, n_obs=None):
         )
         for i, (c, u) in enumerate(zip(clouds, drive_unit, strict=True))
     ]
-    return SimpleNamespace(snapshots=snaps, true_signal=signal)
+    return SimpleNamespace(
+        snapshots=snaps,
+        true_signal=signal,
+        truth_trace=lambda name: np.full(len(snaps), signal.get_param_value(name)),
+    )
 
 
 def test_run_metrics_z_far_mass_far_placement_and_j_tau(monkeypatch):

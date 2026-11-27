@@ -25,6 +25,13 @@ spectrum with tight nuisance priors; it still uses the prior's width, never the 
 | `article-tracking` | 20-FWHM window, honest Gaussian prior of 0.25 / 0.5 / 1 FWHM on the line | SNR grid | `Bayesian-SBED`, `Bayesian-SBED-KnownShape`, `SimpleSweep-optimal` |
 | `all` | the two above | the two above | each scenario's own set (`nv groups count all`) |
 
+In every group the line also moves during the run: `zeeman_shift` takes a random-walk step of
+`NVISION_LINE_JITTER_STEP_FWHM` (default 0.0003) total FWHMs between measurements (drive-controlled signals: of
+`NVISION_SBED_FWHM`). The locators assume a still line, except in tracking, where the step is
+sigma_0 / sqrt(`NVISION_MAX_MEASUREMENTS`) and the locators' particle filter is told it and models the motion (the
+sweep then reports the filter's estimate instead of its fit; see `evaluation_metrics.md`, *Moving line*). The same walk is shared by all strategies and noise levels of
+a repeat. Signals resolved by name outside the run groups (e.g. `NVCenter-lorentzian`) stay still.
+
 `nv groups list` shows every group with its task count. The former groups `both-sbed`, `both-sbed-only`,
 and `both-sweep-only` still work as aliases of
 `voigt-grid` restricted to `Bayesian-SBED` (+ `SimpleSweep-optimal`). To run any other

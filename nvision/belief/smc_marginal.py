@@ -184,6 +184,12 @@ def _weighted_mean_axis0(particles: np.ndarray, weights: np.ndarray) -> np.ndarr
     return out
 
 
+def _reflect_into_unit(values_unit: np.ndarray) -> None:
+    """Fold, in place, any value outside [0, 1] back inside (no probability mass piles up on a bound)."""
+    outside = (values_unit < 0.0) | (values_unit > 1.0)
+    values_unit[outside] = 1.0 - np.abs(np.mod(values_unit[outside], 2.0) - 1.0)
+
+
 @njit(cache=True)
 def _systematic_resample_indices(cumulative_sum: np.ndarray, positions: np.ndarray) -> np.ndarray:
     """Map systematic ``positions`` to indices along non-decreasing ``cumulative_sum``."""
@@ -340,6 +346,13 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
 
     Parameters
     ----------
+    line_walk_step_phys : float
+        Std (Hz) of the Gaussian random-walk step the line (``zeeman_shift``) takes between measurements; 0 means a
+        still line. When > 0 the filter has a motion model: before each observation (not the first) every particle's
+        ``zeeman_shift`` takes its own such step (``sqrt(n_shots)`` times it for a batch of shots), reflected into
+        its bounds, so the posterior is of the line's position *now*. A resample then keeps each parent's noise
+        posterior instead of replaying the history against the particle's current position, which a moved line
+        did not produce. The step is given to the filter, not inferred.
     a_param : float
         Contraction parameter. After nudging, particles are contracted
         (1 - a_param) of the distance toward the mean. Default 0.85.
@@ -370,6 +383,14 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
     # Seed of the belief's own random stream (particle init, resampling, nudges, EIG subsampling).
     # None draws fresh OS entropy; the runner passes a per-repeat seed so repeats are reproducible.
     seed: int | None = None
+    # Motion model of the line, Hz per measurement (see the class docstring); 0 = still line.
+    line_walk_step_phys: float = 0.0
+
+    # The walking column of ``_particles`` and its step in unit coordinates (only used when line_walk_step_phys > 0).
+    _walk_column: int = field(init=False, default=-1, repr=False)
+    _walk_step_unit: float = field(init=False, default=0.0, repr=False)
+    # Set when a walk step moved the particles under the cached EIG predictions (see _eig_variance_cached).
+    _eig_predictions_stale: bool = field(init=False, default=False, repr=False)
 
     _cached_cov: np.ndarray | None = field(init=False, default=None, repr=False)
     _cov_step: int = field(init=False, default=-1, repr=False)
@@ -450,6 +471,15 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         # Every particle parameter (and the noise parameter) lives on [0, 1]. The drive-frequency axis is not a
         # parameter: it is ``drive_freq_bounds_phys`` above, whether or not ``zero_field_freq`` is a particle dimension.
         self.parameter_bounds = {name: (0.0, 1.0) for name in (*self._param_names, *self.noise_model.spec.names)}
+
+        if not (math.isfinite(self.line_walk_step_phys) and self.line_walk_step_phys >= 0.0):
+            raise ValueError(f"line_walk_step_phys must be finite and >= 0, got {self.line_walk_step_phys}")
+        if self.line_walk_step_phys > 0.0:
+            if "zeeman_shift" not in self._param_names:
+                raise ValueError(f"A walking line needs a zeeman_shift parameter; the model has {self._param_names}.")
+            lo_phys, hi_phys = self.physical_param_bounds["zeeman_shift"]
+            self._walk_column = self._param_names.index("zeeman_shift")
+            self._walk_step_unit = self.line_walk_step_phys / (hi_phys - lo_phys)
 
         # Initialize particles uniformly within bounds.
         # Column-major (Fortran) layout: per-parameter columns are the access
@@ -543,15 +573,24 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         self.last_obs = observations[-1]
         self.resampled = False
 
-        arrays_in_order = [self._particles[:, j] for j in range(self._d_signal)]
+        arrays_in_order = [self._particles[:, j] for j in range(self._d_signal)]  # views: they follow the walk
         all_xs = np.array([obs.drive_freq_unit for obs in observations], dtype=FLOAT_DTYPE)
-        predictions = self._predict_observations(all_xs, arrays_in_order, observations)
+        walking = self.line_walk_step_phys > 0.0
+        predictions = None if walking else self._predict_observations(all_xs, arrays_in_order, observations)
 
         # Accumulated in the persistent scratch buffer, seeded with the log of the prior weights.
         log_weights = self._scratch_logw
         np.maximum(self._weights, 1e-30, out=log_weights)
         np.log(log_weights, out=log_weights)
-        for obs, predicted in zip(observations, predictions, strict=True):
+        for i, obs in enumerate(observations):
+            if walking:
+                # The line is where each particle says at the first measurement and moves before every later one,
+                # so each observation is predicted from the particles as they stand at its own time.
+                if self._step_count + i > 0:
+                    self._walk_particles(obs.n_shots)
+                predicted = self._predict_observations(all_xs[i : i + 1], arrays_in_order, [obs])[0]
+            else:
+                predicted = predictions[i]
             log_weights += self._log_likelihood_and_update_noise(obs, predicted)
 
         self._step_count += len(observations)
@@ -570,6 +609,13 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         self.last_ess = float(ess)
         if self.auto_resample and ess < self.ess_threshold * self.num_particles:
             self._resample()
+
+    def _walk_particles(self, n_shots: int) -> None:
+        """One motion step: every particle's ``zeeman_shift`` moves by its own Gaussian step, reflected into [0, 1]."""
+        column = self._particles[:, self._walk_column]  # view, shape: (n_particles,), unit coordinates
+        column += self._rng.normal(0.0, self._walk_step_unit * math.sqrt(n_shots), column.shape[0]).astype(FLOAT_DTYPE)
+        _reflect_into_unit(column)
+        self._eig_predictions_stale = True
 
     def _predict_observations(
         self, xs_unit: np.ndarray, particle_arrays: list[np.ndarray], observations: list[Observation]
@@ -893,6 +939,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
         # prediction-matrix cache (built from both) must be rebuilt.
         self._eig_epoch += 1
         self._eig_cache = None
+        self._eig_predictions_stale = False
         self._dip_candidates = []
 
         # Posterior-mean HWHM (physical, Hz) at the widest reference drive amplitude.
@@ -988,12 +1035,15 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
 
         # 8. Reflect particles that the nudge pushed outside the unit cube back inside (a fold, so no
         # probability mass piles up on a bound the way it would with a clip).
-        outside = (self._particles < 0.0) | (self._particles > 1.0)
-        self._particles[outside] = 1.0 - np.abs(np.mod(self._particles[outside], 2.0) - 1.0)
+        _reflect_into_unit(self._particles)
 
         # 9. The nudge moved every particle to a new theta, so the parent's accumulated beta no longer
-        # describes it: replay the observation history against the final particles.
-        self._recompute_noise_betas()
+        # describes it: replay the observation history against the final particles. A walking line has no single
+        # theta that produced the history, so each child keeps its parent's beta (accumulated along its path).
+        if self.line_walk_step_phys > 0.0:
+            self._noise_betas = self._noise_betas[new_indices]
+        else:
+            self._recompute_noise_betas()
 
         # 10. Update cached candidate grid for the next epoch
         self._generate_epoch_candidate_drive_freq()
@@ -1286,6 +1336,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             tempering_factor=self.tempering_factor,
             noise_discount_factor=self.noise_discount_factor,
             noise_prior_strength=self.noise_prior_strength,
+            line_walk_step_phys=self.line_walk_step_phys,
             skip_state_init=True,
         )
         # Candidates depend only on bounds/particles, which are identical here —
@@ -1496,11 +1547,20 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             key = (*key, drives)
 
         cache = self._eig_cache
-        if cache is not None and cache[0] == key:
+        same_epoch = cache is not None and cache[0] == key
+        if same_epoch and not self._eig_predictions_stale:
             _, mat, mat2, sub_idx = cache
         else:
             cand = np.ascontiguousarray(candidate_drive_freq_unit, dtype=np.float32)
-            if n_total > n_eig:
+            if same_epoch:
+                # A walking line moved the particles: re-predict, but keep the epoch's subset. Re-drawing it now,
+                # by weights that are no longer uniform, would count the weights twice.
+                sub_idx = cache[3]
+                part_cols = [
+                    self._particles[:, j] if sub_idx is None else self._particles[sub_idx, j]
+                    for j in range(self._d_signal)
+                ]
+            elif n_total > n_eig:
                 # Fix the subset for this epoch. Built right after a resample,
                 # so the current weights are ~uniform and a stratified draw
                 # gives broad posterior coverage.
@@ -1525,6 +1585,7 @@ class SMCMarginalDistribution(AbstractMarginalDistribution):
             mat = np.ascontiguousarray(predictions, dtype=np.float32)
             mat2 = mat * mat
             self._eig_cache = (key, mat, mat2, sub_idx)
+            self._eig_predictions_stale = False
 
         w = self._weights if sub_idx is None else self._weights[sub_idx]
         w = np.asarray(w, dtype=np.float32)

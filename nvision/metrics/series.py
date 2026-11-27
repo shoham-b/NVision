@@ -1,5 +1,7 @@
 """Per-step series of a run, stored with its scan entry and read by the article views.
 
+``error`` is against the truth at that step (the line may move during a run).
+
 ``{"step": [steps], "error": [|estimate - truth|], "claimed_sigma": [claimed sigma], "sigma_target": stop target}``
 
 Steps are 1-indexed; values other than ``"focus_windows"`` are rounded to 4 significant digits to keep the cache
@@ -99,7 +101,7 @@ def extract_step_series(
         return None
     param = _resolve_series_param(run_result, param)
     try:
-        true_value = float(run_result.true_signal.get_param_value(param))
+        truth = run_result.truth_trace(param)  # shape: (n_snapshots,), Hz
     except Exception:
         return None
 
@@ -117,7 +119,7 @@ def extract_step_series(
         if est is None and unc is None:
             continue
         steps.append(i + 1)
-        errs.append(abs(float(est) - true_value) if est is not None and math.isfinite(est) else None)
+        errs.append(abs(float(est) - truth[i]) if est is not None and math.isfinite(est) else None)
         uncerts.append(float(unc) if unc is not None and math.isfinite(unc) else None)
         crlb_val = None
         with suppress(Exception):
@@ -139,7 +141,7 @@ def extract_step_series(
     if fit_est is not None:
         if steps[-1] != len(run_result.snapshots):
             raise ValueError("The run has a fit estimate but no final belief snapshot to put it on.")
-        errs[-1] = abs(float(fit_est) - true_value) if math.isfinite(fit_est) else None
+        errs[-1] = abs(float(fit_est) - truth[-1]) if math.isfinite(fit_est) else None
         fit_unc = (run_result.fit_mode_uncertainties or {}).get(param)
         if fit_unc is not None and math.isfinite(fit_unc):  # NaN (no covariance): keep the belief's, as convert.py
             uncerts[-1] = float(fit_unc)

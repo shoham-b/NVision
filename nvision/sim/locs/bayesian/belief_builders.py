@@ -150,6 +150,7 @@ def nv_center_smc_belief(
     fixed_drive: DriveSetting | None = None,
     voigt_bounds_as_lorentzian: bool = False,
     known_shape_phys: Mapping[str, tuple[float, float]] | None = None,
+    line_walk_step_phys: float = 0.0,
 ) -> SMCMarginalDistribution:
     """NV-center belief: **unit** parameter particles, **physical** signal model.
 
@@ -196,6 +197,9 @@ def nv_center_smc_belief(
     the contrast and the widths the belief has get the narrow normal priors of :func:`apply_known_shape`, applied after
     the Voigt-to-Lorentzian renaming so the belief's own names are matched. ``None`` (default) keeps the bounds and
     priors given in *parameter_bounds*.
+
+    ``line_walk_step_phys`` (Hz per measurement) tells the belief the line random-walks by that step between
+    measurements; ``0`` (default) assumes a still line (see ``SMCMarginalDistribution``).
     """
     if noise_model is None:
         raise ValueError(
@@ -345,4 +349,5 @@ def nv_center_smc_belief(
         prior_broad_fraction=prior_broad_fraction,
         tempering_factor=tempering_factor,
         seed=seed,
+        line_walk_step_phys=line_walk_step_phys,
     )

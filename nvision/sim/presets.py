@@ -7,6 +7,8 @@ This module replaces the generator/noise definitions that used to live in
 
 from __future__ import annotations
 
+import math
+
 from nvision.models.noise import (
     CompositeNoise,
     CompositeOverFrequencyNoise,
@@ -333,6 +335,7 @@ def voigt_snr_window_param_grid_generators() -> list[tuple[str, object]]:
     from nvision.spectra.nv_center import (
         _SATURATION_VOIGT_SQRT2LOG2,
         MIN_HWHM,
+        NV_LINE_JITTER_STEP_FWHM,
         NV_ZERO_FIELD_SPLITTING_HZ,
         _voigt_reparam_scalar,
         hyperfine_covered_width,
@@ -376,6 +379,7 @@ def voigt_snr_window_param_grid_generators() -> list[tuple[str, object]]:
                             sigma_inhom=sigma_inhom,
                             hyperfine=hyperfine,
                             window_fwhm=prior_range / NVISION_SBED_FWHM,
+                            line_walk_step_phys=NV_LINE_JITTER_STEP_FWHM * fwhm_total,
                         ),
                     )
                 )
@@ -397,15 +401,32 @@ TRACKING_PRIOR_STD_FWHMS: tuple[float, ...] = (0.25, 0.5, 1.0)
 TRACKING_SPAN: float = 20.0
 
 
+def tracking_walk_step_fwhm(prior_std_fwhm: float) -> float:
+    """Tracking's random-walk step per measurement, in FWHM, for a starting prior of std ``prior_std_fwhm`` FWHM.
+
+    That std is the random walk accumulated since the line was last measured, a gap of one run's measurement budget,
+    so one step is ``prior_std_fwhm / sqrt(gap)`` and the line keeps drifting at that rate during the run.
+    """
+    from nvision.sim.defaults import NVISION_MAX_MEASUREMENTS
+
+    return prior_std_fwhm / math.sqrt(NVISION_MAX_MEASUREMENTS)
+
+
 def _window_grid_lorentzian(window_phys: float, fwhm_phys: float, contrast_total: float, **extra) -> object:
     """A pure-Lorentzian single-line window-grid signal: drive window ``[D, D + window_phys]`` (Hz), the dip drawn
     uniformly over the window less a half-FWHM edge pad on each side (the article grid's convention)."""
-    from nvision.spectra.nv_center import NV_ZERO_FIELD_SPLITTING_HZ, hyperfine_geometry, zeeman_shift_edge_pad
+    from nvision.spectra.nv_center import (
+        NV_LINE_JITTER_STEP_FWHM,
+        NV_ZERO_FIELD_SPLITTING_HZ,
+        hyperfine_geometry,
+        zeeman_shift_edge_pad,
+    )
 
     pad = zeeman_shift_edge_pad(fwhm_phys, hyperfine_geometry("unresolved")[0])
     prior_range = window_phys - 2.0 * pad
     if not prior_range > 0.0:
         raise ValueError(f"Window {window_phys:g} Hz leaves no room for a {fwhm_phys:g} Hz line inside its edge pads.")
+    extra.setdefault("line_walk_step_phys", NV_LINE_JITTER_STEP_FWHM * fwhm_phys)
     return NVCenterCoreGenerator(
         drive_freq_min_phys=NV_ZERO_FIELD_SPLITTING_HZ,
         drive_freq_max_phys=NV_ZERO_FIELD_SPLITTING_HZ + window_phys,
@@ -446,14 +467,24 @@ def tracking_generator_name(prior_std_fwhm: float) -> str:
 
 def tracking_generators() -> list[tuple[str, object]]:
     """Tracking: the article grid's pure-Lorentzian signal at ``TRACKING_SPAN``, with an honest Gaussian prior of std
-    ``TRACKING_PRIOR_STD_FWHMS`` x FWHM on the line position (``tracking_prior_std_fwhm``)."""
+    ``TRACKING_PRIOR_STD_FWHMS`` x FWHM on the line position (``tracking_prior_std_fwhm``).
+
+    The line keeps random-walking during the run at the rate that built that std (:func:`tracking_walk_step_fwhm`),
+    and, unlike every other signal, the locators are told the step (``locator_models_line_walk``)."""
     from nvision.sim.defaults import NVISION_SBED_FWHM, NVISION_SBED_SNR_CONTRAST
 
     window = (TRACKING_SPAN + 1.0) * NVISION_SBED_FWHM  # span x FWHM plus a half-FWHM pad each side
     return [
         (
             tracking_generator_name(s),
-            _window_grid_lorentzian(window, NVISION_SBED_FWHM, NVISION_SBED_SNR_CONTRAST, tracking_prior_std_fwhm=s),
+            _window_grid_lorentzian(
+                window,
+                NVISION_SBED_FWHM,
+                NVISION_SBED_SNR_CONTRAST,
+                tracking_prior_std_fwhm=s,
+                line_walk_step_phys=tracking_walk_step_fwhm(s) * NVISION_SBED_FWHM,
+                locator_models_line_walk=True,
+            ),
         )
         for s in TRACKING_PRIOR_STD_FWHMS
     ]
@@ -748,7 +779,8 @@ def drive_controlled_generators() -> list[tuple[str, object]]:
     :mod:`nvision.spectra.nv_center_drive`. Locators that do not choose the drive measure at the
     generator's baseline drive; ``Bayesian-SBED-Drive`` chooses it per step.
     """
-    from nvision.sim.defaults import NVISION_SBED_HYPERFINE_VALUES
+    from nvision.sim.defaults import NVISION_SBED_FWHM, NVISION_SBED_HYPERFINE_VALUES
+    from nvision.spectra.nv_center import NV_LINE_JITTER_STEP_FWHM
 
     generators: list[tuple[str, object]] = []
     for mode, variant in (("cw", "cw_drive"), ("pulsed", "pulsed_drive")):
@@ -762,6 +794,7 @@ def drive_controlled_generators() -> list[tuple[str, object]]:
                         drive_freq_max_phys=DEFAULT_NV_DRIVE_FREQ_MAX_PHYS,
                         variant=variant,
                         hyperfine=hyperfine,
+                        line_walk_step_phys=NV_LINE_JITTER_STEP_FWHM * NVISION_SBED_FWHM,
                     ),
                 )
             )

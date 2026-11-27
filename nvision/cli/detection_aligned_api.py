@@ -96,7 +96,19 @@ def analyse_rows(rows: list[dict[str, Any]]) -> dict[str, Any]:
     imax = float(np.median([r.i_max for r in records]))
     budget = max(r.budget for r in records)
     runs = [a for a in (da.align(r, DIP_TEST) for r in records) if a is not None]
-    out = da.analyse(runs, budget=budget, i_max=imax, dd_phys=_detection_cell(rows), n_undetected=len(rows) - len(runs))
+    walk = {(r.get("compare") or {}).get("line_walk_step_phys") for r in rows}
+    if None in walk:  # rows from before the moving line: which bound applies is unknown, so none is drawn
+        return {"unavailable": "line_walk_step_phys missing: re-run"}
+    if len(walk) != 1:
+        raise ValueError(f"runs of one use case disagree on line_walk_step_phys: {sorted(walk)}")
+    out = da.analyse(
+        runs,
+        budget=budget,
+        i_max=imax,
+        dd_phys=_detection_cell(rows),
+        n_undetected=len(rows) - len(runs),
+        walk_step_phys=float(walk.pop()),
+    )
     out["detector"] = DIP_TEST.name
     out["detector_comparison"] = compare_detectors(records, DIP_TEST, SIGMA_DROP)
     return out

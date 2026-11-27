@@ -14,7 +14,12 @@ from typing import Any
 import numpy as np
 
 from nvision.metrics import claims
-from nvision.metrics.detection_aligned import gaussian_onset, localize_ratio, localize_ratio_ci
+from nvision.metrics.detection_aligned import (
+    gaussian_onset,
+    localize_ratio,
+    localize_ratio_ci,
+    moving_line_bound,
+)
 from nvision.metrics.refine_rates import InverseMse, inverse_mse_curve, late_window
 
 COVERAGE_STEPS = (30, 100, 300, 1000)
@@ -81,8 +86,24 @@ def tracking_prior_std_phys(row: dict[str, Any]) -> float:
     return float(entry[1])
 
 
-def van_trees_from_start(grid: np.ndarray, err: np.ndarray, sigma0_phys: float, i_max: float) -> dict[str, Any]:
-    """Tracking: rho(n) = (J0 + n I_max)^-1 / MSE(n), van Trees from the first measurement with J0 = 1 / sigma_0^2.
+def _walk_step_phys(cmp: list[dict[str, Any]]) -> float:
+    """The use case's line-walk step (Hz) from the runs' stored ``line_walk_step_phys``; raises if any run lacks it
+    or they disagree (a bound for a still line must never be applied to moving runs)."""
+    values = [c.get("line_walk_step_phys") for c in cmp]
+    if any(v is None for v in values):
+        raise ValueError("a run has no stored line_walk_step_phys (recorded before the moving line: re-run)")
+    if not math.isclose(min(values), max(values), rel_tol=1e-9, abs_tol=0.0):
+        raise ValueError(f"runs of one use case disagree on line_walk_step_phys: {sorted(set(values))}")
+    return float(values[0])
+
+
+def van_trees_from_start(
+    grid: np.ndarray, err: np.ndarray, sigma0_phys: float, i_max: float, walk_step_phys: float
+) -> dict[str, Any]:
+    """Tracking: rho(n) = B(n) / MSE(n), the Bayesian bound from the first measurement with J0 = 1 / sigma_0^2.
+
+    ``B(n)`` is van Trees ``(J0 + n I_max)^-1`` for a still line, and its recursion for a line that takes a
+    random-walk step of std ``walk_step_phys`` (Hz) between measurements (:func:`moving_line_bound`).
 
     ``grid``: shape (n_grid,), measurement counts n. ``err``: shape (n_runs, n_grid), true error (Hz) of the primary
     parameter after n measurements. ``sigma0_phys``: std (Hz) of the truth's Gaussian prior. ``i_max``: Hz^-2 per
@@ -93,7 +114,8 @@ def van_trees_from_start(grid: np.ndarray, err: np.ndarray, sigma0_phys: float, 
         raise ValueError(f"sigma0_phys and i_max must be positive, got {sigma0_phys}, {i_max}")
     if err.shape != (err.shape[0], grid.size):
         raise ValueError(f"err {err.shape} does not match the grid {grid.shape}")
-    bound = np.broadcast_to(1.0 / (1.0 / sigma0_phys**2 + grid * i_max), err.shape)
+    j0 = np.array([1.0 / sigma0_phys**2])
+    bound = np.broadcast_to(moving_line_bound(j0, grid, i_max, walk_step_phys, first_step_moves=False)[0], err.shape)
     rho = localize_ratio(err, bound)
     lo, hi = localize_ratio_ci(err, bound)
     at = {str(k): float(rho[int(np.argmin(np.abs(grid - k)))]) for k in VAN_TREES_REPORT_STEPS if k <= grid[-1]}
@@ -101,6 +123,7 @@ def van_trees_from_start(grid: np.ndarray, err: np.ndarray, sigma0_phys: float, 
     return {
         "n": grid.tolist(),
         "rho": rho.tolist(),
+        "bound_sigma": np.sqrt(bound[0]).tolist(),  # shape: (n_grid,), Hz: the curve the page draws
         "rho_at": at,
         "rho_max": float(rho[i]),
         "rho_max_n": float(grid[i]),
@@ -123,6 +146,9 @@ def analyse_use_case(rows: list[dict[str, Any]]) -> dict[str, Any]:
             "repeats": len(runs),
         }
     cmp = [r.get("compare") or {} for r in runs]
+    if any(c.get("line_walk_step_phys") is None for c in cmp):
+        # Rows from before the moving line: which bound applies is unknown, so none is drawn.
+        return {"unavailable": "line_walk_step_phys missing: re-run", "repeats": len(runs)}
     imax, window, fwhm, tau = (
         _med([c.get(k) for c in cmp]) for k in ("i_max", "window_phys", "fwhm_phys", "sigma_target_phys")
     )
@@ -174,7 +200,11 @@ def analyse_use_case(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "claimed_sigma": claims.rms(unc).tolist(),
     }
     # Tracking: van Trees from the first measurement, rho(n) = (J0 + n I_max)^-1 / MSE(n) <= 1 at every n.
-    out["van_trees_from_start"] = van_trees_from_start(grid, err, sigma0, imax) if prior_kind == "gaussian" else None
+    walk = _walk_step_phys(cmp)
+    out["line_walk_step_phys"] = walk
+    out["van_trees_from_start"] = (
+        van_trees_from_start(grid, err, sigma0, imax, walk) if prior_kind == "gaussian" else None
+    )
     # Per-run Gaussian onset from the stored ``negentropy`` series (NaN = never reached the Gaussian peak).
     onsets = np.array([_gaussian_onset(r["series"]) for r in runs], dtype=np.float64)
     # 3. (n0, q) on master's late window, true error and claimed sigma, with the linearity gate.

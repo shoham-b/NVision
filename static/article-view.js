@@ -298,8 +298,9 @@
         const n = s.rms_curve ? s.rms_curve.n : [1, s.max_n];
         traces.push({ x: n, y: n.map((k) => 1 / Math.sqrt(k * imax) / gamma), ...theory('data limit (n I_max)^-1/2', 'dashdot') });
         const tracking = s.prior_kind === 'gaussian';
-        const vt = (k) => 1 / Math.sqrt(1 / (s.sigma0_phys * s.sigma0_phys) + k * imax);
-        if (tracking) traces.push({ x: n, y: n.map((k) => vt(k) / gamma), name: 'van Trees from n = 0, J₀ = 1/σ₀² (tracking)', mode: 'lines', line: { color: token('red-700'), width: 2, dash: 'dash' } });
+        // The bound comes from the server: it follows the line's random walk during the run.
+        const vt = s.van_trees_from_start;
+        if (tracking && vt) traces.push({ x: vt.n, y: vt.bound_sigma.map((v) => v / gamma), name: 'moving-line bound from n = 0, J₀ = 1/σ₀² (tracking)', mode: 'lines', line: { color: token('red-700'), width: 2, dash: 'dash' } });
         const lay = layout('measurements n', 'error / Γ');
         const sb = c[SBED];
         lay.shapes = [hline(s.sigma0_phys / gamma, 'dot')];
@@ -316,7 +317,7 @@
                 const v = c[name].van_trees_from_start;
                 return `${label(name)} ${val(fmt(v.rho_max, 2))} at n = ${val(fmt(v.rho_max_n, 3))}${v.violated ? ' (violates the bound)' : ''}`;
             });
-            setClaim('art-overview', `Tracking (Gaussian prior σ₀ = ${val(fmt(s.sigma0_phys / gamma, 2))} Γ, the prior the truth is drawn around): the error follows van Trees from the first measurement, ρ = (J₀ + nI_max)⁻¹ ÷ MSE ≤ 1 with J₀ = 1/σ₀². Largest ρ: ${rho.join(', ')}.`);
+            setClaim('art-overview', `Tracking (Gaussian prior σ₀ = ${val(fmt(s.sigma0_phys / gamma, 2))} Γ, the prior the truth is drawn around): the line keeps random-walking during the run (step ${val(fmt(s.line_walk_step_phys / gamma, 3))} Γ per measurement, which the locators are told and model), so the bound levels off. ρ = bound variance ÷ MSE ≤ 1 from the first measurement, with J₀ = 1/σ₀². Largest ρ: ${rho.join(', ')}.`);
             return;
         }
         setClaim('art-overview', `Plateau at the prior W/√12 (horizontal), then 1/√n at q × the data limit. q: SBED ${val(fmt(q(SBED), 2))}, sweep ${val(fmt(q(SWEEP), 2))}; SBED detects at n ≈ ${val(fmt(sb && sb.regimes && sb.regimes.detection_step, 3))} and is Gaussian from n ≈ ${val(fmt(sb && sb.regimes && sb.regimes.gaussian_onset_step, 3))}.`);

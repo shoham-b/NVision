@@ -46,7 +46,12 @@ def _run(uncs: list[float], dip_from: int | None, shots: list[int] | None = None
         get_param_value=lambda name: 1.0,
         model=SimpleNamespace(controls_drive=False),
     )
-    return SimpleNamespace(snapshots=snaps, true_signal=true_signal)
+    return SimpleNamespace(
+        snapshots=snaps,
+        true_signal=true_signal,
+        truth_trace=lambda name: np.full(len(snaps), true_signal.get_param_value(name)),
+        line_walk_step_phys=0.0,
+    )
 
 
 @pytest.fixture(autouse=True)

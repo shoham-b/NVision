@@ -10,6 +10,7 @@ import pytest
 
 from nvision.models.experiment import CoreExperiment
 from nvision.models.observation import Observation, aggregate_shots
+from nvision.noises.drift import attach_drift_for_repeat
 from nvision.sim import presets
 from nvision.sim.combinations import CombinationGrid, _parse_noise
 from nvision.sim.locs.bayesian.belief_builders import nv_center_smc_belief
@@ -154,7 +155,9 @@ def _experiment(gen_name: str, seed: int = 0) -> CoreExperiment:
     noise = _parse_noise("Gauss(0.01)")
     nm = noise.to_noise_signal_model()
     ts = dataclasses.replace(ts, noise_model=nm, noise_bounds=nm.spec.bounds)
-    return CoreExperiment(ts, noise, gen.drive_freq_min_phys, gen.drive_freq_max_phys)
+    exp = CoreExperiment(ts, noise, gen.drive_freq_min_phys, gen.drive_freq_max_phys)
+    # The drive-control line jitters, so it needs the motion path the runner attaches.
+    return attach_drift_for_repeat(exp, seed, gen_name, 0)
 
 
 @pytest.mark.parametrize("gen_name", ["NVCenter-cw-drive", "NVCenter-pulsed-drive"])
@@ -164,10 +167,10 @@ def test_measure_stamps_the_drive_actually_used(gen_name):
     baseline = exp.true_signal.baseline_drive
     assert baseline is not None
     assert (baseline.pulse_duration_s is not None) == ("pulsed" in gen_name)
-    obs = exp.measure(0.3, rng)
+    obs = exp.measure(0.3, rng, shot_index=0)
     assert obs.drive == baseline
     chosen = DriveSetting(0.8, None if "cw" in gen_name else 1e-7)
-    obs2 = exp.measure(0.3, rng, drive=chosen)
+    obs2 = exp.measure(0.3, rng, drive=chosen, shot_index=1)
     assert obs2.drive == chosen
     assert obs2.drive_amp_unit == 0.8
 
@@ -260,7 +263,7 @@ def _run(locator_cls, gen_name: str, max_steps: int, seed: int = 0):
     drives = []
     while not loc.done():
         f = loc.next_drive_freq_unit()
-        obs = exp.measure(f, rng, drive=loc.next_drive())
+        obs = exp.measure(f, rng, drive=loc.next_drive(), shot_index=len(drives))
         drives.append(obs.drive)
         loc.observe(obs)
     return loc, drives

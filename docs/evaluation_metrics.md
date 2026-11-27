@@ -89,8 +89,26 @@ The run-averaged error stays near the prior W/√12 while the runs search, then 
 * Data: `rms_curve` of `GET /api/claims` (rms over the runs of the true error and of σ̂ on a common step grid, `rms_curve.error` / `.claimed_sigma`;
   a stopped run keeps its last value), `regimes` (median detection step, median Gaussian onset, converge end, plateau,
   tail slope).
-* Tracking (`prior_kind = gaussian`, the `article-tracking` group): the prior holds J₀ = 1/σ₀², so van Trees applies
-  from the first measurement, σ_vT(n) = (J₀ + n I_max)^(-1/2); the panel draws it and reports ρ = σ_vT² / MSE ≤ 1.
+* **Moving line.** In every run-group signal the true `zeeman_shift` random-walks during the run (step std q Hz per
+  measurement, run axis `line_walk_step_phys`). Outside tracking q is the setting `NVISION_LINE_JITTER_STEP_FWHM`
+  and the locators assume a still line. In **tracking**, sigma_0 is the walk accumulated since the line was last
+  measured, a gap of one run's budget, so q = sigma_0 / sqrt(`NVISION_MAX_MEASUREMENTS`) (0.005, 0.01 and 0.02 FWHM
+  for sigma_0 = 0.25, 0.5 and 1 FWHM at 2500), and the locators are **told q** (`TrueSignal.locator_walk_step_phys`):
+  the SMC belief moves every particle's `zeeman_shift` by its own step before each measurement, and a resample keeps
+  each parent's noise posterior instead of replaying the history. The step is given, not inferred. The sweep then
+  reports that belief's final estimate, not a least-squares fit of passes that assumes a still line. Its spacing
+  k* is still derived for a still line, and so are the dip scan behind the focus, the Fisher/CRLB series and the
+  fit-gap diagnostic. Every per-step error, z-score, PIT and milestone is scored against the truth **at that step**
+  (`RunResult.truth_trace`); `true_params` and the `true_*` columns hold the position at the first measurement.
+  The bound is the recursion J_n = 1/(1/J_{n-1} + q²) + I_max (`moving_line_bound`; J_n = J₀ + n I_max when q = 0),
+  whose error levels off near (q/√I_max)^(1/2). It is used by the tracking bound below and by the detection-restarted ρ.
+  **Still computed for a still line** (read them as references): the data limit, the elimination and
+  change-of-measure search curves, `i_max`, the refine-rate theory and placement offsets (relative to the start
+  position; the walk is typically about 0.015 FWHM over 2500 measurements). With a moving line 1/MSE saturates, so the
+  late-window q fit can fail its linearity gate.
+* Tracking (`prior_kind = gaussian`, the `article-tracking` group): the prior holds J₀ = 1/σ₀², so the bound applies
+  from the first measurement; the panel draws it (`van_trees_from_start.bound_sigma`) and reports
+  ρ = bound variance / MSE ≤ 1.
   σ₀ here is the std of the honest Gaussian prior the truth is drawn around (the generator's
   `true_params.bounds._priors.zeeman_shift`), not the spread of the locator's belief, which mixes a broad share
   (`PRIOR_BROAD_FRACTION`) over the whole window into it; the belief's spread is reported as `locator_prior_sigma_phys`.
